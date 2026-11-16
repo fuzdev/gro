@@ -399,9 +399,9 @@ fn create_new_refuses_any_entry_there() {
     assert!(!scratch.root("made").exists());
 }
 
-/// No open waits on a FIFO: a read opens at once with no writer, a write
-/// with no reader fails with `ENXIO`, and a regular file's descriptor reads
-/// and writes as any other.
+/// No open waits on a FIFO: a read with no writer fails at once as no
+/// regular file, a write with no reader with `ENXIO`, and a regular file's
+/// descriptor reads and writes as any other.
 #[test]
 fn no_open_waits_on_a_fifo() {
     let scratch = Scratch::new("fifo");
@@ -427,11 +427,203 @@ fn no_open_waits_on_a_fifo() {
         receive.recv_timeout(Duration::from_secs(5))
     };
     let (read, written) = opened.unwrap_or_else(|_| panic!("an open of a FIFO waited"));
-    read.unwrap();
+    assert!(beneath::is_not_regular(&read.unwrap_err()));
     assert_eq!(code(written), libc::ENXIO);
 
     let fd = beneath::open(root.as_fd(), p("f"), OpenAs::Read, Links::Beneath).unwrap();
     assert_eq!(read_all(fd), "inside");
+}
+
+/// Makes a FIFO at `path`.
+fn mkfifo(path: &Path) {
+    let made = std::process::Command::new("mkfifo")
+        .arg(path)
+        .status()
+        .unwrap();
+    assert!(made.success());
+}
+
+/// How an open of contents ended, as data: opened, refused as no regular
+/// file, or the OS code.
+fn opened(result: io::Result<OwnedFd>) -> String {
+    match result {
+        Ok(_) => "opened".to_owned(),
+        Err(error) if beneath::is_not_regular(&error) => "not regular".to_owned(),
+        Err(error) => format!("os {}", code(Err::<(), _>(error))),
+    }
+}
+
+/// Only a regular file opens for its contents, to read or to write, and
+/// nothing waits: a FIFO with no writer, which would read as an empty
+/// file, and one a writer holds, whose read would fail with `EAGAIN`, are
+/// refused as no regular file, a directory with `EISDIR`, and a unix socket
+/// fails the open (`ENXIO`); a symlink to each is what it reaches; a
+/// regular file and one reached through a symlink open.
+#[test]
+fn only_a_regular_file_opens_for_its_contents() {
+    let scratch = Scratch::new("only_regular");
+    fs::write(scratch.root("f"), "inside").unwrap();
+    fs::create_dir(scratch.root("d")).unwrap();
+    mkfifo(&scratch.root("fifo"));
+    mkfifo(&scratch.root("held_fifo"));
+    let _socket = std::os::unix::net::UnixListener::bind(scratch.root("sock")).unwrap();
+    for name in ["f", "d", "fifo", "held_fifo", "sock"] {
+        symlink(name, scratch.root(&format!("to_{name}"))).unwrap();
+    }
+    // a writer, and a reader, on the held FIFO: `O_RDWR` opens a FIFO at once
+    let _held = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(scratch.root("held_fifo"))
+        .unwrap();
+    let root = scratch.root_fd();
+    let not_regular = "not regular".to_owned();
+    let eisdir = format!("os {}", libc::EISDIR);
+    let enxio = format!("os {}", libc::ENXIO);
+    // on a thread, so an open or a read that waits fails the test rather
+    // than hanging it
+    let (send, receive) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut ended = Vec::new();
+        for name in ["f", "d", "fifo", "held_fifo", "sock"] {
+            for path in [name.to_owned(), format!("to_{name}")] {
+                let read = beneath::open(root.as_fd(), p(&path), OpenAs::Read, Links::Beneath);
+                let write = OpenAs::Write { mode: 0o644 };
+                let written = beneath::open(root.as_fd(), p(&path), write, Links::Beneath);
+                let whole = beneath::read(root.as_fd(), p(&path)).map(|_| ());
+                let whole = whole.map_or_else(|error| opened(Err(error)), |()| "opened".to_owned());
+                ended.push((path, opened(read), opened(written), whole));
+            }
+        }
+        send.send(ended).unwrap();
+    });
+    let ended = receive
+        .recv_timeout(Duration::from_secs(5))
+        .unwrap_or_else(|_| panic!("an open or a read waited"));
+    let ok = "opened".to_owned();
+    let expected = |name: &str| match name {
+        "f" => [ok.clone(), ok.clone(), ok.clone()],
+        "d" => [eisdir.clone(), eisdir.clone(), eisdir.clone()],
+        // the write finds the FIFO with no reader, so the kernel refuses it
+        "fifo" => [not_regular.clone(), enxio.clone(), not_regular.clone()],
+        "held_fifo" => [
+            not_regular.clone(),
+            not_regular.clone(),
+            not_regular.clone(),
+        ],
+        "sock" => [enxio.clone(), enxio.clone(), enxio.clone()],
+        _ => unreachable!(),
+    };
+    assert_eq!(ended.len(), 10);
+    for (path, read, written, whole) in ended {
+        assert_eq!(
+            [read, written, whole],
+            expected(path.trim_start_matches("to_")),
+            "{path}"
+        );
+    }
+    // the write through the regular file emptied it, and nothing else
+    assert_eq!(fs::read(scratch.root("f")).unwrap(), b"");
+}
+
+/// A device opens for its contents no more than a FIFO does: `/dev/null`,
+/// which reads as empty, and `/dev/zero`, which never ends, are refused at
+/// once as no regular file.
+#[test]
+fn a_device_is_refused_as_no_regular_file() {
+    let dev = File::open("/dev").unwrap();
+    for name in ["null", "zero"] {
+        let read = beneath::open(dev.as_fd(), p(name), OpenAs::Read, Links::Beneath);
+        assert_eq!(opened(read), "not regular", "{name}");
+        let error = beneath::read(dev.as_fd(), p(name)).unwrap_err();
+        assert!(beneath::is_not_regular(&error), "{name}: {error}");
+    }
+}
+
+/// `read` reads a whole file, an empty one, one through a symlink beneath,
+/// and a `/proc` file that reports a size of 0, to its end, never trusting
+/// the size; and fails as an open of contents fails.
+#[test]
+fn read_reads_a_whole_file_to_its_end() {
+    let scratch = Scratch::new("read");
+    let large: Vec<u8> = (0..200_000u32).flat_map(u32::to_le_bytes).collect();
+    fs::write(scratch.root("large"), &large).unwrap();
+    fs::write(scratch.root("empty"), "").unwrap();
+    symlink("large", scratch.root("to_large")).unwrap();
+    fs::create_dir(scratch.root("d")).unwrap();
+    let root = scratch.root_fd();
+    assert_eq!(beneath::read(root.as_fd(), p("large")).unwrap(), large);
+    assert_eq!(beneath::read(root.as_fd(), p("to_large")).unwrap(), large);
+    assert_eq!(beneath::read(root.as_fd(), p("empty")).unwrap(), b"");
+
+    let proc_self = File::open("/proc/self").unwrap();
+    let size = beneath::stat(proc_self.as_fd(), p("status"), FinalLink::Follow)
+        .unwrap()
+        .size;
+    assert_eq!(size, 0, "a /proc file reports no size");
+    let status = beneath::read(proc_self.as_fd(), p("status")).unwrap();
+    assert!(
+        status.starts_with(b"Name:"),
+        "{}",
+        String::from_utf8_lossy(&status)
+    );
+
+    for (path, expected) in [
+        ("missing", libc::ENOENT),
+        ("d", libc::EISDIR),
+        ("large/", libc::ENOTDIR),
+        ("../outside/f", libc::EXDEV),
+    ] {
+        assert_eq!(
+            code(beneath::read(root.as_fd(), p(path))),
+            expected,
+            "{path}"
+        );
+    }
+}
+
+/// `read_link` reads a symlink's target as stored, whatever it points at,
+/// out of the tree, absolute, or nowhere, and its bytes when they aren't
+/// UTF-8; the final symlink followed, or any other entry, is `EINVAL`, and a
+/// path out of the tree is refused as any other.
+#[test]
+fn read_link_reads_a_target_as_stored() {
+    let scratch = Scratch::new("read_link");
+    fs::write(scratch.root("f"), "").unwrap();
+    fs::create_dir(scratch.root("d")).unwrap();
+    symlink("../outside/f", scratch.root("out")).unwrap();
+    symlink("/etc/hostname", scratch.root("absolute")).unwrap();
+    symlink("missing", scratch.root("dangling")).unwrap();
+    symlink("d", scratch.root("to_d")).unwrap();
+    symlink(OsStr::from_bytes(b"not\xffutf8"), scratch.root("bytes")).unwrap();
+    // the longest target Linux stores, `PATH_MAX` less its NUL
+    let long = format!("{}x", "x/".repeat(2047));
+    symlink(&long, scratch.root("long")).unwrap();
+    let root = scratch.root_fd();
+    for (path, target) in [
+        ("out", &b"../outside/f"[..]),
+        ("absolute", b"/etc/hostname"),
+        ("dangling", b"missing"),
+        ("d/../to_d", b"d"),
+        ("bytes", b"not\xffutf8"),
+        ("long", long.as_bytes()),
+    ] {
+        let read = beneath::read_link(root.as_fd(), p(path), FinalLink::Keep).unwrap();
+        assert_eq!(read.as_bytes(), target, "{path}");
+    }
+    for (path, final_link, expected) in [
+        ("f", FinalLink::Keep, libc::EINVAL),
+        ("d", FinalLink::Keep, libc::EINVAL),
+        (".", FinalLink::Keep, libc::EINVAL),
+        ("to_d", FinalLink::Follow, libc::EINVAL),
+        ("to_d/", FinalLink::Follow, libc::EINVAL),
+        ("missing", FinalLink::Keep, libc::ENOENT),
+        ("out", FinalLink::Follow, libc::EXDEV),
+        ("../outside/f", FinalLink::Keep, libc::EXDEV),
+    ] {
+        let result = beneath::read_link(root.as_fd(), p(path), final_link);
+        assert_eq!(code(result), expected, "{path} {final_link:?}");
+    }
 }
 
 /// `OpenAs::Directory` opens a directory only, and `Links::Refused` opens

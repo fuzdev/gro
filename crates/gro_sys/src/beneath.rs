@@ -15,9 +15,12 @@
 //!
 //! - [`open`] opens a path beneath a descriptor, as a directory to hold and
 //!   to resolve beneath ([`OpenAs::Directory`]), an entry of any kind to
-//!   name ([`OpenAs::Path`]), a file to read, or a file to write, created or
-//!   replaced ([`OpenAs::Write`]) or only created ([`OpenAs::CreateNew`]);
-//!   [`Links::Refused`] refuses every symlink on the way.
+//!   name ([`OpenAs::Path`]), a regular file to read, or a regular file to
+//!   write, created or replaced ([`OpenAs::Write`]) or only created
+//!   ([`OpenAs::CreateNew`]); [`Links::Refused`] refuses every symlink on
+//!   the way.
+//! - [`read`] reads a regular file's bytes to its end.
+//! - [`read_link`] reads a symlink's target as stored, never following it.
 //! - [`open_root`] opens a directory by its absolute real path, the one
 //!   descriptor the others resolve beneath, refusing any symlink on it.
 //! - [`real_path`] reads the absolute path the kernel holds for what a
@@ -34,11 +37,14 @@
 //!
 //! Every open of a file's contents is non-blocking (`O_NONBLOCK`), so no
 //! open waits: not for a FIFO's other end, a device, or a lease's break.
-//! Linux ignores the flag for a regular file's reads and writes; anything
-//! else keeps it, so a read with nothing to read fails with `EAGAIN` rather
-//! than waiting, and a FIFO with no writer reads as empty. A caller that
-//! reads or writes contents tells a regular file by the descriptor's
-//! metadata and refuses anything else.
+//! Then the opened descriptor's metadata (`fstat`) refuses anything but a
+//! regular file, before anything is read or written: a directory with
+//! `EISDIR`, and a FIFO or a device with an error of no OS code
+//! ([`is_not_regular`]), so a FIFO with no writer never reads as an empty
+//! file, one with a writer never fails with a spurious `EAGAIN`, and an
+//! endless device (`/dev/zero`) is never read. A unix socket fails the
+//! open itself (`ENXIO`). Linux ignores the flag for a regular file's
+//! reads and writes, which are all that's left.
 //!
 //! # The last component
 //!
@@ -80,6 +86,12 @@
 //!   `ENOTEMPTY`: the kernel's, for the entry or a directory on its path.
 //! - No OS code, [`io::ErrorKind::InvalidInput`]: a path holding a NUL byte,
 //!   or a last component refused before any call.
+//! - No OS code, told by [`is_not_regular`]: an open of a file's contents
+//!   that reached a FIFO or a device; one that reached a directory is
+//!   `EISDIR`, as the kernel answers a read of one.
+//! - No OS code, [`io::ErrorKind::FileTooLarge`]: a [`read`] of a file
+//!   longer than [`READ_LIMIT`].
+//! - `EINVAL`: a [`read_link`] of an entry that isn't a symlink.
 //! - No OS code, [`io::ErrorKind::Unsupported`]: `openat2` is missing, on a
 //!   kernel before Linux 5.6 (`ENOSYS`) or under a seccomp filter that
 //!   refuses it (`ENOSYS`, or an `EPERM` that [`check_openat2`]'s probe gets
@@ -100,7 +112,7 @@
 
 use std::ffi::{CStr, CString, OsStr, OsString};
 use std::fs::File;
-use std::io;
+use std::io::{self, Read as _};
 use std::os::fd::{AsFd as _, AsRawFd as _, BorrowedFd, FromRawFd as _, OwnedFd};
 use std::os::unix::ffi::{OsStrExt as _, OsStringExt as _};
 use std::os::unix::fs::MetadataExt as _;
@@ -116,6 +128,10 @@ pub const RACE_RETRIES: u32 = 32;
 /// The bytes [`read_dir`] asks `getdents64` for at a time.
 const DIR_BUFFER: usize = 32 * 1024;
 
+/// The most bytes [`read`] reads of a file, `2 ** 31 - 1`, the most Node's
+/// `readFile` reads: a longer file fails, whatever size it reported.
+pub const READ_LIMIT: u64 = (1 << 31) - 1;
+
 /// What [`open`] opens a path as.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OpenAs {
@@ -129,15 +145,19 @@ pub enum OpenAs {
     /// contents, so a FIFO or a device opens at once, and no permission but
     /// the walk's is needed.
     Path,
-    /// A file to read (`O_RDONLY | O_NOCTTY | O_NONBLOCK`). A directory
-    /// opens too, and a read of it fails with `EISDIR`; a FIFO opens at once,
-    /// with or without a writer.
+    /// A regular file to read (`O_RDONLY | O_NOCTTY | O_NONBLOCK`). The
+    /// open never waits, and the descriptor's metadata then refuses
+    /// anything else: a directory with `EISDIR`, a FIFO, with or without a
+    /// writer, or a device with an error of no OS code
+    /// ([`is_not_regular`]); a unix socket fails the open (`ENXIO`).
     Read,
-    /// A file to write, created with `mode` (less the process's umask) when
-    /// missing and emptied when it exists (`O_WRONLY | O_CREAT | O_TRUNC |
-    /// O_NOCTTY | O_NONBLOCK`). A final symlink is followed, beneath; a
-    /// directory there fails with `EISDIR`, and a FIFO with no reader with
-    /// `ENXIO`.
+    /// A regular file to write, created with `mode` (less the process's
+    /// umask) when missing and emptied when it exists (`O_WRONLY | O_CREAT |
+    /// O_TRUNC | O_NOCTTY | O_NONBLOCK`). A final symlink is followed,
+    /// beneath; a directory there fails with `EISDIR`, a FIFO with no
+    /// reader with `ENXIO`, and one with a reader, or a device, with an
+    /// error of no OS code ([`is_not_regular`]), as [`OpenAs::Read`]
+    /// refuses them.
     Write {
         /// The permission bits a created file gets, at most `0o7777`.
         mode: u32,
@@ -237,6 +257,10 @@ pub struct DirEntry {
 /// one `openat2` with `RESOLVE_BENEATH | RESOLVE_NO_MAGICLINKS`, and with
 /// `RESOLVE_NO_SYMLINKS` for [`Links::Refused`].
 ///
+/// An open of a file's contents ([`OpenAs::Read`], [`OpenAs::Write`],
+/// [`OpenAs::CreateNew`]) keeps a regular file only, told by the
+/// descriptor's metadata.
+///
 /// `path` is relative to `dir`; `.` is `dir` itself, and an empty path
 /// names nothing (`ENOENT`).
 ///
@@ -245,8 +269,26 @@ pub struct DirEntry {
 /// Returns the kernel's error as the [module doc](self) lists them:
 /// `EXDEV` for a path that leaves `dir`'s tree, `ELOOP` for a magic link or
 /// a symlink [`Links::Refused`] refuses, `EINVAL` for a mode above
-/// `0o7777`.
+/// `0o7777`; and for an open of contents, `EISDIR` for a directory and an
+/// error of no OS code for anything else that isn't a regular file
+/// ([`is_not_regular`]).
 pub fn open(dir: BorrowedFd<'_>, path: &Path, how: OpenAs, links: Links) -> io::Result<OwnedFd> {
+    let fd = open_unchecked(dir, path, how, links)?;
+    match how {
+        OpenAs::Directory | OpenAs::Path => Ok(fd),
+        OpenAs::Read | OpenAs::Write { .. } | OpenAs::CreateNew { .. } => {
+            only_regular(fd).map(|(fd, _)| fd)
+        }
+    }
+}
+
+/// [`open`] without the regular-file check.
+fn open_unchecked(
+    dir: BorrowedFd<'_>,
+    path: &Path,
+    how: OpenAs,
+    links: Links,
+) -> io::Result<OwnedFd> {
     let (flags, mode) = match how {
         OpenAs::Directory => (libc::O_PATH | libc::O_DIRECTORY, 0),
         OpenAs::Path => (libc::O_PATH, 0),
@@ -265,6 +307,144 @@ pub fn open(dir: BorrowedFd<'_>, path: &Path, how: OpenAs, links: Links) -> io::
         Links::Refused => BENEATH | libc::RESOLVE_NO_SYMLINKS,
     };
     openat2(dir, &to_c_path(path.as_os_str())?, flags, mode, resolve)
+}
+
+/// Reads the regular file at `path` beneath `dir` to its end, a final
+/// symlink followed beneath.
+///
+/// It's opened as [`OpenAs::Read`], so anything but a regular file is
+/// refused before a byte is read, then read until a read returns nothing,
+/// never trusting the size the file reports, which a `/proc` file reports
+/// as 0.
+///
+/// # Errors
+///
+/// Returns [`open`]'s errors for [`OpenAs::Read`], the kernel's error for a
+/// read, and an error of kind [`io::ErrorKind::FileTooLarge`], with no OS
+/// code, for a file longer than [`READ_LIMIT`].
+pub fn read(dir: BorrowedFd<'_>, path: &Path) -> io::Result<Vec<u8>> {
+    let fd = open_unchecked(dir, path, OpenAs::Read, Links::Beneath)?;
+    let (fd, size) = only_regular(fd)?;
+    read_within(&File::from(fd), size, READ_LIMIT)
+}
+
+/// Reads `file` from where it is to its end, `size` the bytes it reports,
+/// a hint for the buffer only, failing past `limit` bytes.
+fn read_within(file: &File, size: u64, limit: u64) -> io::Result<Vec<u8>> {
+    let mut bytes = Vec::with_capacity(usize::try_from(size.min(limit)).unwrap_or(0));
+    file.take(limit.saturating_add(1)).read_to_end(&mut bytes)?;
+    if u64::try_from(bytes.len()).unwrap_or(u64::MAX) > limit {
+        return Err(io::Error::new(
+            io::ErrorKind::FileTooLarge,
+            format!("the file is longer than {limit} bytes, the most a read takes"),
+        ));
+    }
+    Ok(bytes)
+}
+
+/// Reads the target of the symlink at `path` beneath `dir`, as stored, the
+/// kernel's bytes, never following it.
+///
+/// With [`FinalLink::Follow`], a final symlink is followed beneath first,
+/// so what's reached is no symlink.
+/// The entry is opened as a path only (`O_PATH`, with `O_NOFOLLOW` for
+/// [`FinalLink::Keep`]), then its target read from the descriptor
+/// (`readlinkat` with an empty path), so the link read is the one the
+/// open resolved.
+///
+/// # Errors
+///
+/// Returns the kernel's error as the [module doc](self) lists them,
+/// `ENOENT` when nothing is there, and `EINVAL` for an entry that isn't a
+/// symlink, as `readlink` does.
+pub fn read_link(dir: BorrowedFd<'_>, path: &Path, final_link: FinalLink) -> io::Result<OsString> {
+    let flags = match final_link {
+        FinalLink::Follow => libc::O_PATH,
+        FinalLink::Keep => libc::O_PATH | libc::O_NOFOLLOW,
+    };
+    let fd = openat2(dir, &to_c_path(path.as_os_str())?, flags, 0, BENEATH)?;
+    let file = File::from(fd);
+    if !file.metadata()?.file_type().is_symlink() {
+        return Err(io::Error::from_raw_os_error(libc::EINVAL));
+    }
+    readlink_empty(file.as_fd())
+}
+
+/// The target of the symlink `fd`, opened `O_PATH | O_NOFOLLOW`, names, by
+/// `readlinkat` with an empty path, its buffer grown until the target fits.
+#[expect(
+    unsafe_code,
+    reason = "std reads a link only by a path from the working directory, and a libc call is `unsafe`"
+)]
+fn readlink_empty(fd: BorrowedFd<'_>) -> io::Result<OsString> {
+    let mut buffer = vec![0u8; PATH_BUFFER];
+    loop {
+        // SAFETY: `readlinkat` writes at most `buffer.len()` bytes into the
+        // buffer, a live mutable slice, reads only the empty path, a
+        // NUL-terminated literal, and takes the descriptor, borrowed for
+        // the call
+        let result = unsafe {
+            libc::readlinkat(
+                fd.as_raw_fd(),
+                c"".as_ptr(),
+                buffer.as_mut_ptr().cast(),
+                buffer.len(),
+            )
+        };
+        let read = usize::try_from(result).map_err(|_| io::Error::last_os_error())?;
+        // a target that fills the buffer may have been cut short
+        if read < buffer.len() {
+            buffer.truncate(read);
+            return Ok(OsString::from_vec(buffer));
+        }
+        buffer.resize(buffer.len() * 2, 0);
+    }
+}
+
+/// The bytes [`read_link`] first reads a target into, Linux's `PATH_MAX`.
+const PATH_BUFFER: usize = 4096;
+
+/// `fd`, an open of a file's contents, and the size it reports, when it's
+/// a regular file; `EISDIR` for a directory, as the kernel answers a read
+/// or a write of one, and an error of no OS code for anything else
+/// ([`is_not_regular`]), which isn't read from or written to.
+fn only_regular(fd: OwnedFd) -> io::Result<(OwnedFd, u64)> {
+    let file = File::from(fd);
+    let metadata = file.metadata()?;
+    let file_type = metadata.file_type();
+    if file_type.is_file() {
+        return Ok((file.into(), metadata.size()));
+    }
+    if file_type.is_dir() {
+        return Err(io::Error::from_raw_os_error(libc::EISDIR));
+    }
+    Err(io::Error::other(NotRegular))
+}
+
+/// The error of an open of contents that reached something other than a
+/// regular file or a directory: a FIFO or a device.
+#[derive(Debug)]
+struct NotRegular;
+
+impl std::fmt::Display for NotRegular {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(
+            "not a regular file (a FIFO or a device), whose contents are neither read nor \
+             written, since a read or a write of one could wait or never end",
+        )
+    }
+}
+
+impl std::error::Error for NotRegular {}
+
+/// Whether `error`, from an open of a file's contents, is one that reached
+/// something other than a regular file or a directory: a FIFO or a device,
+/// refused by its metadata with no OS code.
+pub fn is_not_regular(error: &io::Error) -> bool {
+    error.raw_os_error().is_none()
+        && error
+            .get_ref()
+            .is_some_and(<dyn std::error::Error + Send + Sync>::is::<NotRegular>)
 }
 
 /// Opens the directory at `path`, an absolute real path, to resolve beneath.
@@ -1061,6 +1241,41 @@ mod tests {
                 "{path}"
             );
             assert_eq!(got_name.to_bytes(), name.as_bytes(), "{path}");
+        }
+    }
+
+    /// A read takes a file to its end, whatever size it reported, and fails
+    /// past its limit, never at it.
+    #[test]
+    fn a_read_ends_at_the_file_s_end_within_its_limit() {
+        use std::io::{Seek as _, Write as _};
+        let path = std::env::temp_dir().join(format!("gro_sys_read_within_{}", std::process::id()));
+        let mut file = std::fs::File::options()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(&path)
+            .unwrap();
+        std::fs::remove_file(&path).unwrap();
+        file.write_all(b"12345").unwrap();
+        for (size, limit, expected) in [
+            (0, 5, Some(&b"12345"[..])),
+            (2, 5, Some(b"12345")),
+            (99, 5, Some(b"12345")),
+            (5, 4, None),
+            (0, 0, None),
+        ] {
+            file.rewind().unwrap();
+            let read = super::read_within(&file, size, limit);
+            let read = read.map_err(|error| (error.kind(), error.raw_os_error()));
+            assert_eq!(
+                read,
+                expected
+                    .map(<[u8]>::to_vec)
+                    .ok_or((io::ErrorKind::FileTooLarge, None)),
+                "{size} {limit}"
+            );
         }
     }
 
