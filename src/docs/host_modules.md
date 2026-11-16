@@ -163,8 +163,11 @@ the reads (`read`, `read_text`, `read_if_exists`, `read_text_if_exists`, `read_t
   a directory removed and another made at the same path can reuse the inode number, and passes where the filesystem records no birth time or stamps both within one tick of its clock.
   It holds a root as the root opens, and the root's descriptor holds the directory from then on.
   The project's own read isn't checked (a flag naming its directory is): the loader finds it by its path and loads every module from that path, so a directory swapped in there is the run's project for the loader too.
-- Each root reads and writes what its flags grant, joined with what every root holding it does:
-  a directory written inside the project is read too, a directory only written is read by no read op (though `fs.open_dir`, `dir()`, and a handle's `path` still tell what's there,
+- Each root reads and writes what its flags grant, joined with what every root holding it does,
+  a root holding a directory when, once the roots are open, that directory is the one at its real path beneath the root's own, no symlink on the way:
+  a directory whose real path lies beneath a root's but which a move between the opens put elsewhere takes nothing of that root's scope, and a root that couldn't be opened lends its scope to none.
+  The nesting is read at the run's first import of `fs`, not at the start: a flag's directory moved beneath a root in between, its symlink pointed along, joins that root's scope, and a directory moved out after keeps the scope it joined.
+  So a directory written inside the project is read too, a directory only written is read by no read op (though `fs.open_dir`, `dir()`, and a handle's `path` still tell what's there,
   and, a handle's `path` being its real path, where a directory symlink in it leads),
   and the paths that name one real directory are one root, its grants joined.
 - A handle carries a scope, whether it reads and whether it writes, and no op checks the run's roots.

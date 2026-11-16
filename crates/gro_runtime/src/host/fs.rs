@@ -8,8 +8,8 @@
 //! written but by a grant; then each directory the run's fs grant reads or
 //! writes ([`FsGrant`]), one root per real path, its scopes joined; or,
 //! unconfined, one more at `/`, read and written. A root's scope is what it
-//! reads and writes, its own grant's joined with every root's whose real
-//! path holds it, so a directory written inside the project is read too,
+//! reads and writes, its own grant's joined with every root's that holds
+//! its directory, so a directory written inside the project is read too,
 //! and write never implies read. A root matches a path by its real path and
 //! by each path it was granted as, so a directory granted by a path through
 //! a symlink is held by that path too, while every lookup resolves beneath
@@ -118,6 +118,17 @@
 //! the loader finds it by its path and loads every module from it by its
 //! path, so a directory swapped in there is the run's project for the
 //! loader too.
+//!
+//! A root holds another's directory when the other's real path lies
+//! beneath its own and, both open, the directory at that path beneath its
+//! descriptor, no symlink on the way, is the other's by its identity, as
+//! the table is made. So a directory whose real path, read before the
+//! opens, lies beneath a root's, but which a move between them put
+//! elsewhere, takes nothing of that root's scope, and a root that isn't
+//! open lends its scope to none. The nesting is read as the table is made,
+//! at the first import, not as the run starts: a flag's directory moved
+//! beneath a root in between, its symlink pointed along, joins that root's
+//! scope, and a directory moved out after keeps the scope it joined.
 //!
 //! An argument is read as the value it is, as `env`'s are: a path is a
 //! string, never converted, and an options record's `follow` is its data,
@@ -254,7 +265,7 @@ struct Root {
     /// `.`, `..`, or empty name, which match a path as its real path does.
     granted: Vec<String>,
     /// What it reads and writes: its grants', joined with each root's that
-    /// holds its real path.
+    /// holds its directory ([`holds_beneath`]).
     scope: Scope,
     /// Whether it's `/`, which resolves an absolute symlink and a `..` as
     /// the kernel resolves a path (`gro_sys`'s `Links::InRoot`).
@@ -366,8 +377,8 @@ impl<'g> Joined<'g> {
 /// opened once ([`opened`]), and again by the next path granted as it when
 /// the path that opened it was refused. The paths of one real path are one
 /// root, the first's place, its scopes joined and each path it was granted
-/// as kept; then each root's scope joins every root's whose real path
-/// holds its own.
+/// as kept; then each root's scope joins every root's that holds its
+/// directory ([`holds_beneath`]).
 fn root_table(project: Option<&Path>, authority: Option<&Authority>) -> Vec<Root> {
     let mut wanted = vec![Wanted {
         real: project.map(Path::to_path_buf),
@@ -438,14 +449,50 @@ fn root_table(project: Option<&Path>, authority: Option<&Authority>) -> Vec<Root
         .map(|joined| {
             table
                 .iter()
-                .filter(|outer| match (&outer.real, &joined.real) {
-                    (Some(outer), Some(real)) => real.starts_with(outer),
-                    _ => false,
-                })
+                .filter(|outer| holds_beneath(outer, joined))
                 .fold(joined.scope, |scope, outer| scope.join(outer.scope))
         })
         .collect();
     table.into_iter().zip(scopes).map(root).collect()
+}
+
+/// Whether `outer` holds `inner`'s directory: `inner` itself, or a root
+/// whose real path lies beneath `outer`'s by its text and, both open,
+/// whose directory is, by its identity, the one at that path beneath
+/// `outer`'s descriptor, no symlink on the way ([`sys::dir_metadata`]).
+/// The real paths were read before the roots opened, so a directory moved
+/// between the opens can lie beneath a root's text and not its directory:
+/// the descriptors say where it was as the table was made. A root that
+/// isn't open holds no other; one that isn't open, which reaches nothing,
+/// is held by the text alone.
+fn holds_beneath(outer: &Joined<'_>, inner: &Joined<'_>) -> bool {
+    let (Some(outer_real), Some(real)) = (&outer.real, &inner.real) else {
+        return false;
+    };
+    let Ok(rel) = real.strip_prefix(outer_real) else {
+        return false;
+    };
+    if rel.as_os_str().is_empty() {
+        return true;
+    }
+    match (&outer.fd, &inner.fd) {
+        (Ok((outer_fd, _)), Ok((inner_fd, id))) => {
+            let found = sys::dir_metadata(outer_fd, rel).and_then(|metadata| FileId::of(&metadata));
+            // the identity read as it opened, else read now from its
+            // descriptor, which holds the directory either way
+            let inner = id.map_or_else(|| identity(inner_fd), Ok);
+            matches!((found, inner), (Ok(found), Ok(inner)) if found == inner)
+        }
+        (Err(_), _) => false,
+        (Ok(_), Err(_)) => true,
+    }
+}
+
+/// The identity of the directory `fd` holds.
+fn identity(fd: &OwnedFd) -> std::io::Result<FileId> {
+    std::fs::File::from(fd.try_clone()?)
+        .metadata()
+        .and_then(|metadata| FileId::of(&metadata))
 }
 
 /// The root `joined` makes, doing what `scope` says.
@@ -2095,6 +2142,13 @@ mod sys {
             error.raw_os_error() == Some(libc::ELOOP)
         }
 
+        /// The metadata of the directory at `rel` beneath `root`, a
+        /// symlink anywhere on the way refused.
+        pub fn dir_metadata(root: &OwnedFd, rel: &Path) -> io::Result<std::fs::Metadata> {
+            let fd = beneath::open(root.as_fd(), rel, OpenAs::Directory, Links::Refused)?;
+            std::fs::File::from(fd).metadata()
+        }
+
         /// The handle's directory at `beneath` its root, opened, or none
         /// for the root's own: its path is real, so a symlink on it, one
         /// swapped in since, is refused.
@@ -2299,6 +2353,10 @@ mod sys {
 
         pub const fn is_symlink_refused(_error: &io::Error) -> bool {
             false
+        }
+
+        pub fn dir_metadata(_root: &OwnedFd, _rel: &Path) -> io::Result<std::fs::Metadata> {
+            Err(unsupported())
         }
 
         pub fn stat(
@@ -2990,6 +3048,45 @@ mod tests {
                 (path("a"), vec![path("b")], Scope::READ, None),
             ]
         );
+    }
+
+    /// A root holds another's directory by its descriptor as well as by
+    /// its real path's text: a directory beneath the root at the other's
+    /// real path is held, its identity read as it opened or after; one at
+    /// a path beneath the root that isn't there, as a swap between their
+    /// opens leaves it, or that a symlink reaches, is held by none but
+    /// itself; one that isn't open is held by the text alone; and a root
+    /// that isn't open holds nothing.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_root_holds_a_directory_beneath_its_descriptor() {
+        use super::{Joined, holds_beneath, opened};
+
+        let dir = crate::test_support::TestDir::on_disk("root_beneath");
+        let at = |name: &str| dir.path().join(name);
+        for name in ["r/in", "r/w", "elsewhere"] {
+            std::fs::create_dir_all(at(name)).unwrap();
+        }
+        std::os::unix::fs::symlink("in", at("r/link")).unwrap();
+        let joined = |real: &str, opened_at: &str, identify: bool| Joined {
+            real: Some(at(real)),
+            scope: Scope::READ,
+            granted: Vec::new(),
+            fd: opened(false, Some(&at(opened_at)), &[], identify),
+        };
+        let r = joined("r", "r", false);
+        assert!(holds_beneath(&r, &r));
+        for identify in [false, true] {
+            assert!(holds_beneath(&r, &joined("r/in", "r/in", identify)));
+            assert!(!holds_beneath(&r, &joined("r/w", "elsewhere", identify)));
+            assert!(!holds_beneath(&r, &joined("r/link", "r/in", identify)));
+        }
+        assert!(holds_beneath(&r, &joined("r/gone", "r/gone", false)));
+        assert!(!holds_beneath(
+            &joined("r", "missing", false),
+            &joined("r/in", "r/in", false)
+        ));
+        assert!(!holds_beneath(&joined("r/in", "r/in", false), &r));
     }
 
     /// The table: the project's root first, read; each granted directory a

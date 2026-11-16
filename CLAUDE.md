@@ -497,7 +497,9 @@ Invariants that live in the code:
     granted as, or under `-A` one more at `/`; a root at `/`, `-A`'s or a
     flag's, alone resolves an absolute symlink as the kernel does
     (`gro_sys`'s `Links::InRoot`); a
-    root's scope joins every root's that holds it. An entry's path beneath
+    root's scope joins every root's that holds it: whose real path holds
+    its own and whose descriptor holds its directory at that path, no
+    symlink on the way, as the table is made. An entry's path beneath
     its root is the kernel's, checked against the root's by its text, then
     looked up beneath the root (`gro_sys::beneath::path_beneath`), so no
     lookup leaves a root. Every fs member first checks that the kernel
