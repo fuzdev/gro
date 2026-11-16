@@ -74,30 +74,30 @@
 //! interface the kind is named for, and each function of a `length` its
 //! declaration allows.
 //!
-//! What the form doesn't have yet, each for a row to come (`fs`), and how
-//! each would be declared: a kind of handle whose prototype extends
-//! another's (`FsDir` over `FsReadDir`), a `parent` on [`HandleKind`] whose
-//! prototype [`make`] makes first and gives the child's record as its
-//! prototype, a method's receiver check accepting the kinds below it; a
-//! member keyed by a well-known symbol (`Symbol.asyncDispose`), a key
-//! written in place of the name, `fn [async_dispose](..)`, the record
-//! keyed by the symbol V8 gives; and a `length` short of the arguments a
-//! member reads (a defaulted parameter, `temp_dir(prefix = 'gro-')`),
-//! written `fn temp_dir(state; scope, prefix?)`, the arguments after the
-//! first marked `?` left out of the `length`.
+//! A kind of handle can extend another (`FsDir` over `FsReadDir`): its
+//! prototype's prototype is the parent's, made first ([`kinds_in_order`]),
+//! and the parent's methods take its handles, which hold the parent's brand
+//! too (`handle.rs`). A kind's fields are the own data its handles hold
+//! (an `FsReadDir`'s `path`), pinned beside the members. A kind whose
+//! functions take no receiver, declared `on KIND` with nothing bound, is a
+//! record's (`fs`'s root): the host makes its one object of its members,
+//! values among them, made after every kind whose record holds none, so a
+//! value can be a handle of one (`fs.project`), and the export declared a
+//! handle of the kind is that record. A member declared `async` returns a
+//! promise the host settles before returning it ([`settle`]).
 //!
-//! And what `fs` needs that the next slices settle, none designed here: a
-//! root record whose functions are its own properties beside a value
-//! (`fs.open_dir` beside `fs.project`), a place for a record's members
-//! beside the namespace and a kind's prototype; an async form, whose
-//! callback makes a promise and rejects it with what the check or the body
-//! threw, the refusal included; own data on a handle (an `FsDir`'s `path`),
-//! which [`make`](super::handle::make) doesn't take; a brand on an error
-//! instance, which the class's constructor sets, for a guard of the
-//! family's own instances (`is_own_fs_error`); a listing whose work waits
-//! for its first `next()`, as an async generator's does; and the table of
-//! native state behind a handle (`blake3.rs`'s hashers, with the weak
-//! reference that drops an entry) lifted into `handle.rs` for every kind.
+//! What the form doesn't have yet, each for a slice to come, and how each
+//! would be declared: a member keyed by a well-known symbol
+//! (`Symbol.asyncDispose`, on `temp_dir`'s handles), a key written in place
+//! of the name, `fn [async_dispose](..)`, the record keyed by the symbol V8
+//! gives; a `length` short of the arguments a member reads (a defaulted
+//! parameter, `temp_dir(prefix = 'gro-')`), written `fn temp_dir(state;
+//! scope, prefix?)`, the arguments after the first marked `?` left out of
+//! the `length`; a listing whose work waits for its first `next()`, as an
+//! async generator's does (`list`); and the table of native state behind a
+//! handle (`blake3.rs`'s hashers, with the weak reference that drops an
+//! entry) lifted into `handle.rs` for every kind that holds native state,
+//! which `fs`'s handles, holding plain data, don't.
 
 use std::cell::RefCell;
 
@@ -198,6 +198,10 @@ pub enum Member {
         /// Its callback, as V8 calls it: the one `native_members!` wrote,
         /// whose first step is the check.
         callback: fn() -> v8::FunctionCallback,
+        /// Whether it's `async`: it returns a promise it settled, rejected
+        /// with what it threw ([`settle`]), listed for the tests.
+        #[cfg(test)]
+        asynchronous: bool,
     },
     /// A value, made once with the namespace.
     Value {
@@ -274,16 +278,25 @@ pub fn op_state(isolate: &v8::Isolate) -> std::rc::Rc<RefCell<OpState>> {
 /// written `fn name(state; scope, args...) for "specifier"` is a grant-free
 /// module's, and requires only an authority. After `for "specifier"`, a
 /// method names the kind of handle whose prototype it goes on and binds its
-/// receiver, `on KIND(receiver)`; an export names nothing more. Each
+/// receiver, `on KIND(receiver)`, or, for a kind whose one object is a
+/// record of functions that take no receiver (`fs`'s root), names the kind
+/// alone, `on KIND`; an export names nothing more. Each
 /// argument is the JS value passed, as `v8::Local<'s, v8::Value>`, and the
 /// member's `length` is how many it declares. The scope is
 /// `&mut v8::PinScope<'s, '_>`. The body's value is the member's result,
 /// an `Option<v8::Local<'s, v8::Value>>`, `None` leaving it `undefined`,
 /// which is what a member with no result and one that threw return.
 ///
+/// A member written `async name(..)`, as `fn` is written otherwise, returns
+/// a promise the host makes and settles before it returns ([`settle`]):
+/// rejected with what its check or its body threw, a refusal of its grant
+/// included, so it never throws to its caller, as an `async` function of
+/// the Node module's doesn't; else fulfilled with its body's value.
+///
 /// A member written `value name(state[, granted: Grant]; scope) for
 /// "specifier"` is an export the host makes once, with the namespace, after
-/// the same check: its body is the value, an
+/// the same check, or, written `on KIND`, a value of the record a kind
+/// whose functions take no receiver makes: its body is the value, an
 /// `Option<v8::Local<'s, v8::Value>>`, `None` only when it threw. The scope
 /// is `&v8::PinScope<'s, '_>`. A value is data unless it says what else it
 /// is: a handle, `handle KIND(prototype)` after `for "specifier"`, its body
@@ -364,41 +377,57 @@ macro_rules! native_members {
         $crate::host::native::ValueKind::Class
     };
     (
+        @body $name:ident, $module:literal, $state:ident,
+        [$($granted:ident: $grant:ty)?], $scope:ident, [$($arg:ident)*],
+        [$($receiver:ident)?], [$($family:ident($declared:ident))?], $body:block
+    ) => {{
+        fn body<'s>(
+            $scope: &mut deno_core::v8::PinScope<'s, '_>,
+            args: &deno_core::v8::FunctionCallbackArguments<'s>,
+        ) -> Option<deno_core::v8::Local<'s, deno_core::v8::Value>> {
+            let state = $crate::host::native::op_state($scope);
+            let Ok(state) = state.try_borrow() else {
+                $crate::host::throw_error($scope, $crate::host::native::STATE_BUSY);
+                return None;
+            };
+            let $state: &deno_core::OpState = &state;
+            native_members!(
+                @require
+                format!("{} of {}", stringify!($name), $module),
+                "host function",
+                $state,
+                $scope
+                $(, $granted: $grant)?
+            );
+            native_members!(@receiver args $($receiver)?);
+            native_members!(@declared $($family($declared))?);
+            let [$($arg),*] = $crate::host::native::arguments(args);
+            $body
+        }
+        body
+    }};
+    (
         @member fn [$($doc:literal)*] $name:ident, $module:literal, $state:ident,
         [$($granted:ident: $grant:ty)?], $scope:ident, [$($arg:ident)*],
-        [$($kind:ident($receiver:ident))?], [], [$($family:ident($declared:ident))?], [],
+        [$($kind:ident $(($receiver:ident))?)?], [], [$($family:ident($declared:ident))?], [],
         $body:block
     ) => {
         $crate::host::native::Member::Function {
             length: <[&str]>::len(&[$(stringify!($arg)),*]),
+            #[cfg(test)]
+            asynchronous: false,
             callback: || {
                 $(#[doc = $doc])*
                 fn callback<'s>(
-                    $scope: &mut deno_core::v8::PinScope<'s, '_>,
+                    scope: &mut deno_core::v8::PinScope<'s, '_>,
                     args: deno_core::v8::FunctionCallbackArguments<'s>,
                     mut result: deno_core::v8::ReturnValue<'s, deno_core::v8::Value>,
                 ) {
-                    let state = $crate::host::native::op_state($scope);
-                    let Ok(state) = state.try_borrow() else {
-                        $crate::host::throw_error($scope, $crate::host::native::STATE_BUSY);
-                        return;
-                    };
-                    let value = (|| -> Option<deno_core::v8::Local<'s, deno_core::v8::Value>> {
-                        let $state: &deno_core::OpState = &state;
-                        native_members!(
-                            @require
-                            format!("{} of {}", stringify!($name), $module),
-                            "host function",
-                            $state,
-                            $scope
-                            $(, $granted: $grant)?
-                        );
-                        native_members!(@receiver args $($receiver)?);
-                        native_members!(@declared $($family($declared))?);
-                        let [$($arg),*] = $crate::host::native::arguments(&args);
-                        $body
-                    })();
-                    if let Some(value) = value {
+                    let body = native_members!(
+                        @body $name, $module, $state, [$($granted: $grant)?], $scope,
+                        [$($arg)*], [$($($receiver)?)?], [$($family($declared))?], $body
+                    );
+                    if let Some(value) = body(scope, &args) {
                         result.set(value);
                     }
                 }
@@ -407,8 +436,37 @@ macro_rules! native_members {
         }
     };
     (
+        @member async [$($doc:literal)*] $name:ident, $module:literal, $state:ident,
+        [$($granted:ident: $grant:ty)?], $scope:ident, [$($arg:ident)*],
+        [$($kind:ident $(($receiver:ident))?)?], [], [$($family:ident($declared:ident))?], [],
+        $body:block
+    ) => {
+        $crate::host::native::Member::Function {
+            length: <[&str]>::len(&[$(stringify!($arg)),*]),
+            #[cfg(test)]
+            asynchronous: true,
+            callback: || {
+                $(#[doc = $doc])*
+                fn callback<'s>(
+                    scope: &mut deno_core::v8::PinScope<'s, '_>,
+                    args: deno_core::v8::FunctionCallbackArguments<'s>,
+                    mut result: deno_core::v8::ReturnValue<'s, deno_core::v8::Value>,
+                ) {
+                    let body = native_members!(
+                        @body $name, $module, $state, [$($granted: $grant)?], $scope,
+                        [$($arg)*], [$($($receiver)?)?], [$($family($declared))?], $body
+                    );
+                    if let Some(promise) = $crate::host::native::settle(scope, |scope| body(scope, &args)) {
+                        result.set(promise.into());
+                    }
+                }
+                deno_core::v8::MapFnTo::map_fn_to(callback)
+            },
+        }
+    };
+    (
         @member value [$($doc:literal)*] $name:ident, $module:literal, $state:ident,
-        [$($granted:ident: $grant:ty)?], $scope:ident, [], [],
+        [$($granted:ident: $grant:ty)?], $scope:ident, [], [$($kind:ident)?],
         [$($handle:ident($prototype:ident))?], [], [$($family:ident($declared:ident))?],
         $body:block
     ) => {
@@ -445,7 +503,7 @@ macro_rules! native_members {
             $scope:ident $(, $arg:ident)*
         )
             for $module:literal
-            $(on $kind:ident($receiver:ident))?
+            $(on $kind:ident $(($receiver:ident))?)?
             $(handle $handle:ident($prototype:ident))?
             $(throws $thrown:ident($thrower:ident))?
             $(class $class:ident($classer:ident))?
@@ -461,7 +519,7 @@ macro_rules! native_members {
                 member: native_members!(
                     @member $what [$($doc)*] $name, $module, $state,
                     [$($granted: $grant)?], $scope, [$($arg)*],
-                    [$($kind($receiver))?], [$($handle($prototype))?],
+                    [$($kind $(($receiver))?)?], [$($handle($prototype))?],
                     [$($thrown($thrower))?], [$($class($classer))?], $body
                 ),
                 family: native_members!(@family $($thrown)? $($class)?),
@@ -645,26 +703,23 @@ fn make(
         .iter()
         .filter(|member| member.module == module)
         .collect();
-    let mut kinds: Vec<&'static HandleKind> = Vec::new();
-    for member in &members {
-        if let Place::Method(kind) = member.place
-            && !kinds.contains(&kind)
-        {
-            kinds.push(kind);
-        }
-    }
+    let kinds = kinds_in_order(&members);
     let mut prototypes = Prototypes(Vec::with_capacity(kinds.len()));
     for kind in kinds {
         let methods = members
             .iter()
             .filter(|member| member.place == Place::Method(kind));
-        let prototype = record(state, scope, methods, &prototypes, None)?;
+        let parent = match kind.parent {
+            Some(parent) => Some(prototypes.of(scope, parent)?),
+            None => None,
+        };
+        let prototype = record(state, scope, methods, &prototypes, parent, None)?;
         prototypes.0.push((kind, prototype));
     }
     let exports = members
         .iter()
         .filter(|member| member.place == Place::Export);
-    let namespace = record(state, scope, exports, &prototypes, Some("default"))?;
+    let namespace = record(state, scope, exports, &prototypes, None, Some("default"))?;
     Some(Made {
         module,
         namespace: v8::Global::new(scope, namespace),
@@ -676,14 +731,46 @@ fn make(
     })
 }
 
-/// A frozen null-prototype record of each of `members`, under its name, a
-/// function or the value its maker makes with `prototypes`, and
-/// `undefined` under `undefined_at` when given.
+/// The kinds of handle `members` put methods on, with each kind they
+/// extend, in the order their prototypes are made: a kind after the one it
+/// extends, and a kind whose record holds a value after every kind whose
+/// record holds none, so the value can be a handle of any of those (`fs`'s
+/// `project`, an `FsDir`, on its root's record); otherwise in the order the
+/// members first name them.
+fn kinds_in_order(members: &[&NativeMember]) -> Vec<&'static HandleKind> {
+    let mut named: Vec<&'static HandleKind> = Vec::new();
+    for member in members {
+        if let Place::Method(kind) = member.place {
+            let mut lineage: Vec<&'static HandleKind> = kind.lineage().collect();
+            lineage.reverse();
+            for kind in lineage {
+                if !named.contains(&kind) {
+                    named.push(kind);
+                }
+            }
+        }
+    }
+    let holds_a_value = |kind: &HandleKind| {
+        members.iter().any(|member| {
+            matches!(member.place, Place::Method(placed) if placed == kind)
+                && matches!(member.member, Member::Value { .. })
+        })
+    };
+    let (mut ordered, valued): (Vec<_>, Vec<_>) =
+        named.into_iter().partition(|kind| !holds_a_value(kind));
+    ordered.extend(valued);
+    ordered
+}
+
+/// A frozen record of each of `members`, under its name, a function or the
+/// value its maker makes with `prototypes`, and `undefined` under
+/// `undefined_at` when given, whose prototype is `prototype`, or `null`.
 fn record<'s, 'm>(
     state: &OpState,
     scope: &v8::PinScope<'s, '_>,
     members: impl Iterator<Item = &'m &'m NativeMember>,
     prototypes: &Prototypes<'s>,
+    prototype: Option<v8::Local<'s, v8::Object>>,
     undefined_at: Option<&str>,
 ) -> Option<v8::Local<'s, v8::Object>> {
     let mut names: Vec<v8::Local<'s, v8::Name>> = Vec::new();
@@ -691,9 +778,9 @@ fn record<'s, 'm>(
     for member in members {
         names.push(name(scope, member.name)?);
         values.push(match member.member {
-            Member::Function { length, callback } => {
-                function(scope, member.name, length, callback)?.into()
-            }
+            Member::Function {
+                length, callback, ..
+            } => function(scope, member.name, length, callback)?.into(),
             Member::Value { make, .. } => make(state, scope, prototypes)?,
         });
     }
@@ -701,10 +788,43 @@ fn record<'s, 'm>(
         names.push(name(scope, key)?);
         values.push(v8::undefined(scope).into());
     }
-    let null = v8::null(scope).into();
-    let record = v8::Object::with_prototype_and_properties(scope, null, &names, &values);
+    let prototype = prototype.map_or_else(|| v8::null(scope).into(), Into::into);
+    let record = v8::Object::with_prototype_and_properties(scope, prototype, &names, &values);
     record.set_integrity_level(scope, v8::IntegrityLevel::Frozen)?;
     Some(record)
+}
+
+/// The promise an `async` member returns: made by the host, and settled
+/// before it's returned, rejected with what `run`, the member's check and
+/// body, threw, else fulfilled with what it returned, `undefined` for
+/// nothing. A call V8 terminated keeps its termination and returns no
+/// promise. Nothing settled reads a property but V8's own lookup of a
+/// fulfilled value's `then`, which a host value answers from itself or a
+/// null prototype.
+pub fn settle<'s>(
+    scope: &mut v8::PinScope<'s, '_>,
+    run: impl FnOnce(&mut v8::PinScope<'s, '_>) -> Option<v8::Local<'s, v8::Value>>,
+) -> Option<v8::Local<'s, v8::Promise>> {
+    v8::tc_scope!(let tc, scope);
+    let value = run(tc);
+    if tc.has_terminated() {
+        tc.rethrow();
+        return None;
+    }
+    let thrown = if tc.has_caught() {
+        tc.exception()
+    } else {
+        None
+    };
+    tc.reset();
+    let resolver = v8::PromiseResolver::new(tc)?;
+    if let Some(thrown) = thrown {
+        resolver.reject(tc, thrown)?;
+    } else {
+        let value = value.unwrap_or_else(|| v8::undefined(tc).into());
+        resolver.resolve(tc, value)?;
+    }
+    Some(resolver.get_promise(tc))
 }
 
 /// The function of a member named `name`: `callback`, named, of `length`,
@@ -765,7 +885,10 @@ pub mod probe {
 
     /// The probe's function, as the host makes a member's.
     pub fn function<'s>(scope: &v8::PinScope<'s, '_>) -> Option<v8::Local<'s, v8::Function>> {
-        let super::Member::Function { length, callback } = NATIVE_MEMBERS[0].member else {
+        let super::Member::Function {
+            length, callback, ..
+        } = NATIVE_MEMBERS[0].member
+        else {
             return None;
         };
         super::function(scope, NATIVE_MEMBERS[0].name, length, callback)
@@ -798,17 +921,27 @@ mod tests {
 
     use super::{Member, NativeMember, Place, ValueKind};
     use crate::host::NATIVE_MEMBERS;
+    use crate::host::handle::HandleKind;
     use crate::resolver::{BUILTINS, find_builtin};
 
-    /// The line `tests/native_members.txt` pins `member` as.
+    /// The line `tests/native_members.txt` pins `member` as: a function on
+    /// a kind is its method, a value on one its data.
     fn pinned_line(member: &NativeMember) -> String {
-        let place = match member.place {
-            Place::Export => "export".to_owned(),
-            Place::Method(kind) => format!("method of {}", kind.brand),
+        let place = match (member.place, member.member) {
+            (Place::Export, _) => "export".to_owned(),
+            (Place::Method(kind), Member::Function { .. }) => format!("method of {}", kind.brand),
+            (Place::Method(kind), Member::Value { .. }) => format!("data of {}", kind.brand),
         };
         let family = member.family.map_or("", |family| family.name);
         let made = match member.member {
-            Member::Function { length, .. } => format!("length {length}"),
+            Member::Function {
+                length,
+                asynchronous,
+                ..
+            } => format!(
+                "length {length}{}",
+                if asynchronous { " async" } else { "" }
+            ),
             Member::Value {
                 kind: ValueKind::Data,
                 ..
@@ -835,12 +968,44 @@ mod tests {
         )
     }
 
+    /// The lines `tests/native_members.txt` pins each kind's fields as, the
+    /// own data its handles hold, after the members: each a datum of the
+    /// kind that declares it, its row's grant.
+    fn pinned_fields() -> Vec<String> {
+        let mut kinds: Vec<&'static HandleKind> = Vec::new();
+        for member in NATIVE_MEMBERS {
+            if let Place::Method(kind) = member.place {
+                for kind in kind.lineage() {
+                    if !kinds.contains(&kind) {
+                        kinds.push(kind);
+                    }
+                }
+            }
+        }
+        let mut lines = Vec::new();
+        for kind in kinds {
+            let module = kind.brand.split('#').next().unwrap();
+            let grant = find_builtin(module)
+                .unwrap()
+                .grant
+                .map_or_else(|| "grant-free".to_owned(), |grant| format!("grant {grant}"));
+            for field in kind.fields {
+                lines.push(format!(
+                    "{module} {field} data of {} data {grant}",
+                    kind.brand
+                ));
+            }
+        }
+        lines
+    }
+
     /// Every native member, pinned in `tests/native_members.txt` in the
     /// table's order, as `tests/op_names.txt` pins the ops: its builtin,
     /// name, place, what it is (a function's `length`, or a value's kind:
     /// `data`, `handle` and the kind of handle, or `class` and the family),
-    /// grant, and the family a function declares it throws, so a member
-    /// added, removed, or changed fails here and gets a look; and
+    /// grant, and the family a function declares it throws, then each
+    /// kind's fields ([`pinned_fields`]), so a member added, removed, or
+    /// changed fails here and gets a look; and
     /// `src/test/builtin_types.test.ts` holds the file to each row's Node
     /// module. To accept a change deliberately, write the list the
     /// assertion prints over the file, one member a line.
@@ -849,6 +1014,7 @@ mod tests {
         let mut listed: String = NATIVE_MEMBERS
             .iter()
             .map(|member| pinned_line(member) + "\n")
+            .chain(pinned_fields().into_iter().map(|line| line + "\n"))
             .collect();
         if listed.is_empty() {
             listed.push('\n');

@@ -487,7 +487,7 @@ fn a_reserved_specifier_is_a_resolve() {
             (
                 "where.js",
                 "let message = null;\n\
-                 try { import.meta.resolve('@fuzdev/gro/fs.ts'); } catch (error) { message = error.message; }\n\
+                 try { import.meta.resolve('@fuzdev/gro/net.ts'); } catch (error) { message = error.message; }\n\
                  export default {message};\n",
             ),
             (
@@ -501,7 +501,7 @@ fn a_reserved_specifier_is_a_resolve() {
             (
                 "where_respelled.js",
                 "let message = null;\n\
-                 try { import.meta.resolve('@fuzdev/gro/fs.js?.ts'); } catch (error) { message = error.message; }\n\
+                 try { import.meta.resolve('@fuzdev/gro/net.js?.ts'); } catch (error) { message = error.message; }\n\
                  export default {message};\n",
             ),
         ],
@@ -520,8 +520,8 @@ fn a_reserved_specifier_is_a_resolve() {
     assert_eq!(run.envelope["error"]["specifier"], "@fuzdev/gro/args.js");
     eval(&[&scratch.path("where.js")]).assert_value(&json!({
         "message": format!(
-            "cannot resolve '@fuzdev/gro/fs.ts' from file://{root}/where.js: it names Gro's host \
-             module '@fuzdev/gro/fs.ts', which isn't on fgro yet, and a host module's specifier \
+            "cannot resolve '@fuzdev/gro/net.ts' from file://{root}/where.js: it names Gro's host \
+             module '@fuzdev/gro/net.ts', which isn't on fgro yet, and a host module's specifier \
              never resolves to a package. Fix: run this under Node with gro"
         )
     }));
@@ -550,8 +550,8 @@ fn a_reserved_specifier_is_a_resolve() {
     );
     eval(&[&scratch.path("where_respelled.js")]).assert_value(&json!({
         "message": format!(
-            "cannot resolve '@fuzdev/gro/fs.js?.ts' from file://{root}/where_respelled.js: it \
-             names Gro's host module '@fuzdev/gro/fs.ts', which isn't on fgro yet, and a host \
+            "cannot resolve '@fuzdev/gro/net.js?.ts' from file://{root}/where_respelled.js: it \
+             names Gro's host module '@fuzdev/gro/net.ts', which isn't on fgro yet, and a host \
              module's specifier never resolves to a package. Fix: run this under Node with gro"
         )
     }));

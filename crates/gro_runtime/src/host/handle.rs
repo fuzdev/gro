@@ -24,6 +24,17 @@
 //! A handle of another row's kind is no handle of this one's, and a row
 //! that must recognize another's handle (`spawn` taking an `fs` directory)
 //! reads it with that row's kind.
+//!
+//! A kind can extend another, its `parent` (`fs`'s `FsDir` over
+//! `FsReadDir`): its prototype's own prototype is the parent's, and a
+//! handle of it holds the parent's brand beside its own, with the same
+//! state, so the parent's methods take it and the child's refuse a handle
+//! of the parent. A kind's `fields` are the own data each of its handles
+//! holds (an `fs` directory's `path`), given by what makes the handle and
+//! defined before it's frozen; a child's handles hold its parent's first.
+//! A kind whose methods take no receiver is a record's (`fs`'s root,
+//! `Fs`): the host makes the one object of it, of its members, with the
+//! namespace, and no handle of it.
 
 use deno_core::v8;
 
@@ -38,17 +49,68 @@ pub struct HandleKind {
     /// kind's handles implement, which `src/test/builtin_types.test.ts`
     /// holds the kind's methods to.
     pub brand: &'static str,
+    /// The kind it extends, whose prototype its prototype's is and whose
+    /// brand its handles hold too, if any.
+    pub parent: Option<&'static Self>,
+    /// The names of the own data each of its handles holds, beside its
+    /// parent's.
+    pub fields: &'static [&'static str],
 }
 
 /// The env host module's handles, its `Env`.
 pub const ENV_HANDLE: HandleKind = HandleKind {
     brand: "@fuzdev/gro/env.ts#Env",
+    parent: None,
+    fields: &[],
 };
 
 /// The blake3 host module's hashers, its `Blake3Hasher`.
 pub const BLAKE3_HASHER: HandleKind = HandleKind {
     brand: "@fuzdev/gro/blake3.ts#Blake3Hasher",
+    parent: None,
+    fields: &[],
 };
+
+/// The fs host module's root, its `Fs`: a record, of no handle, whose
+/// functions take no receiver.
+pub const FS_ROOT: HandleKind = HandleKind {
+    brand: "@fuzdev/gro/fs.ts#Fs",
+    parent: None,
+    fields: &[],
+};
+
+/// The fs host module's read-only directories, its `FsReadDir`, each
+/// holding its directory's absolute path as its `path`.
+pub const FS_READ_DIR: HandleKind = HandleKind {
+    brand: "@fuzdev/gro/fs.ts#FsReadDir",
+    parent: None,
+    fields: &["path"],
+};
+
+/// The fs host module's directories, its `FsDir`, extending `FsReadDir`.
+pub const FS_DIR: HandleKind = HandleKind {
+    brand: "@fuzdev/gro/fs.ts#FsDir",
+    parent: Some(&FS_READ_DIR),
+    fields: &[],
+};
+
+impl HandleKind {
+    /// The kind and each it extends, the nearest first.
+    pub fn lineage(&'static self) -> impl Iterator<Item = &'static Self> {
+        std::iter::successors(Some(self), |kind| kind.parent)
+    }
+
+    /// The names of the own data its handles hold, its farthest ancestor's
+    /// first.
+    pub fn all_fields(&'static self) -> Vec<&'static str> {
+        let mut lineage: Vec<&Self> = self.lineage().collect();
+        lineage.reverse();
+        lineage
+            .into_iter()
+            .flat_map(|kind| kind.fields.iter().copied())
+            .collect()
+    }
+}
 
 /// The brand of `kind`: the same private symbol every time, which V8 keeps
 /// for the isolate.
@@ -60,18 +122,41 @@ fn brand<'s>(
     Some(v8::Private::for_api(scope, Some(name)))
 }
 
+/// What making a handle throws when what makes it gives other own data
+/// than its kind's fields, naming the kind.
+fn not_its_fields(kind: &HandleKind) -> String {
+    format!(
+        "a handle of {} holds one value for each of its fields",
+        kind.brand
+    )
+}
+
 /// Makes a handle of `kind`: a new object whose prototype is `prototype`,
-/// holding `state` under the kind's brand, then frozen. `None` when V8
-/// failed to make it, an exception pending.
+/// holding `own`, a value for each of the kind's fields in order
+/// ([`HandleKind::all_fields`]), as its own data, and `state` under the
+/// brand of the kind and of each kind it extends, then frozen. `None` when
+/// V8 failed to make it, or with an `Error` thrown when `own` isn't one
+/// value a field, an exception pending.
 pub fn make<'s>(
     scope: &v8::PinScope<'s, '_>,
-    kind: &HandleKind,
+    kind: &'static HandleKind,
     prototype: v8::Local<'s, v8::Object>,
     state: v8::Local<'s, v8::Value>,
+    own: &[v8::Local<'s, v8::Value>],
 ) -> Option<v8::Local<'s, v8::Object>> {
-    let brand = brand(scope, kind)?;
-    let handle = v8::Object::with_prototype_and_properties(scope, prototype.into(), &[], &[]);
-    handle.set_private(scope, brand, state)?;
+    let fields = kind.all_fields();
+    if fields.len() != own.len() {
+        super::throw_error(scope, &not_its_fields(kind));
+        return None;
+    }
+    let mut names = Vec::with_capacity(fields.len());
+    for field in fields {
+        names.push(v8::String::new(scope, field)?.into());
+    }
+    let handle = v8::Object::with_prototype_and_properties(scope, prototype.into(), &names, own);
+    for kind in kind.lineage() {
+        handle.set_private(scope, brand(scope, kind)?, state)?;
+    }
     handle.set_integrity_level(scope, v8::IntegrityLevel::Frozen)?;
     Some(handle)
 }

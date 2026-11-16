@@ -1,6 +1,6 @@
 {
 	"name": "baseline",
-	"version": 7,
+	"version": 8,
 	"samples": 200,
 	"corpora": {"path": "../../../../../corpora", "collections": {"fuz_util": "84315fb37508694b35779f53958ff36dfc3f5665"}},
 	"runtimes": [

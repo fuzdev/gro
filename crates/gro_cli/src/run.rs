@@ -12,8 +12,8 @@ use gro_runtime::engine::{EngineOptions, init_engine};
 use gro_runtime::phases::{self, Phase};
 use gro_runtime::resolver::Capability;
 use gro_runtime::{
-    ArgsGrant, Authority, EnvGrant, EnvVars, Exit, ExitGrant, Grants, NeededGrant, Refusals,
-    RefusedBy, RunOutcome, RuntimeOptions, env_name_fault,
+    ArgsGrant, Authority, EnvGrant, EnvVars, Exit, ExitGrant, FsGrant, Grants, NeededGrant,
+    Refusals, RefusedBy, RunOutcome, RuntimeOptions, env_name_fault,
 };
 
 use crate::EXIT_FAILURE;
@@ -170,7 +170,7 @@ fn grant_hint(refused: &Refusals) -> Option<String> {
     for NeededGrant { grant, value } in &refused.needed {
         match grant {
             Capability::Env if hint_name(value) => names.push(value),
-            Capability::Env | Capability::Args | Capability::Exit => some = true,
+            Capability::Env | Capability::Args | Capability::Exit | Capability::Fs => some = true,
         }
     }
     if names.is_empty() {
@@ -232,8 +232,9 @@ fn runtime_options(run: &RunInvocation, environment: &impl Environment) -> Runti
 }
 
 /// The authority `grant` gives: unconfined for `-A`; else the project's
-/// own modules granted the args host module, the exit host module, and,
-/// when `--allow-env=` named any variable, the env host module with those
+/// own modules granted the args host module, the exit host module, the fs
+/// host module, whose root reads the project's tree, and, when
+/// `--allow-env=` named any variable, the env host module with those
 /// names.
 fn authority(grant: &RunGrant) -> Authority {
     match grant {
@@ -242,6 +243,7 @@ fn authority(grant: &RunGrant) -> Authority {
             args: Some(ArgsGrant {}),
             exit: Some(ExitGrant {}),
             env: (!env.is_empty()).then(|| EnvGrant { names: env.clone() }),
+            fs: Some(FsGrant {}),
         }),
     }
 }
@@ -429,11 +431,11 @@ mod tests {
         );
     }
 
-    /// `run` grants the args host module and the exit host module, whose
-    /// step is the CLI's, and nothing else, reading no environment
-    /// variable.
+    /// `run` grants the args host module, the exit host module, whose
+    /// step is the CLI's, and the fs host module, its root the project's
+    /// tree to read, and nothing else, reading no environment variable.
     #[test]
-    fn the_run_grants_args_and_exit() {
+    fn the_run_grants_args_exit_and_fs() {
         let run = invocation(&["a.js"]);
         let environment = TestEnvironment::of(&[(b"HOME", b"/home/a")]);
         let options = runtime_options(&run, &environment);
@@ -443,6 +445,7 @@ mod tests {
                 args: Some(gro_runtime::ArgsGrant {}),
                 exit: Some(gro_runtime::ExitGrant {}),
                 env: None,
+                fs: Some(gro_runtime::FsGrant {}),
             })
         );
         assert_eq!(options.env, gro_runtime::EnvVars::default());
@@ -479,6 +482,7 @@ mod tests {
                 env: Some(gro_runtime::EnvGrant {
                     names: ["A", "B", "C"].map(ToOwned::to_owned).into(),
                 }),
+                fs: Some(gro_runtime::FsGrant {}),
             })
         );
         assert_eq!(*environment.asked.borrow(), ["A", "B", "C"]);

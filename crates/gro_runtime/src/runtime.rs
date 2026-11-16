@@ -11,6 +11,7 @@ use crate::host::HostData;
 use crate::host::blake3::Blake3State;
 use crate::host::error_class::ErrorClasses;
 use crate::host::exit::{ExitState, ExitStep};
+use crate::host::fs::FsState;
 use crate::host::native::NativeNamespaces;
 use crate::loader::Loader;
 use crate::phases::{self, Phase};
@@ -141,6 +142,7 @@ pub fn start_runtime(
     state.borrow_mut().put(ErrorClasses::default());
     state.borrow_mut().put(NativeNamespaces::default());
     state.borrow_mut().put(Blake3State::default());
+    state.borrow_mut().put(FsState::default());
     if let Some(exit) = exit {
         state.borrow_mut().put(exit);
     }
@@ -501,6 +503,7 @@ JSON.stringify({
         static MISSING: ErrorFamily = ErrorFamily {
             name: "MissingError",
             target: "target",
+            brand: "MissingError",
         };
         let (message, made) = on_new_runtime("missing_family", Mode::Run, |runtime| {
             let classes = ErrorClasses::default();
@@ -1029,8 +1032,11 @@ JSON.stringify([names, names.filter((name) => Deno.core.ops[name] !== globalThis
     /// `namespaces`, where the probe keeps each row's.
     const NATIVE_HELPERS: &str = "globalThis.thrown = (call) => {
 	try {
-		call();
-		return null;
+		const value = call();
+		if (!(value instanceof Promise)) return null;
+		value.catch(() => {});
+		const [state, error] = Deno.core.ops.op_get_promise_details(value);
+		return state === 2 ? `rejected: ${error.constructor.name}: ${error.message}` : null;
 	} catch (error) {
 		return `${error.constructor.name}: ${error.message}`;
 	}
@@ -1276,27 +1282,42 @@ globalThis.namespaces = {};";
                 "{
 	const result = {};
 	for (const [brand, prototype] of Object.entries(prototypes)) {
-		result[brand] = { record: shape(prototype), functions: functions(prototype, brand.split('#')[0], Object.keys(prototype)) };
+		const names = Object.keys(prototype).filter((key) => typeof prototype[key] === 'function');
+		result[brand] = { record: shape(prototype), functions: functions(prototype, brand, names) };
 	}
 	JSON.stringify(result);
 }",
             );
-            // each value declared a handle, by its row, name, and kind
-            let handles: Vec<[&str; 3]> = NATIVE_MEMBERS
+            // each value declared a handle, by its row, name, kind, and the
+            // kind whose record holds it, if it isn't an export
+            let handles: Vec<[Option<&str>; 4]> = NATIVE_MEMBERS
                 .iter()
                 .filter_map(|member| match member.member {
                     Member::Value {
                         kind: ValueKind::Handle(kind),
                         ..
-                    } => Some([member.module, member.name, kind.brand]),
+                    } => Some([
+                        Some(member.module),
+                        Some(member.name),
+                        Some(kind.brand),
+                        match member.place {
+                            Place::Export => None,
+                            Place::Method(on) => Some(on.brand),
+                        },
+                    ]),
                     _ => None,
                 })
                 .collect();
+            // a handle is made of its kind's prototype, and a record kind's
+            // value is its one record
             let handles_of_held = script_json(
                 runtime,
                 format!(
-                    "JSON.stringify({}.map(([module, name, brand]) => \
-                     Object.getPrototypeOf(namespaces[module][name]) === prototypes[brand]))",
+                    "JSON.stringify({}.map(([module, name, brand, on]) => {{
+	const value = on === null ? namespaces[module][name] : prototypes[on][name];
+	return Object.getPrototypeOf(value) === prototypes[brand]
+		|| (value === prototypes[brand] && Object.getPrototypeOf(value) === null);
+}}))",
                     json!(handles)
                 ),
             );
@@ -1470,10 +1491,12 @@ globalThis.namespaces = {};";
                     .iter()
                     .filter_map(|member| native_function_shape(member))
                     .collect();
+                // a kind's prototype extends its parent's
+                let prototype = kind.parent.map(|_| "other");
                 assert_eq!(
                     results["prototypes"][kind.brand],
                     json!({
-                        "record": {"type": "object", "frozen": true, "prototype": null, "keys": keys},
+                        "record": {"type": "object", "frozen": true, "prototype": prototype, "keys": keys},
                         "functions": functions,
                     }),
                     "{start:?} {}",
@@ -1493,7 +1516,13 @@ globalThis.namespaces = {};";
     /// grant when it needs one.
     fn member_refusal(member: &NativeMember, what: &str) -> String {
         let label = format!("{} of {}", member.name, member.module);
-        member.grant.map_or_else(
+        let rejected = match member.member {
+            Member::Function {
+                asynchronous: true, ..
+            } => "rejected: ",
+            _ => "",
+        };
+        let refusal = member.grant.map_or_else(
             || {
                 format!(
                     "Error: not_granted: {label} is a {what}, and this runtime holds no \
@@ -1506,12 +1535,14 @@ globalThis.namespaces = {};";
                      doesn't hold"
                 )
             },
-        )
+        );
+        format!("{rejected}{refusal}")
     }
 
     /// The form's check from either start: every native function, called
     /// in a runtime that holds no authority, throws `not_granted` naming
-    /// itself, and its grant when it needs one, before its body runs,
+    /// itself, and its grant when it needs one, before its body runs, an
+    /// `async` one rejecting the promise it returns with it,
     /// whatever it's passed; and a member that needs
     /// a grant (the probe table's) throws it, naming the grant, in a run that
     /// grants nothing and in a runtime with no authority, and runs in a run
@@ -1529,7 +1560,10 @@ globalThis.namespaces = {};";
                 .filter(|member| matches!(member.member, Member::Function { .. }));
             assert_eq!(refused.len(), functions.clone().count(), "{start:?}");
             for member in functions {
-                let label = format!("{} of {}", member.name, member.module);
+                let label = match member.place {
+                    Place::Export => format!("{} of {}", member.name, member.module),
+                    Place::Method(kind) => format!("{} of {}", member.name, kind.brand),
+                };
                 assert_eq!(
                     refused[&label],
                     member_refusal(member, "host function"),
@@ -1778,6 +1812,7 @@ globalThis.before = live.map((hasher) => hasher.finalize().join());",
                 .map(|(name, value)| (name.to_owned(), value.to_owned()))
                 .into_iter()
                 .collect(),
+            project: None,
         }
     }
 

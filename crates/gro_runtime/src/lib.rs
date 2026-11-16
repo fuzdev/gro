@@ -232,6 +232,8 @@ pub struct Grants {
     pub exit: Option<ExitGrant>,
     /// The env host module's.
     pub env: Option<EnvGrant>,
+    /// The fs host module's.
+    pub fs: Option<FsGrant>,
 }
 
 impl Grants {
@@ -241,6 +243,7 @@ impl Grants {
             Capability::Args => self.args.is_some(),
             Capability::Exit => self.exit.is_some(),
             Capability::Env => self.env.is_some(),
+            Capability::Fs => self.fs.is_some(),
         }
     }
 }
@@ -267,6 +270,12 @@ pub struct EnvGrant {
     /// The names granted.
     pub names: BTreeSet<String>,
 }
+
+/// The fs host module's grant: its root's reach, the project's tree, to
+/// read. It names no directory: the run's roots are the host's, the
+/// project's root alone so far, and nothing is writable.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct FsGrant {}
 
 /// Why a string can't name an environment variable, as the env host
 /// module refuses it.

@@ -211,6 +211,7 @@ fn run_resolved(
             cwd: cwd.to_str().map(ToOwned::to_owned),
             runtime_version: options.runtime_version.clone(),
             env: options.env.clone(),
+            project: Some(loader.graph().roots().project().dir.clone()),
         },
         exit_step: options.exit_step,
     };

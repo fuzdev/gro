@@ -27,6 +27,11 @@
 //!
 //! And every builtin imported, deferred, and imported again: each import
 //! gets the one module.
+//!
+//! And `fs`'s confinement, which no Node case can hold: every way out of a
+//! handle and out of the run's roots refused, a special file stat'd without
+//! waiting, a forged or borrowed handle refused, a polluted `then` never
+//! adopted, and each refused reach failing the run, listed.
 
 // clippy's test allowance covers `#[test]` functions, not their helpers
 #![expect(
@@ -293,29 +298,32 @@ const TRAPPED_INDICES: std::ops::Range<u32> = 0..16;
 /// its target to strings for its message, and asks its options for a
 /// `cause`, as the Node class does. What it runs is the caller's conversions and the caller's
 /// options, and a function exported beside it runs none.
-const ARGUMENT_USES: [(&str, &[&str]); 1] = [(
-    "new @fuzdev/gro/env_error.ts EnvError",
-    &[
-        // a kind or a target converted to a string
-        "proxy.get Symbol(Symbol.toPrimitive)",
-        "proxy.get toString",
-        "proxy.get valueOf",
-        "callable.get Symbol(Symbol.toPrimitive)",
-        "callable.get toString",
-        "callable.get valueOf",
-        "getters.Symbol(Symbol.toPrimitive)",
-        "getters.toString",
-        "getters.valueOf",
-        "string[Symbol.toPrimitive]",
-        "array[Symbol.toPrimitive]",
-        // the options asked for a `cause`
-        "proxy.has cause",
-        "callable.has cause",
-        "getters.cause",
-        "string.cause",
-        "array.cause",
-    ],
-)];
+const ERROR_CLASS_USES: &[&str] = &[
+    // a kind or a target converted to a string
+    "proxy.get Symbol(Symbol.toPrimitive)",
+    "proxy.get toString",
+    "proxy.get valueOf",
+    "callable.get Symbol(Symbol.toPrimitive)",
+    "callable.get toString",
+    "callable.get valueOf",
+    "getters.Symbol(Symbol.toPrimitive)",
+    "getters.toString",
+    "getters.valueOf",
+    "string[Symbol.toPrimitive]",
+    "array[Symbol.toPrimitive]",
+    // the options asked for a `cause`
+    "proxy.has cause",
+    "callable.has cause",
+    "getters.cause",
+    "string.cause",
+    "array.cause",
+];
+
+/// [`ERROR_CLASS_USES`], by each error family's class.
+const ARGUMENT_USES: [(&str, &[&str]); 2] = [
+    ("new @fuzdev/gro/env_error.ts EnvError", ERROR_CLASS_USES),
+    ("new @fuzdev/gro/fs_error.ts FsError", ERROR_CLASS_USES),
+];
 
 /// Asserts that each of `touches`, as the patched realm reports a use of a
 /// hostile argument, `<call>: <use>`, is a use [`ARGUMENT_USES`] lists for
@@ -1095,4 +1103,267 @@ console.log(JSON.stringify(rows));
         assert_eq!(row["same"], true, "{row}");
         assert_eq!(row["values"], true, "{row}");
     }
+}
+
+/// The script [`fs_refuses_every_escape_and_forgery`] runs: each call's
+/// outcome, as a JSON line, the project's path as `{project}`.
+const FS_ESCAPES: &str = "import { fs } from '@fuzdev/gro/fs.ts';
+import { create_hasher } from '@fuzdev/gro/blake3.ts';
+const project = fs.project.path;
+const outside = process_outside();
+function process_outside() {
+\treturn project.replace(/[^/]+$/, 'fs_outside_of_it');
+}
+const show = (value) => {
+\tif (value === null || typeof value !== 'object') return typeof value === 'string' ? value.replace(project, '{project}') : value;
+\tif (typeof value.path === 'string') return { handle: value.path.replace(project, '{project}') };
+\treturn { kind: value.kind };
+};
+const how = async (call) => {
+\tlet value;
+\ttry {
+\t\tvalue = call();
+\t} catch (error) {
+\t\treturn ['threw', error.constructor.name, error.kind ?? null];
+\t}
+\tif (!(value instanceof Promise)) return ['returned', show(value)];
+\ttry {
+\t\treturn ['fulfilled', show(await value)];
+\t} catch (error) {
+\t\treturn ['rejected', error.constructor.name, error.kind ?? null];
+\t}
+};
+const dir = fs.project;
+const read_prototype = Object.getPrototypeOf(Object.getPrototypeOf(dir));
+const calls = {
+\tdot_dot: () => dir.stat('../fs_outside_of_it/f.txt'),
+\tdot_dot_back_in: () => dir.stat(`../${project.split('/').pop()}/package.json`),
+\tabsolute: () => dir.stat('/etc/hostname'),
+\tabsolute_link: () => dir.stat('to_outside/f.txt'),
+\trelative_link: () => dir.stat('climbing'),
+\tproc_link: () => dir.stat('to_proc'),
+\tproc_dir_link: () => dir.stat('to_proc_dir/status'),
+\tlink_dir: () => dir.dir('to_outside'),
+\tlink_dir_sync: () => dir.stat_sync('to_outside', { follow: false }),
+\tfifo: () => dir.stat('fifo'),
+\tfifo_exists: () => dir.exists_sync('fifo'),
+\tfifo_dir: () => dir.dir('fifo'),
+\tclone: () => read_prototype.stat.call(structuredClone(dir), 'package.json'),
+\tlook_alike: () => read_prototype.stat.call(Object.create(Object.getPrototypeOf(dir)), 'package.json'),
+\twrong_kind: () => read_prototype.stat.call(create_hasher(), 'package.json'),
+\tread_only_writes: () => Object.getPrototypeOf(dir).write.call(dir.readonly(), 'x', 'y'),
+\topen_outside: () => fs.open_dir(outside),
+\topen_missing_outside: () => fs.open_dir(`${outside}/missing`),
+\topen_dot_dot: () => fs.open_dir(`${project}/../fs_outside_of_it`),
+\topen_link_out: () => fs.open_dir(`${project}/to_outside`),
+\treal_path_link_out: () => fs.real_path(`${project}/to_outside/f.txt`),
+\twrite: () => dir.write('new.txt', 'data'),
+};
+const ended = {};
+for (const [label, call] of Object.entries(calls)) ended[label] = await how(call);
+Object.prototype.then = (resolve) => resolve('hijacked');
+ended.polluted_then = [
+\tawait dir.stat('package.json').then((info) => info.kind),
+\tawait fs.open_dir(project).then((opened) => opened.path === project),
+\tawait dir.exists('package.json').then((found) => found),
+];
+delete Object.prototype.then;
+console.log(JSON.stringify(ended));
+";
+
+/// `fs` on a project with symlinks out of it, absolute and climbing, one
+/// into `/proc`, a FIFO, and a directory beside it: every escape from a
+/// handle is `outside_root` and every reach past the project's root
+/// `not_granted`, recorded and failing the run, listed in order, a
+/// symlink out of the root among them; a FIFO is stat'd as `other` without
+/// waiting for a writer, and isn't a directory; a cloned, look-alike,
+/// other row's, or read-only handle is refused before anything is read;
+/// and a polluted `Object.prototype.then` is adopted by nothing a member
+/// settles.
+#[test]
+fn fs_refuses_every_escape_and_forgery() {
+    let project = Scratch::new(
+        "fs_escapes",
+        &[
+            // named, so it's no type marker and the project's root is here
+            (
+                "package.json",
+                "{\"name\": \"fs_escapes\", \"type\": \"module\"}\n",
+            ),
+            ("main.js", FS_ESCAPES),
+        ],
+    );
+    let outside = project.0.with_file_name("fs_outside_of_it");
+    let _ = std::fs::remove_dir_all(&outside);
+    std::fs::create_dir_all(&outside).unwrap();
+    std::fs::write(outside.join("f.txt"), "outside").unwrap();
+    std::os::unix::fs::symlink(&outside, project.0.join("to_outside")).unwrap();
+    std::os::unix::fs::symlink("../fs_outside_of_it/f.txt", project.0.join("climbing")).unwrap();
+    std::os::unix::fs::symlink("/proc/self/status", project.0.join("to_proc")).unwrap();
+    std::os::unix::fs::symlink("/proc/self", project.0.join("to_proc_dir")).unwrap();
+    let fifo = std::process::Command::new("mkfifo")
+        .arg(project.0.join("fifo"))
+        .status()
+        .unwrap();
+    assert!(fifo.success());
+    let mut command = fgro_command(&["run", "main.js"]);
+    command.env_clear().current_dir(&project.0);
+    let output = spawn(command, b"");
+    let _ = std::fs::remove_dir_all(&outside);
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    let root = project.0.display().to_string();
+    let out = outside.display().to_string();
+    assert_eq!(
+        stderr,
+        format!(
+            "error: fs refused: not_granted: {out}\n\
+             error: fs refused: not_granted: {out}/missing\n\
+             error: fs refused: not_granted: {root}/../fs_outside_of_it\n\
+             error: fs refused: not_granted: {root}/to_outside\n\
+             error: fs refused: not_granted: {root}/to_outside/f.txt\n\
+             error: fs refused: not_granted: {root}/new.txt\n\
+             error: a refusal fails the run, whether or not the program caught it\n"
+        ),
+        "{stdout}"
+    );
+    assert_eq!(output.status.code(), Some(1), "{stdout}");
+    let ended: Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(
+        ended,
+        serde_json::json!({
+            "dot_dot": ["rejected", "FsError", "outside_root"],
+            "dot_dot_back_in": ["rejected", "FsError", "outside_root"],
+            "absolute": ["rejected", "FsError", "outside_root"],
+            "absolute_link": ["rejected", "FsError", "outside_root"],
+            "relative_link": ["rejected", "FsError", "outside_root"],
+            "proc_link": ["rejected", "FsError", "outside_root"],
+            "proc_dir_link": ["rejected", "FsError", "outside_root"],
+            "link_dir": ["threw", "FsError", "outside_root"],
+            "link_dir_sync": ["returned", {"kind": "symlink"}],
+            "fifo": ["fulfilled", {"kind": "other"}],
+            "fifo_exists": ["returned", true],
+            "fifo_dir": ["threw", "FsError", "not_a_directory"],
+            "clone": ["rejected", "TypeError", null],
+            "look_alike": ["rejected", "TypeError", null],
+            "wrong_kind": ["rejected", "TypeError", null],
+            "read_only_writes": ["rejected", "TypeError", null],
+            "open_outside": ["rejected", "FsError", "not_granted"],
+            "open_missing_outside": ["rejected", "FsError", "not_granted"],
+            "open_dot_dot": ["rejected", "FsError", "not_granted"],
+            "open_link_out": ["rejected", "FsError", "not_granted"],
+            "real_path_link_out": ["rejected", "FsError", "not_granted"],
+            "write": ["rejected", "FsError", "not_granted"],
+            "polluted_then": ["file", true, true],
+        })
+    );
+}
+
+/// `fs.project` is the entry's project root, never the working directory:
+/// a run started in a subdirectory of the project, of an entry above it,
+/// reads from the project's root, and the working directory is a string
+/// with no authority.
+#[test]
+fn fs_project_is_the_entry_s_root_not_the_working_directory() {
+    let project = Scratch::new(
+        "fs_project",
+        &[
+            (
+                "package.json",
+                "{\"name\": \"fs_project\", \"type\": \"module\"}\n",
+            ),
+            (
+                "main.js",
+                "import { fs } from '@fuzdev/gro/fs.ts';\n\
+                 import { cwd } from '@fuzdev/gro/cwd.ts';\n\
+                 console.log(JSON.stringify([fs.project.path, cwd(), await fs.project.exists('main.js')]));\n",
+            ),
+            ("sub/inner.txt", ""),
+        ],
+    );
+    let mut command = fgro_command(&["run", "../main.js"]);
+    command.env_clear().current_dir(project.0.join("sub"));
+    let output = spawn(command, b"");
+    assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
+    let printed: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(
+        printed,
+        serde_json::json!([project.0.display().to_string(), project.path("sub"), true])
+    );
+}
+
+/// The script [`fs_handle_refuses_a_symlink_swapped_onto_its_path`] runs: a
+/// handle on `sub`, made before the test swaps `sub` for a symlink, then
+/// each read through it, as a JSON line.
+const FS_SWAPPED: &str = "import { fs } from '@fuzdev/gro/fs.ts';
+const sub = fs.project.dir('sub');
+console.log('ready');
+for (let waited = 0; !fs.project.exists_sync('go'); waited++) {
+\tif (waited > 3000) throw Error('the test never swapped sub');
+\tawait new Promise((resolve) => setTimeout(resolve, 10));
+}
+const how = async (call) => {
+\ttry {
+\t\treturn ['fulfilled', await call()];
+\t} catch (error) {
+\t\treturn ['rejected', error.constructor.name, error.kind ?? null];
+\t}
+};
+console.log(JSON.stringify({
+\tstat: await how(() => sub.stat('in_other.txt').then((info) => info && info.kind)),
+\texists: await how(() => sub.exists('in_sub.txt')),
+\tdir: await how(async () => sub.dir('.').path),
+\tthrough_the_root: await how(() => fs.project.stat('sub/in_other.txt').then((info) => info.kind)),
+}));
+";
+
+/// A handle holds its directory's real path, so a symlink swapped onto that
+/// path since it was made is refused as `outside_root`, never followed,
+/// even one to a directory inside the project; a path through the root
+/// still follows the same symlink, which stays inside.
+#[test]
+fn fs_handle_refuses_a_symlink_swapped_onto_its_path() {
+    use std::io::BufRead as _;
+    let project = Scratch::new(
+        "fs_swapped",
+        &[
+            (
+                "package.json",
+                "{\"name\": \"fs_swapped\", \"type\": \"module\"}\n",
+            ),
+            ("main.js", FS_SWAPPED),
+            ("sub/in_sub.txt", ""),
+            ("other/in_other.txt", ""),
+        ],
+    );
+    let mut command = fgro_command(&["run", "main.js"]);
+    command
+        .env_clear()
+        .current_dir(&project.0)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    let mut child = command.spawn().unwrap();
+    let mut stdout = std::io::BufReader::new(child.stdout.take().unwrap());
+    let mut line = String::new();
+    stdout.read_line(&mut line).unwrap();
+    assert_eq!(line, "ready\n");
+    std::fs::rename(project.0.join("sub"), project.0.join("sub_moved")).unwrap();
+    std::os::unix::fs::symlink("other", project.0.join("sub")).unwrap();
+    std::fs::write(project.0.join("go"), "").unwrap();
+    line.clear();
+    stdout.read_line(&mut line).unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
+    assert_eq!(output.status.code(), Some(0));
+    let ended: Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(
+        ended,
+        serde_json::json!({
+            "stat": ["rejected", "FsError", "outside_root"],
+            "exists": ["rejected", "FsError", "outside_root"],
+            "dir": ["rejected", "FsError", "outside_root"],
+            "through_the_root": ["fulfilled", "file"],
+        })
+    );
 }

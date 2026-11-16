@@ -17,10 +17,21 @@ import { count_replaced, disarm, report, restore_realm, show } from './realm.js'
 
 disarm();
 
+/** A row's namespace, by its specifier. */
+const namespace_of = (/** @type {string} */ specifier) =>
+	/** @type {any} */ (MODULES.find(([row]) => row === specifier))[2];
+
 /** The env error row's namespace, whose class makes the errors its guard is given. */
-const env_error = /** @type {any} */ (
-	MODULES.find(([specifier]) => specifier === '@fuzdev/gro/env_error.ts')
-)[2];
+const env_error = namespace_of('@fuzdev/gro/env_error.ts');
+
+/** The fs error row's namespace, the same for its errors. */
+const fs_error = namespace_of('@fuzdev/gro/fs_error.ts');
+
+/** The project's path, which the run reads beneath. */
+const project = namespace_of('@fuzdev/gro/fs.ts').fs.project.path;
+
+/** A path no handle reaches, refused before any grant is checked or any file read. */
+const ABOVE = '..';
 
 /**
  * The arguments each function or class a builtin exports or reaches is exercised with, by its
@@ -73,7 +84,54 @@ const EXERCISES = new Map([
 	['@fuzdev/gro/blake3.ts create_keyed_hasher(arguments 1).update', [[new Uint8Array([1])]]],
 	['@fuzdev/gro/blake3.ts create_keyed_hasher(arguments 1).finalize', []],
 	['@fuzdev/gro/blake3.ts create_derive_key_hasher(arguments 1).update', [[new Uint8Array([1])]]],
-	['@fuzdev/gro/blake3.ts create_derive_key_hasher(arguments 1).finalize', []]
+	['@fuzdev/gro/blake3.ts create_derive_key_hasher(arguments 1).finalize', []],
+	// a kind and a path, and with them the options of its cause
+	[
+		'@fuzdev/gro/fs_error.ts FsError',
+		[
+			['not_found', '/x'],
+			['not_found', '/x', { __proto__: null, cause: 1 }]
+		]
+	],
+	// an error of the class, of its kind and of another, and one that isn't
+	[
+		'@fuzdev/gro/fs_error.ts is_fs_error',
+		[
+			[new fs_error.FsError('not_found', '/x'), 'not_found'],
+			[new fs_error.FsError('not_found', '/x'), 'other'],
+			[{ __proto__: null }]
+		]
+	],
+	['@fuzdev/gro/fs_error.ts is_own_fs_error', [[new fs_error.FsError('not_found', '/x')]]],
+	// the project's directory and a file in it, which the run reads
+	['@fuzdev/gro/fs.ts fs.open_dir', [[project]]],
+	['@fuzdev/gro/fs.ts fs.real_path', [[`${project}/package.json`]]],
+	['@fuzdev/gro/fs.ts fs.temp_dir', []],
+	// a file, a missing path and a final link kept, and a directory, beneath the project
+	['@fuzdev/gro/fs.ts fs.project.stat', [['package.json'], ['missing', { follow: false }]]],
+	['@fuzdev/gro/fs.ts fs.project.stat_sync', [['package.json'], ['missing', { follow: false }]]],
+	['@fuzdev/gro/fs.ts fs.project.exists', [['package.json']]],
+	['@fuzdev/gro/fs.ts fs.project.exists_sync', [['package.json']]],
+	['@fuzdev/gro/fs.ts fs.project.dir', [['.']]],
+	['@fuzdev/gro/fs.ts fs.project.readonly', []],
+	// the reads not built, refused whatever they're given
+	['@fuzdev/gro/fs.ts fs.project.read', [['package.json']]],
+	['@fuzdev/gro/fs.ts fs.project.read_text', [['package.json']]],
+	['@fuzdev/gro/fs.ts fs.project.read_if_exists', [['package.json']]],
+	['@fuzdev/gro/fs.ts fs.project.read_text_if_exists', [['package.json']]],
+	['@fuzdev/gro/fs.ts fs.project.read_text_sync', [['package.json']]],
+	['@fuzdev/gro/fs.ts fs.project.read_link', [['package.json']]],
+	['@fuzdev/gro/fs.ts fs.project.list', []],
+	// each write given a path above the handle, refused before the grant it lacks, which
+	// would fail the run
+	['@fuzdev/gro/fs.ts fs.project.write', [[ABOVE, 'data']]],
+	['@fuzdev/gro/fs.ts fs.project.mkdir', [[ABOVE]]],
+	['@fuzdev/gro/fs.ts fs.project.remove', [[ABOVE]]],
+	['@fuzdev/gro/fs.ts fs.project.rename', [[ABOVE, 'x']]],
+	['@fuzdev/gro/fs.ts fs.project.copy', [[ABOVE, 'x']]],
+	['@fuzdev/gro/fs.ts fs.project.set_times', [[ABOVE, { mtime_ms: 0 }]]],
+	['@fuzdev/gro/fs.ts fs.project.set_mode', [[ABOVE, 0o644]]],
+	['@fuzdev/gro/fs.ts fs.project.symlink', [[ABOVE, 'x']]]
 ]);
 
 /** How far into an export's properties and its calls' results the functions are looked for. */
@@ -94,4 +152,5 @@ for (const [specifier, exports, namespace] of MODULES) {
 
 const replaced = count_replaced();
 restore_realm();
+await exerciser.settle();
 report('done', { replaced, unused: exerciser.unused() });

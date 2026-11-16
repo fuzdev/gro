@@ -37,6 +37,8 @@ pub enum Capability {
     Exit,
     /// The env host module's: the environment variables it names.
     Env,
+    /// The fs host module's: the directories its root reaches.
+    Fs,
 }
 
 impl fmt::Display for Capability {
@@ -45,6 +47,7 @@ impl fmt::Display for Capability {
             Self::Args => "args",
             Self::Exit => "exit",
             Self::Env => "env",
+            Self::Fs => "fs",
         })
     }
 }
@@ -104,6 +107,16 @@ macro_rules! builtin_rows {
                     "create_derive_key_hasher"
                 ]
             ),
+            $row!(
+                "@fuzdev/gro/fs_error.ts",
+                None,
+                ["FsError", "is_fs_error", "is_own_fs_error"]
+            ),
+            $row!(
+                "@fuzdev/gro/fs.ts",
+                Some($crate::resolver::Capability::Fs),
+                ["fs"]
+            ),
         ]
     };
 }
@@ -146,8 +159,6 @@ pub fn find_builtin(specifier: &str) -> Option<&'static Builtin> {
 /// host's, so none resolves to the package's copy before its row lands. A
 /// module joins the table's rows when it's built, and leaves this list.
 pub const UNBUILT_HOST_MODULES: &[&str] = &[
-    "@fuzdev/gro/fs",
-    "@fuzdev/gro/fs_error",
     "@fuzdev/gro/spawn",
     "@fuzdev/gro/spawn_error",
     "@fuzdev/gro/net",

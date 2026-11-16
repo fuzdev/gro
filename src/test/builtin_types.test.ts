@@ -36,9 +36,11 @@ and a value export is a class when it's declared one or is a constructor, a func
 a call signature, a handle when its type is one of those interfaces, and data otherwise. A
 kind's members are the interface's own and those it inherits from an interface that is no kind
 of the module's (`AsyncDisposable`), never one a kind it extends declares, which that kind's
-prototype holds; a member that isn't a method is the handle's own data, which the table has no
-place for, so it's on Node only. A class is held by its kind alone: its constructor and
-instances are the host's error class's, which the differential cases hold.
+prototype holds; a member that isn't a method is data of the kind, a handle when its type is one
+of those interfaces (`fs.project`), which the table pins as `data of <kind>`: a value of a
+record kind's one object, or a field each handle of the kind holds (`FsReadDir`'s `path`). A class
+is held by its kind alone: its constructor and instances are the host's error class's, which the
+differential cases hold.
 
 The rows are read from the builtin table's source, never listed here, so a row can't join the
 table without its Node module being compared.
@@ -76,10 +78,9 @@ const read_builtin_rows = (): Array<BuiltinRow> => {
 
 /**
  * A row's members, each by where it goes and its name (`export args`,
- * `method of @fuzdev/gro/env.ts#Env get`, and on the Node side a handle's own data,
- * `data of <kind> <name>`), with what it is: `function <length>` (the Node side's
- * `function <least>..<most>` when its declarations allow more than one), `data`,
- * `handle <kind>`, or `class`.
+ * `method of @fuzdev/gro/env.ts#Env get`, `data of @fuzdev/gro/fs.ts#FsReadDir path`), with
+ * what it is: `function <length>` (the Node side's `function <least>..<most>` when its
+ * declarations allow more than one), `data`, `handle <kind>`, or `class`.
  */
 type Members = Map<string, string>;
 
@@ -251,10 +252,13 @@ const read_node_members = (program: ts.Program, row: BuiltinRow): Members => {
 			// a member a kind it extends declares is that kind's
 			if (from && from !== symbol && kinds.has(from)) continue;
 			const name = checker.symbolToString(property);
+			const property_type = checker.getTypeOfSymbol(property);
 			if (is_method(property)) {
-				members.set(`method of ${kind} ${name}`, to_function(checker.getTypeOfSymbol(property)));
+				members.set(`method of ${kind} ${name}`, to_function(property_type));
 			} else {
-				members.set(`data of ${kind} ${name}`, 'data');
+				const type_symbol = property_type.aliasSymbol ?? property_type.getSymbol();
+				const of_kind = type_symbol && kinds.get(type_symbol);
+				members.set(`data of ${kind} ${name}`, of_kind ? `handle ${of_kind}` : 'data');
 			}
 		}
 	}
@@ -325,7 +329,7 @@ describe('the builtin table', () => {
 			'a pinned member of no row'
 		);
 		// each kind of member and of difference the checks below mutate is among them
-		for (const name of ['cwd', 'exit', 'env', 'env_error', 'blake3', 'pid']) {
+		for (const name of ['cwd', 'exit', 'env', 'env_error', 'blake3', 'pid', 'fs']) {
 			assert.ok(
 				rows.some((row) => row.name === name),
 				name
@@ -478,7 +482,7 @@ describe('a mismatch fails, naming the member', () => {
 	});
 
 	test("a kind's members are its own", () => {
-		// a member a kind it extends declares is that kind's, and data on a handle is Node's only
+		// a member a kind it extends declares is that kind's, and data the table lacks is Node's only
 		assert_differences(
 			'env',
 			'node',
@@ -492,6 +496,23 @@ describe('a mismatch fails, naming the member', () => {
 			'\tget_all(): Readonly<Record<string, string>>;\n',
 			'\tget_all(): Readonly<Record<string, string>>;\n\treadonly size: number;\n',
 			['data of @fuzdev/gro/env.ts#Env size (data) is on Node only']
+		);
+		// a field each handle holds, and a datum of a record kind that is a handle of a kind
+		assert_differences(
+			'fs',
+			'fgro',
+			'@fuzdev/gro/fs.ts path data of @fuzdev/gro/fs.ts#FsReadDir data grant fs\n',
+			'',
+			['data of @fuzdev/gro/fs.ts#FsReadDir path (data) is on Node only']
+		);
+		assert_differences(
+			'fs',
+			'node',
+			'\treadonly project: FsDir;\n',
+			'\treadonly project: FsReadDir;\n',
+			[
+				'data of @fuzdev/gro/fs.ts#Fs project is handle @fuzdev/gro/fs.ts#FsDir on fgro, handle @fuzdev/gro/fs.ts#FsReadDir on Node'
+			]
 		);
 	});
 

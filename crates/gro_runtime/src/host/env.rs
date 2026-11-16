@@ -215,7 +215,7 @@ fn make<'s>(
     let null = v8::null(scope).into();
     let held = v8::Object::with_prototype_and_properties(scope, null, &keys, &[vars.into(), names]);
     held.set_integrity_level(scope, v8::IntegrityLevel::Frozen)?;
-    handle::make(scope, &ENV_HANDLE, prototype, held.into())
+    handle::make(scope, &ENV_HANDLE, prototype, held.into(), &[])
 }
 
 /// Throws `not_granted` of `errors`, `EnvError`'s family, for `name` when
@@ -260,7 +260,7 @@ fn check_granted<'s>(
     // pending
     let root = is_root(state, scope, handle.object);
     let text = name.to_rust_string_lossy(scope);
-    classes.throw(scope, errors, NOT_GRANTED, name);
+    classes.throw(scope, errors, NOT_GRANTED, name, None);
     // recorded as it's thrown, so the run fails whatever the program does
     // with the error; the name, never a value
     let message = format!("{NOT_GRANTED}: {text}");

@@ -847,7 +847,7 @@ fn each_rule_s_refusal_of_a_caught_import_fails_the_run() {
         ),
         (
             "reserved.js",
-            caught("'@fuzdev/gro/fs.ts'"),
+            caught("'@fuzdev/gro/net.ts'"),
             "it names Gro's host module",
         ),
         (

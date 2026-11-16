@@ -86,6 +86,18 @@ fn the_table_is_pinned() {
                     "create_derive_key_hasher"
                 ][..],
             ),
+            (
+                "@fuzdev/gro/fs_error.ts",
+                "builtin:@fuzdev/gro/fs_error.ts",
+                None,
+                &["FsError", "is_fs_error", "is_own_fs_error"][..],
+            ),
+            (
+                "@fuzdev/gro/fs.ts",
+                "builtin:@fuzdev/gro/fs.ts",
+                Some(Capability::Fs),
+                &["fs"][..],
+            ),
         ]
     );
 }
@@ -266,10 +278,14 @@ fn the_reserved_specifiers_are_pinned() {
             "@fuzdev/gro/blake3.js",
             Some(Reserved::JsSpelling(&BUILTINS[7])),
         ),
-        ("@fuzdev/gro/fs.ts", unbuilt("@fuzdev/gro/fs")),
-        ("@fuzdev/gro/fs.js", unbuilt("@fuzdev/gro/fs")),
-        ("@fuzdev/gro/fs_error.ts", unbuilt("@fuzdev/gro/fs_error")),
-        ("@fuzdev/gro/fs_error.js", unbuilt("@fuzdev/gro/fs_error")),
+        (
+            "@fuzdev/gro/fs_error.js",
+            Some(Reserved::JsSpelling(&BUILTINS[8])),
+        ),
+        (
+            "@fuzdev/gro/fs.js",
+            Some(Reserved::JsSpelling(&BUILTINS[9])),
+        ),
         ("@fuzdev/gro/spawn.ts", unbuilt("@fuzdev/gro/spawn")),
         ("@fuzdev/gro/spawn.js", unbuilt("@fuzdev/gro/spawn")),
         (
@@ -393,12 +409,12 @@ fn a_reserved_specifier_is_refused_reading_nothing() {
         "/p/node_modules/@fuzdev/gro/package.json",
         r#"{"name": "@fuzdev/gro", "type": "module", "exports": {"./*.ts": "./*.ts", "./*.js": "./*.ts"}}"#,
     );
-    files.insert("/p/fs.ts", "");
-    files.insert("/p/fs_error.ts", "");
+    files.insert("/p/net.ts", "");
+    files.insert("/p/net_error.ts", "");
     files.insert("/p/fs_search.ts", "");
     files.insert("/p/process.ts", "");
     files.insert("/p/process_error.ts", "");
-    files.insert("/p/node_modules/@fuzdev/gro/fs.ts", "");
+    files.insert("/p/node_modules/@fuzdev/gro/net.ts", "");
     files.insert("/p/node_modules/@fuzdev/gro/process.ts", "");
     let tree = MemoryTree {
         files,
@@ -433,23 +449,23 @@ fn a_reserved_specifier_is_refused_reading_nothing() {
                  so it never resolves to a package. Fix: import '@fuzdev/gro/args.ts'",
             ),
             (
-                "@fuzdev/gro/fs.ts",
-                Reserved::Unbuilt("@fuzdev/gro/fs"),
-                "it names Gro's host module '@fuzdev/gro/fs.ts', which isn't on fgro yet, and a \
+                "@fuzdev/gro/net.ts",
+                Reserved::Unbuilt("@fuzdev/gro/net"),
+                "it names Gro's host module '@fuzdev/gro/net.ts', which isn't on fgro yet, and a \
                  host module's specifier never resolves to a package. Fix: run this under Node \
                  with gro",
             ),
             (
-                "@fuzdev/gro/fs.js",
-                Reserved::Unbuilt("@fuzdev/gro/fs"),
-                "it names Gro's host module '@fuzdev/gro/fs.ts', which isn't on fgro yet, and a \
+                "@fuzdev/gro/net.js",
+                Reserved::Unbuilt("@fuzdev/gro/net"),
+                "it names Gro's host module '@fuzdev/gro/net.ts', which isn't on fgro yet, and a \
                  host module's specifier never resolves to a package. Fix: run this under Node \
                  with gro",
             ),
             (
-                "@fuzdev/gro/fs_error.ts",
-                Reserved::Unbuilt("@fuzdev/gro/fs_error"),
-                "it names Gro's host module '@fuzdev/gro/fs_error.ts', which isn't on fgro yet, \
+                "@fuzdev/gro/net_error.ts",
+                Reserved::Unbuilt("@fuzdev/gro/net_error"),
+                "it names Gro's host module '@fuzdev/gro/net_error.ts', which isn't on fgro yet, \
                  and a host module's specifier never resolves to a package. Fix: run this under \
                  Node with gro",
             ),
@@ -501,7 +517,8 @@ fn a_reserved_specifier_is_refused_reading_nothing() {
 #[test]
 fn a_respelled_specifier_is_reserved() {
     let args = &BUILTINS[0];
-    let fs = Reserved::Unbuilt("@fuzdev/gro/fs");
+    let fs = Reserved::Respelled(&BUILTINS[9]);
+    let fs_js = Reserved::JsSpelling(&BUILTINS[9]);
     let process = Reserved::Split(&SPLIT_MODULES[0]);
     let process_error = Reserved::Split(&SPLIT_MODULES[1]);
     let cases = [
@@ -524,7 +541,7 @@ fn a_respelled_specifier_is_reserved() {
         (
             "fs_error.ts?x",
             "fs_error.ts",
-            Reserved::Unbuilt("@fuzdev/gro/fs_error"),
+            Reserved::Respelled(&BUILTINS[8]),
         ),
         (
             "stdio_error.ts?x",
@@ -532,10 +549,10 @@ fn a_respelled_specifier_is_reserved() {
             Reserved::Unbuilt("@fuzdev/gro/stdio_error"),
         ),
         ("f%73.ts", "fs.ts", fs),
-        ("f%73.js", "fs.js", fs),
+        ("f%73.js", "fs.js", fs_js),
         ("fs%2ets", "fs.ts", fs),
-        ("fs.js#.ts", "fs.js", fs),
-        ("fs.js?.ts", "fs.js", fs),
+        ("fs.js#.ts", "fs.js", fs_js),
+        ("fs.js?.ts", "fs.js", fs_js),
         ("fs.ts?x", "fs.ts", fs),
         ("f\ts.ts", "fs.ts", fs),
         ("fs.ts\n", "fs.ts", fs),
@@ -648,7 +665,7 @@ fn a_respelled_specifier_is_refused_reading_nothing() {
                 "@fuzdev/gro/args.js#.ts",
                 Reserved::JsSpelling(&BUILTINS[0]),
             ),
-            ("@fuzdev/gro/f%73.ts", Reserved::Unbuilt("@fuzdev/gro/fs")),
+            ("@fuzdev/gro/f%73.ts", Reserved::Respelled(&BUILTINS[9])),
             (
                 "@fuzdev/gro/proces%73.ts",
                 Reserved::Split(&SPLIT_MODULES[0]),

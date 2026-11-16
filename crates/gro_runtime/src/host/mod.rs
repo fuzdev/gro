@@ -27,6 +27,7 @@ pub mod blake3;
 pub mod env;
 pub mod error_class;
 pub mod exit;
+pub mod fs;
 mod grant;
 pub mod handle;
 pub mod native;
@@ -34,14 +35,14 @@ pub mod native;
 use deno_core::error::ModuleLoaderError as JsErrorBox;
 use deno_core::{OpDecl, OpState, op2, v8};
 
-use error_class::{ENV_ERROR, ErrorClasses};
+use error_class::{ENV_ERROR, ErrorClasses, FS_ERROR};
 use exit::{ExitState, NOT_A_CODE, to_exit_code};
 use grant::require_authority;
-use handle::{BLAKE3_HASHER, ENV_HANDLE};
+use handle::{BLAKE3_HASHER, ENV_HANDLE, FS_DIR, FS_READ_DIR, FS_ROOT};
 use native::native_members;
 
 use crate::loader::RefusalLog;
-use crate::{ArgsGrant, EnvGrant, EnvVars, ExitGrant};
+use crate::{ArgsGrant, EnvGrant, EnvVars, ExitGrant, FsGrant};
 
 /// What `exit`'s functions throw in a runtime started without the exit
 /// host module's state, which only a runtime made outside a run's start is: a
@@ -73,6 +74,9 @@ pub struct HostData {
     /// The environment variables the embedder read for the env host
     /// module's root handle, of which it holds the names the run grants.
     pub env: EnvVars,
+    /// The project's root, the entry's, a real path: the fs host module's
+    /// first root, opened when the run first makes the fs namespace.
+    pub project: Option<std::path::PathBuf>,
 }
 
 /// Declares host ops, each an `#[op2]` whose first step is
@@ -122,9 +126,11 @@ macro_rules! host_ops {
 
 /// Throws `message` as a `TypeError` through `scope`, for a value an op
 /// refuses: the realm's own, made by V8 from its intrinsic, whatever
-/// `globalThis.TypeError` has become.
+/// `globalThis.TypeError` has become; a `RangeError` when `message` is
+/// longer than V8's longest string, as [`string`] throws, so a throw is
+/// never lost.
 pub fn throw_type_error(scope: &v8::PinScope<'_, '_>, message: &str) {
-    if let Some(message) = v8::String::new(scope, message) {
+    if let Some(message) = string(scope, message) {
         let error = v8::Exception::type_error(scope, message);
         scope.throw_exception(error);
     }
@@ -140,9 +146,9 @@ pub fn throw_range_error(scope: &v8::PinScope<'_, '_>, message: &str) {
 }
 
 /// Throws `message` as an `Error` through `scope`, the realm's own, as
-/// [`throw_type_error`] throws a `TypeError`.
+/// [`throw_type_error`] throws a `TypeError`, a `RangeError` as it does.
 pub fn throw_error(scope: &v8::PinScope<'_, '_>, message: &str) {
-    if let Some(message) = v8::String::new(scope, message) {
+    if let Some(message) = string(scope, message) {
         let error = v8::Exception::error(scope, message);
         scope.throw_exception(error);
     }
@@ -353,5 +359,214 @@ native_members! {
     /// `hasher.finalize()`, called on `hasher` ([`blake3::finalize`]).
     fn finalize(state; scope) for "@fuzdev/gro/blake3.ts" on BLAKE3_HASHER(hasher) {
         blake3::finalize(state, scope, hasher)
+    }
+
+    /// `FsError`, the fs host module's error class, the host's
+    /// ([`ErrorClasses::class`]), extending the realm's `Error` the
+    /// namespace op held.
+    value FsError(state; scope) for "@fuzdev/gro/fs_error.ts" class FS_ERROR(family) {
+        let Some(classes) = state.try_borrow::<ErrorClasses>() else {
+            throw_error(scope, NO_ERROR_CLASSES);
+            return None;
+        };
+        classes.class(scope, family).map(Into::into)
+    }
+
+    /// `is_fs_error(error, kind?)`, whether `error` is an `FsError`, of
+    /// `kind` when it's given ([`error_class::is_of_family`]).
+    fn is_fs_error(state; scope, error, kind) for "@fuzdev/gro/fs_error.ts" {
+        let found = error_class::is_of_family(scope, &FS_ERROR, error, kind).ok()?;
+        Some(v8::Boolean::new(scope, found).into())
+    }
+
+    /// `is_own_fs_error(value)`, whether `value` is an `FsError` the host
+    /// made, by its brand ([`error_class::is_own`]).
+    fn is_own_fs_error(state; scope, value) for "@fuzdev/gro/fs_error.ts" {
+        let found = error_class::is_own(scope, &FS_ERROR, value);
+        Some(v8::Boolean::new(scope, found).into())
+    }
+
+    /// `fs`, the root: the record of its members, the host's, of no handle.
+    value fs(state, _granted: FsGrant; scope) for "@fuzdev/gro/fs.ts" handle FS_ROOT(root) {
+        Some(root.into())
+    }
+
+    /// `fs.project`, an `FsDir` on the project's root ([`fs::project`]).
+    value project(state, _granted: FsGrant; scope) for "@fuzdev/gro/fs.ts" on FS_ROOT
+        handle FS_DIR(prototype)
+    {
+        fs::project(state, scope, prototype)
+    }
+
+    /// `fs.open_dir(path)` ([`fs::open_dir`]).
+    async open_dir(state, _granted: FsGrant; scope, path) for "@fuzdev/gro/fs.ts" on FS_ROOT
+        throws FS_ERROR(errors)
+    {
+        fs::open_dir(state, scope, path, errors)
+    }
+
+    /// `fs.real_path(path)` ([`fs::real_path`]).
+    async real_path(state, _granted: FsGrant; scope, path) for "@fuzdev/gro/fs.ts" on FS_ROOT
+        throws FS_ERROR(errors)
+    {
+        fs::real_path(state, scope, path, errors)
+    }
+
+    /// `fs.temp_dir(prefix?)`, not built ([`fs::unbuilt`]).
+    async temp_dir(state, _granted: FsGrant; scope) for "@fuzdev/gro/fs.ts" on FS_ROOT {
+        fs::unbuilt(state, scope, "temp_dir", None)
+    }
+
+    /// `dir.dir(path)`, called on `handle`, an `FsReadDir`
+    /// ([`fs::dir`]).
+    fn dir(state, _granted: FsGrant; scope, path) for "@fuzdev/gro/fs.ts" on FS_READ_DIR(handle)
+        throws FS_ERROR(errors)
+    {
+        fs::dir(state, scope, &FS_READ_DIR, handle, path, errors)
+    }
+
+    /// `dir.stat(path, options?)`, called on `handle` ([`fs::stat`]).
+    async stat(state, _granted: FsGrant; scope, path, options) for "@fuzdev/gro/fs.ts"
+        on FS_READ_DIR(handle) throws FS_ERROR(errors)
+    {
+        fs::stat(state, scope, handle, path, options, errors)
+    }
+
+    /// `dir.exists(path)`, called on `handle` ([`fs::exists`]).
+    async exists(state, _granted: FsGrant; scope, path) for "@fuzdev/gro/fs.ts"
+        on FS_READ_DIR(handle) throws FS_ERROR(errors)
+    {
+        fs::exists(state, scope, handle, path, errors)
+    }
+
+    /// `dir.read(path)`, not built ([`fs::unbuilt`]).
+    async read(state, _granted: FsGrant; scope, _path) for "@fuzdev/gro/fs.ts"
+        on FS_READ_DIR(handle)
+    {
+        fs::unbuilt(state, scope, "read", Some((&FS_READ_DIR, handle)))
+    }
+
+    /// `dir.read_text(path)`, not built ([`fs::unbuilt`]).
+    async read_text(state, _granted: FsGrant; scope, _path) for "@fuzdev/gro/fs.ts"
+        on FS_READ_DIR(handle)
+    {
+        fs::unbuilt(state, scope, "read_text", Some((&FS_READ_DIR, handle)))
+    }
+
+    /// `dir.read_if_exists(path)`, not built ([`fs::unbuilt`]).
+    async read_if_exists(state, _granted: FsGrant; scope, _path) for "@fuzdev/gro/fs.ts"
+        on FS_READ_DIR(handle)
+    {
+        fs::unbuilt(state, scope, "read_if_exists", Some((&FS_READ_DIR, handle)))
+    }
+
+    /// `dir.read_text_if_exists(path)`, not built ([`fs::unbuilt`]).
+    async read_text_if_exists(state, _granted: FsGrant; scope, _path) for "@fuzdev/gro/fs.ts"
+        on FS_READ_DIR(handle)
+    {
+        fs::unbuilt(state, scope, "read_text_if_exists", Some((&FS_READ_DIR, handle)))
+    }
+
+    /// `dir.list(path?)`, not built, which throws where the Node module's
+    /// returns its iterable ([`fs::unbuilt`]).
+    fn list(state, _granted: FsGrant; scope) for "@fuzdev/gro/fs.ts" on FS_READ_DIR(handle) {
+        fs::unbuilt(state, scope, "list", Some((&FS_READ_DIR, handle)))
+    }
+
+    /// `dir.read_link(path)`, not built ([`fs::unbuilt`]).
+    async read_link(state, _granted: FsGrant; scope, _path) for "@fuzdev/gro/fs.ts"
+        on FS_READ_DIR(handle)
+    {
+        fs::unbuilt(state, scope, "read_link", Some((&FS_READ_DIR, handle)))
+    }
+
+    /// `dir.stat_sync(path, options?)`, called on `handle` ([`fs::stat`]).
+    fn stat_sync(state, _granted: FsGrant; scope, path, options) for "@fuzdev/gro/fs.ts"
+        on FS_READ_DIR(handle) throws FS_ERROR(errors)
+    {
+        fs::stat(state, scope, handle, path, options, errors)
+    }
+
+    /// `dir.exists_sync(path)`, called on `handle` ([`fs::exists`]).
+    fn exists_sync(state, _granted: FsGrant; scope, path) for "@fuzdev/gro/fs.ts"
+        on FS_READ_DIR(handle) throws FS_ERROR(errors)
+    {
+        fs::exists(state, scope, handle, path, errors)
+    }
+
+    /// `dir.read_text_sync(path)`, not built ([`fs::unbuilt`]).
+    fn read_text_sync(state, _granted: FsGrant; scope, _path) for "@fuzdev/gro/fs.ts"
+        on FS_READ_DIR(handle)
+    {
+        fs::unbuilt(state, scope, "read_text_sync", Some((&FS_READ_DIR, handle)))
+    }
+
+    /// `dir.dir(path)`, called on `handle`, an `FsDir` ([`fs::dir`]).
+    fn dir(state, _granted: FsGrant; scope, path) for "@fuzdev/gro/fs.ts" on FS_DIR(handle)
+        throws FS_ERROR(errors)
+    {
+        fs::dir(state, scope, &FS_DIR, handle, path, errors)
+    }
+
+    /// `dir.readonly()`, called on `handle` ([`fs::readonly`]).
+    fn readonly(state, _granted: FsGrant; scope) for "@fuzdev/gro/fs.ts" on FS_DIR(handle) {
+        fs::readonly(state, scope, handle)
+    }
+
+    /// `dir.write(path, data, options?)`, refused ([`fs::refuse_write`]).
+    async write(state, _granted: FsGrant; scope, path, _data, _options) for "@fuzdev/gro/fs.ts"
+        on FS_DIR(handle) throws FS_ERROR(errors)
+    {
+        fs::refuse_write(state, scope, handle, &[path], errors)
+    }
+
+    /// `dir.mkdir(path, options?)`, refused ([`fs::refuse_write`]).
+    async mkdir(state, _granted: FsGrant; scope, path, _options) for "@fuzdev/gro/fs.ts"
+        on FS_DIR(handle) throws FS_ERROR(errors)
+    {
+        fs::refuse_write(state, scope, handle, &[path], errors)
+    }
+
+    /// `dir.remove(path, options?)`, refused ([`fs::refuse_write`]).
+    async remove(state, _granted: FsGrant; scope, path, _options) for "@fuzdev/gro/fs.ts"
+        on FS_DIR(handle) throws FS_ERROR(errors)
+    {
+        fs::refuse_write(state, scope, handle, &[path], errors)
+    }
+
+    /// `dir.rename(from, to)`, refused ([`fs::refuse_write`]).
+    async rename(state, _granted: FsGrant; scope, from, to) for "@fuzdev/gro/fs.ts"
+        on FS_DIR(handle) throws FS_ERROR(errors)
+    {
+        fs::refuse_write(state, scope, handle, &[from, to], errors)
+    }
+
+    /// `dir.copy(from, to, options?)`, refused ([`fs::refuse_write`]).
+    async copy(state, _granted: FsGrant; scope, from, to, _options) for "@fuzdev/gro/fs.ts"
+        on FS_DIR(handle) throws FS_ERROR(errors)
+    {
+        fs::refuse_write(state, scope, handle, &[from, to], errors)
+    }
+
+    /// `dir.set_times(path, times, options?)`, refused
+    /// ([`fs::refuse_write`]).
+    async set_times(state, _granted: FsGrant; scope, path, _times, _options)
+        for "@fuzdev/gro/fs.ts" on FS_DIR(handle) throws FS_ERROR(errors)
+    {
+        fs::refuse_write(state, scope, handle, &[path], errors)
+    }
+
+    /// `dir.set_mode(path, mode)`, refused ([`fs::refuse_write`]).
+    async set_mode(state, _granted: FsGrant; scope, path, _mode) for "@fuzdev/gro/fs.ts"
+        on FS_DIR(handle) throws FS_ERROR(errors)
+    {
+        fs::refuse_write(state, scope, handle, &[path], errors)
+    }
+
+    /// `dir.symlink(path, target)`, refused ([`fs::refuse_write`]).
+    async symlink(state, _granted: FsGrant; scope, path, _target) for "@fuzdev/gro/fs.ts"
+        on FS_DIR(handle) throws FS_ERROR(errors)
+    {
+        fs::refuse_write(state, scope, handle, &[path], errors)
     }
 }

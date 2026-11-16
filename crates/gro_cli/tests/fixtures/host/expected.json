@@ -2641,5 +2641,2579 @@
 			],
 			"borrowed": true
 		}
+	},
+	"fs_error": {
+		"code": 0,
+		"output": {
+			"namespace": {
+				"type": "object",
+				"prototype": null,
+				"frozen": false,
+				"own": {
+					"FsError": {
+						"type": "function",
+						"writable": true,
+						"enumerable": true,
+						"configurable": false
+					},
+					"is_fs_error": {
+						"type": "function",
+						"writable": true,
+						"enumerable": true,
+						"configurable": false
+					},
+					"is_own_fs_error": {
+						"type": "function",
+						"writable": true,
+						"enumerable": true,
+						"configurable": false
+					},
+					"Symbol(Symbol.toStringTag)": {
+						"type": "string",
+						"writable": false,
+						"enumerable": false,
+						"configurable": false
+					}
+				}
+			},
+			"class": {
+				"type": "function",
+				"prototype": "other",
+				"frozen": true,
+				"own": {
+					"length": {
+						"type": "number",
+						"writable": false,
+						"enumerable": false,
+						"configurable": false
+					},
+					"name": {
+						"type": "string",
+						"writable": false,
+						"enumerable": false,
+						"configurable": false
+					},
+					"prototype": {
+						"type": "object",
+						"writable": false,
+						"enumerable": false,
+						"configurable": false
+					}
+				}
+			},
+			"class_name": "FsError",
+			"class_length": 3,
+			"prototype": {
+				"type": "object",
+				"prototype": "other",
+				"frozen": true,
+				"own": {
+					"constructor": {
+						"type": "function",
+						"writable": false,
+						"enumerable": false,
+						"configurable": false
+					}
+				}
+			},
+			"extends_error": true,
+			"prototype_extends_error": true,
+			"constructor_is_the_class": true,
+			"instance": {
+				"type": "object",
+				"prototype": "other",
+				"frozen": false,
+				"own": {
+					"message": {
+						"type": "string",
+						"writable": true,
+						"enumerable": false,
+						"configurable": true
+					},
+					"name": {
+						"type": "string",
+						"writable": true,
+						"enumerable": true,
+						"configurable": true
+					},
+					"kind": {
+						"type": "string",
+						"writable": true,
+						"enumerable": true,
+						"configurable": true
+					},
+					"path": {
+						"type": "string",
+						"writable": true,
+						"enumerable": true,
+						"configurable": true
+					}
+				}
+			},
+			"instance_of_the_class": true,
+			"instance_of_error": true,
+			"is_error": true,
+			"tag": "[object Error]",
+			"message": "not_found: /x",
+			"name": "FsError",
+			"kind": "not_found",
+			"path": "/x",
+			"string": "FsError: not_found: /x",
+			"has_cause": false,
+			"stack_head": "FsError: not_found: /x",
+			"stack_has_a_frame": true,
+			"caught_is_the_error": true,
+			"custom": {
+				"type": "object",
+				"prototype": "other",
+				"frozen": false,
+				"own": {
+					"message": {
+						"type": "string",
+						"writable": true,
+						"enumerable": false,
+						"configurable": true
+					},
+					"cause": {
+						"type": "string",
+						"writable": true,
+						"enumerable": false,
+						"configurable": true
+					},
+					"name": {
+						"type": "string",
+						"writable": true,
+						"enumerable": true,
+						"configurable": true
+					},
+					"kind": {
+						"type": "string",
+						"writable": true,
+						"enumerable": true,
+						"configurable": true
+					},
+					"path": {
+						"type": "string",
+						"writable": true,
+						"enumerable": true,
+						"configurable": true
+					}
+				}
+			},
+			"custom_message": "not_found: /x",
+			"custom_cause": "why",
+			"string_options": {
+				"message": "not_found: /x",
+				"has_cause": false
+			},
+			"null_options": {
+				"message": "not_found: /x",
+				"has_cause": false
+			},
+			"getter_cause": "got",
+			"no_options_cause": false,
+			"converted_message": "hostile: hostile",
+			"converted_kind_kept": true,
+			"message_past_the_longest_string": "RangeError",
+			"symbol_kind": "TypeError",
+			"symbol_target": "TypeError",
+			"symbol_options": {
+				"message": "not_found: y",
+				"has_cause": false
+			},
+			"clone": {
+				"tag": "[object Error]",
+				"name": "Error",
+				"message": "not_found: /x",
+				"has_kind": false,
+				"is_an_error": true,
+				"is_an_env_error": false
+			},
+			"json": "{\"name\":\"FsError\",\"kind\":\"not_found\",\"path\":\"/x\"}",
+			"call_without_new": "TypeError",
+			"subclass": {
+				"instance_of_sub": true,
+				"instance_of_the_class": true,
+				"extra": 1,
+				"kind": "not_found",
+				"prototype_is_subs": true,
+				"own": {
+					"type": "object",
+					"prototype": "other",
+					"frozen": false,
+					"own": {
+						"message": {
+							"type": "string",
+							"writable": true,
+							"enumerable": false,
+							"configurable": true
+						},
+						"name": {
+							"type": "string",
+							"writable": true,
+							"enumerable": true,
+							"configurable": true
+						},
+						"kind": {
+							"type": "string",
+							"writable": true,
+							"enumerable": true,
+							"configurable": true
+						},
+						"path": {
+							"type": "string",
+							"writable": true,
+							"enumerable": true,
+							"configurable": true
+						},
+						"extra": {
+							"type": "number",
+							"writable": true,
+							"enumerable": true,
+							"configurable": true
+						}
+					}
+				}
+			},
+			"class_frozen_against_set_prototype": "TypeError",
+			"class_write": "TypeError",
+			"prototype_write": "TypeError",
+			"guard": {
+				"type": "function",
+				"prototype": "Function.prototype",
+				"frozen": false,
+				"own": {
+					"length": {
+						"type": "number",
+						"writable": false,
+						"enumerable": false,
+						"configurable": true
+					},
+					"name": {
+						"type": "string",
+						"writable": false,
+						"enumerable": false,
+						"configurable": true
+					}
+				}
+			},
+			"guard_name": "is_fs_error",
+			"guard_length": 2,
+			"guard_new": "TypeError",
+			"own_guard": {
+				"type": "function",
+				"prototype": "Function.prototype",
+				"frozen": false,
+				"own": {
+					"length": {
+						"type": "number",
+						"writable": false,
+						"enumerable": false,
+						"configurable": true
+					},
+					"name": {
+						"type": "string",
+						"writable": false,
+						"enumerable": false,
+						"configurable": true
+					}
+				}
+			},
+			"own_guard_name": "is_own_fs_error",
+			"own_guard_length": 1,
+			"own_guards": {
+				"error": true,
+				"custom": true,
+				"subclass": true,
+				"converted": true,
+				"lookalike": false,
+				"inherited": false,
+				"clone": false,
+				"proxy_of_an_error": false,
+				"plain_error": false,
+				"null": false,
+				"string": false,
+				"class": false
+			},
+			"guards": {
+				"error": true,
+				"of_its_kind": true,
+				"of_another_kind": false,
+				"subclass": true,
+				"subclass_of_its_kind": true,
+				"lookalike": true,
+				"inherited": true,
+				"inherited_of_its_kind": false,
+				"plain_error": false,
+				"plain_object": false,
+				"null_prototype": false,
+				"null": false,
+				"undefined": false,
+				"string": false,
+				"class": false,
+				"clone": false,
+				"proxy_of_an_error": true,
+				"function_with_the_prototype": false,
+				"named_through_a_proxy": true,
+				"named_by_a_proxy": true,
+				"constructor_by_getter": true,
+				"named_by_getter": true,
+				"ran": [
+					"chain get",
+					"constructor get",
+					"constructor getter",
+					"name getter"
+				],
+				"kind_by_getter": true
+			}
+		}
+	},
+	"fs_shape": {
+		"code": 0,
+		"output": {
+			"namespace": {
+				"type": "object",
+				"prototype": null,
+				"frozen": false,
+				"own": {
+					"fs": {
+						"type": "object",
+						"writable": true,
+						"enumerable": true,
+						"configurable": false
+					},
+					"Symbol(Symbol.toStringTag)": {
+						"type": "string",
+						"writable": false,
+						"enumerable": false,
+						"configurable": false
+					}
+				}
+			},
+			"fs": {
+				"type": "object",
+				"prototype": null,
+				"frozen": true,
+				"own": {
+					"project": {
+						"type": "object",
+						"writable": false,
+						"enumerable": true,
+						"configurable": false
+					},
+					"open_dir": {
+						"type": "function",
+						"writable": false,
+						"enumerable": true,
+						"configurable": false
+					},
+					"real_path": {
+						"type": "function",
+						"writable": false,
+						"enumerable": true,
+						"configurable": false
+					},
+					"temp_dir": {
+						"type": "function",
+						"writable": false,
+						"enumerable": true,
+						"configurable": false
+					}
+				}
+			},
+			"fs_prototype": null,
+			"functions": [
+				{
+					"name": "open_dir",
+					"shape": {
+						"type": "function",
+						"prototype": "other",
+						"frozen": true,
+						"own": {
+							"length": {
+								"type": "number",
+								"writable": false,
+								"enumerable": false,
+								"configurable": false
+							},
+							"name": {
+								"type": "string",
+								"writable": false,
+								"enumerable": false,
+								"configurable": false
+							}
+						}
+					},
+					"length": 1,
+					"name_of": "open_dir"
+				},
+				{
+					"name": "real_path",
+					"shape": {
+						"type": "function",
+						"prototype": "other",
+						"frozen": true,
+						"own": {
+							"length": {
+								"type": "number",
+								"writable": false,
+								"enumerable": false,
+								"configurable": false
+							},
+							"name": {
+								"type": "string",
+								"writable": false,
+								"enumerable": false,
+								"configurable": false
+							}
+						}
+					},
+					"length": 1,
+					"name_of": "real_path"
+				},
+				{
+					"name": "temp_dir",
+					"shape": {
+						"type": "function",
+						"prototype": "other",
+						"frozen": true,
+						"own": {
+							"length": {
+								"type": "number",
+								"writable": false,
+								"enumerable": false,
+								"configurable": false
+							},
+							"name": {
+								"type": "string",
+								"writable": false,
+								"enumerable": false,
+								"configurable": false
+							}
+						}
+					},
+					"length": 0,
+					"name_of": "temp_dir"
+				}
+			],
+			"project_is_the_cwd": "{project}",
+			"dir": {
+				"type": "object",
+				"prototype": "other",
+				"frozen": true,
+				"own": {
+					"path": {
+						"type": "string",
+						"writable": false,
+						"enumerable": true,
+						"configurable": false
+					}
+				}
+			},
+			"read_only": {
+				"type": "object",
+				"prototype": "other",
+				"frozen": true,
+				"own": {
+					"path": {
+						"type": "string",
+						"writable": false,
+						"enumerable": true,
+						"configurable": false
+					}
+				}
+			},
+			"extends": true,
+			"read_prototype_prototype": null,
+			"methods": [
+				{
+					"name": "stat",
+					"length": 2,
+					"name_of": "stat",
+					"frozen": true
+				},
+				{
+					"name": "stat_sync",
+					"length": 2,
+					"name_of": "stat_sync",
+					"frozen": true
+				},
+				{
+					"name": "exists",
+					"length": 1,
+					"name_of": "exists",
+					"frozen": true
+				},
+				{
+					"name": "exists_sync",
+					"length": 1,
+					"name_of": "exists_sync",
+					"frozen": true
+				},
+				{
+					"name": "dir",
+					"length": 1,
+					"name_of": "dir",
+					"frozen": true
+				},
+				{
+					"name": "dir",
+					"length": 1,
+					"name_of": "dir",
+					"frozen": true
+				},
+				{
+					"name": "readonly",
+					"length": 0,
+					"name_of": "readonly",
+					"frozen": true
+				}
+			],
+			"same_root": true,
+			"thenable": false,
+			"info_keys": [
+				"kind",
+				"size",
+				"mtime_ms",
+				"mode"
+			],
+			"info_null_prototype": false,
+			"property_write": "TypeError",
+			"fs_write": "TypeError",
+			"method_write": "TypeError",
+			"new_stat": "TypeError",
+			"read_only_writes": false
+		}
+	},
+	"fs_stat": {
+		"code": 0,
+		"output": {
+			"a.txt": {
+				"stat": {
+					"resolved": {
+						"kind": "file",
+						"size": 2,
+						"mtime_ms": "number",
+						"mode": "number"
+					}
+				},
+				"stat_sync": {
+					"returned": {
+						"kind": "file",
+						"size": 2,
+						"mtime_ms": "number",
+						"mode": "number"
+					}
+				},
+				"exists": {
+					"resolved": true
+				},
+				"exists_sync": {
+					"returned": true
+				},
+				"keep": {
+					"resolved": {
+						"kind": "file",
+						"size": 2,
+						"mtime_ms": "number",
+						"mode": "number"
+					}
+				}
+			},
+			"sub": {
+				"stat": {
+					"resolved": {
+						"kind": "directory",
+						"size": "number",
+						"mtime_ms": "number",
+						"mode": "number"
+					}
+				},
+				"stat_sync": {
+					"returned": {
+						"kind": "directory",
+						"size": "number",
+						"mtime_ms": "number",
+						"mode": "number"
+					}
+				},
+				"exists": {
+					"resolved": true
+				},
+				"exists_sync": {
+					"returned": true
+				},
+				"keep": {
+					"resolved": {
+						"kind": "directory",
+						"size": "number",
+						"mtime_ms": "number",
+						"mode": "number"
+					}
+				}
+			},
+			"sub/b.txt": {
+				"stat": {
+					"resolved": {
+						"kind": "file",
+						"size": 3,
+						"mtime_ms": "number",
+						"mode": "number"
+					}
+				},
+				"stat_sync": {
+					"returned": {
+						"kind": "file",
+						"size": 3,
+						"mtime_ms": "number",
+						"mode": "number"
+					}
+				},
+				"exists": {
+					"resolved": true
+				},
+				"exists_sync": {
+					"returned": true
+				},
+				"keep": {
+					"resolved": {
+						"kind": "file",
+						"size": 3,
+						"mtime_ms": "number",
+						"mode": "number"
+					}
+				}
+			},
+			"link_file": {
+				"stat": {
+					"resolved": {
+						"kind": "file",
+						"size": 2,
+						"mtime_ms": "number",
+						"mode": "number"
+					}
+				},
+				"stat_sync": {
+					"returned": {
+						"kind": "file",
+						"size": 2,
+						"mtime_ms": "number",
+						"mode": "number"
+					}
+				},
+				"exists": {
+					"resolved": true
+				},
+				"exists_sync": {
+					"returned": true
+				},
+				"keep": {
+					"resolved": {
+						"kind": "symlink",
+						"size": "number",
+						"mtime_ms": "number",
+						"mode": "number"
+					}
+				}
+			},
+			"link_dir": {
+				"stat": {
+					"resolved": {
+						"kind": "directory",
+						"size": "number",
+						"mtime_ms": "number",
+						"mode": "number"
+					}
+				},
+				"stat_sync": {
+					"returned": {
+						"kind": "directory",
+						"size": "number",
+						"mtime_ms": "number",
+						"mode": "number"
+					}
+				},
+				"exists": {
+					"resolved": true
+				},
+				"exists_sync": {
+					"returned": true
+				},
+				"keep": {
+					"resolved": {
+						"kind": "symlink",
+						"size": "number",
+						"mtime_ms": "number",
+						"mode": "number"
+					}
+				}
+			},
+			"link_dir/b.txt": {
+				"stat": {
+					"resolved": {
+						"kind": "file",
+						"size": 3,
+						"mtime_ms": "number",
+						"mode": "number"
+					}
+				},
+				"stat_sync": {
+					"returned": {
+						"kind": "file",
+						"size": 3,
+						"mtime_ms": "number",
+						"mode": "number"
+					}
+				},
+				"exists": {
+					"resolved": true
+				},
+				"exists_sync": {
+					"returned": true
+				},
+				"keep": {
+					"resolved": {
+						"kind": "file",
+						"size": 3,
+						"mtime_ms": "number",
+						"mode": "number"
+					}
+				}
+			},
+			"link_up": {
+				"stat": {
+					"rejected": {
+						"class": "FsError",
+						"message": "outside_root: link_up",
+						"kind": "outside_root",
+						"path": "link_up"
+					}
+				},
+				"stat_sync": {
+					"threw": {
+						"class": "FsError",
+						"message": "outside_root: link_up",
+						"kind": "outside_root",
+						"path": "link_up"
+					}
+				},
+				"exists": {
+					"rejected": {
+						"class": "FsError",
+						"message": "outside_root: link_up",
+						"kind": "outside_root",
+						"path": "link_up"
+					}
+				},
+				"exists_sync": {
+					"threw": {
+						"class": "FsError",
+						"message": "outside_root: link_up",
+						"kind": "outside_root",
+						"path": "link_up"
+					}
+				},
+				"keep": {
+					"resolved": {
+						"kind": "symlink",
+						"size": "number",
+						"mtime_ms": "number",
+						"mode": "number"
+					}
+				}
+			},
+			"escape": {
+				"stat": {
+					"rejected": {
+						"class": "FsError",
+						"message": "outside_root: escape",
+						"kind": "outside_root",
+						"path": "escape"
+					}
+				},
+				"stat_sync": {
+					"threw": {
+						"class": "FsError",
+						"message": "outside_root: escape",
+						"kind": "outside_root",
+						"path": "escape"
+					}
+				},
+				"exists": {
+					"rejected": {
+						"class": "FsError",
+						"message": "outside_root: escape",
+						"kind": "outside_root",
+						"path": "escape"
+					}
+				},
+				"exists_sync": {
+					"threw": {
+						"class": "FsError",
+						"message": "outside_root: escape",
+						"kind": "outside_root",
+						"path": "escape"
+					}
+				},
+				"keep": {
+					"resolved": {
+						"kind": "symlink",
+						"size": "number",
+						"mtime_ms": "number",
+						"mode": "number"
+					}
+				}
+			},
+			"absolute": {
+				"stat": {
+					"rejected": {
+						"class": "FsError",
+						"message": "outside_root: absolute",
+						"kind": "outside_root",
+						"path": "absolute"
+					}
+				},
+				"stat_sync": {
+					"threw": {
+						"class": "FsError",
+						"message": "outside_root: absolute",
+						"kind": "outside_root",
+						"path": "absolute"
+					}
+				},
+				"exists": {
+					"rejected": {
+						"class": "FsError",
+						"message": "outside_root: absolute",
+						"kind": "outside_root",
+						"path": "absolute"
+					}
+				},
+				"exists_sync": {
+					"threw": {
+						"class": "FsError",
+						"message": "outside_root: absolute",
+						"kind": "outside_root",
+						"path": "absolute"
+					}
+				},
+				"keep": {
+					"resolved": {
+						"kind": "symlink",
+						"size": "number",
+						"mtime_ms": "number",
+						"mode": "number"
+					}
+				}
+			},
+			"dangling": {
+				"stat": {
+					"resolved": null
+				},
+				"stat_sync": {
+					"returned": null
+				},
+				"exists": {
+					"resolved": false
+				},
+				"exists_sync": {
+					"returned": false
+				},
+				"keep": {
+					"resolved": {
+						"kind": "symlink",
+						"size": "number",
+						"mtime_ms": "number",
+						"mode": "number"
+					}
+				}
+			},
+			"missing": {
+				"stat": {
+					"resolved": null
+				},
+				"stat_sync": {
+					"returned": null
+				},
+				"exists": {
+					"resolved": false
+				},
+				"exists_sync": {
+					"returned": false
+				},
+				"keep": {
+					"resolved": null
+				}
+			},
+			"missing/x": {
+				"stat": {
+					"resolved": null
+				},
+				"stat_sync": {
+					"returned": null
+				},
+				"exists": {
+					"resolved": false
+				},
+				"exists_sync": {
+					"returned": false
+				},
+				"keep": {
+					"resolved": null
+				}
+			},
+			"a.txt/": {
+				"stat": {
+					"rejected": {
+						"class": "FsError",
+						"message": "not_a_directory: {project}/fs/a.txt",
+						"kind": "not_a_directory",
+						"path": "{project}/fs/a.txt"
+					}
+				},
+				"stat_sync": {
+					"threw": {
+						"class": "FsError",
+						"message": "not_a_directory: {project}/fs/a.txt",
+						"kind": "not_a_directory",
+						"path": "{project}/fs/a.txt"
+					}
+				},
+				"exists": {
+					"rejected": {
+						"class": "FsError",
+						"message": "not_a_directory: {project}/fs/a.txt",
+						"kind": "not_a_directory",
+						"path": "{project}/fs/a.txt"
+					}
+				},
+				"exists_sync": {
+					"threw": {
+						"class": "FsError",
+						"message": "not_a_directory: {project}/fs/a.txt",
+						"kind": "not_a_directory",
+						"path": "{project}/fs/a.txt"
+					}
+				},
+				"keep": {
+					"rejected": {
+						"class": "FsError",
+						"message": "not_a_directory: {project}/fs/a.txt",
+						"kind": "not_a_directory",
+						"path": "{project}/fs/a.txt"
+					}
+				}
+			},
+			"a.txt/x": {
+				"stat": {
+					"rejected": {
+						"class": "FsError",
+						"message": "not_a_directory: {project}/fs/a.txt/x",
+						"kind": "not_a_directory",
+						"path": "{project}/fs/a.txt/x"
+					}
+				},
+				"stat_sync": {
+					"threw": {
+						"class": "FsError",
+						"message": "not_a_directory: {project}/fs/a.txt/x",
+						"kind": "not_a_directory",
+						"path": "{project}/fs/a.txt/x"
+					}
+				},
+				"exists": {
+					"rejected": {
+						"class": "FsError",
+						"message": "not_a_directory: {project}/fs/a.txt/x",
+						"kind": "not_a_directory",
+						"path": "{project}/fs/a.txt/x"
+					}
+				},
+				"exists_sync": {
+					"threw": {
+						"class": "FsError",
+						"message": "not_a_directory: {project}/fs/a.txt/x",
+						"kind": "not_a_directory",
+						"path": "{project}/fs/a.txt/x"
+					}
+				},
+				"keep": {
+					"rejected": {
+						"class": "FsError",
+						"message": "not_a_directory: {project}/fs/a.txt/x",
+						"kind": "not_a_directory",
+						"path": "{project}/fs/a.txt/x"
+					}
+				}
+			},
+			"sub/": {
+				"stat": {
+					"resolved": {
+						"kind": "directory",
+						"size": "number",
+						"mtime_ms": "number",
+						"mode": "number"
+					}
+				},
+				"stat_sync": {
+					"returned": {
+						"kind": "directory",
+						"size": "number",
+						"mtime_ms": "number",
+						"mode": "number"
+					}
+				},
+				"exists": {
+					"resolved": true
+				},
+				"exists_sync": {
+					"returned": true
+				},
+				"keep": {
+					"resolved": {
+						"kind": "directory",
+						"size": "number",
+						"mtime_ms": "number",
+						"mode": "number"
+					}
+				}
+			},
+			"sub/.": {
+				"stat": {
+					"resolved": {
+						"kind": "directory",
+						"size": "number",
+						"mtime_ms": "number",
+						"mode": "number"
+					}
+				},
+				"stat_sync": {
+					"returned": {
+						"kind": "directory",
+						"size": "number",
+						"mtime_ms": "number",
+						"mode": "number"
+					}
+				},
+				"exists": {
+					"resolved": true
+				},
+				"exists_sync": {
+					"returned": true
+				},
+				"keep": {
+					"resolved": {
+						"kind": "directory",
+						"size": "number",
+						"mtime_ms": "number",
+						"mode": "number"
+					}
+				}
+			},
+			"sub/..": {
+				"stat": {
+					"resolved": {
+						"kind": "directory",
+						"size": "number",
+						"mtime_ms": "number",
+						"mode": "number"
+					}
+				},
+				"stat_sync": {
+					"returned": {
+						"kind": "directory",
+						"size": "number",
+						"mtime_ms": "number",
+						"mode": "number"
+					}
+				},
+				"exists": {
+					"resolved": true
+				},
+				"exists_sync": {
+					"returned": true
+				},
+				"keep": {
+					"resolved": {
+						"kind": "directory",
+						"size": "number",
+						"mtime_ms": "number",
+						"mode": "number"
+					}
+				}
+			},
+			"sub/../a.txt": {
+				"stat": {
+					"resolved": {
+						"kind": "file",
+						"size": 2,
+						"mtime_ms": "number",
+						"mode": "number"
+					}
+				},
+				"stat_sync": {
+					"returned": {
+						"kind": "file",
+						"size": 2,
+						"mtime_ms": "number",
+						"mode": "number"
+					}
+				},
+				"exists": {
+					"resolved": true
+				},
+				"exists_sync": {
+					"returned": true
+				},
+				"keep": {
+					"resolved": {
+						"kind": "file",
+						"size": 2,
+						"mtime_ms": "number",
+						"mode": "number"
+					}
+				}
+			},
+			"link_dir/..": {
+				"stat": {
+					"resolved": {
+						"kind": "directory",
+						"size": "number",
+						"mtime_ms": "number",
+						"mode": "number"
+					}
+				},
+				"stat_sync": {
+					"returned": {
+						"kind": "directory",
+						"size": "number",
+						"mtime_ms": "number",
+						"mode": "number"
+					}
+				},
+				"exists": {
+					"resolved": true
+				},
+				"exists_sync": {
+					"returned": true
+				},
+				"keep": {
+					"resolved": {
+						"kind": "directory",
+						"size": "number",
+						"mtime_ms": "number",
+						"mode": "number"
+					}
+				}
+			},
+			".": {
+				"stat": {
+					"resolved": {
+						"kind": "directory",
+						"size": "number",
+						"mtime_ms": "number",
+						"mode": "number"
+					}
+				},
+				"stat_sync": {
+					"returned": {
+						"kind": "directory",
+						"size": "number",
+						"mtime_ms": "number",
+						"mode": "number"
+					}
+				},
+				"exists": {
+					"resolved": true
+				},
+				"exists_sync": {
+					"returned": true
+				},
+				"keep": {
+					"resolved": {
+						"kind": "directory",
+						"size": "number",
+						"mtime_ms": "number",
+						"mode": "number"
+					}
+				}
+			},
+			"": {
+				"stat": {
+					"resolved": {
+						"kind": "directory",
+						"size": "number",
+						"mtime_ms": "number",
+						"mode": "number"
+					}
+				},
+				"stat_sync": {
+					"returned": {
+						"kind": "directory",
+						"size": "number",
+						"mtime_ms": "number",
+						"mode": "number"
+					}
+				},
+				"exists": {
+					"resolved": true
+				},
+				"exists_sync": {
+					"returned": true
+				},
+				"keep": {
+					"resolved": {
+						"kind": "directory",
+						"size": "number",
+						"mtime_ms": "number",
+						"mode": "number"
+					}
+				}
+			},
+			"..": {
+				"stat": {
+					"rejected": {
+						"class": "FsError",
+						"message": "outside_root: ..",
+						"kind": "outside_root",
+						"path": ".."
+					}
+				},
+				"stat_sync": {
+					"threw": {
+						"class": "FsError",
+						"message": "outside_root: ..",
+						"kind": "outside_root",
+						"path": ".."
+					}
+				},
+				"exists": {
+					"rejected": {
+						"class": "FsError",
+						"message": "outside_root: ..",
+						"kind": "outside_root",
+						"path": ".."
+					}
+				},
+				"exists_sync": {
+					"threw": {
+						"class": "FsError",
+						"message": "outside_root: ..",
+						"kind": "outside_root",
+						"path": ".."
+					}
+				},
+				"keep": {
+					"rejected": {
+						"class": "FsError",
+						"message": "outside_root: ..",
+						"kind": "outside_root",
+						"path": ".."
+					}
+				}
+			},
+			"../fs/a.txt": {
+				"stat": {
+					"rejected": {
+						"class": "FsError",
+						"message": "outside_root: ../fs/a.txt",
+						"kind": "outside_root",
+						"path": "../fs/a.txt"
+					}
+				},
+				"stat_sync": {
+					"threw": {
+						"class": "FsError",
+						"message": "outside_root: ../fs/a.txt",
+						"kind": "outside_root",
+						"path": "../fs/a.txt"
+					}
+				},
+				"exists": {
+					"rejected": {
+						"class": "FsError",
+						"message": "outside_root: ../fs/a.txt",
+						"kind": "outside_root",
+						"path": "../fs/a.txt"
+					}
+				},
+				"exists_sync": {
+					"threw": {
+						"class": "FsError",
+						"message": "outside_root: ../fs/a.txt",
+						"kind": "outside_root",
+						"path": "../fs/a.txt"
+					}
+				},
+				"keep": {
+					"rejected": {
+						"class": "FsError",
+						"message": "outside_root: ../fs/a.txt",
+						"kind": "outside_root",
+						"path": "../fs/a.txt"
+					}
+				}
+			},
+			"sub/../../x": {
+				"stat": {
+					"rejected": {
+						"class": "FsError",
+						"message": "outside_root: sub/../../x",
+						"kind": "outside_root",
+						"path": "sub/../../x"
+					}
+				},
+				"stat_sync": {
+					"threw": {
+						"class": "FsError",
+						"message": "outside_root: sub/../../x",
+						"kind": "outside_root",
+						"path": "sub/../../x"
+					}
+				},
+				"exists": {
+					"rejected": {
+						"class": "FsError",
+						"message": "outside_root: sub/../../x",
+						"kind": "outside_root",
+						"path": "sub/../../x"
+					}
+				},
+				"exists_sync": {
+					"threw": {
+						"class": "FsError",
+						"message": "outside_root: sub/../../x",
+						"kind": "outside_root",
+						"path": "sub/../../x"
+					}
+				},
+				"keep": {
+					"rejected": {
+						"class": "FsError",
+						"message": "outside_root: sub/../../x",
+						"kind": "outside_root",
+						"path": "sub/../../x"
+					}
+				}
+			},
+			"/etc/hostname": {
+				"stat": {
+					"rejected": {
+						"class": "FsError",
+						"message": "outside_root: /etc/hostname",
+						"kind": "outside_root",
+						"path": "/etc/hostname"
+					}
+				},
+				"stat_sync": {
+					"threw": {
+						"class": "FsError",
+						"message": "outside_root: /etc/hostname",
+						"kind": "outside_root",
+						"path": "/etc/hostname"
+					}
+				},
+				"exists": {
+					"rejected": {
+						"class": "FsError",
+						"message": "outside_root: /etc/hostname",
+						"kind": "outside_root",
+						"path": "/etc/hostname"
+					}
+				},
+				"exists_sync": {
+					"threw": {
+						"class": "FsError",
+						"message": "outside_root: /etc/hostname",
+						"kind": "outside_root",
+						"path": "/etc/hostname"
+					}
+				},
+				"keep": {
+					"rejected": {
+						"class": "FsError",
+						"message": "outside_root: /etc/hostname",
+						"kind": "outside_root",
+						"path": "/etc/hostname"
+					}
+				}
+			},
+			"./a.txt": {
+				"stat": {
+					"resolved": {
+						"kind": "file",
+						"size": 2,
+						"mtime_ms": "number",
+						"mode": "number"
+					}
+				},
+				"stat_sync": {
+					"returned": {
+						"kind": "file",
+						"size": 2,
+						"mtime_ms": "number",
+						"mode": "number"
+					}
+				},
+				"exists": {
+					"resolved": true
+				},
+				"exists_sync": {
+					"returned": true
+				},
+				"keep": {
+					"resolved": {
+						"kind": "file",
+						"size": 2,
+						"mtime_ms": "number",
+						"mode": "number"
+					}
+				}
+			},
+			"sub//b.txt": {
+				"stat": {
+					"resolved": {
+						"kind": "file",
+						"size": 3,
+						"mtime_ms": "number",
+						"mode": "number"
+					}
+				},
+				"stat_sync": {
+					"returned": {
+						"kind": "file",
+						"size": 3,
+						"mtime_ms": "number",
+						"mode": "number"
+					}
+				},
+				"exists": {
+					"resolved": true
+				},
+				"exists_sync": {
+					"returned": true
+				},
+				"keep": {
+					"resolved": {
+						"kind": "file",
+						"size": 3,
+						"mtime_ms": "number",
+						"mode": "number"
+					}
+				}
+			}
+		}
+	},
+	"fs_dir": {
+		"code": 0,
+		"output": {
+			"a.txt": {
+				"dir": {
+					"threw": {
+						"class": "FsError",
+						"message": "not_a_directory: {project}/fs/a.txt",
+						"kind": "not_a_directory",
+						"path": "{project}/fs/a.txt"
+					}
+				},
+				"read_only": {
+					"threw": {
+						"class": "FsError",
+						"message": "not_a_directory: {project}/fs/a.txt",
+						"kind": "not_a_directory",
+						"path": "{project}/fs/a.txt"
+					}
+				}
+			},
+			"sub": {
+				"dir": {
+					"returned": {
+						"handle": "{project}/fs/sub",
+						"writes": true
+					}
+				},
+				"read_only": {
+					"returned": {
+						"handle": "{project}/fs/sub",
+						"writes": false
+					}
+				}
+			},
+			"sub/b.txt": {
+				"dir": {
+					"threw": {
+						"class": "FsError",
+						"message": "not_a_directory: {project}/fs/sub/b.txt",
+						"kind": "not_a_directory",
+						"path": "{project}/fs/sub/b.txt"
+					}
+				},
+				"read_only": {
+					"threw": {
+						"class": "FsError",
+						"message": "not_a_directory: {project}/fs/sub/b.txt",
+						"kind": "not_a_directory",
+						"path": "{project}/fs/sub/b.txt"
+					}
+				}
+			},
+			"link_file": {
+				"dir": {
+					"threw": {
+						"class": "FsError",
+						"message": "not_a_directory: {project}/fs/link_file",
+						"kind": "not_a_directory",
+						"path": "{project}/fs/link_file"
+					}
+				},
+				"read_only": {
+					"threw": {
+						"class": "FsError",
+						"message": "not_a_directory: {project}/fs/link_file",
+						"kind": "not_a_directory",
+						"path": "{project}/fs/link_file"
+					}
+				}
+			},
+			"link_dir": {
+				"dir": {
+					"returned": {
+						"handle": "{project}/fs/sub",
+						"writes": true
+					}
+				},
+				"read_only": {
+					"returned": {
+						"handle": "{project}/fs/sub",
+						"writes": false
+					}
+				}
+			},
+			"link_dir/b.txt": {
+				"dir": {
+					"threw": {
+						"class": "FsError",
+						"message": "not_a_directory: {project}/fs/link_dir/b.txt",
+						"kind": "not_a_directory",
+						"path": "{project}/fs/link_dir/b.txt"
+					}
+				},
+				"read_only": {
+					"threw": {
+						"class": "FsError",
+						"message": "not_a_directory: {project}/fs/link_dir/b.txt",
+						"kind": "not_a_directory",
+						"path": "{project}/fs/link_dir/b.txt"
+					}
+				}
+			},
+			"link_up": {
+				"dir": {
+					"threw": {
+						"class": "FsError",
+						"message": "outside_root: link_up",
+						"kind": "outside_root",
+						"path": "link_up"
+					}
+				},
+				"read_only": {
+					"threw": {
+						"class": "FsError",
+						"message": "outside_root: link_up",
+						"kind": "outside_root",
+						"path": "link_up"
+					}
+				}
+			},
+			"escape": {
+				"dir": {
+					"threw": {
+						"class": "FsError",
+						"message": "outside_root: escape",
+						"kind": "outside_root",
+						"path": "escape"
+					}
+				},
+				"read_only": {
+					"threw": {
+						"class": "FsError",
+						"message": "outside_root: escape",
+						"kind": "outside_root",
+						"path": "escape"
+					}
+				}
+			},
+			"absolute": {
+				"dir": {
+					"threw": {
+						"class": "FsError",
+						"message": "outside_root: absolute",
+						"kind": "outside_root",
+						"path": "absolute"
+					}
+				},
+				"read_only": {
+					"threw": {
+						"class": "FsError",
+						"message": "outside_root: absolute",
+						"kind": "outside_root",
+						"path": "absolute"
+					}
+				}
+			},
+			"dangling": {
+				"dir": {
+					"threw": {
+						"class": "FsError",
+						"message": "not_found: {project}/fs/dangling",
+						"kind": "not_found",
+						"path": "{project}/fs/dangling"
+					}
+				},
+				"read_only": {
+					"threw": {
+						"class": "FsError",
+						"message": "not_found: {project}/fs/dangling",
+						"kind": "not_found",
+						"path": "{project}/fs/dangling"
+					}
+				}
+			},
+			"missing": {
+				"dir": {
+					"threw": {
+						"class": "FsError",
+						"message": "not_found: {project}/fs/missing",
+						"kind": "not_found",
+						"path": "{project}/fs/missing"
+					}
+				},
+				"read_only": {
+					"threw": {
+						"class": "FsError",
+						"message": "not_found: {project}/fs/missing",
+						"kind": "not_found",
+						"path": "{project}/fs/missing"
+					}
+				}
+			},
+			"missing/x": {
+				"dir": {
+					"threw": {
+						"class": "FsError",
+						"message": "not_found: {project}/fs/missing/x",
+						"kind": "not_found",
+						"path": "{project}/fs/missing/x"
+					}
+				},
+				"read_only": {
+					"threw": {
+						"class": "FsError",
+						"message": "not_found: {project}/fs/missing/x",
+						"kind": "not_found",
+						"path": "{project}/fs/missing/x"
+					}
+				}
+			},
+			"a.txt/": {
+				"dir": {
+					"threw": {
+						"class": "FsError",
+						"message": "not_a_directory: {project}/fs/a.txt",
+						"kind": "not_a_directory",
+						"path": "{project}/fs/a.txt"
+					}
+				},
+				"read_only": {
+					"threw": {
+						"class": "FsError",
+						"message": "not_a_directory: {project}/fs/a.txt",
+						"kind": "not_a_directory",
+						"path": "{project}/fs/a.txt"
+					}
+				}
+			},
+			"a.txt/x": {
+				"dir": {
+					"threw": {
+						"class": "FsError",
+						"message": "not_a_directory: {project}/fs/a.txt/x",
+						"kind": "not_a_directory",
+						"path": "{project}/fs/a.txt/x"
+					}
+				},
+				"read_only": {
+					"threw": {
+						"class": "FsError",
+						"message": "not_a_directory: {project}/fs/a.txt/x",
+						"kind": "not_a_directory",
+						"path": "{project}/fs/a.txt/x"
+					}
+				}
+			},
+			"sub/": {
+				"dir": {
+					"returned": {
+						"handle": "{project}/fs/sub",
+						"writes": true
+					}
+				},
+				"read_only": {
+					"returned": {
+						"handle": "{project}/fs/sub",
+						"writes": false
+					}
+				}
+			},
+			"sub/.": {
+				"dir": {
+					"returned": {
+						"handle": "{project}/fs/sub",
+						"writes": true
+					}
+				},
+				"read_only": {
+					"returned": {
+						"handle": "{project}/fs/sub",
+						"writes": false
+					}
+				}
+			},
+			"sub/..": {
+				"dir": {
+					"returned": {
+						"handle": "{project}/fs",
+						"writes": true
+					}
+				},
+				"read_only": {
+					"returned": {
+						"handle": "{project}/fs",
+						"writes": false
+					}
+				}
+			},
+			"sub/../a.txt": {
+				"dir": {
+					"threw": {
+						"class": "FsError",
+						"message": "not_a_directory: {project}/fs/a.txt",
+						"kind": "not_a_directory",
+						"path": "{project}/fs/a.txt"
+					}
+				},
+				"read_only": {
+					"threw": {
+						"class": "FsError",
+						"message": "not_a_directory: {project}/fs/a.txt",
+						"kind": "not_a_directory",
+						"path": "{project}/fs/a.txt"
+					}
+				}
+			},
+			"link_dir/..": {
+				"dir": {
+					"returned": {
+						"handle": "{project}/fs",
+						"writes": true
+					}
+				},
+				"read_only": {
+					"returned": {
+						"handle": "{project}/fs",
+						"writes": false
+					}
+				}
+			},
+			".": {
+				"dir": {
+					"returned": {
+						"handle": "{project}/fs",
+						"writes": true
+					}
+				},
+				"read_only": {
+					"returned": {
+						"handle": "{project}/fs",
+						"writes": false
+					}
+				}
+			},
+			"": {
+				"dir": {
+					"returned": {
+						"handle": "{project}/fs",
+						"writes": true
+					}
+				},
+				"read_only": {
+					"returned": {
+						"handle": "{project}/fs",
+						"writes": false
+					}
+				}
+			},
+			"..": {
+				"dir": {
+					"threw": {
+						"class": "FsError",
+						"message": "outside_root: ..",
+						"kind": "outside_root",
+						"path": ".."
+					}
+				},
+				"read_only": {
+					"threw": {
+						"class": "FsError",
+						"message": "outside_root: ..",
+						"kind": "outside_root",
+						"path": ".."
+					}
+				}
+			},
+			"../fs/a.txt": {
+				"dir": {
+					"threw": {
+						"class": "FsError",
+						"message": "outside_root: ../fs/a.txt",
+						"kind": "outside_root",
+						"path": "../fs/a.txt"
+					}
+				},
+				"read_only": {
+					"threw": {
+						"class": "FsError",
+						"message": "outside_root: ../fs/a.txt",
+						"kind": "outside_root",
+						"path": "../fs/a.txt"
+					}
+				}
+			},
+			"sub/../../x": {
+				"dir": {
+					"threw": {
+						"class": "FsError",
+						"message": "outside_root: sub/../../x",
+						"kind": "outside_root",
+						"path": "sub/../../x"
+					}
+				},
+				"read_only": {
+					"threw": {
+						"class": "FsError",
+						"message": "outside_root: sub/../../x",
+						"kind": "outside_root",
+						"path": "sub/../../x"
+					}
+				}
+			},
+			"/etc/hostname": {
+				"dir": {
+					"threw": {
+						"class": "FsError",
+						"message": "outside_root: /etc/hostname",
+						"kind": "outside_root",
+						"path": "/etc/hostname"
+					}
+				},
+				"read_only": {
+					"threw": {
+						"class": "FsError",
+						"message": "outside_root: /etc/hostname",
+						"kind": "outside_root",
+						"path": "/etc/hostname"
+					}
+				}
+			},
+			"./a.txt": {
+				"dir": {
+					"threw": {
+						"class": "FsError",
+						"message": "not_a_directory: {project}/fs/a.txt",
+						"kind": "not_a_directory",
+						"path": "{project}/fs/a.txt"
+					}
+				},
+				"read_only": {
+					"threw": {
+						"class": "FsError",
+						"message": "not_a_directory: {project}/fs/a.txt",
+						"kind": "not_a_directory",
+						"path": "{project}/fs/a.txt"
+					}
+				}
+			},
+			"sub//b.txt": {
+				"dir": {
+					"threw": {
+						"class": "FsError",
+						"message": "not_a_directory: {project}/fs/sub/b.txt",
+						"kind": "not_a_directory",
+						"path": "{project}/fs/sub/b.txt"
+					}
+				},
+				"read_only": {
+					"threw": {
+						"class": "FsError",
+						"message": "not_a_directory: {project}/fs/sub/b.txt",
+						"kind": "not_a_directory",
+						"path": "{project}/fs/sub/b.txt"
+					}
+				}
+			},
+			"through_a_link": {
+				"path": {
+					"returned": "{project}/fs/sub"
+				},
+				"read": {
+					"resolved": {
+						"kind": "file",
+						"size": 3,
+						"mtime_ms": "number",
+						"mode": "number"
+					}
+				},
+				"up": {
+					"rejected": {
+						"class": "FsError",
+						"message": "outside_root: ..",
+						"kind": "outside_root",
+						"path": ".."
+					}
+				},
+				"narrower": {
+					"resolved": {
+						"kind": "file",
+						"size": 3,
+						"mtime_ms": "number",
+						"mode": "number"
+					}
+				}
+			},
+			"read_only_of_read_only": {
+				"returned": {
+					"handle": "{project}/fs/sub",
+					"writes": false
+				}
+			}
+		}
+	},
+	"fs_open_dir": {
+		"code": 0,
+		"output": {
+			"project": {
+				"resolved": {
+					"handle": "{project}",
+					"writes": true
+				}
+			},
+			"tree": {
+				"resolved": {
+					"handle": "{project}/fs",
+					"writes": true
+				}
+			},
+			"sub": {
+				"resolved": {
+					"handle": "{project}/fs/sub",
+					"writes": true
+				}
+			},
+			"dotted": {
+				"resolved": {
+					"handle": "{project}/fs/sub",
+					"writes": true
+				}
+			},
+			"up_from_missing": {
+				"rejected": {
+					"class": "FsError",
+					"message": "not_found: {project}/fs/missing/..",
+					"kind": "not_found",
+					"path": "{project}/fs/missing/.."
+				}
+			},
+			"up_from_a_file": {
+				"rejected": {
+					"class": "FsError",
+					"message": "not_a_directory: {project}/fs/a.txt/..",
+					"kind": "not_a_directory",
+					"path": "{project}/fs/a.txt/.."
+				}
+			},
+			"reentering": {
+				"resolved": {
+					"handle": "{project}/fs/sub",
+					"writes": true
+				}
+			},
+			"through_a_link": {
+				"resolved": {
+					"handle": "{project}/fs/sub",
+					"writes": true
+				}
+			},
+			"then_read": {
+				"resolved": {
+					"kind": "file",
+					"size": 3,
+					"mtime_ms": "number",
+					"mode": "number"
+				}
+			},
+			"file": {
+				"rejected": {
+					"class": "FsError",
+					"message": "not_a_directory: {project}/fs/a.txt",
+					"kind": "not_a_directory",
+					"path": "{project}/fs/a.txt"
+				}
+			},
+			"link_to_a_file": {
+				"rejected": {
+					"class": "FsError",
+					"message": "not_a_directory: {project}/fs/link_file",
+					"kind": "not_a_directory",
+					"path": "{project}/fs/link_file"
+				}
+			},
+			"missing": {
+				"rejected": {
+					"class": "FsError",
+					"message": "not_found: {project}/fs/missing",
+					"kind": "not_found",
+					"path": "{project}/fs/missing"
+				}
+			},
+			"dangling": {
+				"rejected": {
+					"class": "FsError",
+					"message": "not_found: {project}/fs/dangling",
+					"kind": "not_found",
+					"path": "{project}/fs/dangling"
+				}
+			},
+			"relative": {
+				"rejected": {
+					"class": "TypeError",
+					"message": "fs.open_dir takes an absolute path: fs"
+				}
+			},
+			"empty": {
+				"rejected": {
+					"class": "TypeError",
+					"message": "fs.open_dir takes an absolute path: "
+				}
+			},
+			"not_a_string": {
+				"rejected": {
+					"class": "TypeError",
+					"message": "fs paths are strings"
+				}
+			},
+			"nul": {
+				"rejected": {
+					"class": "TypeError",
+					"message": "fs paths hold no NUL byte"
+				}
+			},
+			"lone_surrogate": {
+				"rejected": {
+					"class": "TypeError",
+					"message": "fs paths are well-formed Unicode"
+				}
+			}
+		}
+	},
+	"fs_open_dir_outside": {
+		"code": 0,
+		"output": {
+			"missing": {
+				"rejected": {
+					"class": "FsError",
+					"message": "not_found: /no_such_directory_of_the_fixtures",
+					"kind": "not_found",
+					"path": "/no_such_directory_of_the_fixtures"
+				}
+			}
+		}
+	},
+	"fs_real_path": {
+		"code": 0,
+		"output": {
+			"file": {
+				"resolved": "{project}/fs/a.txt"
+			},
+			"link": {
+				"resolved": "{project}/fs/a.txt"
+			},
+			"through_a_link": {
+				"resolved": "{project}/fs/sub/b.txt"
+			},
+			"climbing_link": {
+				"resolved": "{project}/fs/a.txt"
+			},
+			"dir": {
+				"resolved": "{project}/fs/sub"
+			},
+			"dangling": {
+				"rejected": {
+					"class": "FsError",
+					"message": "not_found: {project}/fs/dangling",
+					"kind": "not_found",
+					"path": "{project}/fs/dangling"
+				}
+			},
+			"up_from_missing": {
+				"rejected": {
+					"class": "FsError",
+					"message": "not_found: {project}/fs/missing/..",
+					"kind": "not_found",
+					"path": "{project}/fs/missing/.."
+				}
+			},
+			"up_from_a_file": {
+				"rejected": {
+					"class": "FsError",
+					"message": "not_a_directory: {project}/fs/a.txt/..",
+					"kind": "not_a_directory",
+					"path": "{project}/fs/a.txt/.."
+				}
+			},
+			"up_from_a_link_to_a_file": {
+				"rejected": {
+					"class": "FsError",
+					"message": "not_a_directory: {project}/fs/link_up/..",
+					"kind": "not_a_directory",
+					"path": "{project}/fs/link_up/.."
+				}
+			},
+			"reentering": {
+				"resolved": "{project}/fs/a.txt"
+			},
+			"missing": {
+				"rejected": {
+					"class": "FsError",
+					"message": "not_found: {project}/fs/missing",
+					"kind": "not_found",
+					"path": "{project}/fs/missing"
+				}
+			},
+			"through_a_file": {
+				"rejected": {
+					"class": "FsError",
+					"message": "not_a_directory: {project}/fs/a.txt/x",
+					"kind": "not_a_directory",
+					"path": "{project}/fs/a.txt/x"
+				}
+			},
+			"relative": {
+				"rejected": {
+					"class": "TypeError",
+					"message": "fs.real_path takes an absolute path: fs/a.txt"
+				}
+			},
+			"not_a_string": {
+				"rejected": {
+					"class": "TypeError",
+					"message": "fs paths are strings"
+				}
+			}
+		}
+	},
+	"fs_arguments": {
+		"code": 0,
+		"output": {
+			"a number": {
+				"stat": {
+					"rejected": {
+						"class": "TypeError",
+						"message": "fs paths are strings"
+					}
+				},
+				"stat_sync": {
+					"threw": {
+						"class": "TypeError",
+						"message": "fs paths are strings"
+					}
+				},
+				"exists": {
+					"rejected": {
+						"class": "TypeError",
+						"message": "fs paths are strings"
+					}
+				},
+				"exists_sync": {
+					"threw": {
+						"class": "TypeError",
+						"message": "fs paths are strings"
+					}
+				},
+				"dir": {
+					"threw": {
+						"class": "TypeError",
+						"message": "fs paths are strings"
+					}
+				}
+			},
+			"undefined": {
+				"stat": {
+					"rejected": {
+						"class": "TypeError",
+						"message": "fs paths are strings"
+					}
+				},
+				"stat_sync": {
+					"threw": {
+						"class": "TypeError",
+						"message": "fs paths are strings"
+					}
+				},
+				"exists": {
+					"rejected": {
+						"class": "TypeError",
+						"message": "fs paths are strings"
+					}
+				},
+				"exists_sync": {
+					"threw": {
+						"class": "TypeError",
+						"message": "fs paths are strings"
+					}
+				},
+				"dir": {
+					"threw": {
+						"class": "TypeError",
+						"message": "fs paths are strings"
+					}
+				}
+			},
+			"null": {
+				"stat": {
+					"rejected": {
+						"class": "TypeError",
+						"message": "fs paths are strings"
+					}
+				},
+				"stat_sync": {
+					"threw": {
+						"class": "TypeError",
+						"message": "fs paths are strings"
+					}
+				},
+				"exists": {
+					"rejected": {
+						"class": "TypeError",
+						"message": "fs paths are strings"
+					}
+				},
+				"exists_sync": {
+					"threw": {
+						"class": "TypeError",
+						"message": "fs paths are strings"
+					}
+				},
+				"dir": {
+					"threw": {
+						"class": "TypeError",
+						"message": "fs paths are strings"
+					}
+				}
+			},
+			"a boxed string": {
+				"stat": {
+					"rejected": {
+						"class": "TypeError",
+						"message": "fs paths are strings"
+					}
+				},
+				"stat_sync": {
+					"threw": {
+						"class": "TypeError",
+						"message": "fs paths are strings"
+					}
+				},
+				"exists": {
+					"rejected": {
+						"class": "TypeError",
+						"message": "fs paths are strings"
+					}
+				},
+				"exists_sync": {
+					"threw": {
+						"class": "TypeError",
+						"message": "fs paths are strings"
+					}
+				},
+				"dir": {
+					"threw": {
+						"class": "TypeError",
+						"message": "fs paths are strings"
+					}
+				}
+			},
+			"a symbol": {
+				"stat": {
+					"rejected": {
+						"class": "TypeError",
+						"message": "fs paths are strings"
+					}
+				},
+				"stat_sync": {
+					"threw": {
+						"class": "TypeError",
+						"message": "fs paths are strings"
+					}
+				},
+				"exists": {
+					"rejected": {
+						"class": "TypeError",
+						"message": "fs paths are strings"
+					}
+				},
+				"exists_sync": {
+					"threw": {
+						"class": "TypeError",
+						"message": "fs paths are strings"
+					}
+				},
+				"dir": {
+					"threw": {
+						"class": "TypeError",
+						"message": "fs paths are strings"
+					}
+				}
+			},
+			"a NUL": {
+				"stat": {
+					"rejected": {
+						"class": "TypeError",
+						"message": "fs paths hold no NUL byte"
+					}
+				},
+				"stat_sync": {
+					"threw": {
+						"class": "TypeError",
+						"message": "fs paths hold no NUL byte"
+					}
+				},
+				"exists": {
+					"rejected": {
+						"class": "TypeError",
+						"message": "fs paths hold no NUL byte"
+					}
+				},
+				"exists_sync": {
+					"threw": {
+						"class": "TypeError",
+						"message": "fs paths hold no NUL byte"
+					}
+				},
+				"dir": {
+					"threw": {
+						"class": "TypeError",
+						"message": "fs paths hold no NUL byte"
+					}
+				}
+			},
+			"a lone surrogate": {
+				"stat": {
+					"rejected": {
+						"class": "TypeError",
+						"message": "fs paths are well-formed Unicode"
+					}
+				},
+				"stat_sync": {
+					"threw": {
+						"class": "TypeError",
+						"message": "fs paths are well-formed Unicode"
+					}
+				},
+				"exists": {
+					"rejected": {
+						"class": "TypeError",
+						"message": "fs paths are well-formed Unicode"
+					}
+				},
+				"exists_sync": {
+					"threw": {
+						"class": "TypeError",
+						"message": "fs paths are well-formed Unicode"
+					}
+				},
+				"dir": {
+					"threw": {
+						"class": "TypeError",
+						"message": "fs paths are well-formed Unicode"
+					}
+				}
+			}
+		}
+	},
+	"fs_receiver": {
+		"code": 0,
+		"output": {
+			"undefined": {
+				"stat": {
+					"rejected": "TypeError"
+				},
+				"stat_sync": {
+					"threw": "TypeError"
+				},
+				"dir": {
+					"threw": "TypeError"
+				},
+				"readonly": {
+					"threw": "TypeError"
+				}
+			},
+			"an object": {
+				"stat": {
+					"rejected": "TypeError"
+				},
+				"stat_sync": {
+					"threw": "TypeError"
+				},
+				"dir": {
+					"threw": "TypeError"
+				},
+				"readonly": {
+					"threw": "TypeError"
+				}
+			},
+			"a look-alike": {
+				"stat": {
+					"rejected": "TypeError"
+				},
+				"stat_sync": {
+					"threw": "TypeError"
+				},
+				"dir": {
+					"threw": "TypeError"
+				},
+				"readonly": {
+					"threw": "TypeError"
+				}
+			},
+			"a proxy": {
+				"stat": {
+					"rejected": "TypeError"
+				},
+				"stat_sync": {
+					"threw": "TypeError"
+				},
+				"dir": {
+					"threw": "TypeError"
+				},
+				"readonly": {
+					"threw": "TypeError"
+				}
+			},
+			"the prototype": {
+				"stat": {
+					"rejected": "TypeError"
+				},
+				"stat_sync": {
+					"threw": "TypeError"
+				},
+				"dir": {
+					"threw": "TypeError"
+				},
+				"readonly": {
+					"threw": "TypeError"
+				}
+			},
+			"read_only": {
+				"dir": {
+					"threw": "TypeError"
+				},
+				"readonly": {
+					"threw": "TypeError"
+				}
+			},
+			"detached": {
+				"resolved": {
+					"handle": "{project}",
+					"writes": true
+				}
+			}
+		}
+	},
+	"fs_options": {
+		"code": 0,
+		"output": {
+			"plain": {
+				"resolved": {
+					"kind": "symlink",
+					"size": "number",
+					"mtime_ms": "number",
+					"mode": "number"
+				}
+			},
+			"truthy": {
+				"resolved": {
+					"kind": "file",
+					"size": 2,
+					"mtime_ms": "number",
+					"mode": "number"
+				}
+			},
+			"falsy": {
+				"resolved": {
+					"kind": "symlink",
+					"size": "number",
+					"mtime_ms": "number",
+					"mode": "number"
+				}
+			},
+			"nullish": {
+				"resolved": {
+					"kind": "file",
+					"size": 2,
+					"mtime_ms": "number",
+					"mode": "number"
+				}
+			},
+			"inherited": {
+				"resolved": {
+					"kind": "symlink",
+					"size": "number",
+					"mtime_ms": "number",
+					"mode": "number"
+				}
+			},
+			"primitive": {
+				"resolved": {
+					"kind": "file",
+					"size": 2,
+					"mtime_ms": "number",
+					"mode": "number"
+				}
+			},
+			"trailing_slash": {
+				"resolved": {
+					"kind": "directory",
+					"size": "number",
+					"mtime_ms": "number",
+					"mode": "number"
+				}
+			},
+			"getter": {
+				"resolved": {
+					"kind": "symlink",
+					"size": "number",
+					"mtime_ms": "number",
+					"mode": "number"
+				}
+			},
+			"proxy": {
+				"resolved": {
+					"kind": "symlink",
+					"size": "number",
+					"mtime_ms": "number",
+					"mode": "number"
+				}
+			}
+		}
 	}
 }

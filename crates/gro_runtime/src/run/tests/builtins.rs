@@ -475,7 +475,7 @@ import {{ load }} from 'dep';
 import from_package from 'dep/static.js';
 const loaded = await load();
 if (from_package !== args || loaded.args !== args || args[0] !== 'a') throw new Error('not one namespace');
-for (const specifier of ['@fuzdev/gro/fs.ts', '@fuzdev/gro/args.js']) {{
+for (const specifier of ['@fuzdev/gro/net.ts', '@fuzdev/gro/args.js']) {{
 	try {{
 		await import(specifier);
 		throw new Error(`imported ${{specifier}}`);
@@ -788,8 +788,8 @@ const SHADOW: [(&str, &str); 7] = [
         r#"{"name": "@fuzdev/gro", "type": "module", "exports": {"./*.js": "./*.js", "./*.ts": "./*.js"}}"#,
     ),
     (
-        "node_modules/@fuzdev/gro/fs.js",
-        "export const fs = 'SHADOW';\n",
+        "node_modules/@fuzdev/gro/net.js",
+        "export const net = 'SHADOW';\n",
     ),
     (
         "node_modules/@fuzdev/gro/args.js",
@@ -824,8 +824,8 @@ fn a_reserved_specifier_is_refused_ahead_of_the_package() {
     let main = "import { load, where } from 'dep/reach.js';
 const cases = [
 \t['@fuzdev/gro/args.js', \"Fix: import '@fuzdev/gro/args.ts'\"],
-\t['@fuzdev/gro/fs.ts', \"Gro's host module '@fuzdev/gro/fs.ts', which isn't on fgro yet\"],
-\t['@fuzdev/gro/fs.js', \"Gro's host module '@fuzdev/gro/fs.ts', which isn't on fgro yet\"],
+\t['@fuzdev/gro/net.ts', \"Gro's host module '@fuzdev/gro/net.ts', which isn't on fgro yet\"],
+\t['@fuzdev/gro/net.js', \"Gro's host module '@fuzdev/gro/net.ts', which isn't on fgro yet\"],
 \t['@fuzdev/gro/env.js', \"Fix: import '@fuzdev/gro/env.ts'\"],
 \t['@fuzdev/gro/process.ts', \"'@fuzdev/gro/process.ts', which isn't one of Gro's modules\"],
 \t['@fuzdev/gro/process.js', \"Fix: import what you use from '@fuzdev/gro/env.ts', '@fuzdev/gro/args.ts',\"],
@@ -861,12 +861,12 @@ for (const [specifier, words] of cases) {
         let reasons: Vec<_> = graph
             .failures()
             .iter()
-            .filter(|(site, _)| site.specifier == "@fuzdev/gro/fs.ts")
+            .filter(|(site, _)| site.specifier == "@fuzdev/gro/net.ts")
             .flat_map(|(site, failures)| failures.iter().map(move |failure| (site, failure)))
             .map(|(site, failure)| (site.reached, failure.reason.clone()))
             .collect();
         let reserved = FailureReason::Resolve(ResolveErrorKind::Reserved(
-            crate::resolver::Reserved::Unbuilt("@fuzdev/gro/fs"),
+            crate::resolver::Reserved::Unbuilt("@fuzdev/gro/net"),
         ));
         assert_eq!(reasons.len(), 4, "{case}: {reasons:?}");
         for (reached, reason) in reasons {
@@ -941,15 +941,15 @@ fn a_respelled_specifier_is_refused_ahead_of_the_package() {
 const respells = \"respells the builtin module '@fuzdev/gro/args.ts', reserved so no spelling \
 of it resolves to a package. Fix: import '@fuzdev/gro/args.ts'\";
 const split = \"'@fuzdev/gro/process.ts', which isn't one of Gro's modules\";
-const fs = \"Gro's host module '@fuzdev/gro/fs.ts', which isn't on fgro yet\";
+const net = \"Gro's host module '@fuzdev/gro/net.ts', which isn't on fgro yet\";
 const cases = [
 \t['@fuzdev/gro/arg%73.ts', respells],
 \t['@fuzdev/gro/args.ts?x', respells],
 \t['@fuzdev/gro/args.js#.ts', \"Fix: import '@fuzdev/gro/args.ts'\"],
 \t['@fuzdev/gro/proces%73.ts', split],
 \t['@fuzdev/gro/process.js?.ts', split],
-\t['@fuzdev/gro/f%73.ts', fs],
-\t['@fuzdev/gro/fs.js?.ts', fs],
+\t['@fuzdev/gro/n%65t.ts', net],
+\t['@fuzdev/gro/net.js?.ts', net],
 ];
 const reaches = [
 \t(specifier) => import(specifier),

@@ -16,3 +16,34 @@
 @fuzdev/gro/blake3.ts create_derive_key_hasher export length 1 grant-free
 @fuzdev/gro/blake3.ts update method of @fuzdev/gro/blake3.ts#Blake3Hasher length 1 grant-free
 @fuzdev/gro/blake3.ts finalize method of @fuzdev/gro/blake3.ts#Blake3Hasher length 0 grant-free
+@fuzdev/gro/fs_error.ts FsError export class FsError grant-free
+@fuzdev/gro/fs_error.ts is_fs_error export length 2 grant-free
+@fuzdev/gro/fs_error.ts is_own_fs_error export length 1 grant-free
+@fuzdev/gro/fs.ts fs export handle @fuzdev/gro/fs.ts#Fs grant fs
+@fuzdev/gro/fs.ts project data of @fuzdev/gro/fs.ts#Fs handle @fuzdev/gro/fs.ts#FsDir grant fs
+@fuzdev/gro/fs.ts open_dir method of @fuzdev/gro/fs.ts#Fs length 1 async grant fs throws FsError
+@fuzdev/gro/fs.ts real_path method of @fuzdev/gro/fs.ts#Fs length 1 async grant fs throws FsError
+@fuzdev/gro/fs.ts temp_dir method of @fuzdev/gro/fs.ts#Fs length 0 async grant fs
+@fuzdev/gro/fs.ts dir method of @fuzdev/gro/fs.ts#FsReadDir length 1 grant fs throws FsError
+@fuzdev/gro/fs.ts stat method of @fuzdev/gro/fs.ts#FsReadDir length 2 async grant fs throws FsError
+@fuzdev/gro/fs.ts exists method of @fuzdev/gro/fs.ts#FsReadDir length 1 async grant fs throws FsError
+@fuzdev/gro/fs.ts read method of @fuzdev/gro/fs.ts#FsReadDir length 1 async grant fs
+@fuzdev/gro/fs.ts read_text method of @fuzdev/gro/fs.ts#FsReadDir length 1 async grant fs
+@fuzdev/gro/fs.ts read_if_exists method of @fuzdev/gro/fs.ts#FsReadDir length 1 async grant fs
+@fuzdev/gro/fs.ts read_text_if_exists method of @fuzdev/gro/fs.ts#FsReadDir length 1 async grant fs
+@fuzdev/gro/fs.ts list method of @fuzdev/gro/fs.ts#FsReadDir length 0 grant fs
+@fuzdev/gro/fs.ts read_link method of @fuzdev/gro/fs.ts#FsReadDir length 1 async grant fs
+@fuzdev/gro/fs.ts stat_sync method of @fuzdev/gro/fs.ts#FsReadDir length 2 grant fs throws FsError
+@fuzdev/gro/fs.ts exists_sync method of @fuzdev/gro/fs.ts#FsReadDir length 1 grant fs throws FsError
+@fuzdev/gro/fs.ts read_text_sync method of @fuzdev/gro/fs.ts#FsReadDir length 1 grant fs
+@fuzdev/gro/fs.ts dir method of @fuzdev/gro/fs.ts#FsDir length 1 grant fs throws FsError
+@fuzdev/gro/fs.ts readonly method of @fuzdev/gro/fs.ts#FsDir length 0 grant fs
+@fuzdev/gro/fs.ts write method of @fuzdev/gro/fs.ts#FsDir length 3 async grant fs throws FsError
+@fuzdev/gro/fs.ts mkdir method of @fuzdev/gro/fs.ts#FsDir length 2 async grant fs throws FsError
+@fuzdev/gro/fs.ts remove method of @fuzdev/gro/fs.ts#FsDir length 2 async grant fs throws FsError
+@fuzdev/gro/fs.ts rename method of @fuzdev/gro/fs.ts#FsDir length 2 async grant fs throws FsError
+@fuzdev/gro/fs.ts copy method of @fuzdev/gro/fs.ts#FsDir length 3 async grant fs throws FsError
+@fuzdev/gro/fs.ts set_times method of @fuzdev/gro/fs.ts#FsDir length 3 async grant fs throws FsError
+@fuzdev/gro/fs.ts set_mode method of @fuzdev/gro/fs.ts#FsDir length 2 async grant fs throws FsError
+@fuzdev/gro/fs.ts symlink method of @fuzdev/gro/fs.ts#FsDir length 2 async grant fs throws FsError
+@fuzdev/gro/fs.ts path data of @fuzdev/gro/fs.ts#FsReadDir data grant fs

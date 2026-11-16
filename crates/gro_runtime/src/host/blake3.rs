@@ -213,7 +213,7 @@ pub fn hasher<'s>(
     hashers.next.set(number + 1.0);
     let id = number.to_bits();
     let held = v8::Number::new(scope, number);
-    let made = handle::make(scope, &BLAKE3_HASHER, prototype, held.into())?;
+    let made = handle::make(scope, &BLAKE3_HASHER, prototype, held.into(), &[])?;
     let finalized = Rc::clone(hashers);
     let weak = v8::Weak::with_finalizer(
         scope,

@@ -6,7 +6,9 @@
 // properties hold are exercised in turn, and those of each prototype a builtin made, with the
 // value as their receiver, and each getter is read and each setter given a value. The traps
 // are armed for the length of a call and no longer, so what a call leaves to run later, a
-// promise's reaction, runs unwatched.
+// promise's reaction, runs unwatched. A call that returns a promise has it handled at once, so
+// a rejection is never the run's unhandled one, and reports how it settled once every call is
+// made (`settle`).
 //
 // A call can end the process, as `exit` does. Each call is reported before it's made, so a run
 // that ended in one left which, with every trap and touch it used before it did; the test
@@ -40,6 +42,9 @@ const to_string = String;
 const ProxyConstructor = Proxy;
 const { iterator, toPrimitive } = Symbol;
 const array_values = Array.prototype[Symbol.iterator];
+const promise_prototype = Promise.prototype;
+const promise_then = Promise.prototype.then;
+const PromiseConstructor = Promise;
 // the engine's own accessor of every error's `stack`, which formats the stack when it's read:
 // a use of the realm that is the reader's, not the builtin's that made the error
 const error_stack = getOwnPropertyDescriptor(new Error(''), 'stack') ?? {};
@@ -214,6 +219,11 @@ export const create_exerciser = (exercises, depth, ended) => {
 	const seen = new Map();
 	/** @type {Set<string>} */
 	const used = new Set();
+	/**
+	 * The promises calls returned, each by its call's label, to report how each settled.
+	 * @type {Array<[string, Promise<unknown>]>}
+	 */
+	const promises = [];
 
 	/**
 	 * Runs `use` armed, as the call named `label`, and reports its outcome, or that an earlier
@@ -240,6 +250,18 @@ export const create_exerciser = (exercises, depth, ended) => {
 		disarm();
 		watched = '';
 		report('line', `${label}: ${outcome[0] ? 'returned' : 'threw'} ${show(outcome[1])}`);
+		const [, value] = outcome;
+		if (
+			typeof value === 'object' &&
+			value !== null &&
+			getPrototypeOf(value) === promise_prototype
+		) {
+			// handled now, by the realm's own `then` taken at load, so its rejection is no
+			// unhandled one of the run's
+			const ignore = () => {};
+			apply(promise_then, value, [ignore, ignore]);
+			promises.push([label, /** @type {Promise<unknown>} */ (value)]);
+		}
 		return outcome;
 	};
 
@@ -346,6 +368,21 @@ export const create_exerciser = (exercises, depth, ended) => {
 	return {
 		exercise,
 		/** The paths `exercises` has arguments for that no function or class was reached at. */
-		unused: () => Array.from(exercises.keys()).filter((path) => !used.has(path))
+		unused: () => Array.from(exercises.keys()).filter((path) => !used.has(path)),
+		/**
+		 * Reports how each promise a call returned settled, in the order the calls were made,
+		 * once the realm is restored: a builtin settles its promises before it returns them.
+		 */
+		settle: async () => {
+			for (const [label, promise] of promises) {
+				const [how, value] = await new PromiseConstructor((resolve) =>
+					apply(promise_then, promise, [
+						(/** @type {unknown} */ value) => resolve(['fulfilled', value]),
+						(/** @type {unknown} */ error) => resolve(['rejected', error])
+					])
+				);
+				report('line', `${label} settled: ${how} ${show(value)}`);
+			}
+		}
 	};
 };

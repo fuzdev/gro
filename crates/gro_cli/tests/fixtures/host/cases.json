@@ -437,5 +437,188 @@
 		"module": "blake3",
 		"args": ["receiver"],
 		"differs": []
+	},
+	{
+		"name": "fs_error",
+		"module": "fs_error",
+		"args": [],
+		"differs": [
+			{
+				"at": "/namespace/own/default",
+				"fgro": {"type": "undefined", "writable": true, "enumerable": true, "configurable": false},
+				"why": "a builtin module's namespace has a default export of undefined, where a Node module has none"
+			},
+			{
+				"at": "/guard/frozen",
+				"fgro": true,
+				"why": "the guard is a native function the host makes, frozen, as each of a builtin's functions is, since every importer shares it"
+			},
+			{
+				"at": "/guard/own/length",
+				"fgro": {"type": "number", "writable": false, "enumerable": false, "configurable": false},
+				"why": "the guard is frozen, so its length isn't configurable"
+			},
+			{
+				"at": "/guard/own/name",
+				"fgro": {"type": "string", "writable": false, "enumerable": false, "configurable": false},
+				"why": "the guard is frozen, so its name isn't configurable"
+			},
+			{
+				"at": "/guards/proxy_of_an_error",
+				"fgro": false,
+				"why": "the guard is native and runs no code of a caller's, so it reads no proxy's prototype through its trap, and a proxy is no error of the family"
+			},
+			{
+				"at": "/guards/kind_by_getter",
+				"fgro": false,
+				"why": "the guard is native and runs no code of a caller's, so it reads only a data property's kind, and calls no getter"
+			},
+			{
+				"at": "/guards/named_through_a_proxy",
+				"fgro": false,
+				"why": "the guard is native and runs no code of a caller's, so it reads no name through a proxy on a constructor's chain, and a proxy there is no match"
+			},
+			{
+				"at": "/guards/named_by_a_proxy",
+				"fgro": false,
+				"why": "the guard is native and runs no code of a caller's, so it reads no name of a constructor that is a proxy, and a proxy there is no match"
+			},
+			{
+				"at": "/guards/constructor_by_getter",
+				"fgro": false,
+				"why": "the guard is native and runs no code of a caller's, so it reads only a data property's constructor, and calls no getter"
+			},
+			{
+				"at": "/guards/named_by_getter",
+				"fgro": false,
+				"why": "the guard is native and runs no code of a caller's, so it reads only a data property's name, and calls no getter"
+			},
+			{
+				"at": "/guards/ran",
+				"fgro": [],
+				"why": "the guard is native and runs no code of a caller's: no trap, and no getter"
+			},
+			{
+				"at": "/own_guard/frozen",
+				"fgro": true,
+				"why": "the guard is a native function the host makes, frozen, as each of a builtin's functions is, since every importer shares it"
+			},
+			{
+				"at": "/own_guard/own/length",
+				"fgro": {"type": "number", "writable": false, "enumerable": false, "configurable": false},
+				"why": "the guard is frozen, so its length isn't configurable"
+			},
+			{
+				"at": "/own_guard/own/name",
+				"fgro": {"type": "string", "writable": false, "enumerable": false, "configurable": false},
+				"why": "the guard is frozen, so its name isn't configurable"
+			}
+		]
+	},
+	{
+		"name": "fs_shape",
+		"module": "fs",
+		"args": ["shape"],
+		"differs": [
+			{
+				"at": "/functions/0/shape/prototype",
+				"fgro": "Function.prototype",
+				"why": "the root's functions are native functions of the realm's Function.prototype, where the Node module's are async functions"
+			},
+			{
+				"at": "/functions/1/shape/prototype",
+				"fgro": "Function.prototype",
+				"why": "the root's functions are native functions of the realm's Function.prototype, where the Node module's are async functions"
+			},
+			{
+				"at": "/functions/2/shape/prototype",
+				"fgro": "Function.prototype",
+				"why": "the root's functions are native functions of the realm's Function.prototype, where the Node module's are async functions"
+			},
+			{
+				"at": "/info_null_prototype",
+				"fgro": true,
+				"why": "stat's record has a null prototype, so a promise settled with it finds no then of the realm's, where the Node module's is a plain object"
+			},
+			{
+				"at": "/namespace/own/default",
+				"fgro": {"type": "undefined", "writable": true, "enumerable": true, "configurable": false},
+				"why": "a builtin module's namespace has a default export of undefined, where a Node module has none"
+			}
+		]
+	},
+	{
+		"name": "fs_stat",
+		"module": "fs",
+		"args": ["stat"],
+		"differs": []
+	},
+	{
+		"name": "fs_dir",
+		"module": "fs",
+		"args": ["dir"],
+		"differs": []
+	},
+	{
+		"name": "fs_open_dir",
+		"module": "fs",
+		"args": ["open_dir"],
+		"differs": []
+	},
+	{
+		"name": "fs_open_dir_outside",
+		"module": "fs",
+		"args": ["open_dir_outside"],
+		"refused": [
+			"error: fs refused: not_granted: /no_such_directory_of_the_fixtures",
+			"error: a refusal fails the run, whether or not the program caught it"
+		],
+		"differs": [
+			{
+				"at": "/missing/rejected/kind",
+				"fgro": "not_granted",
+				"why": "fgro reads only beneath the run's roots, the project's alone without a flag, so a directory outside them is not_granted, also when nothing is there, which fails the run"
+			},
+			{
+				"at": "/missing/rejected/message",
+				"fgro": "not_granted: /no_such_directory_of_the_fixtures",
+				"why": "fgro reads only beneath the run's roots, the project's alone without a flag, so a directory outside them is not_granted, also when nothing is there, which fails the run"
+			}
+		]
+	},
+	{
+		"name": "fs_real_path",
+		"module": "fs",
+		"args": ["real_path"],
+		"differs": []
+	},
+	{
+		"name": "fs_arguments",
+		"module": "fs",
+		"args": ["arguments"],
+		"differs": []
+	},
+	{
+		"name": "fs_receiver",
+		"module": "fs",
+		"args": ["receiver"],
+		"differs": []
+	},
+	{
+		"name": "fs_options",
+		"module": "fs",
+		"args": ["options"],
+		"differs": [
+			{
+				"at": "/getter",
+				"fgro": {"rejected": {"class": "TypeError", "message": "fs options are plain data, read without running code: follow"}},
+				"why": "an op runs no code of a caller's, so an option given through a getter or a proxy is a TypeError, where the Node module runs it"
+			},
+			{
+				"at": "/proxy",
+				"fgro": {"rejected": {"class": "TypeError", "message": "fs options are plain data, read without running code: follow"}},
+				"why": "an op runs no code of a caller's, so an option given through a getter or a proxy is a TypeError, where the Node module runs it"
+			}
+		]
 	}
 ]

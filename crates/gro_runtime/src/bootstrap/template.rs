@@ -105,7 +105,9 @@ const _: () = {
 /// origin's namespace by it and makes the origin's root from it.
 const fn scope_argument(grant: Option<Capability>) -> &'static str {
     match grant {
-        None | Some(Capability::Args | Capability::Exit | Capability::Env) => "undefined",
+        None | Some(Capability::Args | Capability::Exit | Capability::Env | Capability::Fs) => {
+            "undefined"
+        }
     }
 }
 

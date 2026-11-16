@@ -11,7 +11,11 @@
 //! and which a class of the program's can extend. Its guard, a native
 //! member of the error row (`native.rs`), recognizes an instance of it, or
 //! of a class of the same name, by its prototype chain, as the Node
-//! module's guard does ([`is_of_family`]).
+//! module's guard does ([`is_of_family`]). Each instance the constructor
+//! makes, a subclass's included, holds the family's brand, a private
+//! symbol no program can name or forge, as the Node class's private field
+//! is, which the guard of the family's own errors (`is_own_fs_error`)
+//! reads ([`is_own`]).
 //!
 //! Neither runs code of a caller's but where the Node class does: the
 //! constructor converts the kind and the target to strings for its
@@ -77,14 +81,26 @@ pub struct ErrorFamily {
     /// The class's name, `EnvError`.
     pub name: &'static str,
     /// The own property naming what the error is about: `target`, the
-    /// variable's name for an `EnvError`.
+    /// variable's name for an `EnvError`, `path` for an `FsError`.
     pub target: &'static str,
+    /// The name of the private symbol each instance holds, the family's
+    /// brand: its error row's specifier, `#`, and the class's name.
+    pub brand: &'static str,
 }
 
 /// The env host module's errors: `EnvError`, which `env`'s handles throw.
 pub const ENV_ERROR: ErrorFamily = ErrorFamily {
     name: "EnvError",
     target: "target",
+    brand: "@fuzdev/gro/env_error.ts#EnvError",
+};
+
+/// The fs host module's errors: `FsError`, which `fs`'s functions and
+/// handles throw.
+pub const FS_ERROR: ErrorFamily = ErrorFamily {
+    name: "FsError",
+    target: "path",
+    brand: "@fuzdev/gro/fs_error.ts#FsError",
 };
 
 /// A family a native member declares, `throws FAMILY(name)` or, for an
@@ -122,7 +138,7 @@ impl DeclaredFamily {
 /// Every family the host makes a class of, which a class's native
 /// functions find their own by name in, one for each error row of the
 /// builtin table, as a test holds it.
-const FAMILIES: [&ErrorFamily; 1] = [&ENV_ERROR];
+const FAMILIES: [&ErrorFamily; 2] = [&ENV_ERROR, &FS_ERROR];
 
 /// What a member that needs a family's class throws when the run holds
 /// no realm `Error` to make the class from.
@@ -263,19 +279,21 @@ impl ErrorClasses {
     }
 
     /// Throws a new error of `family`, the one its member declared,
-    /// through `scope`, of `kind`, about
-    /// `target`: what `new Class(kind, target)` makes, its message `kind:
-    /// target`, made by the family's class, which is made now if the run
-    /// has none, extending the realm's `Error` the run holds. Runs no code
-    /// of a caller's: both are strings, and the class's own `prototype` is
-    /// a data property no program can change. With no `Error` held, it
-    /// throws an `Error` saying so instead ([`Self::class`]).
+    /// through `scope`, of `kind`, about `target`, with `cause` when one is
+    /// given: what `new Class(kind, target, {cause})` makes, its message
+    /// `kind: target`, made by the family's class, which is made now if the
+    /// run has none, extending the realm's `Error` the run holds. Runs no
+    /// code of a caller's: both are strings, the options a null-prototype
+    /// record made here, and the class's own `prototype` a data property no
+    /// program can change. With no `Error` held, it throws an `Error`
+    /// saying so instead ([`Self::class`]).
     pub fn throw<'s>(
         &self,
         scope: &v8::PinScope<'s, '_>,
         family: DeclaredFamily,
         kind: &str,
         target: v8::Local<'s, v8::String>,
+        cause: Option<v8::Local<'s, v8::Value>>,
     ) {
         let Some(class) = self.class(scope, family) else {
             return;
@@ -283,7 +301,16 @@ impl ErrorClasses {
         let Some(kind) = v8::String::new(scope, kind) else {
             return;
         };
-        if let Some(instance) = class.new_instance(scope, &[kind.into(), target.into()]) {
+        let mut args = vec![kind.into(), target.into()];
+        if let Some(cause) = cause {
+            let Some(key) = name(scope, "cause") else {
+                return;
+            };
+            let null = v8::null(scope).into();
+            let options = v8::Object::with_prototype_and_properties(scope, null, &[key], &[cause]);
+            args.push(options.into());
+        }
+        if let Some(instance) = class.new_instance(scope, &args) {
             scope.throw_exception(instance.into());
         }
     }
@@ -395,7 +422,37 @@ fn construct_error<'s>(
     ] {
         error.create_data_property(scope, name(scope, key)?, value)?;
     }
+    let held = v8::Boolean::new(scope, true).into();
+    error.set_private(scope, brand(scope, family)?, held)?;
     Some(error)
+}
+
+/// The brand of `family`'s instances: the same private symbol every time,
+/// which V8 keeps for the isolate.
+fn brand<'s>(
+    scope: &v8::PinScope<'s, '_>,
+    family: &ErrorFamily,
+) -> Option<v8::Local<'s, v8::Private>> {
+    let name = v8::String::new(scope, family.brand)?;
+    Some(v8::Private::for_api(scope, Some(name)))
+}
+
+/// Whether `value` is an error the host made of `family`'s class, or of a
+/// class extending it, by the brand its constructor gave it, as the Node
+/// module's private field tells its own: reads nothing a caller can
+/// answer, so a proxy, a look-alike, or another copy's error is none.
+pub(super) fn is_own(
+    scope: &v8::PinScope<'_, '_>,
+    family: &ErrorFamily,
+    value: v8::Local<'_, v8::Value>,
+) -> bool {
+    if value.is_proxy() {
+        return false;
+    }
+    let Ok(object) = v8::Local::<v8::Object>::try_from(value) else {
+        return false;
+    };
+    brand(scope, family).is_some_and(|brand| object.has_private(scope, brand) == Some(true))
 }
 
 /// `left` and `right` joined, or `None` with a `RangeError` thrown, as a
@@ -501,6 +558,32 @@ mod tests {
         let families: Vec<&str> = FAMILIES.iter().map(|family| family.name).collect();
         assert!(!rows.is_empty(), "the table has an error row");
         assert_eq!(families, rows);
+    }
+
+    /// Each family's brand follows its rule: the module of the member
+    /// declared its class (`class FAMILY`), `#`, and the class's name.
+    #[test]
+    fn each_family_s_brand_is_its_class_s_module_and_name() {
+        for family in FAMILIES {
+            let module = NATIVE_MEMBERS
+                .iter()
+                .find(|member| {
+                    matches!(
+                        member.member,
+                        Member::Value {
+                            kind: ValueKind::Class,
+                            ..
+                        }
+                    ) && member.family.is_some_and(|declared| declared == family)
+                })
+                .map(|member| member.module);
+            assert_eq!(
+                Some(family.brand.to_owned()),
+                module.map(|module| format!("{module}#{}", family.name)),
+                "{}",
+                family.name
+            );
+        }
     }
 
     /// Each family is declared by its error row's class, the export named

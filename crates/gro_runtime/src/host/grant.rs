@@ -10,7 +10,7 @@ use deno_core::OpState;
 use deno_core::error::ModuleLoaderError as JsErrorBox;
 
 use crate::resolver::Capability;
-use crate::{ArgsGrant, Authority, EnvGrant, ExitGrant};
+use crate::{ArgsGrant, Authority, EnvGrant, ExitGrant, FsGrant};
 
 /// A host module's grant, as [`Grants`](crate::Grants) holds it.
 pub trait Grant: 'static {
@@ -28,6 +28,10 @@ impl Grant for ExitGrant {
 
 impl Grant for EnvGrant {
     const CAPABILITY: Capability = Capability::Env;
+}
+
+impl Grant for FsGrant {
+    const CAPABILITY: Capability = Capability::Fs;
 }
 
 /// Proof that the run holds the grant `G`. Its field is private to this

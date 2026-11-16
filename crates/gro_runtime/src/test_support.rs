@@ -4,7 +4,7 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use crate::{ArgsGrant, Authority, EnvGrant, Exit, ExitGrant, Grants};
+use crate::{ArgsGrant, Authority, EnvGrant, Exit, ExitGrant, FsGrant, Grants};
 
 /// The exit step of a test's run, which no test's program reaches: a
 /// program whose `exit` is given a code ends its process, so those run in
@@ -17,8 +17,8 @@ pub fn never_exits(exit: &Exit) -> ! {
 }
 
 /// The authority `fgro run --allow-env=GRO_TEST_ENV` gives: `args`,
-/// `exit`, and `env` for that one variable, which no test's environment
-/// sets, granted. A run that holds it is given the exit step
+/// `exit`, `env` for that one variable, which no test's environment
+/// sets, and `fs`, the project's tree to read, granted. A run that holds it is given the exit step
 /// [`never_exits`].
 pub fn run_authority() -> Authority {
     Authority::Confined(Grants {
@@ -27,6 +27,7 @@ pub fn run_authority() -> Authority {
         env: Some(EnvGrant {
             names: BTreeSet::from(["GRO_TEST_ENV".to_owned()]),
         }),
+        fs: Some(FsGrant {}),
     })
 }
 
