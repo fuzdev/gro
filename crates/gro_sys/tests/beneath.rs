@@ -1170,30 +1170,79 @@ fn open_as_a_path_names_any_entry() {
     assert_eq!(code(result), libc::ELOOP);
 }
 
-/// `real_path` is the path the kernel holds for an open entry, through
-/// the symlinks it was opened by, after a rename of its directory, and
-/// `ENOENT` once the entry is removed.
+/// `path_beneath` is the path the kernel holds for an open entry beneath a
+/// root, through the symlinks it was opened by, after a rename of its
+/// directory, and empty for the root's own; `None` once a rename moves it
+/// out of the root's path, and `ENOENT` once the entry is removed, or when
+/// the kernel's path now names another entry.
 #[test]
-fn real_path_is_the_kernel_s_and_never_a_stale_name() {
-    let scratch = Scratch::new("real_path");
-    fs::create_dir(scratch.root("d")).unwrap();
-    symlink("d", scratch.root("to_d")).unwrap();
-    let root = scratch.root_fd();
-    let real_root = fs::canonicalize(scratch.root("")).unwrap();
+fn path_beneath_is_the_kernel_s_and_never_a_stale_name() {
+    let scratch = Scratch::new("path_beneath");
+    fs::create_dir_all(scratch.root("r/d")).unwrap();
+    symlink("d", scratch.root("r/to_d")).unwrap();
+    let real_root = fs::canonicalize(scratch.root("r")).unwrap();
+    let root = beneath::open_root(&real_root).unwrap();
+    let beneath_root = |fd: BorrowedFd<'_>| beneath::path_beneath(root.as_fd(), &real_root, fd);
     let fd = beneath::open(root.as_fd(), p("to_d"), OpenAs::Directory, Links::Beneath).unwrap();
+    assert_eq!(beneath_root(fd.as_fd()).unwrap(), Some("d".into()));
+    assert_eq!(beneath_root(root.as_fd()).unwrap(), Some("".into()));
+    fs::rename(scratch.root("r/d"), scratch.root("r/moved")).unwrap();
+    assert_eq!(beneath_root(fd.as_fd()).unwrap(), Some("moved".into()));
+    // a rename out of the root's path is no path beneath it, looked up nowhere
+    fs::rename(scratch.root("r/moved"), scratch.root("out")).unwrap();
+    assert_eq!(beneath_root(fd.as_fd()).unwrap(), None);
+    fs::rename(scratch.root("out"), scratch.root("r/moved")).unwrap();
+    // the kernel names a renamed entry where it is, never a symlink put where
+    // it was
+    fs::rename(scratch.root("r/moved"), scratch.root("r/elsewhere")).unwrap();
+    symlink("elsewhere", scratch.root("r/moved")).unwrap();
     assert_eq!(
-        beneath::real_path(fd.as_fd()).unwrap(),
-        real_root.join("d").into_os_string()
+        beneath_root(fd.as_fd()).unwrap(),
+        Some("elsewhere".into()),
+        "the kernel names the directory where it is"
     );
-    fs::rename(scratch.root("d"), scratch.root("moved")).unwrap();
-    assert_eq!(
-        beneath::real_path(fd.as_fd()).unwrap(),
-        real_root.join("moved").into_os_string()
-    );
-    fs::remove_dir(scratch.root("moved")).unwrap();
-    assert_eq!(code(beneath::real_path(fd.as_fd())), libc::ENOENT);
+    fs::remove_file(scratch.root("r/moved")).unwrap();
+    fs::remove_dir(scratch.root("r/elsewhere")).unwrap();
+    assert_eq!(code(beneath_root(fd.as_fd())), libc::ENOENT);
     // the kernel's name for a removed entry, made a directory of its own,
     // is another entry
-    fs::create_dir(scratch.root("moved (deleted)")).unwrap();
-    assert_eq!(code(beneath::real_path(fd.as_fd())), libc::ENOENT);
+    fs::create_dir(scratch.root("r/elsewhere (deleted)")).unwrap();
+    assert_eq!(code(beneath_root(fd.as_fd())), libc::ENOENT);
+}
+
+/// A path is beneath a root by its text: the root itself, or the root and a
+/// `/` then more, never a sibling sharing its prefix.
+#[test]
+fn strip_root_reads_a_path_beneath_a_root_by_its_text() {
+    let strip = |root: &str, path: &'static str| {
+        beneath::strip_root(OsStr::new(root), OsStr::new(path)).map(OsStr::to_os_string)
+    };
+    assert_eq!(strip("/p", "/p"), Some("".into()));
+    assert_eq!(strip("/p", "/p/a/b"), Some("a/b".into()));
+    assert_eq!(strip("/", "/a"), Some("a".into()));
+    assert_eq!(strip("/", "/"), Some("".into()));
+    for outside in ["/pq/a", "/pq", "/", "/q/p", "p/a"] {
+        assert_eq!(strip("/p", outside), None, "{outside}");
+    }
+}
+
+/// `Links::InRoot` beneath a directory resolves an absolute symlink from
+/// the directory, as a chroot would, and holds a `..` at the directory there.
+#[test]
+fn in_root_resolves_absolute_links_from_the_descriptor() {
+    let scratch = Scratch::new("in_root");
+    fs::create_dir_all(scratch.root("r/a")).unwrap();
+    symlink("/a", scratch.root("r/abs")).unwrap();
+    let real_root = fs::canonicalize(scratch.root("r")).unwrap();
+    let root = beneath::open_root(&real_root).unwrap();
+    for path in ["abs", "../../a", "/a"] {
+        let fd = beneath::open(root.as_fd(), p(path), OpenAs::Directory, Links::InRoot).unwrap();
+        assert_eq!(
+            beneath::path_beneath(root.as_fd(), &real_root, fd.as_fd()).unwrap(),
+            Some("a".into()),
+            "{path}"
+        );
+    }
+    let result = beneath::open(root.as_fd(), p("abs"), OpenAs::Directory, Links::Beneath);
+    assert_eq!(code(result), libc::EXDEV);
 }

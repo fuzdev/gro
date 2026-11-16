@@ -25,8 +25,9 @@
 //! - [`read_link`] reads a symlink's target as stored, never following it.
 //! - [`open_root`] opens a directory by its absolute real path, the one
 //!   descriptor the others resolve beneath, refusing any symlink on it.
-//! - [`real_path`] reads the absolute path the kernel holds for what a
-//!   descriptor names.
+//! - [`path_beneath`] reads the path the kernel holds for what a
+//!   descriptor names, beneath a root's, held to name that entry by a
+//!   lookup beneath the root's descriptor.
 //! - [`stat`] reports an entry's kind, size, permission bits, and
 //!   modification time ([`Stat`]), its final symlink followed or not
 //!   ([`FinalLink`]).
@@ -144,7 +145,7 @@ pub enum OpenAs {
     /// with `ENOTDIR`.
     Directory,
     /// An entry of any kind to name, readable by nothing (`O_PATH`): its
-    /// real path ([`real_path`]) or its metadata. Nothing is opened for its
+    /// path beneath a root ([`path_beneath`]) or its metadata. Nothing is opened for its
     /// contents, so a FIFO or a device opens at once, and no permission but
     /// the walk's is needed.
     Path,
@@ -185,6 +186,13 @@ pub enum Links {
     /// (`RESOLVE_NO_SYMLINKS`, `ELOOP`): a root or a handle's directory
     /// reached by its own name only.
     Refused,
+    /// Followed as though the descriptor were the filesystem's root
+    /// (`RESOLVE_IN_ROOT`): an absolute symlink resolves from the
+    /// descriptor, and a `..` at it stays there. Beneath the process's own
+    /// `/`, that's the kernel's resolution of an absolute path, magic links
+    /// still refused; beneath any other directory it would read a symlink's
+    /// target as another path than it names, so only a root at `/` takes it.
+    InRoot,
 }
 
 /// Whether [`stat`] follows a symlink that is a path's last component.
@@ -256,9 +264,11 @@ pub struct DirEntry {
     pub kind: Option<FileKind>,
 }
 
-/// Opens `path` beneath `dir` as `how` says, `O_CLOEXEC`, resolving it by
-/// one `openat2` with `RESOLVE_BENEATH | RESOLVE_NO_MAGICLINKS`, and with
-/// `RESOLVE_NO_SYMLINKS` for [`Links::Refused`].
+/// Opens `path` beneath `dir` as `how` says, `O_CLOEXEC`, by one `openat2`.
+///
+/// It resolves with `RESOLVE_BENEATH | RESOLVE_NO_MAGICLINKS`, with
+/// `RESOLVE_NO_SYMLINKS` too for [`Links::Refused`], or with
+/// `RESOLVE_IN_ROOT | RESOLVE_NO_MAGICLINKS` for [`Links::InRoot`].
 ///
 /// An open of a file's contents ([`OpenAs::Read`], [`OpenAs::Write`],
 /// [`OpenAs::CreateNew`]) keeps a regular file only, told by the
@@ -308,6 +318,7 @@ fn open_unchecked(
     let resolve = match links {
         Links::Beneath => BENEATH,
         Links::Refused => BENEATH | libc::RESOLVE_NO_SYMLINKS,
+        Links::InRoot => libc::RESOLVE_IN_ROOT | libc::RESOLVE_NO_MAGICLINKS,
     };
     openat2(dir, &to_c_path(path.as_os_str())?, flags, mode, resolve)
 }
@@ -607,13 +618,20 @@ pub fn open_root(path: &Path) -> io::Result<OwnedFd> {
     )
 }
 
-/// The absolute path the kernel holds for what `fd` names.
+/// The path beneath the root `root` of what `fd` names, as the kernel
+/// holds it.
 ///
-/// It's read from `/proc/self/fd`, and held to be that entry: the path's
-/// entry, its last
-/// symlink not followed, has `fd`'s device and inode, so a name the kernel
-/// keeps for an entry removed since it opened, or one a rename made stale,
-/// is never returned.
+/// `root_path` is the root's absolute real path. The path is empty for the
+/// root's own directory, and `None` when the kernel's path isn't beneath
+/// `root_path`, which only an entry or a root moved since it was opened
+/// makes.
+///
+/// The kernel's path is read from `/proc/self/fd` and checked to be
+/// beneath `root_path` by its text before anything is looked up, then held
+/// to be `fd`'s entry by opening it beneath `root`'s descriptor, no
+/// symlink allowed, and comparing device and inode, so no lookup leaves the
+/// root, and a name the kernel keeps for an entry removed since it opened,
+/// or one a rename made stale, is never returned.
 ///
 /// # Errors
 ///
@@ -621,16 +639,49 @@ pub fn open_root(path: &Path) -> io::Result<OwnedFd> {
 /// removed, or moved where its name can't be read; an error of kind
 /// [`io::ErrorKind::Other`], with no OS code, when `/proc` can't be read
 /// (not mounted, or refused).
-pub fn real_path(fd: BorrowedFd<'_>) -> io::Result<OsString> {
+pub fn path_beneath(
+    root: BorrowedFd<'_>,
+    root_path: &Path,
+    fd: BorrowedFd<'_>,
+) -> io::Result<Option<OsString>> {
     let link = std::fs::read_link(format!("/proc/self/fd/{}", fd.as_raw_fd()))
         .map_err(|error| io::Error::other(format!("/proc/self/fd can't be read: {error}")))?;
+    let Some(beneath) = strip_root(root_path.as_os_str(), link.as_os_str()) else {
+        return Ok(None);
+    };
     let held = File::from(fd.try_clone_to_owned()?).metadata()?;
     let gone = || io::Error::from_raw_os_error(libc::ENOENT);
-    let named = std::fs::symlink_metadata(&link).map_err(|_| gone())?;
+    let named = if beneath.is_empty() {
+        File::from(root.try_clone_to_owned()?).metadata()?
+    } else {
+        let opened = openat2(
+            root,
+            &to_c_path(beneath)?,
+            libc::O_PATH | libc::O_NOFOLLOW,
+            0,
+            BENEATH | libc::RESOLVE_NO_SYMLINKS,
+        )
+        .map_err(|_| gone())?;
+        File::from(opened).metadata()?
+    };
     if (named.dev(), named.ino()) != (held.dev(), held.ino()) {
         return Err(gone());
     }
-    Ok(link.into_os_string())
+    Ok(Some(beneath.to_owned()))
+}
+
+/// `path` beneath `root`, both absolute, by their text: empty for `root`
+/// itself, else what follows `root` and a `/`; `None` when `path` isn't
+/// `root` or beneath it.
+pub fn strip_root<'p>(root: &OsStr, path: &'p OsStr) -> Option<&'p OsStr> {
+    let (root, path) = (root.as_bytes(), path.as_bytes());
+    let rest = path.strip_prefix(root)?;
+    let beneath = if rest.is_empty() || root.ends_with(b"/") {
+        rest
+    } else {
+        rest.strip_prefix(b"/")?
+    };
+    Some(OsStr::from_bytes(beneath))
 }
 
 /// Reports the entry at `path` beneath `dir`.

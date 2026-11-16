@@ -1272,7 +1272,9 @@ console.log(JSON.stringify(ended));
 /// into `/proc`, a FIFO, and a directory beside it: every escape from a
 /// handle is `outside_root` and every reach past the project's root
 /// `not_granted`, recorded and failing the run, listed in order, a
-/// symlink out of the root among them; a FIFO is stat'd as `other` without
+/// symlink out of the root among them, the hint showing only the real
+/// directory a grant lets the walk through, never a missing one or a
+/// symlink's path; a FIFO is stat'd as `other` without
 /// waiting for a writer, and isn't a directory; a cloned, look-alike,
 /// other row's, or read-only handle is refused before anything is read;
 /// and a polluted `Object.prototype.then` is adopted by no record or handle
@@ -1320,7 +1322,9 @@ fn fs_refuses_every_escape_and_forgery() {
              error: fs refused: not_granted: {root}/to_outside\n\
              error: fs refused: not_granted: {root}/to_outside/f.txt\n\
              error: fs refused: not_granted: {root}/new.txt\n\
-             error: a refusal fails the run, whether or not the program caught it\n"
+             error: a refusal fails the run, whether or not the program caught it\n\
+             hint: add --allow-read={out} to grant some of what fs refused\n\
+             hint: add --allow-write={root} to grant what fs refused\n"
         ),
         "{stdout}"
     );
@@ -1389,6 +1393,158 @@ fn fs_project_is_the_entry_s_root_not_the_working_directory() {
     );
 }
 
+/// The script [`fs_roots_by_flag_scope_their_handles`] runs: each reach
+/// through the roots the flags grant, as a JSON line, given the read root's
+/// real path, the write root's, and the read root's path through a symlink.
+const FS_ROOTS: &str = "import { fs } from '@fuzdev/gro/fs.ts';
+import { args } from '@fuzdev/gro/args.ts';
+const [r, w, l] = args;
+const p = fs.project.path;
+const how = async (call) => {
+\ttry {
+\t\treturn ['ok', (await call()) ?? null];
+\t} catch (error) {
+\t\treturn [error.constructor.name, error.kind ?? error.message];
+\t}
+};
+const first = async (listing) => (await listing.next()).value?.name ?? null;
+const ended = {
+\tread_by_alias: await how(async () => (await fs.open_dir(l)).read_text('f.txt')),
+\talias_is_real: await how(async () => (await fs.open_dir(`${l}/`)).path === r),
+\treal_path_by_alias: await how(async () => (await fs.real_path(`${l}/f.txt`)) === `${r}/f.txt`),
+\tread_by_real: await how(async () => (await fs.open_dir(r)).dir('sub').read_text('g.txt')),
+\tread_root_writes: await how(async () => (await fs.open_dir(r)).write('x.txt', 'x')),
+\twrite_only_reads: await how(async () => (await fs.open_dir(w)).read_text('f.txt')),
+\twrite_only_stats: await how(async () => (await fs.open_dir(w)).stat('f.txt')),
+\twrite_only_lists: await how(async () => first((await fs.open_dir(w)).list())),
+\twrite_only_writes: await how(async () => (await fs.open_dir(w)).write('x.txt', 'x')),
+\twrite_only_sub_writes: await how(async () => (await fs.open_dir(w)).dir('sub').mkdir('x')),
+\twrite_only_sub_reads: await how(async () => (await fs.open_dir(w)).dir('sub').exists('g.txt')),
+\twrite_only_readonly: await how(async () => (await fs.open_dir(w)).readonly().exists('f.txt')),
+\twrite_only_real_path: await how(() => fs.real_path(`${w}/f.txt`)),
+\tinner_write_reads: await how(async () => (await fs.open_dir(`${p}/out`)).read_text('f.txt')),
+\tinner_write_writes: await how(async () => (await fs.open_dir(`${p}/out`)).remove('f.txt')),
+\tinner_write_climbs: await how(async () => (await fs.open_dir(`${p}/out/up/sub`)).path === `${p}/sub`),
+\tproject_dir_writes: await how(() => fs.project.dir('out').write('x.txt', 'x')),
+\tproject_writes: await how(() => fs.project.write('x.txt', 'x')),
+\tleaves_its_root: await how(() => fs.open_dir(`${r}/abs`)),
+\tabsolute_link_in_project: await how(() => fs.open_dir(`${p}/to_r`)),
+};
+console.log(JSON.stringify(ended));
+";
+
+/// The roots `--allow-read=` and `--allow-write=` grant, beside the
+/// project's: a read root by a path through a symlink, which matches by
+/// that path and its real one alike, the handle named by its real path; a
+/// root only written, whose handles write (a plain `Error` until the ops
+/// that write are built) and narrow, but read nothing, `fs.real_path`
+/// included; a relative write root inside the project, read as the project
+/// is, and reaching the project through a symlink out of it; and
+/// `fs.project`, whose handles never write, whatever root inside it is
+/// written. Every refusal is listed and fails the run, and the hints name
+/// the real directories each flag would grant, but for a step out of its
+/// root through a symlink, and, for a write a root already grants, the
+/// directory to open a handle on instead.
+#[test]
+fn fs_roots_by_flag_scope_their_handles() {
+    let project = Scratch::new(
+        "fs_roots",
+        &[
+            (
+                "package.json",
+                "{\"name\": \"fs_roots\", \"type\": \"module\"}\n",
+            ),
+            ("main.js", FS_ROOTS),
+            ("out/f.txt", "inner"),
+            ("sub/g.txt", ""),
+        ],
+    );
+    let sibling = |name: &str| {
+        let dir = project.0.with_file_name(format!(
+            "{}_{name}",
+            project.0.file_name().unwrap().to_str().unwrap()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_file(&dir);
+        dir
+    };
+    let (r, w, l) = (sibling("r"), sibling("w"), sibling("l"));
+    std::fs::create_dir_all(r.join("sub")).unwrap();
+    std::fs::write(r.join("f.txt"), "read").unwrap();
+    std::fs::write(r.join("sub/g.txt"), "deeper").unwrap();
+    std::os::unix::fs::symlink("/etc", r.join("abs")).unwrap();
+    std::fs::create_dir_all(w.join("sub")).unwrap();
+    std::fs::write(w.join("f.txt"), "written").unwrap();
+    std::os::unix::fs::symlink(&r, &l).unwrap();
+    std::os::unix::fs::symlink(&r, project.0.join("to_r")).unwrap();
+    std::os::unix::fs::symlink("..", project.0.join("out/up")).unwrap();
+    let text = |path: &Path| path.display().to_string();
+    let (r, w, l, p) = (text(&r), text(&w), text(&l), text(&project.0));
+    let mut command = fgro_command(&[
+        "run",
+        &format!("--allow-read={l}"),
+        &format!("--allow-write={w},out"),
+        "main.js",
+        &r,
+        &w,
+        &l,
+    ]);
+    command.env_clear().current_dir(&project.0);
+    let output = spawn(command, b"");
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    for dir in [&r, &w] {
+        let _ = std::fs::remove_dir_all(dir);
+    }
+    let _ = std::fs::remove_file(&l);
+    let unbuilt = |op: &str| format!("{op} of @fuzdev/gro/fs.ts isn't built on fgro yet");
+    let ended: Value = serde_json::from_str(&stdout).unwrap_or_else(|_| panic!("{stderr}"));
+    assert_eq!(
+        ended,
+        serde_json::json!({
+            "read_by_alias": ["ok", "read"],
+            "alias_is_real": ["ok", true],
+            "real_path_by_alias": ["ok", true],
+            "read_by_real": ["ok", "deeper"],
+            "read_root_writes": ["FsError", "not_granted"],
+            "write_only_reads": ["FsError", "not_granted"],
+            "write_only_stats": ["FsError", "not_granted"],
+            "write_only_lists": ["FsError", "not_granted"],
+            "write_only_writes": ["Error", unbuilt("write")],
+            "write_only_sub_writes": ["Error", unbuilt("mkdir")],
+            "write_only_sub_reads": ["FsError", "not_granted"],
+            "write_only_readonly": ["FsError", "not_granted"],
+            "write_only_real_path": ["FsError", "not_granted"],
+            "inner_write_reads": ["ok", "inner"],
+            "inner_write_writes": ["Error", unbuilt("remove")],
+            "inner_write_climbs": ["ok", true],
+            "project_dir_writes": ["FsError", "not_granted"],
+            "project_writes": ["FsError", "not_granted"],
+            "leaves_its_root": ["FsError", "not_granted"],
+            "absolute_link_in_project": ["FsError", "not_granted"],
+        })
+    );
+    assert_eq!(
+        stderr,
+        format!(
+            "error: fs refused: not_granted: {r}/x.txt\n\
+             error: fs refused: not_granted: {w}/f.txt\n\
+             error: fs refused: not_granted: {w}\n\
+             error: fs refused: not_granted: {w}/sub/g.txt\n\
+             error: fs refused: not_granted: {p}/out/x.txt\n\
+             error: fs refused: not_granted: {p}/x.txt\n\
+             error: fs refused: not_granted: {r}/abs\n\
+             error: fs refused: not_granted: {p}/to_r\n\
+             error: a refusal fails the run, whether or not the program caught it\n\
+             hint: add --allow-read={w} to grant some of what fs refused\n\
+             hint: add --allow-write={r},{p} to grant what fs refused\n\
+             hint: the run grants what fs refused in {p}/out: \
+             open it with fs.open_dir and use that handle\n"
+        )
+    );
+    assert_eq!(output.status.code(), Some(1));
+}
+
 /// A directory the flags list is resolved against the working directory
 /// and must be one when the run starts, under `-A` too: a missing one, a
 /// file, and a path through a file are usage errors naming it, escaped,
@@ -1451,6 +1607,340 @@ fn fs_flag_directories_are_checked_as_the_run_starts() {
         assert_eq!(output.stdout, b"ran\n", "{args:?}");
         assert_eq!(output.status.code(), Some(0), "{args:?}");
     }
+}
+
+/// The script [`fs_flag_roots_open_at_the_first_import`] runs: once the
+/// test has changed the granted directories, the first import of `fs` and
+/// a reach through each, as a JSON line.
+const FS_LATE_ROOTS: &str = "import { args } from '@fuzdev/gro/args.ts';
+const [r, w] = args;
+console.log('ready');
+for (let waited = 0; ; waited++) {
+\tif (waited > 3000) throw Error('the test never changed the roots');
+\ttry {
+\t\tawait import('./go.js');
+\t\tbreak;
+\t} catch {}
+\tawait new Promise((resolve) => setTimeout(resolve, 10));
+}
+const { fs } = await import('@fuzdev/gro/fs.ts');
+const how = async (call) => {
+\ttry {
+\t\treturn ['ok', (await call()) ?? null];
+\t} catch (error) {
+\t\treturn [error.constructor.name, error.kind ?? error.message, String(error.cause?.message).includes('is gone')];
+\t}
+};
+console.log(JSON.stringify({
+\treplaced: await how(async () => (await fs.open_dir(r)).read_text('f.txt')),
+\tgone: await how(() => fs.open_dir(w)),
+}));
+";
+
+/// A granted directory is checked as the run starts and opened when the
+/// run first imports `fs`: one replaced between is the directory at its
+/// path then, and one gone by then fails every reach through it with
+/// `io_error`, its cause saying so, which doesn't fail the run.
+#[test]
+fn fs_flag_roots_open_at_the_first_import() {
+    use std::io::BufRead as _;
+    let project = Scratch::new(
+        "fs_late_roots",
+        &[
+            (
+                "package.json",
+                "{\"name\": \"fs_late_roots\", \"type\": \"module\"}\n",
+            ),
+            ("main.js", FS_LATE_ROOTS),
+            ("r/f.txt", "before"),
+            ("w/f.txt", ""),
+        ],
+    );
+    let (r, w) = (project.0.join("r"), project.0.join("w"));
+    let text = |path: &Path| path.display().to_string();
+    let mut command = fgro_command(&[
+        "run",
+        &format!("--allow-read={}", text(&r)),
+        &format!("--allow-write={}", text(&w)),
+        "main.js",
+        &text(&r),
+        &text(&w),
+    ]);
+    command
+        .env_clear()
+        .current_dir(&project.0)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    let mut child = command.spawn().unwrap();
+    let mut stdout = std::io::BufReader::new(child.stdout.take().unwrap());
+    let mut line = String::new();
+    stdout.read_line(&mut line).unwrap();
+    assert_eq!(line, "ready\n");
+    std::fs::rename(&r, project.0.join("r_before")).unwrap();
+    std::fs::create_dir(&r).unwrap();
+    std::fs::write(r.join("f.txt"), "after").unwrap();
+    std::fs::remove_dir_all(&w).unwrap();
+    std::fs::write(project.0.join("go.js"), "").unwrap();
+    line.clear();
+    stdout.read_line(&mut line).unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert_eq!(String::from_utf8(output.stderr).unwrap(), "", "{line}");
+    assert_eq!(output.status.code(), Some(0));
+    let ended: Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(
+        ended,
+        serde_json::json!({
+            "replaced": ["ok", "after"],
+            "gone": ["FsError", "io_error", true],
+        })
+    );
+}
+
+/// The script [`fs_unconfined_reads_and_writes_everything`] runs.
+const FS_UNCONFINED: &str = "import { fs } from '@fuzdev/gro/fs.ts';
+const p = fs.project.path;
+const how = async (call) => {
+\ttry {
+\t\treturn ['ok', (await call()) ?? null];
+\t} catch (error) {
+\t\treturn [error.constructor.name, error.kind ?? error.message];
+\t}
+};
+console.log(JSON.stringify({
+\troot: await how(async () => (await fs.open_dir('/')).path),
+\tthrough_absolute_link: await how(async () => (await fs.real_path(`${p}/to_outside/f.txt`)).endsWith('_outside/f.txt')),
+\tclimbs_from_the_top: await how(async () => (await fs.open_dir(`/../..${p}`)).path === p),
+\tproject_writes: await how(() => fs.project.write('x.txt', 'x')),
+\treadonly_writes: await how(() => Object.getPrototypeOf(fs.project).write.call(fs.project.readonly(), 'x', 'y')),
+\thandle_still_beneath: await how(() => fs.project.stat('to_outside/f.txt')),
+}));
+";
+
+/// `-A` is one root at `/`, read and written, which resolves an absolute
+/// path as the kernel does, an absolute symlink and a `..` at `/`
+/// included, and holds the project's root, so `fs.project` writes too; a
+/// handle still follows only links that stay beneath it, and nothing is
+/// refused for a grant.
+#[test]
+fn fs_unconfined_reads_and_writes_everything() {
+    let project = Scratch::new(
+        "fs_unconfined",
+        &[
+            (
+                "package.json",
+                "{\"name\": \"fs_unconfined\", \"type\": \"module\"}\n",
+            ),
+            ("main.js", FS_UNCONFINED),
+        ],
+    );
+    let outside = project.0.with_file_name(format!(
+        "{}_outside",
+        project.0.file_name().unwrap().to_str().unwrap()
+    ));
+    let _ = std::fs::remove_dir_all(&outside);
+    std::fs::create_dir_all(&outside).unwrap();
+    std::fs::write(outside.join("f.txt"), "").unwrap();
+    std::os::unix::fs::symlink(&outside, project.0.join("to_outside")).unwrap();
+    let mut command = fgro_command(&["run", "-A", "main.js"]);
+    command.env_clear().current_dir(&project.0);
+    let output = spawn(command, b"");
+    let _ = std::fs::remove_dir_all(&outside);
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert_eq!(String::from_utf8(output.stderr).unwrap(), "", "{stdout}");
+    assert_eq!(output.status.code(), Some(0));
+    let ended: Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(
+        ended,
+        serde_json::json!({
+            "root": ["ok", "/"],
+            "through_absolute_link": ["ok", true],
+            "climbs_from_the_top": ["ok", true],
+            "project_writes": ["Error", "write of @fuzdev/gro/fs.ts isn't built on fgro yet"],
+            "readonly_writes": ["TypeError", "fs's methods are called on an fs handle of their kind, not another object"],
+            "handle_still_beneath": ["FsError", "outside_root"],
+        })
+    );
+}
+
+/// The script [`fs_hints_name_only_paths_a_shell_passes_as_printed`] runs:
+/// a reach outside every root by each path given.
+const FS_HINTS: &str = "import { fs } from '@fuzdev/gro/fs.ts';
+import { args } from '@fuzdev/gro/args.ts';
+for (const path of args) {
+\ttry {
+\t\tawait fs.open_dir(path);
+\t} catch {}
+}
+";
+
+/// The hint after a refused path names it only when it's absolute and of
+/// characters neither bash nor fish reads as anything else, and the real
+/// path of a directory, and otherwise names the flag alone: never a
+/// symlink, `/proc/self/root`, a file, or nothing; a path with a `..`
+/// names the directory before it, which the walk opens first, and one
+/// with a `.` or a trailing `/` the directory it names. A hint
+/// names the directory it grants, never what the listing shows.
+#[test]
+fn fs_hints_name_only_paths_a_shell_passes_as_printed() {
+    let project = Scratch::new(
+        "fs_hints",
+        &[
+            (
+                "package.json",
+                "{\"name\": \"fs_hints\", \"type\": \"module\"}\n",
+            ),
+            ("main.js", FS_HINTS),
+        ],
+    );
+    let outside = Scratch::new("fs_hints_outside", &[("such-dir_1.0/f.txt", "")]);
+    std::os::unix::fs::symlink("such-dir_1.0", outside.0.join("link")).unwrap();
+    let run = |paths: &[&str]| {
+        let args = [&["run", "main.js"][..], paths].concat();
+        let mut command = fgro_command(&args);
+        command.env_clear().current_dir(&project.0);
+        let output = spawn(command, b"");
+        assert_eq!(output.status.code(), Some(1), "{paths:?}");
+        let stderr = String::from_utf8(output.stderr).unwrap();
+        stderr
+            .lines()
+            .filter(|line| line.starts_with("hint:"))
+            .map(ToOwned::to_owned)
+            .collect::<Vec<_>>()
+    };
+    let flag_alone = ["hint: add --allow-read naming the directory to grant what fs refused"];
+    let at = |name: &str| format!("{}/{name}", outside.0.display());
+    let dir = at("such-dir_1.0");
+    let unsafe_paths = [
+        "/a b",
+        "/a'b",
+        "/a\"b",
+        "/$HOME",
+        "/a$(touch pwned)",
+        "/a\nhint: forged",
+        "/a\u{202e}b",
+        "/a,b",
+        "/~",
+    ];
+    let unreal_paths = [
+        "/no/such-dir_1.0".to_owned(),
+        "/proc/self/root".to_owned(),
+        at("link"),
+        at("such-dir_1.0/f.txt"),
+    ];
+    for path in unsafe_paths
+        .into_iter()
+        .chain(unreal_paths.iter().map(String::as_str))
+    {
+        assert_eq!(run(&[path]), flag_alone, "{path:?}");
+    }
+    assert_eq!(
+        run(&[&dir, "/a b", &dir]),
+        [format!(
+            "hint: add --allow-read={dir} to grant some of what fs refused"
+        )]
+    );
+    for path in [format!("{dir}/../such-dir_1.0"), format!("{dir}/./")] {
+        assert_eq!(
+            run(&[&path]),
+            [format!(
+                "hint: add --allow-read={dir} to grant what fs refused"
+            )],
+            "{path}"
+        );
+    }
+    assert!(!project.0.join("pwned").exists());
+}
+
+/// The script [`fs_a_scope_a_root_grants_hints_the_handle_to_open`] runs:
+/// a write through `fs.project` to a directory `--allow-write=` grants,
+/// uncaught; or, given a directory only written, that write and a read
+/// through a handle on it of a directory `--allow-read=` grants, caught.
+const FS_PROJECT_WRITE: &str = "import { fs } from '@fuzdev/gro/fs.ts';
+import { args } from '@fuzdev/gro/args.ts';
+const [w] = args;
+if (w === undefined) await fs.project.write('dist/x', 'x');
+for (const call of [
+\t() => fs.project.write('dist/x', 'x'),
+\tasync () => (await fs.open_dir(w)).read_text('sub/g.txt'),
+]) {
+\ttry {
+\t\tawait call();
+\t} catch (error) {
+\t\tconsole.log(error.kind);
+\t}
+}
+";
+
+/// An op through a handle whose scope lacks it, on a directory a root
+/// already grants, is refused, since a handle's scope never widens, and
+/// its hint names no grant, which would widen the handle's whole root (the
+/// project, for a write through `fs.project`), but the directory to open a
+/// handle on with `fs.open_dir`, which does the op: a write into a
+/// directory written, and a read through a root only written of a
+/// directory read inside it.
+#[test]
+fn fs_a_scope_a_root_grants_hints_the_handle_to_open() {
+    let project = Scratch::new(
+        "fs_project_write",
+        &[
+            (
+                "package.json",
+                "{\"name\": \"fs_project_write\", \"type\": \"module\"}\n",
+            ),
+            ("main.js", FS_PROJECT_WRITE),
+            ("dist/.keep", ""),
+        ],
+    );
+    let written = Scratch::new("fs_project_write_w", &[("sub/g.txt", "")]);
+    let p = project.0.display();
+    let w_sub = written.path("sub");
+    let w = written.0.display().to_string();
+    let run = |args: &[&str]| {
+        let mut command = fgro_command(&[&["run"][..], args].concat());
+        command.env_clear().current_dir(&project.0);
+        let output = spawn(command, b"");
+        assert_eq!(output.status.code(), Some(1), "{args:?}");
+        (
+            String::from_utf8(output.stdout).unwrap(),
+            String::from_utf8(output.stderr).unwrap(),
+        )
+    };
+    let open_dir = |dir: &str| {
+        format!(
+            "hint: the run grants what fs refused in {dir}: \
+             open it with fs.open_dir and use that handle\n"
+        )
+    };
+    assert_eq!(
+        run(&["--allow-write=dist", "main.js"]),
+        (
+            String::new(),
+            format!(
+                "error: Uncaught (in promise) FsError: not_granted: {p}/dist/x\n    \
+                 at file://{p}/main.js:4:39\n{}",
+                open_dir(&format!("{p}/dist"))
+            )
+        )
+    );
+    assert_eq!(
+        run(&[
+            &format!("--allow-write=dist,{w}"),
+            &format!("--allow-read={w_sub}"),
+            "main.js",
+            &w,
+        ]),
+        (
+            "not_granted\nnot_granted\n".to_owned(),
+            format!(
+                "error: fs refused: not_granted: {p}/dist/x\n\
+                 error: fs refused: not_granted: {w}/sub/g.txt\n\
+                 error: a refusal fails the run, whether or not the program caught it\n{}{}",
+                open_dir(&format!("{p}/dist")),
+                open_dir(&w_sub)
+            )
+        )
+    );
 }
 
 /// The script [`fs_handle_refuses_a_symlink_swapped_onto_its_path`] runs: a

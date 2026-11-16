@@ -586,7 +586,8 @@
 		"args": ["open_dir_outside"],
 		"refused": [
 			"error: fs refused: not_granted: /no_such_directory_of_the_fixtures",
-			"error: a refusal fails the run, whether or not the program caught it"
+			"error: a refusal fails the run, whether or not the program caught it",
+			"hint: add --allow-read naming the directory to grant what fs refused"
 		],
 		"differs": [
 			{
