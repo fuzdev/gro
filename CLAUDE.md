@@ -485,8 +485,9 @@ Invariants that live in the code:
     with the whole directory, the descriptor closed before it settles, so
     no listing holds a descriptor either. The project's root, the entry's, is
     the one root so far; every fs member first checks that the kernel
-    serves `openat2`, and an op's I/O takes owned arguments, so it can move
-    off the thread.
+    serves `openat2` (but `list` and its listing's methods, whose one I/O,
+    the first `next()`, checks it), and an op's I/O takes owned arguments,
+    so it can move off the thread.
   - The resolver returns a table hit ahead of any package lookup; the loader
     checks it against the run's `Authority` at link time, for a static import
     and `import()` alike (`loader/resolve.rs`): with none (eval's) nothing is

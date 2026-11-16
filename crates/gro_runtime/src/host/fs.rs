@@ -48,7 +48,9 @@
 //! descriptor before a byte is read: a directory is `is_a_directory`, as
 //! the Node module's, and a FIFO, a socket, or a device `io_error`, where
 //! the Node module's read would wait on a FIFO or read a device without
-//! end. A regular file is read to its end, whatever size it reports.
+//! end. A regular file is read to its end, never trusting the size it
+//! reports to end it, and one past `2 ** 31 - 1` bytes, or that reports
+//! more, is `io_error`, a size past it refused before a byte is read.
 //!
 //! `list` returns a listing at once, reading nothing, not even its
 //! receiver or its path, as the Node module's async generator does: its
@@ -59,8 +61,10 @@
 //! a collection frees with it, however it ends.
 //!
 //! Every member's first step past its grant's check is the check that the
-//! kernel serves `openat2` ([`FsState::ready`]), so a kernel below Linux 5.6
-//! fails every op alike, as a plain `Error`, never only the ones that
+//! kernel serves `openat2` ([`FsState::ready`]), but `list`'s and its
+//! listing's methods', whose one I/O, the first `next()`, checks it, so a
+//! kernel below
+//! Linux 5.6 fails every op alike, as a plain `Error`, never only the ones that
 //! resolve a path of more than one name. A root that couldn't be opened
 //! (its path isn't UTF-8, or it's gone) is held as why, and every op
 //! through it fails with `io_error` naming that in its `cause`: a value

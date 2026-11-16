@@ -175,8 +175,9 @@ the reads (`read`, `read_text`, `read_if_exists`, `read_text_if_exists`, `read_t
 - A read opens its file without waiting for it (`O_NONBLOCK`), then refuses anything but a regular file by what the opened descriptor is:
   a directory is `is_a_directory`, as on Node, and a FIFO, a socket, or a device is `io_error`, before a byte is read,
   where the Node module waits on a FIFO until a writer closes it, `process.exit` included, and reads a device like `/dev/zero` without end.
-  A regular file is read to its end, never trusting the size it reports (a `/proc` file reports 0),
-  and one longer than `2 ** 31 - 1` bytes, the most Node's `readFile` reads, is `io_error`.
+  A regular file is read to its end, never trusting the size it reports to end it (a `/proc` file reports 0),
+  and one longer than `2 ** 31 - 1` bytes, the most Node's `readFile` reads, or that reports more, is `io_error`,
+  a size past it refused before a byte is read, as on Node.
 - `read` and `read_if_exists` resolve with a `Uint8Array` of a buffer of its own, which the program owns.
   `read_text` decodes as Node's does: each malformed sequence a U+FFFD, a BOM kept.
   As a promise fulfilled with any object does, the bytes' promise looks their `then` up through the realm's prototypes,
@@ -189,7 +190,7 @@ the reads (`read`, `read_text`, `read_if_exists`, `read_text_if_exists`, `read_t
   A failure ends the listing, as `return` and `throw` do, and every later `next()` is done.
 - A listing is a frozen handle of the host's with `next`, `return`, `throw`, and `[Symbol.asyncIterator]`, TypeScript's `AsyncIterableIterator`,
   not an async generator: its results have a null prototype, as `stat`'s record does, its `next` declares no argument,
-  and `return(value)` settles with `value` as given, never awaiting it. Its entries are plain objects, as on Node.
+  and `return(value)` settles with `value` as given, never awaiting it, so a rejected promise given to it is left unhandled, which fails the run. Its entries are plain objects, as on Node.
 - An op's error has the Node module's `kind` and `path` and the message `kind: path`.
   Its `cause`, when the OS said something, is an `Error` with the OS's words, which differ from Node's.
 - An async op makes its calls inline and returns a promise already settled.

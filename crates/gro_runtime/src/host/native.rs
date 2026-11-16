@@ -101,7 +101,12 @@
 //! What the form doesn't have yet: the table of native state behind a
 //! handle (`blake3.rs`'s hashers, with the weak reference that drops an
 //! entry) lifted into `handle.rs` for every kind that holds native state,
-//! which `fs`'s handles and listings, holding plain data, don't.
+//! which `fs`'s handles and listings, holding plain data, don't; a member
+//! whose promise settles in a later turn ([`settle`] settles before it
+//! returns), which an iterator that waits (`watch`'s), a child's exit, and
+//! an op moved off the thread need; and a key V8's API gives no getter for:
+//! [`WellKnownSymbol`] can name only a symbol `rusty_v8` binds a getter
+//! for, which `Symbol.asyncDispose` (`temp_dir`'s handles) isn't.
 
 use std::cell::RefCell;
 
@@ -865,8 +870,9 @@ fn record<'s, 'm>(
 /// body, threw, else fulfilled with what it returned, `undefined` for
 /// nothing. A call V8 terminated keeps its termination and returns no
 /// promise. Nothing settled reads a property but V8's own lookup of a
-/// fulfilled value's `then`, which a host value answers from itself or a
-/// null prototype.
+/// fulfilled value's `then`, which a record or handle of the host's answers
+/// from itself or a null prototype, and a `Uint8Array` (`fs`'s reads)
+/// through the realm's prototypes, as any promise fulfilled with one does.
 pub fn settle<'s>(
     scope: &mut v8::PinScope<'s, '_>,
     run: impl FnOnce(&mut v8::PinScope<'s, '_>) -> Option<v8::Local<'s, v8::Value>>,

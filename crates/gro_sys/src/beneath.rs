@@ -315,7 +315,8 @@ fn open_unchecked(
 /// It's opened as [`OpenAs::Read`], so anything but a regular file is
 /// refused before a byte is read, then read until a read returns nothing,
 /// never trusting the size the file reports, which a `/proc` file reports
-/// as 0.
+/// as 0, but to refuse one that reports more than [`READ_LIMIT`] before a
+/// byte is read, as Node's `readFile` does.
 ///
 /// # Errors
 ///
@@ -329,15 +330,23 @@ pub fn read(dir: BorrowedFd<'_>, path: &Path) -> io::Result<Vec<u8>> {
 }
 
 /// Reads `file` from where it is to its end, `size` the bytes it reports,
-/// a hint for the buffer only, failing past `limit` bytes.
+/// failing past `limit` bytes: at once when `size` is past it, as Node's
+/// `readFile` refuses by the reported size before it reads, and past it
+/// as read otherwise, since a size of 0 (a `/proc` file) says nothing.
 fn read_within(file: &File, size: u64, limit: u64) -> io::Result<Vec<u8>> {
-    let mut bytes = Vec::with_capacity(usize::try_from(size.min(limit)).unwrap_or(0));
-    file.take(limit.saturating_add(1)).read_to_end(&mut bytes)?;
-    if u64::try_from(bytes.len()).unwrap_or(u64::MAX) > limit {
-        return Err(io::Error::new(
+    let too_large = || {
+        io::Error::new(
             io::ErrorKind::FileTooLarge,
             format!("the file is longer than {limit} bytes, the most a read takes"),
-        ));
+        )
+    };
+    if size > limit {
+        return Err(too_large());
+    }
+    let mut bytes = Vec::with_capacity(usize::try_from(size).unwrap_or(0));
+    file.take(limit.saturating_add(1)).read_to_end(&mut bytes)?;
+    if u64::try_from(bytes.len()).unwrap_or(u64::MAX) > limit {
+        return Err(too_large());
     }
     Ok(bytes)
 }
@@ -1244,8 +1253,9 @@ mod tests {
         }
     }
 
-    /// A read takes a file to its end, whatever size it reported, and fails
-    /// past its limit, never at it.
+    /// A read takes a file to its end, whatever size within its limit it
+    /// reported, and fails past its limit, never at it, at once for a size
+    /// reported past it.
     #[test]
     fn a_read_ends_at_the_file_s_end_within_its_limit() {
         use std::io::{Seek as _, Write as _};
@@ -1262,8 +1272,12 @@ mod tests {
         for (size, limit, expected) in [
             (0, 5, Some(&b"12345"[..])),
             (2, 5, Some(b"12345")),
-            (99, 5, Some(b"12345")),
+            (5, 5, Some(b"12345")),
+            // a size past the limit fails before a byte is read
+            (6, 5, None),
             (5, 4, None),
+            // a size within the limit, and more bytes than it
+            (2, 4, None),
             (0, 0, None),
         ] {
             file.rewind().unwrap();

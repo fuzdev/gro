@@ -9,7 +9,7 @@
 > the project's modules get `args`, `exit`, `env` with the variables `--allow-env=` names, and `fs`, reading the project's tree;
 > the grant-free modules link for every module; `-A` grants every module every one;
 > and a refused `import()`, `env` name, or `fs` path fails the run, caught or not ([run](run.md#errors-and-exit-codes)).
-> Not built for `fgro run`: `fs` past its reads of the project's metadata ([host modules](host_modules.md#fs-on-fgro)), `spawn`, `net`, `watch`, the standard streams, the policy file, the seal, and the kernel backstop;
+> Not built for `fgro run`: `fs`'s writes and `temp_dir` ([host modules](host_modules.md#fs-on-fgro)), `spawn`, `net`, `watch`, the standard streams, the policy file, the seal, and the kernel backstop;
 > the [roadmap](runtime.md#roadmap) says when, and [backstop](backstop.md) has the kernel layer under all of it.
 
 These terms carry this doc, and the [glossary](glossary.md) defines them and the others:

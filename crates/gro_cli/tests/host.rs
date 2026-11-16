@@ -30,8 +30,8 @@
 //!
 //! And `fs`'s confinement, which no Node case can hold: every way out of a
 //! handle and out of the run's roots refused, a special file stat'd without
-//! waiting, a forged or borrowed handle refused, a polluted `then` never
-//! adopted, and each refused reach failing the run, listed; and what no
+//! waiting, a forged or borrowed handle refused, a polluted `then` adopted
+//! by no record or handle a member settles with, and each refused reach failing the run, listed; and what no
 //! committed tree or Node run can show: a FIFO's read refused at once, where
 //! Node's waits, a name that isn't UTF-8, and listings holding no
 //! descriptor.
@@ -634,21 +634,22 @@ const SETTLED_THEN_READS: [&str; 2] = [
 ];
 
 /// Asserts that each of `traps`, as [`Reports::traps`] gives them, is one
-/// [`SETTLED_THEN_READS`] lists, and, with `every`, that each one listed
-/// fired.
+/// [`SETTLED_THEN_READS`] lists, each listed one fired at most once, the
+/// one read V8's resolution makes, so a read of the host's own in the same
+/// call isn't hidden by it, and, with `every`, exactly once.
 fn assert_reviewed_traps(traps: &[String], every: bool) {
     let unreviewed: Vec<&String> = traps
         .iter()
         .filter(|trap| !SETTLED_THEN_READS.contains(&trap.as_str()))
         .collect();
     assert_eq!(unreviewed, [&""; 0], "the traps a builtin used");
-    if every {
-        for reviewed in SETTLED_THEN_READS {
-            assert!(
-                traps.iter().any(|trap| trap == reviewed),
-                "{reviewed} is listed, and no run fired it"
-            );
-        }
+    for reviewed in SETTLED_THEN_READS {
+        let fired = traps.iter().filter(|trap| *trap == reviewed).count();
+        let expected = if every { 1..=1 } else { 0..=1 };
+        assert!(
+            expected.contains(&fired),
+            "{reviewed} is listed, and fired {fired} times"
+        );
     }
 }
 
@@ -1274,8 +1275,8 @@ console.log(JSON.stringify(ended));
 /// symlink out of the root among them; a FIFO is stat'd as `other` without
 /// waiting for a writer, and isn't a directory; a cloned, look-alike,
 /// other row's, or read-only handle is refused before anything is read;
-/// and a polluted `Object.prototype.then` is adopted by nothing a member
-/// settles.
+/// and a polluted `Object.prototype.then` is adopted by no record or handle
+/// a member settles with.
 #[test]
 fn fs_refuses_every_escape_and_forgery() {
     let project = Scratch::new(
