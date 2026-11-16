@@ -435,6 +435,12 @@ Invariants that live in the code:
   - And `bootstrap/web_scripts.rs` holds each implementation's reads of
     `core.ops`, its backing script's scope argument's among them, to the
     host op, `op_gro_namespace`.
+  - Those hold what a script names, not what it does with it, so
+    `bootstrap/template.rs` holds every row's backing script, stripped and
+    wrapped, to the template its row's needs give, each formatted by tsv
+    with its blank and comment lines dropped: no row's script hands on the
+    bootstrap object, `core`, `core.ops`, or the op, reads another op, or
+    lets its inner level escape.
   - An error row's class and guard are the host's: the class
     (`host/error_class.rs`) made natively the first time a run needs it,
     the realm's `Error.prototype` taken from an error V8 makes and its

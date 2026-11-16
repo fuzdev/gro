@@ -626,6 +626,8 @@ pub fn start(runtime: &mut JsRuntime) -> Result<(), Box<JsError>> {
 }
 
 #[cfg(test)]
+mod template;
+#[cfg(test)]
 pub mod web_scripts;
 
 #[cfg(test)]
