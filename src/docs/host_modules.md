@@ -150,7 +150,8 @@ The module's TSDoc has each op's contract.
 
 On `fgro`, `@fuzdev/gro/fs.ts` is a builtin module with the Node module's members, each of the same `length`, its records and functions frozen.
 It needs the `fs` grant, which `fgro run` gives the project's own modules, `-A` every module.
-Built so far: `fs.project`, `fs.open_dir`, `fs.real_path`, and on a handle `path`, `dir`, `readonly`, `stat`, `exists`, `stat_sync`, and `exists_sync`.
+Built so far: `fs.project`, `fs.open_dir`, `fs.real_path`, and on a handle `path`, `dir`, `readonly`, `stat`, `exists`, `stat_sync`, `exists_sync`,
+the reads (`read`, `read_text`, `read_if_exists`, `read_text_if_exists`, `read_text_sync`), `read_link`, and `list`.
 
 - The run's roots are the directories it reads, each opened once, as a path only, the first time the run imports `fs`.
   There's one so far, the entry's [project root](glossary.md#project-root), readable with no flag, so `fs.project` is that directory, never the working directory.
@@ -171,6 +172,24 @@ Built so far: `fs.project`, `fs.open_dir`, `fs.real_path`, and on a handle `path
   then resolves its path beneath that by `openat2` with `RESOLVE_BENEATH` and `RESOLVE_NO_MAGICLINKS`.
   So a handle follows its path, as the Node module's does.
 - `stat` works on any entry, a FIFO or a socket among them, and never waits.
+- A read opens its file without waiting for it (`O_NONBLOCK`), then refuses anything but a regular file by what the opened descriptor is:
+  a directory is `is_a_directory`, as on Node, and a FIFO, a socket, or a device is `io_error`, before a byte is read,
+  where the Node module waits on a FIFO until a writer closes it, `process.exit` included, and reads a device like `/dev/zero` without end.
+  A regular file is read to its end, never trusting the size it reports (a `/proc` file reports 0),
+  and one longer than `2 ** 31 - 1` bytes, the most Node's `readFile` reads, is `io_error`.
+- `read` and `read_if_exists` resolve with a `Uint8Array` of a buffer of its own, which the program owns.
+  `read_text` decodes as Node's does: each malformed sequence a U+FFFD, a BOM kept.
+  As a promise fulfilled with any object does, the bytes' promise looks their `then` up through the realm's prototypes,
+  so a `then` a program put on `Object.prototype` runs there, as on Node.
+- `list` returns its listing at once and reads nothing, as the Node module's async generator does:
+  the first `next()` checks the receiver and the path, reads the whole directory, and sorts it,
+  so a missing directory, a path that's no string, or a borrowed receiver rejects that `next()`, never the call.
+  The directory's descriptor closes before that `next()` settles, so a listing holds no descriptor, only its entries,
+  and one abandoned, returned from, or thrown into leaves nothing to close.
+  A failure ends the listing, as `return` and `throw` do, and every later `next()` is done.
+- A listing is a frozen handle of the host's with `next`, `return`, `throw`, and `[Symbol.asyncIterator]`, TypeScript's `AsyncIterableIterator`,
+  not an async generator: its results have a null prototype, as `stat`'s record does, its `next` declares no argument,
+  and `return(value)` settles with `value` as given, never awaiting it. Its entries are plain objects, as on Node.
 - An op's error has the Node module's `kind` and `path` and the message `kind: path`.
   Its `cause`, when the OS said something, is an `Error` with the OS's words, which differ from Node's.
 - An async op makes its calls inline and returns a promise already settled.
@@ -178,8 +197,7 @@ Built so far: `fs.project`, `fs.open_dir`, `fs.real_path`, and on a handle `path
   and a loop of awaited ops runs on microtasks alone, never returning to the event loop, so a timer waits for the whole loop.
 - `stat` resolves with a null-prototype record, where the Node module's is a plain object.
 - An option given through a getter or a proxy is a `TypeError`, since an op runs no code of a caller's.
-- `temp_dir`, the reads, `list`, and `read_link` aren't built yet: each refuses with a plain `Error` saying so,
-  `list` at the call where the Node module's would return its iterable.
+- `temp_dir` isn't built yet: it refuses with a plain `Error` saying so.
 - A kernel below Linux 5.6, which lacks `openat2`, fails every op alike with a plain `Error`.
 - `fs` lands before the read-deny and write-deny overlays and before `fgro run` has a kernel box,
   so a program can read the project's `.env` files.
@@ -193,6 +211,8 @@ Its results are sorted by path segment by segment, each compared by code point, 
 and a search lists in one order on every machine whatever its locale; `sort: false` leaves them in the order found:
 each directory's entries in `list`'s order, but sibling directories are searched concurrently,
 so the order across directories isn't fixed.
+It's a module of Gro's package, not a builtin, so `fgro` loads it from the npm package, granted nothing:
+it reaches only the handle it's given, through `stat` and `list`.
 Gro's own sweeps, like `gro format`'s, act on regular files only and skip a symlink, as tsv's walk does.
 
 ## spawn

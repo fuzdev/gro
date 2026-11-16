@@ -476,7 +476,14 @@ Invariants that live in the code:
     every run's start puts, empty); an op opens the handle's directory
     beneath it, refusing a symlink, then its path beneath that by
     `openat2`, its `..` resolved by the text first, so no handle owns a
-    descriptor or needs a finalizer. The project's root, the entry's, is
+    descriptor or needs a finalizer. A read opens its file without
+    waiting and `gro_sys` refuses anything but a regular file by the
+    opened descriptor, before a byte is read. A listing (`list`'s, of
+    TypeScript's `AsyncIterableIterator`, its `[Symbol.asyncIterator]`
+    keyed by the well-known symbol the host gets from V8) holds its
+    state as a record under its brand, which its first `next()` fills
+    with the whole directory, the descriptor closed before it settles, so
+    no listing holds a descriptor either. The project's root, the entry's, is
     the one root so far; every fs member first checks that the kernel
     serves `openat2`, and an op's I/O takes owned arguments, so it can move
     off the thread.
@@ -496,7 +503,9 @@ Invariants that live in the code:
     side only: the same exports, each the same kind (a function, data, a
     handle of the same kind, a class), each kind of handle's methods the
     own members of the Node module's interface it's named for (a kind's
-    brand is `<specifier>#<Interface>`), and each function and method of a
+    brand is `<specifier>#<Interface>`), or of TypeScript's own of the name
+    when the module exports none (`AsyncIterableIterator`, a listing's),
+    and each function and method of a
     `length` its declaration allows: exactly JS's count, to the first
     defaulted or rest parameter, for a function with a body, and for an
     interface's method from its required parameters to all of them, since
