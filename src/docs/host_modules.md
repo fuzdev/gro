@@ -21,7 +21,7 @@ This table is the one list of what's on `fgro`: the other runtime docs link here
 
 | module               | what it reaches                         | on `fgro`               |
 | -------------------- | --------------------------------------- | ----------------------- |
-| `fs.ts`              | the filesystem, through handles         | not yet                 |
+| `fs.ts`              | the filesystem, through handles         | partly, the `fs` grant  |
 | `spawn.ts`           | programs, as child processes            | not yet                 |
 | `net.ts`             | the network, by host                    | not yet                 |
 | `watch.ts`           | changes under a directory handle        | not yet                 |
@@ -36,7 +36,7 @@ This table is the one list of what's on `fgro`: the other runtime docs link here
 | `runtime_version.ts` | nothing: the runtime's name, a value    | built, no grant         |
 | `blake3.ts`          | nothing: BLAKE3 hashing over bytes      | built, no grant         |
 | `env_error.ts`       | nothing: `env`'s error class            | built, no grant         |
-| `fs_error.ts`        | nothing: `fs`'s error class             | not yet                 |
+| `fs_error.ts`        | nothing: `fs`'s error class             | built, no grant         |
 | `spawn_error.ts`     | nothing: `spawn`'s error class          | not yet                 |
 | `net_error.ts`       | nothing: `net`'s error class            | not yet                 |
 | `stdio_error.ts`     | nothing: the streams' error class       | not yet                 |
@@ -97,6 +97,9 @@ await fs.project.write('.gro/out.json', JSON.stringify({text}));
   so an op called on any other object (`proto.remove.call({path: '/'}, …)`) throws `TypeError`.
 - `dir.path` is the absolute real path, for display and a spawned process's cwd.
   It carries no authority.
+- A handle is bound to its directory's path, not its inode, on both runtimes.
+  When the directory is moved or replaced, the handle follows the path,
+  refused when the path now resolves elsewhere (`outside_root`) or nowhere (`not_found`).
 - Errors are `FsError`, typed by `kind` (`not_found`, `already_exists`, `permission_denied`,
   `not_a_directory`, `is_a_directory`, `not_empty`, `outside_root`, `not_granted`, `io_error`).
   `not_granted` is a reach outside what the run granted, refused at the call whether or not anything is there,
@@ -104,8 +107,8 @@ await fs.project.write('.gro/out.json', JSON.stringify({text}));
   Match one with `is_fs_error(error, kind?)`, which also recognizes one from another copy of Gro.
   Both live in `@fuzdev/gro/fs_error.ts`, apart from the host module,
   so code that only makes or matches an error imports no capability.
-  It's part of the host-module surface: on `fgro` it's designed as a builtin module that grants nothing,
-  resolved beside `fs`, so the builtin module and every importer will share one `FsError` class.
+  It's part of the host-module surface: on `fgro` it's a builtin module that grants nothing,
+  so the builtin module and every importer share one `FsError` class.
   An error's `path` is the absolute path the op was asked for, or for `outside_root` the path as given,
   never a path a symlink led to.
 - Each op's one expected failure returns a value instead of throwing:
@@ -142,6 +145,42 @@ await fs.project.write('.gro/out.json', JSON.stringify({text}));
   `write`'s `mode` takes the same bits, an integer from `0` to `0o7777` masked to `0o777`, before the umask applies.
 
 The module's TSDoc has each op's contract.
+
+### fs on fgro
+
+On `fgro`, `@fuzdev/gro/fs.ts` is a builtin module with the Node module's members, each of the same `length`, its records and functions frozen.
+It needs the `fs` grant, which `fgro run` gives the project's own modules, `-A` every module.
+Built so far: `fs.project`, `fs.open_dir`, `fs.real_path`, and on a handle `path`, `dir`, `readonly`, `stat`, `exists`, `stat_sync`, and `exists_sync`.
+
+- The run's roots are the directories it reads, each opened once, as a path only, the first time the run imports `fs`.
+  There's one so far, the entry's [project root](glossary.md#project-root), readable with no flag, so `fs.project` is that directory, never the working directory.
+  Nothing is writable: every write op is refused `not_granted`, after its paths are checked.
+- `fs.open_dir` and `fs.real_path` take an absolute path inside a root, its `..` resolved as Node's `realpath` resolves it:
+  after the symlink before it, so `link/..` is the parent of `link`'s target, and `missing/..` and `a.txt/..` fail as they do on Node.
+  The names before a `..` are looked up beneath the root that holds them, and the `..` takes a name off their real path,
+  so no lookup starts outside a root, and a path that climbs above the root and back in reaches what Node's does.
+  One outside every root is `not_granted`, also when nothing is there, and so is one whose symlinks lead out of its root.
+  A root is matched by its real path's text, so a path that reaches it through a symlink outside it, like a symlinked
+  home directory, is `not_granted` where Node opens it.
+  A `not_granted` is listed and fails the run, caught or not, as `env`'s does.
+- `fs.real_path` returns a path inside its root; an entry that left the root while it was opened is `io_error`.
+- A handle holds no descriptor, only its root, its real path beneath it, and what it may do.
+  Each op opens the handle's directory beneath the root, refusing a symlink swapped into the handle's own path (`outside_root`),
+  then resolves its path beneath that by `openat2` with `RESOLVE_BENEATH` and `RESOLVE_NO_MAGICLINKS`.
+  So a handle follows its path, as the Node module's does.
+- `stat` works on any entry, a FIFO or a socket among them, and never waits.
+- An op's error has the Node module's `kind` and `path` and the message `kind: path`.
+  Its `cause`, when the OS said something, is an `Error` with the OS's words, which differ from Node's.
+- An async op makes its calls inline and returns a promise already settled.
+  So `Promise.all` over many ops gets no parallelism, a slow filesystem blocks timers and other work for the op's length,
+  and a loop of awaited ops runs on microtasks alone, never returning to the event loop, so a timer waits for the whole loop.
+- `stat` resolves with a null-prototype record, where the Node module's is a plain object.
+- An option given through a getter or a proxy is a `TypeError`, since an op runs no code of a caller's.
+- `temp_dir`, the reads, `list`, and `read_link` aren't built yet: each refuses with a plain `Error` saying so,
+  `list` at the call where the Node module's would return its iterable.
+- A kernel below Linux 5.6, which lacks `openat2`, fails every op alike with a plain `Error`.
+- `fs` lands before the read-deny and write-deny overlays and before `fgro run` has a kernel box,
+  so a program can read the project's `.env` files.
 
 `fs_search` (`@fuzdev/gro/fs_search.ts`) is library code over a handle,
 finding the files beneath a directory through `list`, recursively.
@@ -949,10 +988,6 @@ It documents each gap rather than weakening the API to match, and is a review si
   and from 1970-04-08 to 1972-02-16, where some come back a nanosecond or a few off.
   Past 2242 the double itself is the limit on either step.
   The runtime's builtin module stores a time exactly.
-- A handle is bound to its directory's path, not its inode.
-  When the directory is moved or replaced, the handle follows the path,
-  refused only when the path now resolves elsewhere (`outside_root`) or nowhere (`not_found`);
-  the runtime's handle holds a descriptor and keeps the directory it opened.
 - Intrinsics stay pollutable. Code that patches `String.prototype`, `Array.prototype`, `Promise`,
   `Error`, `TextDecoder`, or `Reflect` after the module loads runs inside its ops,
   and the module blocks only the forgeries named above.
@@ -983,7 +1018,7 @@ It documents each gap rather than weakening the API to match, and is a review si
 - A name's `/` confinement checks the name's spelling, so a symlink under the project reaches outside it.
 - `program_in` and a call's `cwd` tell a real handle by a registry in `internal/fs_handles.ts`, which the package doesn't export,
   but code importing that file by its path can register any object with any resolver, run what it names, and start a child in any directory.
-  The runtime's builtin module takes the handle's descriptor.
+  The runtime's builtin module tells a handle by the brand the host gave it.
 - `program_in` resolves beneath its handle by fs's walk, a check then a use, so a symlink swapped in before the pin escapes the handle,
   as for any fs op, and a native binary it pins runs by path, as above.
 - The refusal of a file with no `#!` reads only its first bytes, so a file with a native magic the kernel won't load
@@ -1068,7 +1103,7 @@ It documents each gap rather than weakening the API to match, and is a review si
 
 - `watch.dir` tells a real handle by the registry in `internal/fs_handles.ts`, as `spawn` does,
   so code importing that file by its path can register any object and watch the path it names.
-  The runtime's builtin module takes the handle's descriptor.
+  The runtime's builtin module tells a handle by the brand the host gave it.
 - The watch is bound to the directory's path, as an fs handle is, so a moved watched directory ends the watch as a removed one does.
 - Chokidar checks an entry with `lstat` and then watches and reads it by path, so a directory swapped for a symlink in between is watched through the link.
   The watcher checks each path before chokidar descends into it and before reporting it: the root still the directory the watch started on (by device and inode),
@@ -1116,12 +1151,12 @@ what can fail for a reason of the run's fails in what the module exports, as `cw
 
 ### fs
 
-- Make each confinement decision in one op, `openat2` with `RESOLVE_BENEATH` beneath the handle's descriptor,
-  never a check followed by an open.
+- Make each confinement decision in one op, `openat2` with `RESOLVE_BENEATH` beneath the handle's directory,
+  opened beneath its root's descriptor, never a check followed by an open.
 - Make `fs.project`, and spawn's project root, the entry's project root, never the working directory,
   so the working directory is a string with no authority.
 - Pass `RESOLVE_NO_MAGICLINKS` explicitly, so a handle on `/proc` refuses its magic links.
-- Copy and remove a tree recursively beneath the descriptor, each entry opened relative to its parent's.
+- Copy and remove a tree recursively beneath the handle's directory, each entry opened relative to its parent's.
 - Check `write`'s data is a string or a `Uint8Array`, and mask its `mode` to `0o777`,
   refusing one that isn't an integer from `0` to `0o7777` with a `TypeError`, as the Node implementation does.
 - Read a link with `readlinkat` on the parent's descriptor, the parent opened beneath the handle.
@@ -1183,7 +1218,7 @@ what can fail for a reason of the run's fails in what the module exports, as `cw
 - Check a name against a narrowed root's set before any resolution, so a name outside it touches nothing on disk.
 - Decide the lexical check on a name holding `/` natively, refusing an absolute name or one climbing above the project,
   so a patched `String.prototype.split` can't forge a segment.
-- Resolve `program_in`'s name with `openat2` and `RESOLVE_BENEATH` on the handle's descriptor, launch a native binary with
+- Resolve `program_in`'s name with `openat2` and `RESOLVE_BENEATH` beneath the handle's directory, opened beneath its root's descriptor, launch a native binary with
   `execveat(fd, "", …, AT_EMPTY_PATH)`, and a script by its found path, checked by identity as above.
   Refuse a handle the runtime didn't make, a resource rather than a shape,
   and check that the handle's directory is beneath an exec root the run declares before resolving, else `not_granted`.
@@ -1227,10 +1262,10 @@ These hold for the process modules' builtins on `fgro` ([on `fgro`](#the-process
 
 ### watch
 
-- Watch the directory the handle holds by descriptor, opening each subdirectory beneath its parent's descriptor
+- Watch the handle's directory by a descriptor opened beneath its root's, opening each subdirectory beneath its parent's descriptor
   (`O_DIRECTORY | O_NOFOLLOW`) and adding its watch through that descriptor, never a path (`IN_DONT_FOLLOW`, `IN_ONLYDIR`),
   and name each event by the watch it came from, so a symlink swapped in is never watched through and nothing is resolved after the scan.
-- Keep watching a watched directory that's moved, as the handle keeps it, and end on its removal (`IN_DELETE_SELF`).
+- Keep watching a watched directory that's moved, as the watch's descriptor keeps it, and end on its removal (`IN_DELETE_SELF`).
 - Report `IN_Q_OVERFLOW` as a `rescan` of `''`, and a subdirectory whose watch can't be added as a `rescan` of it.
 - Scan a new subdirectory once its watch is added, reporting an `add` for each entry found, so a directory filled before its watch lands still reports its entries.
 - Read names as bytes, a name that isn't UTF-8 a `rescan` of its directory rather than a lossy path.

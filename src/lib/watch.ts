@@ -50,7 +50,7 @@
  *
  * - A real handle is told by a registry in `internal/fs_handles.ts`, which the package doesn't
  *   export, but code importing that file by its path can register any object, and the watch is on
- *   that object's `path`. The runtime's builtin watches the directory the handle holds by descriptor.
+ *   that object's `path`. The runtime's builtin tells a handle by the brand the host gave it.
  * - The watch is bound to the directory's path, not its inode, as an fs handle is, so a moved
  *   watched directory ends the watch as a removed one does, where the runtime's keeps
  *   watching the directory it opened.

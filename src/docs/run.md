@@ -34,7 +34,7 @@ Arguments the command-line parser refuses before `run` reads its own, an unknown
 `error: invalid arguments to fgro eval: <the arguments>` (or `to fgro:`) and `Run fgro eval --help for more information.`,
 the first 16 arguments each printed by that rule and cut past 80 characters, then a count of the rest, and no other text, so the message doesn't say which argument was wrong;
 a file whose name starts with `-` goes after `--`.
-A run grants the project's own modules `args` and `exit`, and these widen it, for that run only:
+A run grants the project's own modules `args`, `exit`, and `fs`, whose root reads the project's tree and writes nothing, and these widen it, for that run only:
 
 - `--allow-env=A,B` grants `@fuzdev/gro/env.ts` to the project's modules, its root handle reading exactly those variables.
   It's repeatable, the names of every one joined, and each name is exact and case-sensitive,
@@ -49,12 +49,12 @@ A run grants the project's own modules `args` and `exit`, and these widen it, fo
   Names given beside it are still checked, and add nothing.
   It lifts no rule but a grant: a host module not built yet, a reserved specifier, a package's import of the project,
   and an `import()` in code compiled from a string stay refused, and it adds no global.
-  A module built later, like `fs`, is granted whole by it too.
+  `fs` reads the project's tree under it too, and nothing beyond, until the flags that add roots land.
 The script reads its arguments as `args`, from `import {args} from '@fuzdev/gro/args.ts'`,
 one of the [builtin modules](glossary.md#builtin-module) built so far ([host modules](host_modules.md#the-modules) lists them),
 and ends the run or sets its exit code with `exit` and `set_exit_code`, from `@fuzdev/gro/exit.ts` ([below](#errors-and-exit-codes)).
 User code can't read stdin (there is no `process` global, `Deno`, or `Bun`) and reads the environment only through `@fuzdev/gro/env.ts`, the variables `--allow-env=` or `-A` grants;
-no module gives it the filesystem, the network, or a process.
+it reads the filesystem only through `@fuzdev/gro/fs.ts`, beneath the project's root, and writes nothing; no module gives it the network or a process.
 That is the whole of today's confinement: the process itself has no kernel box and no resource limits, the JIT is on,
 and console output reaches the terminal unescaped, so `fgro run` is not yet for code you treat as hostile
 ([authority](authority.md#threat-model) and [backstop](backstop.md) have what's designed).
@@ -103,7 +103,12 @@ The binary embeds the commit, so a dirty tree (a changed file, or an untracked o
   the class and guard the runtime makes ([host modules](host_modules.md#error-classes-on-fgro)).
 - `@fuzdev/gro/blake3.ts`, a builtin module that needs no grant: BLAKE3 over bytes by the native `blake3` crate,
   one-shot and by hashers whose state is the runtime's ([host modules](host_modules.md#blake3)).
-- A builtin module's `.js` spelling (`@fuzdev/gro/args.js`), the host modules not on `fgro` yet (`@fuzdev/gro/fs.ts`, `stdin`, `stdout`, `fs_error`, and the rest, either spelling),
+- `@fuzdev/gro/fs.ts`, a builtin module that needs the `fs` grant: `fs.project`, `fs.open_dir`, `fs.real_path`, and a handle's
+  `dir`, `readonly`, `stat`, and `exists`, beneath the project's root; `fs.open_dir` or `fs.real_path` outside it rejects
+  with `FsError` `not_granted`, which fails the run caught or not, and every write is refused so too, while a handle's
+  reach outside its directory is `outside_root`, which doesn't ([host modules](host_modules.md#fs-on-fgro)).
+- `@fuzdev/gro/fs_error.ts`, a builtin module that needs no grant: `FsError`, `is_fs_error`, and `is_own_fs_error`.
+- A builtin module's `.js` spelling (`@fuzdev/gro/args.js`), the host modules not on `fgro` yet (`@fuzdev/gro/spawn.ts`, `stdin`, `stdout`, `net_error`, and the rest, either spelling),
   and `@fuzdev/gro/process.ts` and `process_error.ts`, which Gro has none of (either spelling),
   are refused ahead of package lookup, as is a respelling of these or of a builtin module's specifier (`@fuzdev/gro/arg%73.ts`),
   naming the specifier to import, the modules to import instead, or that the module isn't on `fgro` yet,

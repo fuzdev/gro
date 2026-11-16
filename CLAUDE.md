@@ -325,7 +325,7 @@ Invariants that live in the code:
     run, and takes the one op, `op_gro_namespace`, from `core.ops`, and, in
     a row with a member that declares an error family
     (`native::hands_over_error`, read from the native members' table:
-    `env_error` and `env` today), the realm's `Error` from `primordials`, a
+    the error rows and `env` and `fs` today), the realm's `Error` from `primordials`, a
     read that costs a first import, so no other row takes it. It returns
     the inner, which takes the scope of its importer's grant, an argument
     the script's call passes (`template::scope_argument`; `undefined` while
@@ -361,12 +361,19 @@ Invariants that live in the code:
     constructor, each value made once with it, data (the arguments'
     frozen array, the process's id, the runtime's version), a handle
     (`env`'s root), or a class (`EnvError`), each kind's prototype a frozen
-    null-prototype record of its methods. Nothing is held until the
+    null-prototype record of its methods, or of its parent's prototype for
+    a kind that extends another (`FsDir` over `FsReadDir`). A kind whose
+    functions take no receiver (`on KIND` with no binding) is a record's:
+    its one object, `fs`'s root, holds them and its values (`fs.project`)
+    as its own, and the export is that record. Nothing is held until the
     namespace is whole. So a start pays one op for every row, and a first
     import no shell's compile. A factory makes its handles of the
     prototype the run holds (`native::prototype`), and a value declared a
     handle of a kind (`handle KIND(prototype)`) is given the one the
-    namespace is being made with.
+    namespace is being made with. A member declared `async` returns a
+    promise the host made and settled before returning it
+    (`native::settle`), rejected with what its check or body threw, so it
+    never throws to its caller; no host op is a `deno_core` async op.
   - An `import()` runs a backing script on the caller's stack, so a first
     `import()` of a builtin with less than `BUILTIN_IMPORT_STACK` left above
     V8's limit has `deno_core` build the module from the event loop instead
@@ -409,7 +416,9 @@ Invariants that live in the code:
     of one that an object lacks reports. A hostile argument answers every
     read made of it,
     `cause` included, and what a proxy's trap does by default runs
-    unwatched, since it's the caller's code. A function reached fails it
+    unwatched, since it's the caller's code. A promise a call returns is
+    handled at once, and how it settled is reported once every call is
+    made. A function reached fails it
     until the fixture has an entry for it, with the arguments it takes or
     none, and a use of a hostile argument until the test lists it for that
     function, reviewed: only an error class's constructor makes any, the
@@ -438,10 +447,15 @@ Invariants that live in the code:
     hands the `Error` over. A family missing from `FAMILIES` throws when its
     class would be made. A start makes none and puts the empty holder only.
     The guard reads data properties only, so it runs no code of a caller's.
+    Each instance the constructor makes holds the family's brand, a private
+    symbol, which the guard of a family's own errors reads
+    (`is_own_fs_error`).
   - A handle is the host's (`host/handle.rs`): an object the host makes of
     a prototype, the record of native methods the host made with the row's
     namespace, its state under a private symbol of its kind, the brand,
-    then frozen. A method reads the handle it's called on natively and
+    then frozen; a kind's fields (`FsReadDir`'s `path`) are own data given
+    by what makes the handle, and a handle of a kind that extends another
+    holds its parent's brand too. A method reads the handle it's called on natively and
     refuses anything without the brand (a look-alike, a proxy, another
     row's handle) and decides from the handle's state, never from the run's
     grants, which only gate that the run holds the row at all. `env`'s root
@@ -454,7 +468,18 @@ Invariants that live in the code:
     which every run's start puts, empty), beside a weak reference to the
     handle whose finalizer drops the state once the handle is collected;
     what makes one takes the scope mutably, as a native member's callback
-    is given it, since the weak reference is made of the isolate.
+    is given it, since the weak reference is made of the isolate. An `fs`
+    handle's state is plain data (`host/fs.rs`): its root's place in the
+    run's root table, its real path beneath the root, whether it writes.
+    Only a root holds a descriptor, opened once (`O_PATH`, no symlink on
+    its path) when the run first makes the fs namespace (`FsState`, which
+    every run's start puts, empty); an op opens the handle's directory
+    beneath it, refusing a symlink, then its path beneath that by
+    `openat2`, its `..` resolved by the text first, so no handle owns a
+    descriptor or needs a finalizer. The project's root, the entry's, is
+    the one root so far; every fs member first checks that the kernel
+    serves `openat2`, and an op's I/O takes owned arguments, so it can move
+    off the thread.
   - The resolver returns a table hit ahead of any package lookup; the loader
     checks it against the run's `Authority` at link time, for a static import
     and `import()` alike (`loader/resolve.rs`): with none (eval's) nothing is
@@ -562,8 +587,9 @@ Invariants that live in the code:
   aren't frozen, and on a `DeclaredFamily` made anywhere but by the macro
   (a source scan, by its maker's name, and in its own module by every
   line that names it); `tests/native_members.txt` pins the table
-  (module, name, place, a function's `length` or a value's kind, grant,
-  the family declared) as `op_names.txt` pins the ops.
+  (module, name, place, a function's `length` and whether it's `async` or a
+  value's kind, grant, the family declared, then each kind's fields) as
+  `op_names.txt` pins the ops.
 - `bootstrap::REFUSED_OPS` lists the ops eval refuses, each one the runtime
   registers. Of the ops and classes `deno_web` declares, the runtime registers
   those on `bootstrap::WEB_OPS` and `bootstrap::WEB_CLASSES`, the ones a
@@ -654,7 +680,8 @@ Invariants that live in the code:
   (`loader::refused::Refusals`), the loader's, which `OpState` holds for
   any op (`loader::RefusalLog`): the `import()`s the loader refuses by
   rule, and each call a native member refuses for a grant its handle
-  lacks, recorded by the member as it throws (`env`'s `not_granted`), one
+  lacks, recorded by the member as it throws (`env`'s and `fs`'s
+  `not_granted`), one
   record listed, cut, and counted alike, so either fails the run caught or
   not; a refusal by `env`'s root also records the grant that would have
   allowed it (`NeededGrant`), from which `fgro` prints its hint. No

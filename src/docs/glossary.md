@@ -260,6 +260,10 @@ A module's root is the innermost admitted one above its real path,
 and a relative or absolute import resolves only inside its importer's root,
 never into `node_modules` below it or into another root nested in it.
 
+The `fs` host module's roots on `fgro` are another table: the directories a run reads,
+each opened once and held by a descriptor, which every [handle](#handle) resolves beneath;
+the project root is the first ([host modules](host_modules.md#fs-on-fgro)).
+
 ## run kinds
 
 Every run is one of three by what it reaches and depends on,

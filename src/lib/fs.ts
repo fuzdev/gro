@@ -46,10 +46,6 @@
  *   path the walk found, `read_link`, `set_times`, `set_mode`, and `symlink` included.
  *   A symlink swapped in between escapes, since Node has no `openat2`.
  *   The twin is a review signal, not a boundary.
- * - A handle is bound to its directory's path, not its inode: a handle whose directory
- *   is moved or replaced follows the path, refused only when the path's real location
- *   changed (`outside_root`) or is gone (`not_found`). The runtime's handle holds a
- *   descriptor and keeps the directory it opened.
  * - Intrinsics stay pollutable: code that patches `String.prototype`, `Array.prototype`,
  *   or `Promise` after this module loads runs inside its ops. The walk refuses a segment
  *   holding a `/`, so a forged segment can't climb out, and the Node functions it calls
@@ -365,17 +361,20 @@ export interface Fs {
 	/**
 	 * Opens a directory by absolute path.
 	 * @throws `TypeError` - for a relative path, or one holding a NUL byte or a lone surrogate
-	 * @throws `FsError` - `not_found`, `not_a_directory`
+	 * @throws `FsError` - `not_found`, `not_a_directory`; `not_granted` on `fgro` for a path
+	 * outside the run's roots
 	 */
 	open_dir(path: string): Promise<FsDir>;
 	/**
 	 * The real path of an absolute path, every symlink followed, with `open_dir`'s reach:
-	 * any absolute path, checked against no grant. Beneath a handle a real path is the
+	 * on Node any absolute path, checked against no grant; on `fgro` a path inside the run's
+	 * roots, its real path one inside them too. Beneath a handle a real path is the
 	 * handle's `path` and the confined walk, so handles have no such op.
 	 * A real path that isn't UTF-8 fails with `io_error`, since no string spells it.
 	 * @throws `TypeError` - for a relative path, or one holding a NUL byte or a lone surrogate
 	 * @throws `FsError` - `not_found`, also for a dangling symlink; `not_a_directory` for a path
-	 * through a file; `permission_denied`; `io_error` for a symlink loop or any other failure
+	 * through a file; `permission_denied`; `not_granted` on `fgro` for a path outside the run's
+	 * roots; `io_error` for a symlink loop or any other failure
 	 */
 	real_path(path: string): Promise<string>;
 	/**
