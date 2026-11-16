@@ -410,10 +410,11 @@ Invariants that live in the code:
     `bootstrap.d.ts`: the bootstrap object gives `core.ops`, gro's host ops,
     and the primordials listed there, each with why it's safe after user code
     ran, and nothing else. So no implementation calls `core.loadExtScript`,
-    which makes every op that has a fast call again the first time a run calls
-    it, for nothing a host op gains, or touches `internals`, an ordinary
-    object, where a read or a write passes through `Object.prototype`: a
-    helper two builtins need is written in each. `intrinsics.d.ts`: interfaces
+    which, the first time a run calls it for a script the snapshot didn't
+    load, makes every op that has a fast call again, for nothing a host op
+    gains, or touches `internals`, an ordinary object, where a read or a
+    write passes through `Object.prototype`: a helper two builtins need is
+    written in each. `intrinsics.d.ts`: interfaces
     with no member, and beside them only the members and the declarations
     listed there, so it declares no value an implementation could call.
     Neither file holds an `any` or names another file.
@@ -593,10 +594,14 @@ Invariants that live in the code:
   in `tests/refused_op_names.txt`, since the tests of the refusals read
   their names from the list itself.
 - A start from the snapshot binds no op again (`skip_op_registration`, set
-  in `runtime::new_runtime`): the snapshot's op functions are the only ones
-  (a builtin's implementation takes its ops from the bootstrap object, which
-  holds them), and each reaches the starting runtime's implementation of its op, eval's
-  refusal included, and that runtime's `OpState`, through the
+  in `runtime::new_runtime`): the snapshot's op functions, each without its
+  fast call, are the only ones for the run (a builtin's implementation takes
+  its ops from the bootstrap object, which holds them). `deno_core` would
+  make each op that has a fast call again at the first call of
+  `op_load_ext_script` or `op_lazy_load_esm`, and nothing calls either once
+  a run has started. Each op function reaches the starting runtime's
+  implementation of its op, eval's refusal included, and that runtime's
+  `OpState`, through the
   external-reference table `deno_core` builds from the runtime's ops. The
   runtime's tests start from a snapshot too, in child processes: one makes
   it (`process_tests::make_startup_snapshot`), and a second starts every

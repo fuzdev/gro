@@ -5,8 +5,9 @@
 // This is the list of what an implementation may use: an op or a primordial joins it here and
 // in the reviewed list of `src/test/builtin_intrinsics.test.ts`, which says of each primordial
 // why a call of it runs no user code. `core` gives `ops` alone, and the object nothing else:
-// no `loadExtScript`, which would run another script and make the ops again, and no
-// `internals`, an ordinary object every extension script shares.
+// no `loadExtScript`, which would run another script and, the first time a run calls it for a
+// script the snapshot didn't load, make the ops again, and no `internals`, an ordinary object
+// every extension script shares.
 
 /** deno_core's bootstrap object, the argument of a builtin's implementation's outer level. */
 interface Bootstrap {

@@ -222,3 +222,15 @@ Reportable upstream: no, a check of gro's own.
    runtime registers that compiles code, imports, or reads the clock or
    randomness joins `bootstrap::REFUSED_OPS` (a web op no script reads stays
    dropped, and eval refuses only registered ops).
+7. For `deno_core`, check that it still asks the loader's
+   `should_load_synthetic_esm` afresh at each site that would build or
+   evaluate a synthetic module (the `import()` fast path in
+   `modules/map/dynamic.rs`, a load's root and its registration in
+   `modules/recursive_load.rs`), keeping no answer: gro answers from the
+   stack left at that moment (`crates/gro_runtime/src/loader/headroom.rs`).
+   An answer kept from a deep first import would refuse every later import
+   of the builtin, which the loader never loads, and one kept from a shallow
+   import would build a module short of stack. `gro_cli`'s
+   `a_first_import_short_of_stack_is_built_from_the_event_loop` sweeps first
+   imports up from near the stack's limit and fails on an import that
+   doesn't get the module.

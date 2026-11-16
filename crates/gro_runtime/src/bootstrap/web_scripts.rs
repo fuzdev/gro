@@ -213,11 +213,12 @@ pub fn implementation_reads(implementation: &Implementation) -> Vec<&'static str
 
 /// The names `source`, a builtin's implementation, writes outside a comment
 /// that reach past `core.ops` and `primordials`: `loadExtScript`, which
-/// runs a script of the residual table and, the first time a run calls it,
-/// makes every op that has a fast call again, a cost a host op gains
-/// nothing from, and `internals`, an ordinary object every extension
-/// script shares, where a property a script reads or stores passes through
-/// `Object.prototype`. A helper two builtins need is written in each.
+/// runs a script of the residual table and, the first time a run calls it
+/// for a script the snapshot didn't load, makes every op that has a fast
+/// call again, a cost a host op gains nothing from, and `internals`, an
+/// ordinary object every extension script shares, where a property a script
+/// reads or stores passes through `Object.prototype`. A helper two builtins
+/// need is written in each.
 pub fn names_past_the_ops(source: &str) -> Vec<&'static str> {
     const PAST: [&str; 2] = ["loadExtScript", "internals"];
     let lines = || source.lines().filter(|line| !is_comment(line));
