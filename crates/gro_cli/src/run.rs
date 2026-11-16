@@ -6,6 +6,7 @@
 //! the run ended.
 
 use std::ffi::OsString;
+use std::path::Path;
 
 use gro_runtime::confine::Confinement;
 use gro_runtime::engine::{EngineOptions, init_engine};
@@ -17,9 +18,9 @@ use gro_runtime::{
 };
 
 use crate::EXIT_FAILURE;
-use crate::cli::{ALLOW_ENV, RunGrant, RunInvocation};
+use crate::cli::{ALLOW_ENV, DirFlag, FlagDirs, RunGrant, RunInvocation};
 use crate::color;
-use crate::error::CliError;
+use crate::error::{CliError, DirFault};
 use crate::print::{escape_controls, stderr_line};
 use crate::snapshot::STARTUP_SNAPSHOT;
 use crate::version::RUNTIME_VERSION;
@@ -109,15 +110,55 @@ const fn exit_code(ended: Ended, refused: bool) -> u8 {
 ///
 /// # Errors
 ///
-/// Returns why the engine or the working directory failed, before anything
-/// ran.
+/// Returns why the working directory, a directory a flag grants
+/// ([`fs_grant`]), or the engine failed, before anything ran.
 fn start_and_run(run: &RunInvocation) -> Result<RunOutcome, CliError> {
-    let engine = init_engine(Confinement::Unconfined, &EngineOptions::default())?;
-    phases::mark(Phase::Engine);
-    let options = runtime_options(run, &ProcessEnvironment);
     // read here, not in the runtime, which takes it as an input
     let cwd = std::env::current_dir().map_err(CliError::Cwd)?;
+    let fs = fs_grant(&run.dirs, &cwd)?;
+    let engine = init_engine(Confinement::Unconfined, &EngineOptions::default())?;
+    phases::mark(Phase::Engine);
+    let options = runtime_options(run, &ProcessEnvironment, fs);
     Ok(gro_runtime::run_main(engine, &options, &run.file, &cwd))
+}
+
+/// The fs grant of the directories `dirs` lists, each resolved against
+/// `cwd` when it's relative and held to be a directory now, by one `stat`
+/// that follows symlinks: the read ones first, then the written ones. The
+/// runtime opens each when the run first imports `fs`, so a directory
+/// replaced between is whatever directory is at its path then, and one
+/// gone by then fails every op through it.
+///
+/// # Errors
+///
+/// Returns [`CliError::NoDir`] for the first that's missing, isn't a
+/// directory, or can't be looked at.
+fn fs_grant(dirs: &FlagDirs, cwd: &Path) -> Result<FsGrant, CliError> {
+    let check = |flag: DirFlag, dir: &String| {
+        let path = cwd.join(dir);
+        let fault = match std::fs::metadata(&path) {
+            Ok(metadata) if metadata.is_dir() => return Ok(path),
+            Ok(_) => DirFault::NotADirectory,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => DirFault::Missing,
+            Err(error) if error.kind() == std::io::ErrorKind::NotADirectory => {
+                DirFault::NotADirectory
+            }
+            Err(error) => DirFault::Unreadable(error),
+        };
+        Err(CliError::NoDir { flag, path, fault })
+    };
+    Ok(FsGrant {
+        read: dirs
+            .read
+            .iter()
+            .map(|dir| check(DirFlag::Read, dir))
+            .collect::<Result<_, _>>()?,
+        write: dirs
+            .write
+            .iter()
+            .map(|dir| check(DirFlag::Write, dir))
+            .collect::<Result<_, _>>()?,
+    })
 }
 
 /// What follows a run's refusals on stderr, however many and however the
@@ -215,13 +256,17 @@ impl Environment for ProcessEnvironment {
 }
 
 /// The options `run`'s runtime starts with: the authority its flags grant
-/// ([`authority`]) and the environment variables that authority reaches,
-/// read from `environment` now, once ([`env_vars`]); the exit step
-/// [`exit_now`]; the script's arguments; and the runtime's name and
-/// version.
-fn runtime_options(run: &RunInvocation, environment: &impl Environment) -> RuntimeOptions {
+/// ([`authority`]), `fs` among them, and the environment variables that
+/// authority reaches, read from `environment` now, once ([`env_vars`]);
+/// the exit step [`exit_now`]; the script's arguments; and the runtime's
+/// name and version.
+fn runtime_options(
+    run: &RunInvocation,
+    environment: &impl Environment,
+    fs: FsGrant,
+) -> RuntimeOptions {
     RuntimeOptions {
-        authority: authority(&run.grant),
+        authority: authority(&run.grant, fs),
         env: env_vars(&run.grant, environment),
         exit_step: Some(exit_now),
         snapshot: STARTUP_SNAPSHOT,
@@ -231,19 +276,20 @@ fn runtime_options(run: &RunInvocation, environment: &impl Environment) -> Runti
     }
 }
 
-/// The authority `grant` gives: unconfined for `-A`; else the project's
-/// own modules granted the args host module, the exit host module, the fs
-/// host module, whose root reads the project's tree, and, when
-/// `--allow-env=` named any variable, the env host module with those
-/// names.
-fn authority(grant: &RunGrant) -> Authority {
+/// The authority `grant` gives: unconfined for `-A`, which reads and
+/// writes every directory, `fs`'s directories adding nothing; else the
+/// project's own modules granted the args host module, the exit host
+/// module, the fs host module, reading the project's tree and the
+/// directories `fs` grants as it grants them, and, when `--allow-env=`
+/// named any variable, the env host module with those names.
+fn authority(grant: &RunGrant, fs: FsGrant) -> Authority {
     match grant {
         RunGrant::All => Authority::Unconfined,
         RunGrant::Named { env } => Authority::Confined(Grants {
             args: Some(ArgsGrant {}),
             exit: Some(ExitGrant {}),
             env: (!env.is_empty()).then(|| EnvGrant { names: env.clone() }),
-            fs: Some(FsGrant {}),
+            fs: Some(fs),
         }),
     }
 }
@@ -283,7 +329,8 @@ mod tests {
     use std::os::unix::ffi::OsStringExt as _;
 
     use super::{
-        EXIT_FAILURE, Ended, Environment, RUNTIME_VERSION, exit_code, exit_now, runtime_options,
+        EXIT_FAILURE, Ended, Environment, FsGrant, RUNTIME_VERSION, exit_code, exit_now,
+        runtime_options,
     };
     use crate::cli::{Invocation, RunInvocation, Task, parse};
 
@@ -406,14 +453,14 @@ mod tests {
             panic!("{args:?} runs a.js");
         };
         assert_eq!(
-            runtime_options(&run, &TestEnvironment::default()).args,
+            runtime_options(&run, &TestEnvironment::default(), FsGrant::default()).args,
             script_args
         );
         let Ok(Invocation::Sized(Task::Run(run))) = parse(&["run", "a.js"]) else {
             panic!("runs a.js");
         };
         assert!(
-            runtime_options(&run, &TestEnvironment::default())
+            runtime_options(&run, &TestEnvironment::default(), FsGrant::default())
                 .args
                 .is_empty()
         );
@@ -426,7 +473,7 @@ mod tests {
             panic!("runs a.js");
         };
         assert_eq!(
-            runtime_options(&run, &TestEnvironment::default()).runtime_version,
+            runtime_options(&run, &TestEnvironment::default(), FsGrant::default()).runtime_version,
             RUNTIME_VERSION
         );
     }
@@ -438,14 +485,14 @@ mod tests {
     fn the_run_grants_args_exit_and_fs() {
         let run = invocation(&["a.js"]);
         let environment = TestEnvironment::of(&[(b"HOME", b"/home/a")]);
-        let options = runtime_options(&run, &environment);
+        let options = runtime_options(&run, &environment, FsGrant::default());
         assert_eq!(
             options.authority,
             gro_runtime::Authority::Confined(gro_runtime::Grants {
                 args: Some(gro_runtime::ArgsGrant {}),
                 exit: Some(gro_runtime::ExitGrant {}),
                 env: None,
-                fs: Some(gro_runtime::FsGrant {}),
+                fs: Some(FsGrant::default()),
             })
         );
         assert_eq!(options.env, gro_runtime::EnvVars::default());
@@ -473,7 +520,7 @@ mod tests {
         ]);
         let environment =
             TestEnvironment::of(&[(b"A", b"1"), (b"B", b"b\xff"), (b"D", b"4"), (b"E", b"5")]);
-        let options = runtime_options(&run, &environment);
+        let options = runtime_options(&run, &environment, FsGrant::default());
         assert_eq!(
             options.authority,
             gro_runtime::Authority::Confined(gro_runtime::Grants {
@@ -482,7 +529,7 @@ mod tests {
                 env: Some(gro_runtime::EnvGrant {
                     names: ["A", "B", "C"].map(ToOwned::to_owned).into(),
                 }),
-                fs: Some(gro_runtime::FsGrant {}),
+                fs: Some(FsGrant::default()),
             })
         );
         assert_eq!(*environment.asked.borrow(), ["A", "B", "C"]);
@@ -510,7 +557,7 @@ mod tests {
                 (b"A", b"1"),
                 (b"B", b"again"),
             ]);
-            let options = runtime_options(&run, &environment);
+            let options = runtime_options(&run, &environment, FsGrant::default());
             assert_eq!(
                 options.authority,
                 gro_runtime::Authority::Unconfined,
@@ -523,12 +570,32 @@ mod tests {
         }
     }
 
+    /// The fs grant the directory flags make reaches a confined run's
+    /// authority as it's given, and an unconfined run's holds none, `-A`
+    /// reading and writing everything whatever the flags list.
+    #[test]
+    fn the_fs_grant_reaches_a_confined_run_only() {
+        let fs = FsGrant {
+            read: ["/r".into()].into(),
+            write: ["/w".into()].into(),
+        };
+        let run = invocation(&["--allow-read=/r", "a.js"]);
+        let options = runtime_options(&run, &TestEnvironment::default(), fs.clone());
+        let gro_runtime::Authority::Confined(grants) = options.authority else {
+            panic!("a run without -A is confined");
+        };
+        assert_eq!(grants.fs, Some(fs.clone()));
+        let run = invocation(&["--allow-read=/r", "-A", "a.js"]);
+        let options = runtime_options(&run, &TestEnvironment::default(), fs);
+        assert_eq!(options.authority, gro_runtime::Authority::Unconfined);
+    }
+
     /// The variables' `Debug` names them and prints no value.
     #[test]
     fn the_variables_debug_prints_no_value() {
         let run = invocation(&["--allow-env=TOKEN", "a.js"]);
         let environment = TestEnvironment::of(&[(b"TOKEN", b"secret-value")]);
-        let options = runtime_options(&run, &environment);
+        let options = runtime_options(&run, &environment, FsGrant::default());
         let printed = format!("{options:?}");
         assert!(printed.contains("TOKEN"), "{printed}");
         assert!(!printed.contains("secret-value"), "{printed}");

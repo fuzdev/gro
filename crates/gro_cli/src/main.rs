@@ -238,9 +238,9 @@ mod tests {
             )
         );
         assert_eq!(
-            message(&["run", "--allow-read=.", "a.js"]),
+            message(&["run", "--allow-net=.", "a.js"]),
             (
-                "unknown option \"--allow-read=…\" before the file: the script's arguments go \
+                "unknown option \"--allow-net=…\" before the file: the script's arguments go \
                  after it\nRun fgro run --help for more information."
                     .to_owned(),
                 EXIT_USAGE

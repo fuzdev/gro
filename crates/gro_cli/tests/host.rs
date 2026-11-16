@@ -1389,6 +1389,70 @@ fn fs_project_is_the_entry_s_root_not_the_working_directory() {
     );
 }
 
+/// A directory the flags list is resolved against the working directory
+/// and must be one when the run starts, under `-A` too: a missing one, a
+/// file, and a path through a file are usage errors naming it, escaped,
+/// before anything runs.
+#[test]
+fn fs_flag_directories_are_checked_as_the_run_starts() {
+    let project = Scratch::new(
+        "fs_flag_dirs",
+        &[
+            (
+                "package.json",
+                "{\"name\": \"fs_flag_dirs\", \"type\": \"module\"}\n",
+            ),
+            ("main.js", "console.log('ran');\n"),
+            ("file.txt", ""),
+            ("dir/x.txt", ""),
+        ],
+    );
+    let p = project.0.display().to_string();
+    let help = "Run fgro run --help for more information.";
+    for (args, message) in [
+        (
+            &["--allow-read=missing"][..],
+            format!("a --allow-read directory doesn't exist: {p}/missing"),
+        ),
+        (
+            &["--allow-write=dir,file.txt"],
+            format!("a --allow-write directory isn't a directory: {p}/file.txt"),
+        ),
+        (
+            &["--allow-read=file.txt/x"],
+            format!("a --allow-read directory isn't a directory: {p}/file.txt/x"),
+        ),
+        (
+            &["-A", "--allow-write=/nonexistent\u{1b}[2J"],
+            "a --allow-write directory doesn't exist: /nonexistent\\u{1b}[2J".to_owned(),
+        ),
+        (
+            &["--allow-read=dir", "--allow-write=gone"],
+            format!("a --allow-write directory doesn't exist: {p}/gone"),
+        ),
+    ] {
+        let args = [&["run"][..], args, &["main.js"]].concat();
+        let mut command = fgro_command(&args);
+        command.env_clear().current_dir(&project.0);
+        let output = spawn(command, b"");
+        assert_eq!(
+            String::from_utf8(output.stderr).unwrap(),
+            format!("error: {message}\n{help}\n"),
+            "{args:?}"
+        );
+        assert_eq!(output.stdout, b"", "{args:?}");
+        assert_eq!(output.status.code(), Some(2), "{args:?}");
+    }
+    for args in [&["--allow-read=dir,.,/"][..], &["-A", "--allow-write=dir"]] {
+        let args = [&["run"][..], args, &["main.js"]].concat();
+        let mut command = fgro_command(&args);
+        command.env_clear().current_dir(&project.0);
+        let output = spawn(command, b"");
+        assert_eq!(output.stdout, b"ran\n", "{args:?}");
+        assert_eq!(output.status.code(), Some(0), "{args:?}");
+    }
+}
+
 /// The script [`fs_handle_refuses_a_symlink_swapped_onto_its_path`] runs: a
 /// handle on `sub`, made before the test swaps `sub` for a symlink, then
 /// each read through it, as a JSON line.

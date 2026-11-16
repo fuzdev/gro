@@ -10,8 +10,8 @@ use gro_runtime::prices::PricesError;
 use gro_runtime::snapshot::SnapshotError;
 use thiserror::Error;
 
-use crate::cli::{EnvFlagFault, MAKE_SNAPSHOT};
-use crate::print::{echo_argument, stderr_line};
+use crate::cli::{DirFlag, DirFlagFault, EnvFlagFault, MAKE_SNAPSHOT};
+use crate::print::{echo_argument, escape_controls, stderr_line};
 use crate::{EXIT_FAILURE, EXIT_USAGE};
 
 /// Why `fgro` failed, outside eval's envelope.
@@ -63,6 +63,51 @@ pub enum CliError {
     /// `run --allow-env=` listing a name no variable can have.
     #[error("{0}\nRun fgro run --help for more information.")]
     AllowEnvName(EnvFlagFault),
+    /// `run --allow-read` or `--allow-write` with no directories, which
+    /// grants none.
+    #[error(
+        "{0} takes the directories it grants, as {0}=a,/b\n\
+         Run fgro run --help for more information."
+    )]
+    AllowDirsBare(DirFlag),
+    /// `run --allow-read=` or `--allow-write=` listing a path that names
+    /// nothing.
+    #[error(
+        "{}\nRun fgro run --help for more information.",
+        match .1 {
+            DirFlagFault::Empty => format!(
+                "a {0} directory is empty: {0}=a,/b lists directories separated by single \
+                 commas",
+                .0
+            ),
+            DirFlagFault::Nul => format!("a {} directory holds a NUL byte", .0),
+        }
+    )]
+    AllowDir(DirFlag, DirFlagFault),
+    /// A directory `--allow-read=` or `--allow-write=` lists isn't one as
+    /// the run starts: missing, something else, or unreadable. Its path is
+    /// named as resolved against the working directory, escaped.
+    #[error(
+        "a {flag} directory {}: {}{}\nRun fgro run --help for more information.",
+        match fault {
+            DirFault::Missing => "doesn't exist",
+            DirFault::NotADirectory => "isn't a directory",
+            DirFault::Unreadable(_) => "can't be looked at",
+        },
+        escape_controls(&path.to_string_lossy()),
+        match fault {
+            DirFault::Unreadable(error) => format!(" ({error})"),
+            DirFault::Missing | DirFault::NotADirectory => String::new(),
+        }
+    )]
+    NoDir {
+        /// The flag that listed it.
+        flag: DirFlag,
+        /// Its absolute path.
+        path: PathBuf,
+        /// What's wrong with it.
+        fault: DirFault,
+    },
     /// `eval --timeout 0`.
     #[error("--timeout takes a number of milliseconds of at least 1")]
     TimeoutZero,
@@ -107,6 +152,18 @@ pub enum CliError {
     Stdout(#[source] std::io::Error),
 }
 
+/// Why a directory a flag lists can't be granted, found by a `stat` as the
+/// run starts.
+#[derive(Debug)]
+pub enum DirFault {
+    /// Nothing is at its path.
+    Missing,
+    /// Something other than a directory is at its path.
+    NotADirectory,
+    /// Its path couldn't be looked at, as the OS said.
+    Unreadable(std::io::Error),
+}
+
 impl CliError {
     /// The exit code: [`EXIT_USAGE`] when the caller must change the
     /// arguments, an entry that doesn't resolve included, else
@@ -122,6 +179,9 @@ impl CliError {
             | Self::RunNoFile
             | Self::AllowEnvBare
             | Self::AllowEnvName(_)
+            | Self::AllowDirsBare(_)
+            | Self::AllowDir(..)
+            | Self::NoDir { .. }
             | Self::TimeoutZero
             | Self::DriverWithExport
             | Self::DriverPath(_)

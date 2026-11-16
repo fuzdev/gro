@@ -103,6 +103,7 @@ mod stack;
 mod test_support;
 
 use std::collections::BTreeSet;
+use std::path::PathBuf;
 
 use crate::resolver::Capability;
 use crate::snapshot::StartupSnapshot;
@@ -271,11 +272,24 @@ pub struct EnvGrant {
     pub names: BTreeSet<String>,
 }
 
-/// The fs host module's grant: its root's reach, the project's tree, to
-/// read. It names no directory: the run's roots are the host's, the
-/// project's root alone so far, and nothing is writable.
+/// The fs host module's grant: the directories it reads and writes beside
+/// the project's root, which it always reads and never writes.
+///
+/// Each is an absolute path, as granted: a directory that existed when the
+/// embedder checked it, opened when the run first imports `fs`, so one
+/// replaced since is whatever directory is at the path then, and one gone
+/// or no longer a directory fails every op through it. A root matches a
+/// path by the path as granted as well as by its real path. Write doesn't
+/// imply read: a directory only written is read only if a read grant holds
+/// it too. An unconfined run reads and writes everything, one root at `/`,
+/// whatever this holds.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct FsGrant {}
+pub struct FsGrant {
+    /// The directories read.
+    pub read: BTreeSet<PathBuf>,
+    /// The directories written.
+    pub write: BTreeSet<PathBuf>,
+}
 
 /// Why a string can't name an environment variable, as the env host
 /// module refuses it.

@@ -27,7 +27,7 @@ pub fn run_authority() -> Authority {
         env: Some(EnvGrant {
             names: BTreeSet::from(["GRO_TEST_ENV".to_owned()]),
         }),
-        fs: Some(FsGrant {}),
+        fs: Some(FsGrant::default()),
     })
 }
 

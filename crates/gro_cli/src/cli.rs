@@ -79,13 +79,24 @@ pub const ALLOW_ENV: &str = "--allow-env";
 /// `--allow-env`'s spelling with its names, which follow it.
 const ALLOW_ENV_NAMES: &str = "--allow-env=";
 
+/// The option that grants the fs host module the directories it lists, to
+/// read.
+pub const ALLOW_READ: &str = "--allow-read";
+
+/// The option that grants the fs host module the directories it lists, to
+/// write.
+pub const ALLOW_WRITE: &str = "--allow-write";
+
 /// The option that runs unconfined, every grant at its widest.
 pub const ALLOW_ALL: &str = "-A";
 
 /// `fgro run --help`, laid out as argh lays out the other commands' help.
 fn run_help() -> String {
     [
-        &format!("Usage: fgro {RUN} [{ALLOW_ENV}=<names>] [{ALLOW_ALL}] [--] <file> [<args...>]"),
+        &format!(
+            "Usage: fgro {RUN} [{ALLOW_ENV}=<names>] [{ALLOW_READ}=<dirs>] [{ALLOW_WRITE}=<dirs>] \
+             [{ALLOW_ALL}] [--] <file> [<args...>]"
+        ),
         "",
         RUN_DESCRIPTION,
         "",
@@ -100,8 +111,17 @@ fn run_help() -> String {
         "                    grant the project's modules `@fuzdev/gro/env.ts` with these",
         "                    environment variables, a comma-separated list of exact names;",
         "                    repeatable",
+        "  --allow-read=<dirs>",
+        "                    grant the project's modules `@fuzdev/gro/fs.ts` reading these",
+        "                    directories, a comma-separated list of existing ones,",
+        "                    relative to the working directory or absolute; repeatable;",
+        "                    the project's root is read without it",
+        "  --allow-write=<dirs>",
+        "                    grant the project's modules `@fuzdev/gro/fs.ts` writing these",
+        "                    directories, as --allow-read lists them; a directory only",
+        "                    written isn't read",
         "  -A                run unconfined: every grant at its widest, to every module,",
-        "                    every environment variable among them",
+        "                    every environment variable and every directory among them",
         "  --help, help      display usage information",
     ]
     .join("\n")
@@ -121,6 +141,17 @@ pub enum RunGrant {
     All,
 }
 
+/// The directories `--allow-read=` and `--allow-write=` list, each as
+/// written, not yet resolved or checked: a run checks each, under `-A`
+/// too, before it starts.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct FlagDirs {
+    /// The directories `--allow-read=` lists.
+    pub read: BTreeSet<String>,
+    /// The directories `--allow-write=` lists.
+    pub write: BTreeSet<String>,
+}
+
 /// `fgro run`'s arguments, checked.
 pub struct RunInvocation {
     /// The module to run: relative to the working directory, or absolute.
@@ -129,6 +160,8 @@ pub struct RunInvocation {
     pub args: Vec<String>,
     /// What the flags grant.
     pub grant: RunGrant,
+    /// The directories the flags list, which grant nothing more under `-A`.
+    pub dirs: FlagDirs,
 }
 
 impl RunInvocation {
@@ -138,19 +171,25 @@ impl RunInvocation {
     /// written. The options are the help trigger (`--help`, or `help` as
     /// argh spells it for every command), which asks for the help whatever
     /// follows it; `--allow-env=<names>`, repeatable, its names one set;
-    /// and `-A`, which grants everything, so names given beside it are
-    /// checked and add nothing. A file starting with `-` comes after `--`.
+    /// `--allow-read=<dirs>` and `--allow-write=<dirs>`, each repeatable,
+    /// its directories one set; and `-A`, which grants everything, so names
+    /// and directories given beside it are checked and add nothing. A file
+    /// starting with `-` comes after `--`.
     ///
     /// # Errors
     ///
     /// Returns the usage error, checked in the order the arguments come: an
-    /// option before the file that isn't one of these (a bare `--allow-env`
-    /// among them, which grants no name), a name `--allow-env=` lists that
-    /// no variable can have ([`check_env_flag_names`]), or no file.
+    /// option before the file that isn't one of these (a bare `--allow-env`,
+    /// `--allow-read`, or `--allow-write` among them, which grants
+    /// nothing), a name `--allow-env=` lists that no variable can have
+    /// ([`check_env_flag_names`]), a directory `--allow-read=` or
+    /// `--allow-write=` lists that no path can be ([`check_dir_flag`]), or
+    /// no file.
     fn check(args: RunArgs) -> Result<Task, CliError> {
         let mut help = false;
         let mut all = false;
         let mut env = BTreeSet::new();
+        let mut dirs = FlagDirs::default();
         let mut args = args.args.into_iter();
         let file = loop {
             match args.next() {
@@ -160,6 +199,17 @@ impl RunInvocation {
                 Some(arg) if arg == ALLOW_ENV => return Err(CliError::AllowEnvBare),
                 Some(arg) if arg.starts_with(ALLOW_ENV_NAMES) => {
                     env.extend(check_env_flag_names(&arg[ALLOW_ENV_NAMES.len()..])?);
+                }
+                Some(arg) if arg == ALLOW_READ || arg == ALLOW_WRITE => {
+                    return Err(CliError::AllowDirsBare(dir_flag(&arg)));
+                }
+                Some(arg) if arg.starts_with(&format!("{ALLOW_READ}=")) => {
+                    let listed = &arg[ALLOW_READ.len() + 1..];
+                    dirs.read.extend(check_dir_flag(DirFlag::Read, listed)?);
+                }
+                Some(arg) if arg.starts_with(&format!("{ALLOW_WRITE}=")) => {
+                    let listed = &arg[ALLOW_WRITE.len() + 1..];
+                    dirs.write.extend(check_dir_flag(DirFlag::Write, listed)?);
                 }
                 Some(arg) if arg.starts_with('-') => return Err(CliError::RunOption(arg)),
                 file => break file,
@@ -176,6 +226,7 @@ impl RunInvocation {
                 } else {
                     RunGrant::Named { env }
                 },
+                dirs,
             })),
         }
     }
@@ -242,6 +293,74 @@ impl std::fmt::Display for EnvFlagFault {
             ),
         }
     }
+}
+
+/// One of the flags that grant directories.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DirFlag {
+    /// `--allow-read`.
+    Read,
+    /// `--allow-write`.
+    Write,
+}
+
+impl DirFlag {
+    /// The flag as it's spelled, `--allow-read` or `--allow-write`.
+    pub const fn spelled(self) -> &'static str {
+        match self {
+            Self::Read => ALLOW_READ,
+            Self::Write => ALLOW_WRITE,
+        }
+    }
+}
+
+impl std::fmt::Display for DirFlag {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.spelled())
+    }
+}
+
+/// The flag `arg` spells, `--allow-read` or else `--allow-write`.
+fn dir_flag(arg: &str) -> DirFlag {
+    if arg.starts_with(ALLOW_READ) {
+        DirFlag::Read
+    } else {
+        DirFlag::Write
+    }
+}
+
+/// The directories `flag` lists in `listed`, split at each comma, each as
+/// written: not empty and holding no NUL byte. A path holding a comma
+/// can't be listed. Whether each exists, and is a directory, a run checks
+/// before it starts.
+///
+/// # Errors
+///
+/// Returns [`CliError::AllowDir`] for the first directory that breaks it.
+fn check_dir_flag(flag: DirFlag, listed: &str) -> Result<Vec<String>, CliError> {
+    listed
+        .split(',')
+        .map(|dir| {
+            if dir.is_empty() {
+                Err(CliError::AllowDir(flag, DirFlagFault::Empty))
+            } else if dir.contains('\0') {
+                Err(CliError::AllowDir(flag, DirFlagFault::Nul))
+            } else {
+                Ok(dir.to_owned())
+            }
+        })
+        .collect()
+}
+
+/// Why a directory `--allow-read=` or `--allow-write=` lists can't be
+/// granted, before it's looked at.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DirFlagFault {
+    /// An empty path: a list that's empty, or starts, ends, or doubles a
+    /// comma.
+    Empty,
+    /// A path holding a NUL byte.
+    Nul,
 }
 
 /// evaluate an ES module to JSON data, written as one envelope on stdout
@@ -464,7 +583,10 @@ fn invalid_arguments(args: &[&str]) -> CliError {
 mod tests {
     use std::collections::BTreeSet;
 
-    use super::{EnvFlagFault, Invocation, RUN_DESCRIPTION, RunGrant, Task, parse, run_help};
+    use super::{
+        DirFlag, DirFlagFault, EnvFlagFault, FlagDirs, Invocation, RUN_DESCRIPTION, RunGrant, Task,
+        parse, run_help,
+    };
     use crate::error::CliError;
 
     /// What `parse` makes of `fgro run`'s arguments, in a form to compare.
@@ -482,6 +604,10 @@ mod tests {
         AllowEnvBare,
         /// [`CliError::AllowEnvName`].
         AllowEnvName(EnvFlagFault),
+        /// [`CliError::AllowDirsBare`].
+        AllowDirsBare(DirFlag),
+        /// [`CliError::AllowDir`].
+        AllowDir(DirFlag, DirFlagFault),
     }
 
     fn run_outcome(args: &[&str]) -> Run {
@@ -494,6 +620,8 @@ mod tests {
             Err(CliError::RunOption(option)) => Run::Option(option),
             Err(CliError::AllowEnvBare) => Run::AllowEnvBare,
             Err(CliError::AllowEnvName(fault)) => Run::AllowEnvName(fault),
+            Err(CliError::AllowDirsBare(flag)) => Run::AllowDirsBare(flag),
+            Err(CliError::AllowDir(flag, fault)) => Run::AllowDir(flag, fault),
             _ => panic!("{args:?} is not one of run's outcomes"),
         }
     }
@@ -529,7 +657,7 @@ mod tests {
     /// argument to the script as written.
     #[test]
     fn run_parses_its_options_up_to_the_file() {
-        use Run::{AllowEnvBare, AllowEnvName, Help, NoFile};
+        use Run::{AllowDir, AllowDirsBare, AllowEnvBare, AllowEnvName, Help, NoFile};
         let cases: Vec<(&[&str], Run)> = vec![
             // the file alone, and the file with the script's arguments
             (&["run", "a.js"], runs("a.js", &[])),
@@ -590,7 +718,12 @@ mod tests {
             (&["run", "-a", "a.js"], option("-a")),
             (&["run", "--allow-all", "a.js"], option("--allow-all")),
             (&["run", "--allow-envA", "a.js"], option("--allow-envA")),
-            (&["run", "--allow-read=.", "a.js"], option("--allow-read=.")),
+            (
+                &["run", "--allow-reads=.", "a.js"],
+                option("--allow-reads=."),
+            ),
+            (&["run", "--allow-readx", "a.js"], option("--allow-readx")),
+            (&["run", "--allow-net=x", "a.js"], option("--allow-net=x")),
             (&["run", "-"], option("-")),
             (&["run", "--help", "--x"], option("--x")),
             (&["run", "--x", "--help"], option("--x")),
@@ -642,6 +775,48 @@ mod tests {
             ),
             (&["run", "--x", "--allow-env=", "a.js"], option("--x")),
             (&["run", "--allow-env=A"], NoFile),
+            // the directory flags, bare, and listing a path that names nothing
+            (
+                &["run", "--allow-read=.", "--allow-write=/x,y", "a.js", "-A"],
+                runs("a.js", &["-A"]),
+            ),
+            (
+                &["run", "--allow-read", "a.js"],
+                AllowDirsBare(DirFlag::Read),
+            ),
+            (
+                &["run", "--allow-write", "a.js"],
+                AllowDirsBare(DirFlag::Write),
+            ),
+            (
+                &["run", "-A", "--allow-write", "a.js"],
+                AllowDirsBare(DirFlag::Write),
+            ),
+            (
+                &["run", "--allow-read=", "a.js"],
+                AllowDir(DirFlag::Read, DirFlagFault::Empty),
+            ),
+            (
+                &["run", "--allow-write=a,", "a.js"],
+                AllowDir(DirFlag::Write, DirFlagFault::Empty),
+            ),
+            (
+                &["run", "--allow-read=,a", "a.js"],
+                AllowDir(DirFlag::Read, DirFlagFault::Empty),
+            ),
+            (
+                &["run", "--allow-read=a,,b", "a.js"],
+                AllowDir(DirFlag::Read, DirFlagFault::Empty),
+            ),
+            (
+                &["run", "--allow-write=a\0", "a.js"],
+                AllowDir(DirFlag::Write, DirFlagFault::Nul),
+            ),
+            (
+                &["run", "--allow-read=a", "--allow-write=", "--x", "a.js"],
+                AllowDir(DirFlag::Write, DirFlagFault::Empty),
+            ),
+            (&["run", "--allow-write=a"], NoFile),
         ];
         for (args, expected) in cases {
             assert_eq!(run_outcome(args), expected, "{args:?}");
@@ -676,6 +851,48 @@ mod tests {
         ] {
             assert_eq!(grant(args), RunGrant::All, "{args:?}");
         }
+    }
+
+    /// The directory flags, each repeatable, list their directories as
+    /// written, one set each, a path both read and written in both; under
+    /// `-A` too, where the run still checks them.
+    #[test]
+    fn the_directory_flags_list_their_directories() {
+        let dirs = |args: &[&str]| {
+            let args = [&["run"][..], args].concat();
+            match parse(&args) {
+                Ok(Invocation::Sized(Task::Run(run))) => (run.grant, run.dirs),
+                _ => panic!("{args:?} runs a file"),
+            }
+        };
+        let set = |dirs: &[&str]| dirs.iter().map(|&dir| dir.to_owned()).collect();
+        assert_eq!(dirs(&["a.js"]), (env(&[]), FlagDirs::default()));
+        assert_eq!(
+            dirs(&[
+                "--allow-read=b,/a",
+                "--allow-write=b",
+                "--allow-read=./c, d,/a",
+                "a.js",
+                "--allow-read=e",
+            ]),
+            (
+                env(&[]),
+                FlagDirs {
+                    read: set(&["/a", " d", "./c", "b"]),
+                    write: set(&["b"]),
+                }
+            )
+        );
+        assert_eq!(
+            dirs(&["--allow-write=w", "-A", "a.js"]),
+            (
+                RunGrant::All,
+                FlagDirs {
+                    read: set(&[]),
+                    write: set(&["w"]),
+                }
+            )
+        );
     }
 
     /// The usage errors of the grant options say what was wrong without
@@ -718,6 +935,25 @@ mod tests {
             message(&["--allow-env=A\0", "a.js"]),
             format!("an --allow-env name holds a NUL byte{help}")
         );
+        assert_eq!(
+            message(&["--allow-read", "a.js"]),
+            format!("--allow-read takes the directories it grants, as --allow-read=a,/b{help}")
+        );
+        assert_eq!(
+            message(&["--allow-write", "a.js"]),
+            format!("--allow-write takes the directories it grants, as --allow-write=a,/b{help}")
+        );
+        assert_eq!(
+            message(&["--allow-write=a,", "a.js"]),
+            format!(
+                "a --allow-write directory is empty: --allow-write=a,/b lists directories \
+                 separated by single commas{help}"
+            )
+        );
+        assert_eq!(
+            message(&["--allow-read=a\0", "a.js"]),
+            format!("a --allow-read directory holds a NUL byte{help}")
+        );
     }
 
     /// `fgro run --help`, written by hand, reads as argh writes the other
@@ -726,7 +962,7 @@ mod tests {
     #[test]
     fn run_s_help_reads_as_argh_s() {
         const EXPECTED: &str = "\
-Usage: fgro run [--allow-env=<names>] [-A] [--] <file> [<args...>]
+Usage: fgro run [--allow-env=<names>] [--allow-read=<dirs>] [--allow-write=<dirs>] [-A] [--] <file> [<args...>]
 
 run an ES module (.js, .mjs, .ts, or .mts) from disk
 
@@ -741,8 +977,17 @@ Options:
                     grant the project's modules `@fuzdev/gro/env.ts` with these
                     environment variables, a comma-separated list of exact names;
                     repeatable
+  --allow-read=<dirs>
+                    grant the project's modules `@fuzdev/gro/fs.ts` reading these
+                    directories, a comma-separated list of existing ones,
+                    relative to the working directory or absolute; repeatable;
+                    the project's root is read without it
+  --allow-write=<dirs>
+                    grant the project's modules `@fuzdev/gro/fs.ts` writing these
+                    directories, as --allow-read lists them; a directory only
+                    written isn't read
   -A                run unconfined: every grant at its widest, to every module,
-                    every environment variable among them
+                    every environment variable and every directory among them
   --help, help      display usage information";
         assert_eq!(run_help(), EXPECTED);
         let Ok(Invocation::Sized(Task::Help(eval))) = parse(&["eval", "--help"]) else {
