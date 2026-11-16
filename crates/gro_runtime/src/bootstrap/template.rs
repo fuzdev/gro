@@ -46,9 +46,9 @@
 //!   half-made and runs the whole script again at the next import.
 //!
 //! Every piece is a literal of this module, 7-bit ASCII, as `deno_core`
-//! takes a residual script's text on trust: the build fails on a piece
-//! that isn't, and a test holds every row's script to the two texts, byte
-//! for byte.
+//! takes a residual script's text on trust: the build fails on a const
+//! piece that isn't, and a test holds every row's script to the two texts,
+//! byte for byte, which holds the wrapping `format!` adds as well.
 
 use crate::host::native::hands_over_error;
 use crate::resolver::{BUILTINS, Builtin, Capability};

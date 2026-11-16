@@ -299,7 +299,8 @@ Invariants that live in the code:
 - The embedded source (`crates/gro_runtime/js/bootstrap.js`) must be 7-bit
   ASCII, or the build fails (`ascii_str_include!`). A builtin has no source of
   its own: each row's backing script is made from the row, of
-  `bootstrap/template.rs`'s literals, which the build holds to ASCII. A
+  `bootstrap/template.rs`'s literals, which the build holds to ASCII (the
+  wrapping `format!` adds, by the test that holds each script). A
   builtin embeds no module of `src/lib`: what it shares with its Node module
   is behavior, held by the differential cases, never source.
 - The resolver (`resolver/`) is a pure module: no deno_core types, reading
@@ -560,7 +561,7 @@ Invariants that live in the code:
   namespace or prototype whose records or functions aren't the table's, or
   aren't frozen, and on a `DeclaredFamily` made anywhere but by the macro
   (a source scan, by its maker's name, and in its own module by every
-  line that builds one); `tests/native_members.txt` pins the table
+  line that names it); `tests/native_members.txt` pins the table
   (module, name, place, a function's `length` or a value's kind, grant,
   the family declared) as `op_names.txt` pins the ops.
 - `bootstrap::REFUSED_OPS` lists the ops eval refuses, each one the runtime

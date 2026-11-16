@@ -1078,17 +1078,29 @@ mod tests {
         code
     }
 
-    /// Each line of `source` that builds a value of a tuple struct, by its
-    /// type's name or `Self`, in parentheses or braces, but a comment.
-    fn builds_in(source: &str) -> Vec<&str> {
+    /// What a module's code can make a value of a type with out of sight
+    /// of a line naming the type: `Self`, a child module, a macro, and an
+    /// included source.
+    const BUILDERS: [&str; 6] = [
+        "Self",
+        "mod",
+        "macro_rules",
+        "include",
+        "include_str",
+        "include_bytes",
+    ];
+
+    /// Each line of `source`, but a comment, that names `type_name` or a
+    /// word of [`BUILDERS`], however it's used: in a call, a literal over
+    /// lines, a constructor passed as a function, or a macro's argument.
+    fn naming_in<'a>(source: &'a str, type_name: &str) -> Vec<&'a str> {
         source
             .lines()
             .map(str::trim)
             .filter(|line| !line.starts_with("//"))
             .filter(|line| {
-                ["Self(", "DeclaredFamily(", "{ 0:", "{0:"]
-                    .iter()
-                    .any(|built| line.contains(built))
+                line.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+                    .any(|word| word == type_name || BUILDERS.contains(&word))
             })
             .collect()
     }
@@ -1100,8 +1112,10 @@ mod tests {
     /// family the table doesn't list for it, from a row that hands over no
     /// `Error`. A test's own code, in a `tests` module's file, may make one.
     /// Read from the source, by the maker's name everywhere and, in the
-    /// type's own module, by every line that builds one, each of the two
-    /// files counted up to its tests module, which ends the file. The
+    /// type's own module, by every line that names the type or `Self`, a
+    /// child module, a macro, or an included source, with its derives and
+    /// its test maker's `cfg` held, each of the two files counted up to
+    /// its tests module, which ends the file. The
     /// crates linked with this one are read too, though none can name the
     /// type while `host` is private to this crate.
     #[test]
@@ -1141,24 +1155,44 @@ mod tests {
             }
         }
         assert_eq!(found, [""; 0]);
-        // the type's own module builds one in its declaration and its two
-        // makers alone: a constructor or a constant that builds one
-        // elsewhere in it is another maker, which no name finds
+        // the type's own module names it, or `Self`, in its declaration,
+        // its two makers, and the two parameters that take one alone, and
+        // has no child module, macro, or included source: a constructor, a
+        // constant, a derive, or a trait's maker elsewhere in it, or out of
+        // sight of its lines, is another maker, which no name finds
         let source = std::fs::read_to_string(&own).unwrap();
+        let code = code_before_tests(&source, &own);
         assert_eq!(
-            builds_in(code_before_tests(&source, &own)),
+            naming_in(code, "DeclaredFamily"),
             [
                 "pub struct DeclaredFamily(&'static ErrorFamily);",
+                "impl DeclaredFamily {",
+                "pub const fn of_member_declaration(family: &'static ErrorFamily) -> Self {",
                 "Self(family)",
+                "pub const fn for_test(family: &'static ErrorFamily) -> Self {",
                 "Self(family)",
+                "family: DeclaredFamily,",
+                "family: DeclaredFamily,",
             ]
         );
+        // its derives make none, and its second maker is a test's alone
+        for held in [
+            "\n#[derive(Debug, Clone, Copy)]\npub struct DeclaredFamily(",
+            "\n    #[cfg(test)]\n    pub const fn for_test(",
+        ] {
+            assert!(code.contains(held), "{held}");
+        }
         for spelled in [
             "pub const MADE: DeclaredFamily = DeclaredFamily(&ENV_ERROR);",
             "Self { 0: family }",
-            "DeclaredFamily {0: &ENV_ERROR}",
+            "let built = DeclaredFamily {",
+            "let [made] = [&ENV_ERROR].map(DeclaredFamily);",
+            "let make = Self;",
+            "macro_rules! built {",
+            "mod made;",
+            "include!(\"made.rs.in\");",
         ] {
-            assert_eq!(builds_in(spelled), [spelled], "{spelled}");
+            assert_eq!(naming_in(spelled, "DeclaredFamily"), [spelled], "{spelled}");
         }
         // the reader finds a call however the type is spelled, and not one in a comment
         for spelled in [
