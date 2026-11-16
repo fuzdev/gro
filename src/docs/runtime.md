@@ -13,7 +13,7 @@
 >   ([eval](eval.md))
 >
 > Designed, not built: the host modules (`fs`, `spawn`, `net`, `watch`, and the process modules exist as their Node implementation,
-> and on `fgro` only the ones [host modules](host_modules.md#the-modules) marks built), the grant flags but `--allow-env=` and `-A`, the policy file,
+> and on `fgro` only the ones [host modules](host_modules.md#the-modules) marks built), the grant flags but `--allow-env=`, `--allow-read=`, `--allow-write=`, and `-A`, the policy file,
 > the seal on the global object, and the kernel backstop for `run`.
 > Until they land, `fgro run` gives code no API past its own module graph, the console, and those builtin modules,
 > but the process itself isn't confined or limited: against code that exploits V8 it's an ordinary process with your user's authority,
@@ -127,7 +127,7 @@ any language compiled to it (see [polyglot confinement](#what-the-design-opens-u
 
 Of all this, the omissions are built (`fgro` has no runtime namespace, no Node compat, no remote imports, and no authority globals),
 `fgro eval`'s box is built, the builtin modules' link-time grant check is built with the modules [host modules](host_modules.md#the-modules) marks built its only host APIs,
-`--allow-env=` and `-A` are built, and the rest of the host modules, the other grant flags, the policy file, the seal, and the box for `run` are designed.
+`--allow-env=`, `--allow-read=`, `--allow-write=`, and `-A` are built, and the rest of the host modules, the other grant flags, the policy file, the seal, and the box for `run` are designed.
 
 ## Design
 
@@ -194,7 +194,7 @@ Each bullet marks what's built; anything unmarked past the omissions is designed
   Like Node's stripper it takes erasable syntax only, so anything with runtime semantics
   (an `enum`, a parameter property) is refused with its position and a fix, never transformed.
   [typescript](typescript.md) has the rules, the refused list, and the file types.
-- **No ambient authority** (the link-time check, `--allow-env=`, and `-A` built; the other grant flags and the seal designed). The grant set is a constructor argument of the runtime,
+- **No ambient authority** (the link-time check, `--allow-env=`, `--allow-read=`, `--allow-write=`, and `-A` built; the other grant flags and the seal designed). The grant set is a constructor argument of the runtime,
   empty by default, not process-level flags checked at call time.
   Host modules are imports and the module loader is the boundary,
   so an ungranted module fails at link time, not at the first call.
@@ -378,7 +378,7 @@ where the host modules and grants land with their first consumer.
       (built for the builtin modules, each run on its first import), with no code cache for confined runs
 - [ ] the seal on the global object, with named exceptions, and a free `fetch`'s error naming the import
 - [ ] the host modules (fs, spawn, watch, net, and the process modules), the grants
-      (built so far: the link-time check, `args`, `exit`, `env`, `--allow-env=`, and `-A`),
+      (built so far: the link-time check, `args`, `exit`, `env`, `fs`'s reads, `--allow-env=`, `--allow-read=`, `--allow-write=`, and `-A`),
       and the policy file, enforced, with the kernel backstop under every run and its children
       ([backstop](backstop.md#the-box-for-runs-and-children)), landing with Gro on Gro
 - [ ] macOS and Windows builds, each with its own sandbox design

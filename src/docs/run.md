@@ -13,6 +13,7 @@
 ```bash
 fgro run <file> [args...]   # a .js, .mjs, .ts, or .mts module, relative to the working directory or absolute
 fgro run --allow-env=HOME,NO_COLOR <file>   # the env host module, with these two variables
+fgro run --allow-read=../data --allow-write=out <file>   # fs reads ../data and writes out/
 fgro run -A <file>          # unconfined: every grant at its widest
 fgro --version              # the version, the git commit, the V8 version, and whether a startup snapshot is embedded
 ```
@@ -43,18 +44,30 @@ A run grants the project's own modules `args`, `exit`, and `fs`, whose root read
   a bare one never Deno's grant of every name.
   `fgro` reads the granted variables once, as the run starts, and the runtime reads none;
   a value that isn't UTF-8 is read with U+FFFD in place of each invalid sequence, as Node reads one.
+- `--allow-read=a,/b` grants `@fuzdev/gro/fs.ts` reading these directories, and `--allow-write=a,/b` writing them,
+  beside the project's root, which `fs` reads with neither and writes only when a directory holding it is written.
+  Each is repeatable, its directories one set, a path relative to the working directory or absolute,
+  and each must be a directory when the run starts, under `-A` too:
+  a path missing, a file, or one `fgro` can't look at is a usage error naming it as resolved, before anything runs.
+  A bare flag, an empty list, an empty path (`--allow-read=a,`), and a NUL byte are usage errors too, and a path holding a comma can't be listed.
+  Write doesn't imply read: a directory only written is read by no read op, though `fs.open_dir`, `dir()`, and a write can still tell whether something is there,
+  and a handle's `path`, its real path, where a directory symlink in it leads.
+  A directory written inside one read is read too, and a handle reads and writes as the directory it was opened on, never more,
+  so a program writes a granted directory through a handle `fs.open_dir` makes on it, never through `fs.project` or a handle made from it
+  ([host modules](host_modules.md#fs-on-fgro) has how a handle carries its scope).
 - `-A` runs unconfined, the one flag that grants beyond what it names: every builtin module to every module of the run, a package's included,
   and every grant at its widest, so `env`'s root handle reads every variable `fgro` started with
   (each whose name is UTF-8 and holds no `=`, each value read as `--allow-env=` reads one).
-  Names given beside it are still checked, and add nothing.
+  Names and directories given beside it are still checked, and add nothing.
   It lifts no rule but a grant: a host module not built yet, a reserved specifier, a package's import of the project,
   and an `import()` in code compiled from a string stay refused, and it adds no global.
-  `fs` reads the project's tree under it too, and nothing beyond, until the flags that add roots land.
+  `fs` reads and writes every directory under it, one root at `/` that resolves an absolute path as the kernel does.
 The script reads its arguments as `args`, from `import {args} from '@fuzdev/gro/args.ts'`,
 one of the [builtin modules](glossary.md#builtin-module) built so far ([host modules](host_modules.md#the-modules) lists them),
 and ends the run or sets its exit code with `exit` and `set_exit_code`, from `@fuzdev/gro/exit.ts` ([below](#errors-and-exit-codes)).
 User code can't read stdin (there is no `process` global, `Deno`, or `Bun`) and reads the environment only through `@fuzdev/gro/env.ts`, the variables `--allow-env=` or `-A` grants;
-it reads the filesystem only through `@fuzdev/gro/fs.ts`, beneath the project's root, and writes nothing; no module gives it the network or a process.
+it reads the filesystem only through `@fuzdev/gro/fs.ts`, beneath the project's root and the directories `--allow-read=` names,
+and writes nothing yet, since `fs`'s write ops aren't built; no module gives it the network or a process.
 That is the whole of today's confinement: the process itself has no kernel box and no resource limits, the JIT is on,
 and console output reaches the terminal unescaped, so `fgro run` is not yet for code you treat as hostile
 ([authority](authority.md#threat-model) and [backstop](backstop.md) have what's designed).
@@ -104,10 +117,11 @@ The binary embeds the commit, so a dirty tree (a changed file, or an untracked o
 - `@fuzdev/gro/blake3.ts`, a builtin module that needs no grant: BLAKE3 over bytes by the native `blake3` crate,
   one-shot and by hashers whose state is the runtime's ([host modules](host_modules.md#blake3)).
 - `@fuzdev/gro/fs.ts`, a builtin module that needs the `fs` grant: `fs.project`, `fs.open_dir`, `fs.real_path`, and a handle's
-  `dir`, `readonly`, `stat`, `exists`, reads, `read_link`, and `list`, beneath the project's root,
-  a read refusing anything but a regular file at once; `fs.open_dir` or `fs.real_path` outside it rejects
-  with `FsError` `not_granted`, which fails the run caught or not, and every write is refused so too, while a handle's
-  reach outside its directory is `outside_root`, which doesn't ([host modules](host_modules.md#fs-on-fgro)).
+  `dir`, `readonly`, `stat`, `exists`, reads, `read_link`, and `list`, beneath the project's root and the directories the flags grant,
+  a read refusing anything but a regular file at once; `fs.open_dir` or `fs.real_path` outside them rejects
+  with `FsError` `not_granted`, which fails the run caught or not, and so does a read through a handle that doesn't read
+  or a write through one that doesn't write, while a handle's reach outside its directory is `outside_root`, which doesn't,
+  and a write through a handle that writes throws a plain `Error`, since the write ops aren't built yet ([host modules](host_modules.md#fs-on-fgro)).
 - `@fuzdev/gro/fs_error.ts`, a builtin module that needs no grant: `FsError`, `is_fs_error`, and `is_own_fs_error`.
 - A builtin module's `.js` spelling (`@fuzdev/gro/args.js`), the host modules not on `fgro` yet (`@fuzdev/gro/spawn.ts`, `stdin`, `stdout`, `net_error`, and the rest, either spelling),
   and `@fuzdev/gro/process.ts` and `process_error.ts`, which Gro has none of (either spelling),
@@ -197,14 +211,15 @@ the run fails, exiting 1 where it would have exited 0, whether or not the progra
 and so does a refused import in a module the `import()` loads.
 So does a call a builtin module refused for a grant its handle doesn't hold, caught or not:
 an environment variable outside the names an `env` handle may read, the root's being the ones `--allow-env=` granted,
-which throws `EnvError` `not_granted` and fails the run (an unset granted name, a `narrow` to a subset of the names, and an argument that is no name, a `TypeError`, don't).
+which throws `EnvError` `not_granted` and fails the run (an unset granted name, a `narrow` to a subset of the names, and an argument that is no name, a `TypeError`, don't);
+or a path `fs` refuses `not_granted`: one outside every root the call may use, or an op its handle's scope lacks.
 After the run's own error, if it has one, stderr lists the first 8 distinct refusals of either kind in the order they happened,
-`error: import() refused: <its message>` for an import and `error: env refused: not_granted: <name>` for a call, never a value,
+`error: import() refused: <its message>` for an import and `error: env refused: not_granted: <name>` or `error: fs refused: not_granted: <path>` for a call, never a value,
 control and bidirectional formatting characters escaped (`\u{1b}`)
 and a message past 2 KiB cut there and marked with its length,
 then counts the rest, a retry of an unlisted one included: `error: N more refusals, not listed`,
 then closes with `error: a refusal fails the run, whether or not the program caught it`.
-One that is the run's uncaught error (a `TypeError` or an `EnvError` with its message) prints as that and isn't listed, though past the listed ones it's still counted.
+One that is the run's uncaught error (a `TypeError`, an `EnvError`, or an `FsError` with its message) prints as that and isn't listed, though past the listed ones it's still counted.
 Last comes one hint, `hint: add --allow-env=A,B to grant what env refused`, naming each variable the run's own grant lacked,
 distinct, in the order each was first refused, the first 8, its uncaught one's and the counted ones' included:
 a name the root `env` refused, which holds what `--allow-env=` gave the project, so the flag lets the call through, whichever module made it.
@@ -212,7 +227,20 @@ It names only ASCII letters, digits, and `_`, which every shell passes as printe
 and reads `some of what env refused` when it can't name them all: past 8 names, a name longer than 2 KiB, or a name of any other character
 (a comma, which separates the flag's names, a glob, a space, a quote, a shell's `$`, a control character, a lookalike letter).
 With no name it can show, there's no hint line, so a run whose first 8 refused names all fall outside these characters prints none.
-There's no hint for a name a narrowed handle refused, which no flag widens, for any refusal under `-A`, whose root reads every variable,
+After it come the hints for `fs`, one for each flag a refusal needed, `--allow-read` first:
+`hint: add --allow-read=/a,/b to grant what fs refused` (or `--allow-write=`), naming each directory the run's grants lacked,
+by the same rules, a path shown only when it's absolute and made of ASCII letters, digits, `_`, `.`, `/`, and `-`, which neither bash nor fish reads as anything else,
+and only when it's the real path of a directory as the run ends, no symlink, `.`, or `..` on it, so the flag grants the directory it shows
+and the walk that refused finds it by that text (a symlink's path, `/proc/self/root` among them, would grant another directory, and a file or nothing grants nothing),
+and `some of what fs refused` when it can't show them all;
+with none it can show, the line names the flag alone, `hint: add --allow-read naming the directory to grant what fs refused`.
+The directory a reach outside every root needs is the one its refused step opens in: the names before a `..`, which the walk looks up first, or the whole path,
+and for `fs.real_path`'s last step its parent; a step that leaves its root through a symlink needs a grant of a path through the symlink, which no hint shows, so its line names the flag alone.
+The one an op a handle's scope lacked needs is the handle's root, by its real path: the project's root itself for a write through `fs.project`, since a handle never gains what its root lacked.
+But when a root already grants what was refused, holding the op's target by its text, no flag is hinted, which would widen past it (the whole project, for a write through `fs.project`),
+and the line names the directory to open instead, after the flags' lines: `hint: the run grants what fs refused in /p/dist: open it with fs.open_dir and use that handle`,
+by the same rules (`in a directory not named here` when it can't show it). So `fs.project.write('dist/x')` with `--allow-write=dist` prints that line, not `--allow-write=` of the project.
+There's no hint for a name a narrowed handle refused, which no flag widens, for any refusal under `-A`, whose roots reach everything,
 or for a refused `import()`, which records no grant: a package is granted no host module by any flag, most rules are grantable by nothing,
 and the project's `import()` of `env` without `--allow-env=` names no variable the flag could list.
 The hint is made from what the run recorded of each refusal, the grant that would have allowed it, never from the listed text.
@@ -239,7 +267,7 @@ Whether a stream is colored is decided once per process, in order:
 | 0              | the module ran to completion with no code set, or called `exit()` with none set, or `--help` or `--version`                                                  |
 | the program's  | the code given to `exit(code)`, or the one `set_exit_code` set when the module then ran to completion or called `exit()` with none: an integer from 0 to 255 |
 | 1              | the module threw, rejected a promise no one handled, left a top-level `await` unsettled, an import failed to resolve, load, or strip, or the runtime failed to start, whatever code `set_exit_code` set; or an `import()` was refused by one of gro's rules, or a call for a grant its handle lacks, caught or not, in a run that would have exited 0 |
-| 2              | a usage error (no arguments, an unknown subcommand or flag, a flag before `run`'s file other than `--help`, `--allow-env=`, or `-A`, a bare `--allow-env` or a name it can't grant, no file, an extra argument to `eval`, a non-UTF-8 argument, the script's included, `--version` with a subcommand), or an entry that doesn't resolve (missing, the wrong extension, a `.js` file not under `"type": "module"`) |
+| 2              | a usage error (no arguments, an unknown subcommand or flag, a flag before `run`'s file other than `--help`, `--allow-env=`, `--allow-read=`, `--allow-write=`, or `-A`, a bare one of these or a name it can't grant, a directory missing or no directory, no file, an extra argument to `eval`, a non-UTF-8 argument, the script's included, `--version` with a subcommand), or an entry that doesn't resolve (missing, the wrong extension, a `.js` file not under `"type": "module"`) |
 
 An entry that fails to resolve on an I/O error or a symlink loop exits 1, not 2.
 A program's code passes as it is, so `1` and `2` are shared between the program and `fgro`'s own failures.

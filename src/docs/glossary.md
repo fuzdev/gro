@@ -104,7 +104,7 @@ the value, or an error with its kind, which a caller branches on.
 ## escape hatch
 
 `-A` (Deno's `--allow-all`, which `fgro run` spells only `-A`), which makes a run [unconfined](#unconfined):
-built on `fgro run`, where it grants every builtin module to every module of the run, `env` with every variable.
+built on `fgro run`, where it grants every builtin module to every module of the run, `env` with every variable, `fs` with every directory.
 It's the one flag that widens everything, never a default; a few grants are as strong (a shell, a child's whole environment) and are shown that way.
 Narrower ways to widen sit beside each default, like a blanket net grant and the JIT flag for `gro eval`.
 
@@ -260,7 +260,7 @@ A module's root is the innermost admitted one above its real path,
 and a relative or absolute import resolves only inside its importer's root,
 never into `node_modules` below it or into another root nested in it.
 
-The `fs` host module's roots on `fgro` are another table: the directories a run reads,
+The `fs` host module's roots on `fgro` are another table: the directories a run reads or writes,
 each opened once and held by a descriptor, which every [handle](#handle) resolves beneath;
 the project root is the first ([host modules](host_modules.md#fs-on-fgro)).
 

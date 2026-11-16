@@ -6,10 +6,11 @@
 > **status**: the model as designed, part of it built. Built today: `fgro eval`'s box ([eval](eval.md#the-box)),
 > the omissions (no runtime namespace, no Node compat, no remote imports, no authority globals),
 > and for `fgro run` the link-time grant check by origin over the builtin modules built so far:
-> the project's modules get `args`, `exit`, `env` with the variables `--allow-env=` names, and `fs`, reading the project's tree;
+> the project's modules get `args`, `exit`, `env` with the variables `--allow-env=` names, and `fs`, reading the project's tree
+> and the directories `--allow-read=` and `--allow-write=` name, each scope carried by the handles made under it;
 > the grant-free modules link for every module; `-A` grants every module every one;
 > and a refused `import()`, `env` name, or `fs` path fails the run, caught or not ([run](run.md#errors-and-exit-codes)).
-> Not built for `fgro run`: `fs`'s writes and `temp_dir` ([host modules](host_modules.md#fs-on-fgro)), `spawn`, `net`, `watch`, the standard streams, the policy file, the seal, and the kernel backstop;
+> Not built for `fgro run`: `fs`'s write ops, which a granted handle has but which throw for now, and `temp_dir` ([host modules](host_modules.md#fs-on-fgro)), `spawn`, `net`, `watch`, the standard streams, the policy file, the seal, and the kernel backstop;
 > the [roadmap](runtime.md#roadmap) says when, and [backstop](backstop.md) has the kernel layer under all of it.
 
 These terms carry this doc, and the [glossary](glossary.md) defines them and the others:
@@ -149,7 +150,7 @@ and freezing the intrinsics is a hardening the design hasn't made the default ([
 
 Security-first runtimes earned a reputation for friction,
 with flags on every run, prompts mid-execution, and `-A` as the habit that follows.
-Gro is designed to have none of those (today `fgro run` has no prompts and widens only by its one-run flags, `--allow-env=` and `-A`; the policy file isn't built).
+Gro is designed to have none of those (today `fgro run` has no prompts and widens only by its one-run flags, `--allow-env=`, `--allow-read=`, `--allow-write=`, and `-A`; the policy file isn't built).
 A normal run in a project has no flags, and code that only reads its project's files and writes its declared write roots has nothing to declare,
 and the one moment worth a human's attention, when the graph newly reaches the network,
 a process, or files outside the project, arrives as a diff with a copyable fix, never a prompt;

@@ -472,10 +472,13 @@ Invariants that live in the code:
     what makes one takes the scope mutably, as a native member's callback
     is given it, since the weak reference is made of the isolate. An `fs`
     handle's state is plain data (`host/fs.rs`): its root's place in the
-    run's root table, its real path beneath the root, whether it writes.
+    run's root table, its real path beneath the root, and its scope,
+    whether it reads and whether it writes, its root's when `open_dir` or
+    `project` makes it, which `dir()` and `readonly()` only narrow, so no
+    op checks the run's roots.
     Only a root holds a descriptor, opened once (`O_PATH`, no symlink on
     its path) when the run first makes the fs namespace (`FsState`, which
-    every run's start puts, empty); an op opens the handle's directory
+    every run's start puts, empty), the table only appended to; an op opens the handle's directory
     beneath it, refusing a symlink, then its path beneath that by
     `openat2`, its `..` resolved by the text first, so no handle owns a
     descriptor or needs a finalizer. A read opens its file without
@@ -485,8 +488,16 @@ Invariants that live in the code:
     keyed by the well-known symbol the host gets from V8) holds its
     state as a record under its brand, which its first `next()` fills
     with the whole directory, the descriptor closed before it settles, so
-    no listing holds a descriptor either. The project's root, the entry's, is
-    the one root so far; every fs member first checks that the kernel
+    no listing holds a descriptor either. The roots are the project's, the
+    entry's, read, then the directories the run's `FsGrant` reads and
+    writes, one root per real path, each also matched by the paths it was
+    granted as, or under `-A` one more at `/`; a root at `/`, `-A`'s or a
+    flag's, alone resolves an absolute symlink as the kernel does
+    (`gro_sys`'s `Links::InRoot`); a
+    root's scope joins every root's that holds it. An entry's path beneath
+    its root is the kernel's, checked against the root's by its text, then
+    looked up beneath the root (`gro_sys::beneath::path_beneath`), so no
+    lookup leaves a root. Every fs member first checks that the kernel
     serves `openat2` (but `list` and its listing's methods, whose one I/O,
     the first `next()`, checks it), and an op's I/O takes owned arguments,
     so it can move off the thread, but for a read's filling of its buffer,
@@ -664,7 +675,10 @@ Invariants that live in the code:
   its own name and version, and the variables `--allow-env=` grants (every
   variable under `-A`), which `gro_cli/src/run.rs` reads once as the run
   starts (`env_vars`, through its `Environment` seam) and hands in as
-  `RuntimeOptions::env`. The host asks the OS for the process's id, `pid`,
+  `RuntimeOptions::env`, and the directories `--allow-read=` and
+  `--allow-write=` grant, each resolved against the working directory and
+  checked to be a directory as the run starts (`fs_grant`), handed in as
+  the `fs` grant's paths. The host asks the OS for the process's id, `pid`,
   when a run first imports the module. The `phases` and `prices` features (on
   `gro_cli`, enabling `gro_runtime`'s) are off in the binary that ships;
   without them nothing reads the variables.
@@ -699,8 +713,11 @@ Invariants that live in the code:
   lacks, recorded by the member as it throws (`env`'s and `fs`'s
   `not_granted`), one
   record listed, cut, and counted alike, so either fails the run caught or
-  not; a refusal by `env`'s root also records the grant that would have
-  allowed it (`NeededGrant`), from which `fgro` prints its hint. No
+  not; a refusal by `env`'s root, and an `fs` reach no root holds or an op
+  a handle's scope lacks, also records the grant that would have allowed
+  it (`NeededGrant`: a variable, a directory to read or write, or, for an
+  op a handle's scope lacks that a root already grants, the directory to
+  open a handle on), from which `fgro` prints its hints. No
   in-process test grants a step that returns: a program that exits is run
   in a child process.
 - A change to the seccomp allowlist reruns the census

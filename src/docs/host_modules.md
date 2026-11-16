@@ -149,24 +149,46 @@ The module's TSDoc has each op's contract.
 ### fs on fgro
 
 On `fgro`, `@fuzdev/gro/fs.ts` is a builtin module with the Node module's members, each of the same `length`, its records and functions frozen.
-It needs the `fs` grant, which `fgro run` gives the project's own modules, `-A` every module.
+It needs the `fs` grant, which `fgro run` gives the project's own modules, `-A` every module,
+and its roots are the directories the run's flags grant ([run](run.md#usage)).
 Built so far: `fs.project`, `fs.open_dir`, `fs.real_path`, and on a handle `path`, `dir`, `readonly`, `stat`, `exists`, `stat_sync`, `exists_sync`,
 the reads (`read`, `read_text`, `read_if_exists`, `read_text_if_exists`, `read_text_sync`), `read_link`, and `list`.
 
-- The run's roots are the directories it reads, each opened once, as a path only, the first time the run imports `fs`.
-  There's one so far, the entry's [project root](glossary.md#project-root), readable with no flag, so `fs.project` is that directory, never the working directory.
-  Nothing is writable: every write op is refused `not_granted`, after its paths are checked.
-- `fs.open_dir` and `fs.real_path` take an absolute path inside a root, its `..` resolved as Node's `realpath` resolves it:
+- The run's roots are the directories it reads or writes, each opened once, as a path only, the first time the run imports `fs`:
+  the entry's [project root](glossary.md#project-root), read with no flag, so `fs.project` is that directory, never the working directory;
+  each directory `--allow-read=` and `--allow-write=` grant; and under `-A`, `/`, read and written.
+  A flag's directory is checked as the run starts and opened at that first import,
+  so one replaced between is the directory at its path then, and one gone by then fails every op through it with `io_error`, its cause saying so.
+  A program can't rename a root, so only another process can make the swap, as it could swap the project's directory before the first import;
+  `fs` has no defense against that yet.
+- Each root reads and writes what its flags grant, joined with what every root holding it does:
+  a directory written inside the project is read too, a directory only written is read by no read op (though `fs.open_dir`, `dir()`, and a handle's `path` still tell what's there,
+  and, a handle's `path` being its real path, where a directory symlink in it leads),
+  and the paths that name one real directory are one root, its grants joined.
+- A handle carries a scope, whether it reads and whether it writes, and no op checks the run's roots.
+  `fs.open_dir` and `fs.project` give a handle its root's scope, `dir()` keeps its receiver's (an `FsReadDir`'s writing nothing),
+  and `readonly()` drops the write; nothing widens a scope, so `fs.project.dir('out')` writes nothing even when `out` is granted:
+  a program writes a granted directory through a handle `fs.open_dir` makes on it, and `fs.open_dir` of `out` is the handle that writes it.
+  The hint after such a refusal names that directory to open, never a flag that would widen the handle's root ([run](run.md#errors-and-exit-codes)).
+  A read op (`stat`, `exists`, the reads, `read_link`, `list`) through a handle that doesn't read is `not_granted`, after its path is checked and before anything is looked up,
+  and so is a write op through one that doesn't write. A write op through one that writes throws a plain `Error` saying it isn't built on `fgro` yet.
+  `dir()` and `readonly()` work on any handle, so a handle that only writes still narrows to a subdirectory.
+- `fs.open_dir` and `fs.real_path` take an absolute path inside a root, `fs.real_path` only a root that reads, its `..` resolved as Node's `realpath` resolves it:
   after the symlink before it, so `link/..` is the parent of `link`'s target, and `missing/..` and `a.txt/..` fail as they do on Node.
-  The names before a `..` are looked up beneath the root that holds them, and the `..` takes a name off their real path,
+  The names before a `..` are looked up beneath the longest root that holds them, and the `..` takes a name off their real path,
   so no lookup starts outside a root, and a path that climbs above the root and back in reaches what Node's does.
+  A step that leaves the longest root through a symlink is looked up beneath the next longest that holds it,
+  so a directory granted inside another refuses nothing the other reached.
   One outside every root is `not_granted`, also when nothing is there, and so is one through an absolute symlink,
   even to a path inside its root, or a relative one whose target climbs above its root, even back into it, both of which Node follows.
   The symlinks before each `..` are counted apart, so a path with more than Linux's 40 across its `..`s resolves where Node's is a loop (`io_error`).
-  A root is matched by its real path's text, so a path that reaches it through a symlink outside it, like a symlinked
-  home directory, is `not_granted` where Node opens it.
+  A root is matched by its real path's text and by each path it was granted as (but one holding a `..`),
+  so `--allow-read=$HOME/.claude` holds the paths beneath it under a symlinked home directory, every lookup still beneath the root's descriptor;
+  the project's root is matched by its real path only, unless a flag names it too, which adds the flag's path, so a path that reaches it through a symlink outside it is `not_granted` where Node opens it.
+  A root at `/`, `-A`'s or a flag's naming `/`, resolves an absolute symlink and a `..` at `/` as the kernel does, so `fs.real_path` and `fs.open_dir` reach what Node's do.
   A `not_granted` is listed and fails the run, caught or not, as `env`'s does.
 - `fs.real_path` returns a path inside its root; an entry that left the root while it was opened is `io_error`.
+  The kernel's path for it is checked to be beneath the root by its text before anything is looked up, then looked up beneath the root's descriptor.
 - A handle holds no descriptor, only its root, its real path beneath it, and what it may do.
   Each op opens the handle's directory beneath the root, refusing a symlink swapped into the handle's own path (`outside_root`),
   then resolves its path beneath that by `openat2` with `RESOLVE_BENEATH` and `RESOLVE_NO_MAGICLINKS`.
@@ -207,7 +229,7 @@ the reads (`read`, `read_text`, `read_if_exists`, `read_text_if_exists`, `read_t
 - `temp_dir` isn't built yet: it refuses with a plain `Error` saying so.
 - A kernel below Linux 5.6, which lacks `openat2`, fails every op alike with a plain `Error`.
 - `fs` lands before the read-deny and write-deny overlays and before `fgro run` has a kernel box,
-  so a program can read the project's `.env` files.
+  so a program can read the project's `.env` files, and any file inside a granted directory.
 
 `fs_search` (`@fuzdev/gro/fs_search.ts`) is library code over a handle,
 finding the files beneath a directory through `list`, recursively.
