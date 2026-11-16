@@ -91,7 +91,7 @@ Most of Gro's permission model follows from the first of these:
   A Gro run in a project carries nothing: the grants come from the import graph,
   and the policy file changes only when the graph newly imports authority,
   which is lockfile cadence, not run cadence.
-  Outside a project, or for one run, Gro takes Deno's `--allow-*` flags, for that run only (`--allow-env=` and `-A` built so far).
+  Outside a project, or for one run, Gro takes Deno's `--allow-*` flags, for that run only (`--allow-env=`, `--allow-read=`, `--allow-write=`, and `-A` built so far).
 - **Inference.** Every entry point is an import, the network included,
   so the policy file can be generated from the code and reviewed, and the loader enforces what the walk proposes;
   no equivalent exists over `Deno.*` calls, which any expression can reach,
@@ -111,7 +111,7 @@ The import boundary holds against code that overreaches, not a dependency built 
 which can patch a shared prototype in the same realm
 (the runtime's [threat model](authority.md#threat-model) says where the bound is then).
 And of all this, the omissions are built (`fgro` has no namespace, no Node compat, and no remote imports),
-the link-time grant check by origin is built for the builtin modules, with `--allow-env=` and `-A`,
+the link-time grant check by origin is built for the builtin modules, with `--allow-env=`, `--allow-read=`, `--allow-write=`, and `-A`,
 and inference, attribution by import chain, the other grant flags, and the policy file are designed.
 
 ### What Deno could adopt, and Gro turns on
@@ -253,7 +253,7 @@ Gro's cells for a feature start with one of these words:
 |                                 | Node                                               | Deno                                                                | Bun     | Gro                                                                                         |
 | ------------------------------- | -------------------------------------------------- | ------------------------------------------------------------------- | ------- | ------------------------------------------------------------------------------------------- |
 | default                         | everything                                         | nothing; flags grant                                                | everything | designed: confined, the import graph's reach plus the policy file                        |
-| opt-in model                    | `--permission`, stable since 22.13 and 23.5        | `--allow-*` and `--deny-*`, with allowlists                         | none    | designed: none needed in a project, confined is the default; `--allow-*` for one run, `-A` the escape hatch; built: `--allow-env=` and `-A` |
+| opt-in model                    | `--permission`, stable since 22.13 and 23.5        | `--allow-*` and `--deny-*`, with allowlists                         | none    | designed: none needed in a project, confined is the default; `--allow-*` for one run, `-A` the escape hatch; built: `--allow-env=`, `--allow-read=`, `--allow-write=`, and `-A` |
 | unit of a grant                 | the process, or a worker given its own flags in `execArgv` | the process (every module on a thread holds it)                     | —       | designed: the module graph, attributed to the importing chain, the network included |
 | a dependency's reach is attributable | no                                       | dynamically, by stack trace (`DENO_TRACE_PERMISSIONS`); not statically                                                                  | —       | designed: by the import chain, for every grant                                              |
 | how a grant is declared         | flags, or a `node.config.json` read under a flag | flags, or baked into a task                                         | —       | designed: host modules inferred from imports, the network among them; hosts and roots declared; the policy file authorizes; flags for one run |

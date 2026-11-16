@@ -94,12 +94,11 @@
 //! Every member's first step past its grant's check is the check that the
 //! kernel serves `openat2` ([`FsState::ready`]), but `list`'s and its
 //! listing's methods', whose one I/O, the first `next()`, checks it, so a
-//! kernel below
-//! Linux 5.6 fails every op alike, as a plain `Error`, never only the ones that
-//! resolve a path of more than one name. A root that couldn't be opened
-//! (its path isn't UTF-8, or it's gone) is held as why, and every op
-//! through it fails with `io_error` naming that in its `cause`: a value
-//! the namespace holds is made without throwing.
+//! kernel below Linux 5.6 fails every op alike, as a plain `Error`, never
+//! only the ones that resolve a path of more than one name. A root that
+//! couldn't be opened (its path isn't UTF-8, or it's gone) is held as why,
+//! and every op through it fails with `io_error` naming that in its
+//! `cause`: a value the namespace holds is made without throwing.
 //!
 //! An argument is read as the value it is, as `env`'s are: a path is a
 //! string, never converted, and an options record's `follow` is its data,

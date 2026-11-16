@@ -67,7 +67,7 @@ await fs.project.write('.gro/out.json', JSON.stringify({text}));
 ```
 
 - `fs.project` is the project directory, an `FsDir`
-  (on `fgro`, designed as the entry's [project root](glossary.md#project-root); here the working directory, [a gap](#the-node-implementations-gaps)).
+  (on `fgro`, the entry's [project root](glossary.md#project-root); here the working directory, [a gap](#the-node-implementations-gaps)).
   `fs.open_dir(absolute_path)` opens another,
   and `fs.temp_dir()` makes a fresh one removed on `await using`.
 - `fs.real_path(absolute_path)` returns a path's real path, every symlink followed wherever it leads.
