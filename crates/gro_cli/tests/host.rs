@@ -1659,6 +1659,109 @@ fn fs_reads_refuse_a_fifo_at_once() {
     );
 }
 
+/// The script [`fs_reads_dropped_stay_within_a_data_cap`] runs: reads of a
+/// 16 MiB file, each dropped, twice the bytes of the cap it runs under, the
+/// total printed.
+const FS_DROPPED_READS: &str = "import { fs } from '@fuzdev/gro/fs.ts';
+let total = 0;
+for (let i = 0; i < 128; i++) total += (await fs.project.read('large')).length;
+console.log(total);
+";
+
+/// A read's bytes are V8's own allocation, so its collector paces itself by
+/// them and frees the ones a program dropped: reads totaling 2 GiB, each
+/// dropped, run under a 1 GiB data cap (`RLIMIT_DATA`, util-linux's
+/// `prlimit`), more than half of which a run with the JIT reserves before
+/// any read. Bytes Rust allocated and handed over would pile up, V8 not
+/// knowing to collect them, and the read past the cap would end the
+/// process.
+#[test]
+fn fs_reads_dropped_stay_within_a_data_cap() {
+    let project = Scratch::new(
+        "fs_dropped_reads",
+        &[
+            (
+                "package.json",
+                "{\"name\": \"fs_dropped_reads\", \"type\": \"module\"}\n",
+            ),
+            ("main.js", FS_DROPPED_READS),
+        ],
+    );
+    std::fs::write(project.0.join("large"), vec![7u8; 16 << 20]).unwrap();
+    let cap = 1u64 << 30;
+    let mut prlimit = std::process::Command::new("prlimit");
+    prlimit.arg(format!("--data={cap}:{cap}"));
+    let mut command = support::wrapped_fgro_command(prlimit, &["run", "main.js"]);
+    command.env_clear().current_dir(&project.0);
+    let output = spawn(command, b"");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(0), "{stderr}");
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        format!("{}\n", 128u64 << 24)
+    );
+}
+
+/// A file read of the size it reports is in memory once, read straight into
+/// the buffer V8 allocated of that size, never copied: a read of a 256 MiB
+/// file peaks at less than 128 MiB more than the file (a start takes about
+/// 40 MiB), where a copy would hold it twice. The file is sparse, so it
+/// costs no disk, and its zeros are copied into the buffer all the same.
+/// The peak is the kernel's `ru_maxrss` from the reaping, which takes this
+/// test process's own if it's larger, as it isn't.
+#[cfg(target_os = "linux")]
+#[test]
+fn fs_a_read_of_its_size_is_in_memory_once() {
+    let project = Scratch::new(
+        "fs_read_once",
+        &[
+            (
+                "package.json",
+                "{\"name\": \"fs_read_once\", \"type\": \"module\"}\n",
+            ),
+            (
+                "main.js",
+                "import { fs } from '@fuzdev/gro/fs.ts';\n\
+                 const bytes = await fs.project.read('large');\n\
+                 console.log(bytes.length, bytes.buffer.byteLength);\n",
+            ),
+        ],
+    );
+    let size: u64 = 256 << 20;
+    std::fs::File::create(project.0.join("large"))
+        .unwrap()
+        .set_len(size)
+        .unwrap();
+    let mut command = fgro_command(&["run", "main.js"]);
+    command
+        .env_clear()
+        .current_dir(&project.0)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    let mut child = command.spawn().unwrap();
+    let stdout = support::drain(child.stdout.take().unwrap());
+    let stderr = support::drain(child.stderr.take().unwrap());
+    let reaped = gro_sys::wait_child(child).unwrap();
+    let (stdout, stderr) = (stdout.join().unwrap(), stderr.join().unwrap());
+    assert_eq!(
+        reaped.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&stderr)
+    );
+    assert_eq!(
+        String::from_utf8(stdout).unwrap(),
+        format!("{size} {size}\n")
+    );
+    let bound = (size + (128 << 20)) >> 10;
+    assert!(
+        reaped.max_rss_kib < bound,
+        "peaked at {} KiB, past {bound} KiB",
+        reaped.max_rss_kib
+    );
+}
+
 /// The script [`fs_list_fails_on_a_name_that_is_not_utf8`] runs: a listing
 /// of a directory holding names that aren't UTF-8, and a read of a symlink
 /// whose target isn't, as a JSON line.

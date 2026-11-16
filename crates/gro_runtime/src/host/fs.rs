@@ -50,7 +50,10 @@
 //! the Node module's read would wait on a FIFO or read a device without
 //! end. A regular file is read to its end, never trusting the size it
 //! reports to end it, and one past `2 ** 31 - 1` bytes, or that reports
-//! more, is `io_error`, a size past it refused before a byte is read.
+//! more, is `io_error`, a size past it refused before a byte is read. Its
+//! bytes are read straight into a buffer V8 allocated of the size it
+//! reported ([`read_bytes`]), so V8's collector counts them as it counts a
+//! buffer JS allocates; only a file whose size was wrong is copied.
 //!
 //! `list` returns a listing at once, reading nothing, not even its
 //! receiver or its path, as the Node module's async generator does: its
@@ -93,6 +96,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use deno_core::{OpState, v8};
+use gro_v8::PendingArrayBuffer;
 
 use super::error_class::{DeclaredFamily, ErrorClasses};
 use super::handle::{self, FS_DIR, FS_LISTING, FS_READ_DIR, HandleKind};
@@ -593,7 +597,7 @@ pub enum Contents {
 /// module would wait on a FIFO or read a device without end.
 pub fn read<'s>(
     state: &OpState,
-    scope: &v8::PinScope<'s, '_>,
+    scope: &mut v8::PinScope<'s, '_>,
     receiver: v8::Local<'s, v8::Value>,
     path: v8::Local<'s, v8::Value>,
     contents: Contents,
@@ -607,45 +611,83 @@ pub fn read<'s>(
         let requested = path_text(scope, path)?;
         let op = beneath(fs.roots(data), handle, requested)?;
         let (fd, dir, rel) = op.call();
-        let bytes = match sys::read(fd, dir, rel) {
-            Ok(bytes) => bytes,
+        let reading = match sys::open_read(fd, dir, rel) {
+            Ok(reading) => reading,
             Err(error) if if_exists && is_missing(&error) => return Ok(v8::null(scope).into()),
             Err(error) => return Err(op.failure(error)),
         };
+        let read_failure = |error| op.failure(sys::OpError::Target(error));
         match contents {
-            Contents::Bytes => to_bytes(scope, bytes),
-            Contents::Text => v8::String::new_from_utf8(scope, &bytes, v8::NewStringType::Normal)
-                .map(Into::into)
-                .ok_or_else(|| Failure::Fs {
-                    kind: "io_error",
-                    path: op.target.clone(),
-                    cause: Some(format!(
-                        "{} holds {} bytes, more text than a string holds",
-                        op.target,
-                        bytes.len()
-                    )),
-                }),
+            Contents::Bytes => {
+                let bytes = read_bytes(scope, reading).map_err(read_failure)?;
+                to_bytes(scope, bytes)
+            }
+            Contents::Text => {
+                let bytes = reading.to_end().map_err(read_failure)?;
+                v8::String::new_from_utf8(scope, &bytes, v8::NewStringType::Normal)
+                    .map(Into::into)
+                    .ok_or_else(|| Failure::Fs {
+                        kind: "io_error",
+                        path: op.target.clone(),
+                        cause: Some(format!(
+                            "{} holds {} bytes, more text than a string holds",
+                            op.target,
+                            bytes.len()
+                        )),
+                    })
+            }
         }
     })();
     finish(state, scope, Some(errors), result)
 }
 
-/// `bytes` as a `Uint8Array` of a buffer of its own, which takes the bytes
-/// over without a copy.
+/// The file `reading` opened, read to its end into a buffer V8 allocated
+/// ([`PendingArrayBuffer`]), so its collector paces itself by every read's
+/// bytes as by a buffer JS allocates, and frees what JS drops before more
+/// piles up.
+///
+/// The buffer is allocated of the size the file reported and read
+/// straight into, so a file whose size is right is in memory once. One
+/// that shrank since it reported its size is copied into a buffer of what
+/// it held; one that grew, or reported none, as a `/proc` file reports 0,
+/// has its rest read into a `Vec` and both parts copied into a buffer of
+/// their length.
+fn read_bytes(
+    isolate: &mut v8::Isolate,
+    mut reading: sys::Reading,
+) -> std::io::Result<PendingArrayBuffer> {
+    let mut sized = PendingArrayBuffer::new(isolate, reading.size());
+    let filled = reading.fill(sized.bytes_mut())?;
+    if filled < sized.len() {
+        // the file ended short of its size, so its end is read
+        return Ok(copied(isolate, &sized.bytes()[..filled], &[]));
+    }
+    let rest = reading.rest()?;
+    if rest.is_empty() {
+        return Ok(sized);
+    }
+    Ok(copied(isolate, sized.bytes(), &rest))
+}
+
+/// `bytes` as a `Uint8Array` of the buffer of its own they become.
 fn to_bytes<'s>(
     scope: &v8::PinScope<'s, '_>,
-    bytes: Vec<u8>,
+    bytes: PendingArrayBuffer,
 ) -> Result<v8::Local<'s, v8::Value>, Failure> {
     let length = bytes.len();
-    let buffer = if length == 0 {
-        v8::ArrayBuffer::new(scope, 0)
-    } else {
-        let store = v8::ArrayBuffer::new_backing_store_from_vec(bytes).make_shared();
-        v8::ArrayBuffer::with_backing_store(scope, &store)
-    };
+    let buffer = bytes.into_array_buffer(scope);
     v8::Uint8Array::new(scope, buffer, 0, length)
         .map(Into::into)
         .ok_or_else(|| Failure::Plain(format!("V8 made no Uint8Array of {length} bytes")))
+}
+
+/// `head` then `tail` in a buffer of their length, which V8 allocated.
+fn copied(isolate: &mut v8::Isolate, head: &[u8], tail: &[u8]) -> PendingArrayBuffer {
+    let mut whole = PendingArrayBuffer::new(isolate, head.len() + tail.len());
+    let (start, end) = whole.bytes_mut().split_at_mut(head.len());
+    start.copy_from_slice(head);
+    end.copy_from_slice(tail);
+    whole
 }
 
 /// `read_link(path)` called on `receiver`: the target of the symlink at
@@ -1489,7 +1531,9 @@ fn file_info<'s>(
 
 /// The calls each op makes, over owned arguments: a root's descriptor,
 /// shared by count, and the paths as Rust text, so none borrows V8's heap
-/// and any can move to another thread.
+/// and any can move to another thread. A read's open does too, and the
+/// [`Reading`](sys::Reading) it returns can move; the read into the buffer
+/// V8 allocated, which isn't `Send`, is made on the isolate's thread.
 mod sys {
     use std::io;
 
@@ -1548,6 +1592,7 @@ mod sys {
         use std::path::Path;
         use std::sync::Arc;
 
+        pub use gro_sys::beneath::Reading;
         use gro_sys::beneath::{self, FileKind, FinalLink, Links, OpenAs};
 
         use super::{Info, Listed, OpError, Opened};
@@ -1632,15 +1677,20 @@ mod sys {
             }
         }
 
-        /// The bytes of the regular file at `rel` beneath the handle's
-        /// directory, at `beneath` the root, read to its end; anything else
-        /// is refused before a byte is read.
-        pub fn read(root: Arc<OwnedFd>, beneath: String, rel: String) -> Result<Vec<u8>, OpError> {
+        /// The regular file at `rel` beneath the handle's directory, at
+        /// `beneath` the root, opened to read to its end; anything else,
+        /// and a file that reports more than the most a read takes, is
+        /// refused before a byte is read.
+        pub fn open_read(
+            root: Arc<OwnedFd>,
+            beneath: String,
+            rel: String,
+        ) -> Result<Reading, OpError> {
             let held = handle_dir(&root, &beneath)?;
             let dir = held
                 .as_ref()
                 .map_or_else(|| root.as_fd(), |held| held.as_fd());
-            beneath::read(dir, Path::new(&rel)).map_err(OpError::Target)
+            beneath::open_read(dir, Path::new(&rel)).map_err(OpError::Target)
         }
 
         /// The target of the symlink at `rel` beneath the handle's
@@ -1782,11 +1832,32 @@ mod sys {
             Err(OpError::Target(unsupported()))
         }
 
-        pub fn read(
+        /// A file opened to read, which nothing makes off Linux.
+        pub enum Reading {}
+
+        impl Reading {
+            pub const fn size(&self) -> usize {
+                match *self {}
+            }
+
+            pub fn fill(&mut self, _buffer: &mut [u8]) -> io::Result<usize> {
+                match *self {}
+            }
+
+            pub fn rest(&mut self) -> io::Result<Vec<u8>> {
+                match *self {}
+            }
+
+            pub fn to_end(self) -> io::Result<Vec<u8>> {
+                match self {}
+            }
+        }
+
+        pub fn open_read(
             _root: Arc<OwnedFd>,
             _beneath: String,
             _rel: String,
-        ) -> Result<Vec<u8>, OpError> {
+        ) -> Result<Reading, OpError> {
             Err(OpError::Target(unsupported()))
         }
 
@@ -2074,6 +2145,112 @@ mod tests {
             );
             tc.reset();
         }
+    }
+
+    /// A read's bytes come from the isolate's own `ArrayBuffer` allocator,
+    /// a success after a failed allocation clearing what the recording
+    /// allocator holds, and end where the file ends when read: one of the
+    /// size it reported, one grown or shrunk since its open, an empty one,
+    /// and a `/proc` file, which reports 0; each a `Uint8Array` of its
+    /// whole buffer.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_read_s_bytes_are_v8_s_and_end_where_the_file_ends() {
+        use std::io::Write as _;
+        use std::path::Path;
+        use std::sync::Arc;
+
+        use deno_core::{JsRuntime, RuntimeOptions, v8};
+
+        use super::{read_bytes, to_bytes};
+
+        let dir = crate::test_support::TestDir::on_disk("read_bytes");
+        let file = |name: &str| dir.path().join(name);
+        for name in ["sized", "grows", "shrinks"] {
+            std::fs::write(file(name), "12345").unwrap();
+        }
+        std::fs::write(file("empty"), "").unwrap();
+        let open = |root: &Path, name: &str| {
+            let root = std::fs::File::open(root).unwrap();
+            let opened = sys::open_read(Arc::new(root.into()), String::new(), name.to_owned());
+            opened.unwrap_or_else(|_| panic!("{name} didn't open"))
+        };
+        let (create_params, record) = gro_v8::record_array_buffers(v8::Isolate::create_params());
+        // the collections after a failed allocation post delayed tasks
+        let tokio = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let _entered = tokio.enter();
+        let mut runtime = JsRuntime::new(RuntimeOptions {
+            create_params: Some(create_params),
+            ..Default::default()
+        });
+        // an allocation too large for any process, which the record holds
+        // until the next one succeeds
+        let fail = |scope: &mut v8::PinScope<'_, '_>| {
+            let source = "try { new ArrayBuffer(2 ** 52); } catch {}";
+            let source = v8::String::new(scope, source).unwrap();
+            let script = v8::Script::compile(scope, source, None).unwrap();
+            script.run(scope).unwrap();
+            assert!(record.latest_failed());
+        };
+        let reads = [
+            ("sized", b"12345".as_slice(), None),
+            ("grows", b"123456789", Some(true)),
+            ("shrinks", b"12", Some(false)),
+            ("empty", b"", None),
+        ];
+        let mut opened = Vec::new();
+        for (name, expected, change) in reads {
+            let reading = open(dir.path(), name);
+            match change {
+                Some(true) => std::fs::OpenOptions::new()
+                    .append(true)
+                    .open(file(name))
+                    .unwrap()
+                    .write_all(b"6789")
+                    .unwrap(),
+                Some(false) => std::fs::OpenOptions::new()
+                    .write(true)
+                    .open(file(name))
+                    .unwrap()
+                    .set_len(2)
+                    .unwrap(),
+                None => {}
+            }
+            opened.push((name, expected, reading));
+        }
+        let status = open(Path::new("/proc/self"), "status");
+        assert_eq!(status.size(), 0);
+        deno_core::scope!(scope, &mut runtime);
+        for (name, expected, reading) in opened {
+            fail(scope);
+            let bytes = read_bytes(scope, reading).unwrap_or_else(|_| panic!("{name} failed"));
+            if !expected.is_empty() {
+                assert!(!record.latest_failed(), "{name}'s buffer isn't V8's");
+            }
+            assert_eq!(bytes.bytes(), expected, "{name}");
+            let length = bytes.len();
+            let Ok(array) = to_bytes(scope, bytes) else {
+                panic!("{name} made no Uint8Array");
+            };
+            let array = v8::Local::<v8::Uint8Array>::try_from(array).unwrap();
+            let buffer = array.buffer(scope).unwrap();
+            assert_eq!(
+                (array.byte_length(), buffer.byte_length()),
+                (length, length),
+                "{name}"
+            );
+        }
+        fail(scope);
+        let status = read_bytes(scope, status).unwrap_or_else(|_| panic!("status failed"));
+        assert!(
+            status.bytes().starts_with(b"Name:"),
+            "{}",
+            String::from_utf8_lossy(status.bytes())
+        );
+        assert!(!record.latest_failed(), "status's buffer isn't V8's");
     }
 
     /// An op's failure: leaving the handle, or the handle's own directory

@@ -490,7 +490,7 @@ fn only_a_regular_file_opens_for_its_contents() {
                 let read = beneath::open(root.as_fd(), p(&path), OpenAs::Read, Links::Beneath);
                 let write = OpenAs::Write { mode: 0o644 };
                 let written = beneath::open(root.as_fd(), p(&path), write, Links::Beneath);
-                let whole = beneath::read(root.as_fd(), p(&path)).map(|_| ());
+                let whole = read_whole(root.as_fd(), p(&path)).map(|_| ());
                 let whole = whole.map_or_else(|error| opened(Err(error)), |()| "opened".to_owned());
                 ended.push((path, opened(read), opened(written), whole));
             }
@@ -535,14 +535,40 @@ fn a_device_is_refused_as_no_regular_file() {
     for name in ["null", "zero"] {
         let read = beneath::open(dev.as_fd(), p(name), OpenAs::Read, Links::Beneath);
         assert_eq!(opened(read), "not regular", "{name}");
-        let error = beneath::read(dev.as_fd(), p(name)).unwrap_err();
+        let error = beneath::open_read(dev.as_fd(), p(name)).unwrap_err();
         assert!(beneath::is_not_regular(&error), "{name}: {error}");
     }
 }
 
-/// `read` reads a whole file, an empty one, one through a symlink beneath,
-/// and a `/proc` file that reports a size of 0, to its end, never trusting
-/// the size; and fails as an open of contents fails.
+/// The whole regular file at `path` beneath `dir`, as a [`beneath::Reading`]
+/// reads it at once.
+fn read_whole(dir: BorrowedFd<'_>, path: &Path) -> io::Result<Vec<u8>> {
+    beneath::open_read(dir, path).and_then(beneath::Reading::to_end)
+}
+
+/// The whole regular file at `path` beneath `dir`, as a [`beneath::Reading`]
+/// reads it into a buffer of the size it reported, then the rest, `change`
+/// called on the file's path between the open and the reads; with how many
+/// bytes the size and the fill took.
+fn read_in_parts(
+    dir: BorrowedFd<'_>,
+    path: &Path,
+    change: impl FnOnce(),
+) -> io::Result<(Vec<u8>, usize, usize)> {
+    let mut reading = beneath::open_read(dir, path)?;
+    change();
+    let mut bytes = vec![0; reading.size()];
+    let filled = reading.fill(&mut bytes)?;
+    let size = bytes.len();
+    bytes.truncate(filled);
+    bytes.extend(reading.rest()?);
+    Ok((bytes, size, filled))
+}
+
+/// A whole file's read, at once or in parts, reads an empty one, one
+/// through a symlink beneath, and a `/proc` file that reports a size of 0,
+/// to its end, never trusting the size; and fails as an open of contents
+/// fails.
 #[test]
 fn read_reads_a_whole_file_to_its_end() {
     let scratch = Scratch::new("read");
@@ -552,21 +578,33 @@ fn read_reads_a_whole_file_to_its_end() {
     symlink("large", scratch.root("to_large")).unwrap();
     fs::create_dir(scratch.root("d")).unwrap();
     let root = scratch.root_fd();
-    assert_eq!(beneath::read(root.as_fd(), p("large")).unwrap(), large);
-    assert_eq!(beneath::read(root.as_fd(), p("to_large")).unwrap(), large);
-    assert_eq!(beneath::read(root.as_fd(), p("empty")).unwrap(), b"");
+    assert_eq!(read_whole(root.as_fd(), p("large")).unwrap(), large);
+    assert_eq!(read_whole(root.as_fd(), p("to_large")).unwrap(), large);
+    assert_eq!(read_whole(root.as_fd(), p("empty")).unwrap(), b"");
 
     let proc_self = File::open("/proc/self").unwrap();
     let size = beneath::stat(proc_self.as_fd(), p("status"), FinalLink::Follow)
         .unwrap()
         .size;
     assert_eq!(size, 0, "a /proc file reports no size");
-    let status = beneath::read(proc_self.as_fd(), p("status")).unwrap();
+    let status = read_whole(proc_self.as_fd(), p("status")).unwrap();
     assert!(
         status.starts_with(b"Name:"),
         "{}",
         String::from_utf8_lossy(&status)
     );
+    let (status, size, filled) = read_in_parts(proc_self.as_fd(), p("status"), || {}).unwrap();
+    assert_eq!((size, filled), (0, 0));
+    assert!(
+        status.starts_with(b"Name:"),
+        "{}",
+        String::from_utf8_lossy(&status)
+    );
+    for path in ["large", "to_large", "empty"] {
+        let (bytes, size, filled) = read_in_parts(root.as_fd(), p(path), || {}).unwrap();
+        assert_eq!((size, filled), (bytes.len(), bytes.len()), "{path}");
+        assert_eq!(bytes, fs::read(scratch.root(path)).unwrap(), "{path}");
+    }
 
     for (path, expected) in [
         ("missing", libc::ENOENT),
@@ -574,12 +612,36 @@ fn read_reads_a_whole_file_to_its_end() {
         ("large/", libc::ENOTDIR),
         ("../outside/f", libc::EXDEV),
     ] {
-        assert_eq!(
-            code(beneath::read(root.as_fd(), p(path))),
-            expected,
-            "{path}"
-        );
+        assert_eq!(code(read_whole(root.as_fd(), p(path))), expected, "{path}");
     }
+}
+
+/// A file that grows or shrinks after it reported its size is read to the
+/// end it has when read: a grown one's size filled, the rest read after;
+/// a shrunk one's filled short, with no rest.
+#[test]
+fn a_read_reads_the_size_the_file_has_when_read() {
+    use std::io::Write as _;
+    let scratch = Scratch::new("read_changing");
+    fs::write(scratch.root("grows"), "12345").unwrap();
+    fs::write(scratch.root("shrinks"), "12345").unwrap();
+    let root = scratch.root_fd();
+    let grown = read_in_parts(root.as_fd(), p("grows"), || {
+        let mut file = fs::OpenOptions::new()
+            .append(true)
+            .open(scratch.root("grows"))
+            .unwrap();
+        file.write_all(b"6789").unwrap();
+    });
+    assert_eq!(grown.unwrap(), (b"123456789".to_vec(), 5, 5));
+    let shrunk = read_in_parts(root.as_fd(), p("shrinks"), || {
+        let file = fs::OpenOptions::new()
+            .write(true)
+            .open(scratch.root("shrinks"))
+            .unwrap();
+        file.set_len(2).unwrap();
+    });
+    assert_eq!(shrunk.unwrap(), (b"12".to_vec(), 5, 2));
 }
 
 /// `read_link` reads a symlink's target as stored, whatever it points at,

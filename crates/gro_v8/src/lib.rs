@@ -11,6 +11,9 @@
 //!   that records whether its latest allocation failed
 //!   ([`ArrayBufferRecord`]), which a near-heap-limit callback reads to
 //!   tell an array buffer's failure from the heap's.
+//! - [`PendingArrayBuffer`] is an `ArrayBuffer`'s bytes allocated by the
+//!   isolate's own allocator, which V8 paces its collector by, written by
+//!   the host as `&mut [u8]` before any JS can see them.
 
 use std::alloc::{GlobalAlloc as _, Layout, System};
 use std::ffi::c_void;
@@ -152,4 +155,108 @@ unsafe extern "C" fn drop_handle(handle: *const AtomicBool) {
     // `record_array_buffers`, and V8 calls this once, from the allocator's
     // destructor, after which no callback reads it
     drop(unsafe { Arc::from_raw(handle) });
+}
+
+/// The bytes of an `ArrayBuffer` to be, from the isolate's own allocator.
+///
+/// They're held by Rust alone until
+/// [`into_array_buffer`](Self::into_array_buffer) makes the buffer of them,
+/// so the host writes them in place, as `&mut [u8]`, and V8 counts them as
+/// it counts a buffer JS allocates.
+///
+/// V8 paces its collector by the array buffers it allocates itself: before
+/// each one, a young collection once the young generation's buffers pass
+/// twice a semi-space, and a full one, then another try, when the allocator
+/// fails. Bytes Rust allocated and handed over (`rusty_v8`'s
+/// `new_backing_store_from_vec`) go through none of that, so buffers JS
+/// has dropped pile up until the heap's own allocations happen to collect
+/// them.
+///
+/// It holds a backing store no `ArrayBuffer` has yet (V8's
+/// `ArrayBuffer::NewBackingStore`), owned by this value alone: no handle,
+/// no other store, and no JS reaches its bytes, and V8 never moves them, so
+/// a borrow of them stays the only one while it lives, whatever runs in the
+/// isolate meanwhile. Dropped without becoming a buffer, it frees them at
+/// once. It isn't `Send`, as `rusty_v8`'s `UniqueRef` isn't, so it's
+/// filled on the isolate's thread.
+#[derive(Debug)]
+pub struct PendingArrayBuffer(v8::UniqueRef<v8::BackingStore>);
+
+impl PendingArrayBuffer {
+    /// `len` zeroed bytes from `isolate`'s `ArrayBuffer` allocator, under
+    /// V8's pacing.
+    ///
+    /// V8 may collect garbage first, and retries a failed allocation after
+    /// collecting all it can; one that still fails ends the process as out
+    /// of memory (V8's `FatalProcessOutOfMemory`, which an isolate's
+    /// out-of-memory handler sees), since `rusty_v8` binds no form of the
+    /// call that returns its failure. A `len` past V8's largest
+    /// `ArrayBuffer` fails a check of V8's, which ends the process too, so
+    /// a caller bounds it, as the fs reads do at `2 ** 31 - 1`. An empty
+    /// buffer allocates nothing.
+    pub fn new(isolate: &mut v8::Isolate, len: usize) -> Self {
+        Self(v8::ArrayBuffer::new_backing_store(isolate, len))
+    }
+
+    /// How many bytes it holds.
+    pub fn len(&self) -> usize {
+        self.0.byte_length()
+    }
+
+    /// Whether it holds none.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Its bytes.
+    #[expect(
+        unsafe_code,
+        reason = "`rusty_v8` gives a backing store's bytes as a pointer or as cells only"
+    )]
+    pub fn bytes(&self) -> &[u8] {
+        let Some(data) = self.0.data() else {
+            // a store of no bytes has no allocation
+            return &[];
+        };
+        // SAFETY: `data` is the start of the store's `len()` bytes, one
+        // allocation of the isolate's allocator, which V8 neither moves nor
+        // resizes (the store isn't resizable) and frees only when the store
+        // is destroyed, which the borrow of `self` rules out while the slice
+        // lives; every byte is initialized, zeroed by the allocation (V8's
+        // default `kZeroInitialized`, which calls the allocator's
+        // `Allocate`, whose contract zeroes them) and written only as `u8`
+        // since; no
+        // `&mut` to them exists while `self` is borrowed shared, the store
+        // being this value's alone ([`PendingArrayBuffer`]); a `u8` needs no
+        // alignment, and an allocation never exceeds `isize::MAX` bytes
+        unsafe { std::slice::from_raw_parts(data.as_ptr().cast::<u8>(), self.len()) }
+    }
+
+    /// Its bytes, to write.
+    #[expect(
+        unsafe_code,
+        reason = "`rusty_v8` gives a backing store's bytes as a pointer or as cells only"
+    )]
+    pub fn bytes_mut(&mut self) -> &mut [u8] {
+        let Some(data) = self.0.data() else {
+            // a store of no bytes has no allocation
+            return &mut [];
+        };
+        // SAFETY: as in `bytes`, `data` starts the store's `len()`
+        // initialized bytes, live and unmoved while `self` is borrowed;
+        // and the borrow is exclusive: the store is this value's alone, so
+        // no `ArrayBuffer`, no JS, and no other store can read or write
+        // them, whatever runs in the isolate while the slice lives, and the
+        // `&mut self` borrow rules out any other slice of them
+        unsafe { std::slice::from_raw_parts_mut(data.as_ptr().cast::<u8>(), self.len()) }
+    }
+
+    /// The `ArrayBuffer` of its bytes, which JS can reach from then on and
+    /// V8 frees once it's collected.
+    pub fn into_array_buffer<'s>(
+        self,
+        scope: &v8::PinScope<'s, '_, ()>,
+    ) -> v8::Local<'s, v8::ArrayBuffer> {
+        v8::ArrayBuffer::with_backing_store(scope, &self.0.make_shared())
+    }
 }

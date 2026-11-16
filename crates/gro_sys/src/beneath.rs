@@ -19,7 +19,9 @@
 //!   write, created or replaced ([`OpenAs::Write`]) or only created
 //!   ([`OpenAs::CreateNew`]); [`Links::Refused`] refuses every symlink on
 //!   the way.
-//! - [`read`] reads a regular file's bytes to its end.
+//! - [`open_read`] opens a regular file to read to its end ([`Reading`]),
+//!   into a buffer the caller allocates by the size it reports, the rest,
+//!   if it lied, into one of the read's own.
 //! - [`read_link`] reads a symlink's target as stored, never following it.
 //! - [`open_root`] opens a directory by its absolute real path, the one
 //!   descriptor the others resolve beneath, refusing any symlink on it.
@@ -89,8 +91,9 @@
 //! - No OS code, told by [`is_not_regular`]: an open of a file's contents
 //!   that reached a FIFO or a device; one that reached a directory is
 //!   `EISDIR`, as the kernel answers a read of one.
-//! - No OS code, [`io::ErrorKind::FileTooLarge`]: a [`read`] of a file
-//!   longer than [`READ_LIMIT`].
+//! - No OS code, [`io::ErrorKind::FileTooLarge`]: an [`open_read`] of a
+//!   file that reports more than [`READ_LIMIT`] bytes, and a [`Reading`]
+//!   that reads more.
 //! - `EINVAL`: a [`read_link`] of an entry that isn't a symlink.
 //! - No OS code, [`io::ErrorKind::Unsupported`]: `openat2` is missing, on a
 //!   kernel before Linux 5.6 (`ENOSYS`) or under a seccomp filter that
@@ -128,7 +131,7 @@ pub const RACE_RETRIES: u32 = 32;
 /// The bytes [`read_dir`] asks `getdents64` for at a time.
 const DIR_BUFFER: usize = 32 * 1024;
 
-/// The most bytes [`read`] reads of a file, `2 ** 31 - 1`, the most Node's
+/// The most bytes a [`Reading`] reads of a file, `2 ** 31 - 1`, the most Node's
 /// `readFile` reads: a longer file fails, whatever size it reported.
 pub const READ_LIMIT: u64 = (1 << 31) - 1;
 
@@ -309,46 +312,154 @@ fn open_unchecked(
     openat2(dir, &to_c_path(path.as_os_str())?, flags, mode, resolve)
 }
 
-/// Reads the regular file at `path` beneath `dir` to its end, a final
-/// symlink followed beneath.
+/// Opens the regular file at `path` beneath `dir` to read to its end, a
+/// final symlink followed beneath.
 ///
 /// It's opened as [`OpenAs::Read`], so anything but a regular file is
-/// refused before a byte is read, then read until a read returns nothing,
-/// never trusting the size the file reports, which a `/proc` file reports
-/// as 0, but to refuse one that reports more than [`READ_LIMIT`] before a
-/// byte is read, as Node's `readFile` does.
+/// refused before a byte is read, and so is one that reports more than
+/// [`READ_LIMIT`] bytes, as Node's `readFile` refuses by the size before
+/// it reads. The size it reports is where a read starts, never where it
+/// ends ([`Reading`]): a `/proc` file reports 0.
 ///
 /// # Errors
 ///
-/// Returns [`open`]'s errors for [`OpenAs::Read`], the kernel's error for a
-/// read, and an error of kind [`io::ErrorKind::FileTooLarge`], with no OS
-/// code, for a file longer than [`READ_LIMIT`].
-pub fn read(dir: BorrowedFd<'_>, path: &Path) -> io::Result<Vec<u8>> {
+/// Returns [`open`]'s errors for [`OpenAs::Read`], and an error of kind
+/// [`io::ErrorKind::FileTooLarge`], with no OS code, for a file that
+/// reports more than [`READ_LIMIT`] bytes.
+pub fn open_read(dir: BorrowedFd<'_>, path: &Path) -> io::Result<Reading> {
     let fd = open_unchecked(dir, path, OpenAs::Read, Links::Beneath)?;
     let (fd, size) = only_regular(fd)?;
-    read_within(&File::from(fd), size, READ_LIMIT)
+    Reading::new(File::from(fd), size, READ_LIMIT)
 }
 
-/// Reads `file` from where it is to its end, `size` the bytes it reports,
-/// failing past `limit` bytes: at once when `size` is past it, as Node's
-/// `readFile` refuses by the reported size before it reads, and past it
-/// as read otherwise, since a size of 0 (a `/proc` file) says nothing.
-fn read_within(file: &File, size: u64, limit: u64) -> io::Result<Vec<u8>> {
-    let too_large = || {
-        io::Error::new(
-            io::ErrorKind::FileTooLarge,
-            format!("the file is longer than {limit} bytes, the most a read takes"),
-        )
-    };
-    if size > limit {
-        return Err(too_large());
+/// A regular file [`open_read`] opened, to read from its start to its end.
+///
+/// It's read in at most two parts: [`fill`](Self::fill) reads into a buffer the caller
+/// allocates of the [`size`](Self::size) the file reported, then
+/// [`rest`](Self::rest) reads whatever is past it into a buffer of its
+/// own, nothing when the size was right, which takes one more read to
+/// tell. Or [`to_end`](Self::to_end) reads it all into one buffer of its
+/// own. Past its limit, [`READ_LIMIT`], each fails with an error of kind
+/// [`io::ErrorKind::FileTooLarge`] and no OS code.
+///
+/// A file whose size is right is read straight into the caller's buffer,
+/// and nothing more is allocated. One that grew since it reported its
+/// size, or reported none, as a `/proc` file reports 0, has its rest read
+/// into a buffer of the read's own; one that shrank fills less than the
+/// caller's buffer, and its rest is empty.
+///
+/// It holds the open file and owns everything it's given, so it can move
+/// to another thread and be read there.
+#[derive(Debug)]
+pub struct Reading {
+    /// The file, opened.
+    file: File,
+    /// The size it reported when opened, at most `limit`.
+    size: usize,
+    /// The bytes read of it so far.
+    read: u64,
+    /// The most bytes it reads.
+    limit: u64,
+}
+
+impl Reading {
+    /// `file`, opened at its start, which reported `size` bytes, read to at
+    /// most `limit` bytes; refused at once when `size` is past `limit`.
+    fn new(file: File, size: u64, limit: u64) -> io::Result<Self> {
+        if size > limit {
+            return Err(too_large(limit));
+        }
+        let size = usize::try_from(size).map_err(|_| too_large(limit))?;
+        Ok(Self {
+            file,
+            size,
+            read: 0,
+            limit,
+        })
     }
-    let mut bytes = Vec::with_capacity(usize::try_from(size).unwrap_or(0));
-    file.take(limit.saturating_add(1)).read_to_end(&mut bytes)?;
-    if u64::try_from(bytes.len()).unwrap_or(u64::MAX) > limit {
-        return Err(too_large());
+
+    /// The size the file reported when opened, at most [`READ_LIMIT`]: the
+    /// bytes to allocate for [`fill`](Self::fill).
+    pub const fn size(&self) -> usize {
+        self.size
     }
-    Ok(bytes)
+
+    /// Reads into `buffer` until it's full or the file ends, and returns
+    /// how many bytes it read: fewer than `buffer` holds only at the
+    /// file's end.
+    ///
+    /// # Errors
+    ///
+    /// Returns the kernel's error for a read, and an error of kind
+    /// [`io::ErrorKind::FileTooLarge`] once more than the limit is read.
+    pub fn fill(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        let mut filled = 0;
+        while filled < buffer.len() {
+            match (&self.file).read(&mut buffer[filled..]) {
+                Ok(0) => break,
+                Ok(read) => filled += read,
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+                Err(error) => return Err(error),
+            }
+        }
+        self.count(filled)?;
+        Ok(filled)
+    }
+
+    /// Reads the rest of the file, from where it is to its end, into a
+    /// buffer of its own: empty when the file ended where it was, which
+    /// one read tells without allocating.
+    ///
+    /// # Errors
+    ///
+    /// Returns the kernel's error for a read, and an error of kind
+    /// [`io::ErrorKind::FileTooLarge`] once more than the limit is read,
+    /// counting what was read before.
+    pub fn rest(&mut self) -> io::Result<Vec<u8>> {
+        let mut bytes = Vec::new();
+        self.read_rest(&mut bytes)?;
+        Ok(bytes)
+    }
+
+    /// Reads the whole file, from where it is to its end, into one buffer
+    /// of its own, its capacity the size the file reported.
+    ///
+    /// # Errors
+    ///
+    /// As [`rest`](Self::rest).
+    pub fn to_end(mut self) -> io::Result<Vec<u8>> {
+        let mut bytes = Vec::with_capacity(self.size);
+        self.read_rest(&mut bytes)?;
+        Ok(bytes)
+    }
+
+    /// Appends the rest of the file to `bytes`, reading at most one byte
+    /// past the limit, so a file longer than it fails without being read
+    /// whole.
+    fn read_rest(&mut self, bytes: &mut Vec<u8>) -> io::Result<()> {
+        let left = self.limit.saturating_add(1).saturating_sub(self.read);
+        let read = (&self.file).take(left).read_to_end(bytes)?;
+        self.count(read)
+    }
+
+    /// Counts `read` more bytes read, failing past the limit.
+    fn count(&mut self, read: usize) -> io::Result<()> {
+        self.read = self
+            .read
+            .saturating_add(u64::try_from(read).unwrap_or(u64::MAX));
+        if self.read > self.limit {
+            return Err(too_large(self.limit));
+        }
+        Ok(())
+    }
+}
+
+/// The error of a read past `limit` bytes.
+fn too_large(limit: u64) -> io::Error {
+    io::Error::new(
+        io::ErrorKind::FileTooLarge,
+        format!("the file is longer than {limit} bytes, the most a read takes"),
+    )
 }
 
 /// Reads the target of the symlink at `path` beneath `dir`, as stored, the
@@ -1254,8 +1365,9 @@ mod tests {
     }
 
     /// A read takes a file to its end, whatever size within its limit it
-    /// reported, and fails past its limit, never at it, at once for a size
-    /// reported past it.
+    /// reported, more or less than it holds or none, whole or filled to
+    /// its size then the rest, and fails past its limit, never at it, at
+    /// once for a size reported past it, before a byte is read.
     #[test]
     fn a_read_ends_at_the_file_s_end_within_its_limit() {
         use std::io::{Seek as _, Write as _};
@@ -1269,27 +1381,42 @@ mod tests {
             .unwrap();
         std::fs::remove_file(&path).unwrap();
         file.write_all(b"12345").unwrap();
-        for (size, limit, expected) in [
-            (0, 5, Some(&b"12345"[..])),
-            (2, 5, Some(b"12345")),
-            (5, 5, Some(b"12345")),
+        let too_large = Err((io::ErrorKind::FileTooLarge, None));
+        for (size, limit, expected, filled) in [
+            (0, 5, Ok(&b"12345"[..]), 0),
+            (2, 5, Ok(b"12345"), 2),
+            (5, 5, Ok(b"12345"), 5),
+            // a size past what the file holds fills less
+            (7, 9, Ok(b"12345"), 5),
             // a size past the limit fails before a byte is read
-            (6, 5, None),
-            (5, 4, None),
+            (6, 5, too_large, 0),
+            (5, 4, too_large, 0),
             // a size within the limit, and more bytes than it
-            (2, 4, None),
-            (0, 0, None),
+            (2, 4, too_large, 2),
+            (0, 0, too_large, 0),
         ] {
-            file.rewind().unwrap();
-            let read = super::read_within(&file, size, limit);
-            let read = read.map_err(|error| (error.kind(), error.raw_os_error()));
-            assert_eq!(
-                read,
-                expected
-                    .map(<[u8]>::to_vec)
-                    .ok_or((io::ErrorKind::FileTooLarge, None)),
-                "{size} {limit}"
-            );
+            let shown = |read: io::Result<Vec<u8>>| {
+                read.map_err(|error| (error.kind(), error.raw_os_error()))
+            };
+            let expected = expected.map(<[u8]>::to_vec);
+            let mut at_start = || {
+                file.rewind().unwrap();
+                super::Reading::new(file.try_clone().unwrap(), size, limit)
+            };
+            let whole = at_start().and_then(super::Reading::to_end);
+            assert_eq!(shown(whole), expected, "{size} {limit} whole");
+            let parts = at_start().and_then(|mut reading| {
+                let mut bytes = vec![0; reading.size()];
+                let read = reading.fill(&mut bytes)?;
+                assert_eq!(read, filled, "{size} {limit} filled");
+                bytes.truncate(read);
+                bytes.extend(reading.rest()?);
+                Ok(bytes)
+            });
+            assert_eq!(shown(parts), expected, "{size} {limit} in parts");
+            if size > limit {
+                assert_eq!(file.stream_position().unwrap(), 0, "{size} {limit} read");
+            }
         }
     }
 
