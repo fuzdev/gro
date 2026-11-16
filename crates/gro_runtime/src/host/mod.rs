@@ -269,12 +269,12 @@ native_members! {
     /// `EnvError`, the env host module's error class, the host's
     /// ([`ErrorClasses::class`]), extending the realm's `Error` the
     /// namespace op held.
-    value EnvError(state; scope) for "@fuzdev/gro/env_error.ts" {
+    value EnvError(state; scope) for "@fuzdev/gro/env_error.ts" class ENV_ERROR(family) {
         let Some(classes) = state.try_borrow::<ErrorClasses>() else {
             throw_error(scope, NO_ERROR_CLASSES);
             return None;
         };
-        classes.class(scope, &ENV_ERROR).map(Into::into)
+        classes.class(scope, family).map(Into::into)
     }
 
     /// `is_env_error(error, kind?)`, whether `error` is an `EnvError`, of
@@ -292,8 +292,10 @@ native_members! {
     }
 
     /// `env.get(name)`, called on `handle` ([`env::get`]).
-    fn get(state, _granted: EnvGrant; scope, name) for "@fuzdev/gro/env.ts" on ENV_HANDLE(handle) {
-        env::get(state, scope, handle, name)
+    fn get(state, _granted: EnvGrant; scope, name) for "@fuzdev/gro/env.ts" on ENV_HANDLE(handle)
+        throws ENV_ERROR(errors)
+    {
+        env::get(state, scope, handle, name, errors)
     }
 
     /// `env.get_all()`, called on `handle` ([`env::get_all`]).
@@ -302,8 +304,10 @@ native_members! {
     }
 
     /// `env.narrow(names)`, called on `handle` ([`env::narrow`]).
-    fn narrow(state, _granted: EnvGrant; scope, names) for "@fuzdev/gro/env.ts" on ENV_HANDLE(handle) {
-        env::narrow(state, scope, handle, names)
+    fn narrow(state, _granted: EnvGrant; scope, names) for "@fuzdev/gro/env.ts" on ENV_HANDLE(handle)
+        throws ENV_ERROR(errors)
+    {
+        env::narrow(state, scope, handle, names, errors)
     }
 
     /// `pid`, the process's id, asked of the OS when the run first imports

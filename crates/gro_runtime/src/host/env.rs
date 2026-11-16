@@ -25,7 +25,7 @@
 
 use deno_core::{OpState, v8};
 
-use super::error_class::{ENV_ERROR, ErrorClasses};
+use super::error_class::{DeclaredFamily, ErrorClasses};
 use super::handle::{self, ENV_HANDLE};
 use super::{HostData, native, own_data, string, throw_error, throw_type_error};
 use crate::loader::RefusalLog;
@@ -87,17 +87,19 @@ pub fn root<'s>(
 }
 
 /// `env.get(name)` called on `receiver`: the value of the variable `name`,
-/// or `undefined` when it's unset. `None` with the exception pending when
-/// it throws.
+/// or `undefined` when it's unset; `errors`, `EnvError`'s family as the
+/// member declares it, for a name the handle may not read. `None` with the
+/// exception pending when it throws.
 pub fn get<'s>(
     state: &OpState,
     scope: &v8::PinScope<'s, '_>,
     receiver: v8::Local<'s, v8::Value>,
     name: v8::Local<'s, v8::Value>,
+    errors: DeclaredFamily,
 ) -> Option<v8::Local<'s, v8::Value>> {
     let handle = read(scope, receiver)?;
     let name = check_name(scope, name, "an environment name", true)?;
-    check_granted(state, scope, &handle, name)?;
+    check_granted(state, scope, &handle, name, errors)?;
     let vars = handle.vars;
     if vars.has_own_property(scope, name.into())? {
         vars.get(scope, name.into())
@@ -119,13 +121,14 @@ pub fn get_all<'s>(
 /// `env.narrow(names)` called on `receiver`: a new handle of the receiver's
 /// prototype that may read exactly `names`, each checked in order, and each
 /// one the receiver may read, or `not_granted` is thrown for the first that
-/// isn't. A name given twice is one name. `None` with the exception
-/// pending when it throws.
+/// isn't, of `errors`, as [`get`] throws it. A name given twice is one
+/// name. `None` with the exception pending when it throws.
 pub fn narrow<'s>(
     state: &OpState,
     scope: &v8::PinScope<'s, '_>,
     receiver: v8::Local<'s, v8::Value>,
     names: v8::Local<'s, v8::Value>,
+    errors: DeclaredFamily,
 ) -> Option<v8::Local<'s, v8::Value>> {
     let parent = read(scope, receiver)?;
     let Some(list) = v8::Local::<v8::Array>::try_from(names)
@@ -143,7 +146,7 @@ pub fn narrow<'s>(
         let element = own_data(scope, list.into(), key.into()).ok()?;
         let element = element.unwrap_or_else(|| v8::undefined(scope).into());
         let name = check_name(scope, element, "a `narrow` name", false)?;
-        check_granted(state, scope, &parent, name)?;
+        check_granted(state, scope, &parent, name, errors)?;
         allowed.create_data_property(scope, name.into(), granted)?;
         if parent.vars.has_own_property(scope, name.into())? {
             let value = parent.vars.get(scope, name.into())?;
@@ -215,11 +218,11 @@ fn make<'s>(
     handle::make(scope, &ENV_HANDLE, prototype, held.into())
 }
 
-/// Throws `EnvError` `not_granted` for `name` when `handle`'s set lacks
-/// it, and records the refusal in the run's [`RefusalLog`], which fails the
-/// run, or, in a runtime with no record, throws an `Error` saying so; every
-/// name is granted when the handle has no set. `None` with the exception
-/// pending when it threw.
+/// Throws `not_granted` of `errors`, `EnvError`'s family, for `name` when
+/// `handle`'s set lacks it, and records the refusal in the run's
+/// [`RefusalLog`], which fails the run, or, in a runtime with no record,
+/// throws an `Error` saying so; every name is granted when the handle has no
+/// set. `None` with the exception pending when it threw.
 ///
 /// A refusal by the root, the handle made from the run's grant, is
 /// recorded with the grant that would have allowed it, the name for
@@ -235,6 +238,7 @@ fn check_granted<'s>(
     scope: &v8::PinScope<'s, '_>,
     handle: &Handle<'s>,
     name: v8::Local<'s, v8::String>,
+    errors: DeclaredFamily,
 ) -> Option<()> {
     let Some(names) = handle.names else {
         return Some(());
@@ -256,7 +260,7 @@ fn check_granted<'s>(
     // pending
     let root = is_root(state, scope, handle.object);
     let text = name.to_rust_string_lossy(scope);
-    classes.throw(scope, &ENV_ERROR, NOT_GRANTED, name);
+    classes.throw(scope, errors, NOT_GRANTED, name);
     // recorded as it's thrown, so the run fails whatever the program does
     // with the error; the name, never a value
     let message = format!("{NOT_GRANTED}: {text}");
@@ -267,7 +271,7 @@ fn check_granted<'s>(
     log.record(
         RefusedBy::Grant {
             grant: Capability::Env,
-            error: ENV_ERROR.name,
+            error: errors.family().name,
         },
         &message,
         needed,

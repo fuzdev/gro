@@ -20,7 +20,7 @@
 //! whose kept lines are the template's runs what the template runs.
 
 use super::{IMPLEMENTATIONS, Implementation, WRAP_CLOSE, WRAP_OPEN, scope_argument};
-use crate::host::error_class::hands_over_error;
+use crate::host::native::hands_over_error;
 use crate::resolver::BUILTINS;
 
 /// The template's backing script for `implementation`'s row: the outer

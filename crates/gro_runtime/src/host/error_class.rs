@@ -33,27 +33,37 @@
 //! Where it comes from: the realm's `Error.prototype` is the prototype of
 //! an error V8 makes, which no program can replace, and the realm's `Error`,
 //! which the class extends, is handed over from `primordials`, taken before
-//! any program ran, by the implementation of each row of a family's
-//! ([`ErrorFamily::rows`]): its error row, and each row whose members throw
-//! the family's error. The host has no native way to it that a program
-//! can't have replaced, and taking it at every start would cost every
-//! start; and reading it costs a row's first import, so a row of no error
-//! family's hands over nothing. The first handed over is held for
-//! the run ([`ErrorClasses::hand_over`]), and checked to be a function
-//! whose own `prototype` is the realm's `Error.prototype` the first time a
-//! class is made of it, so a run that makes none never pays for the check,
-//! and a member that throws a family's error finds it, whichever of the
-//! family's rows was imported first, since a member is reached only through
-//! a row whose import handed it over. Nothing of the class is in the
-//! snapshot, and a start that needs none makes none. A class is put in
-//! [`ErrorClasses`] only once it's whole, so an implementation ended early
-//! while the class was being made finds none, and makes it again, and one
-//! that ran once finds it, as an instance per origin will.
+//! any program ran, by the backing script of each row with a member that
+//! declares a family (`native_members!`'s `throws` for a member that throws
+//! the family's error, `class` for the error row's class), and of no other
+//! row ([`hands_over_error`](super::native::hands_over_error)). The host has
+//! no native way to it that a program can't have replaced, and taking it at
+//! every start would cost every start; and reading it costs a row's first
+//! import, so a row whose members declare no family hands over nothing.
+//! The first handed over is held for the run ([`ErrorClasses::hand_over`]),
+//! and checked to be a function whose own `prototype` is the realm's
+//! `Error.prototype` the first time a class is made of it, so a run that
+//! makes none never pays for the check. Throwing a family's error and
+//! making its class each take a [`DeclaredFamily`], which only
+//! `native_members!` makes, from a member's declaration, so a member throws
+//! no family it didn't declare, and finds the `Error` held, whichever row
+//! was imported first: it's reached only through its row's namespace, or a
+//! handle of a prototype made with it, and its row's import handed the
+//! `Error` over. Nothing of the class is in the snapshot, and a start that
+//! needs none makes none. A class is put in [`ErrorClasses`] only once it's
+//! whole, so a first import ended early while the class was being made
+//! finds none, and makes it again, and one that ran once finds it, as an
+//! instance per origin will.
 //!
 //! A family is one of [`FAMILIES`], which a class's native functions find
 //! their own in by name: making the class of a family missing from it
 //! throws, so it never makes a class whose constructor would return a plain
-//! object.
+//! object. A family is declared once as its class, by its error row's value
+//! (`value EnvError(state; scope) for "@fuzdev/gro/env_error.ts" class
+//! ENV_ERROR(family)`), and as thrown by each member that throws it (`fn
+//! get(..) for "@fuzdev/gro/env.ts" on ENV_HANDLE(handle) throws
+//! ENV_ERROR(errors)`), a member of another row's among them, as `fs`'s
+//! and `watch`'s members will each declare `FsError`'s.
 
 use std::cell::RefCell;
 
@@ -69,19 +79,45 @@ pub struct ErrorFamily {
     /// The own property naming what the error is about: `target`, the
     /// variable's name for an `EnvError`.
     pub target: &'static str,
-    /// The rows that make the class, by specifier: the family's error row
-    /// first, whose namespace holds it, then each row whose members throw
-    /// it. Each hands the realm's `Error` over to the namespace op, and no
-    /// other row does ([`hands_over_error`]).
-    pub rows: &'static [&'static str],
 }
 
 /// The env host module's errors: `EnvError`, which `env`'s handles throw.
 pub const ENV_ERROR: ErrorFamily = ErrorFamily {
     name: "EnvError",
     target: "target",
-    rows: &["@fuzdev/gro/env_error.ts", "@fuzdev/gro/env.ts"],
 };
+
+/// A family a native member declares, `throws FAMILY(name)` or, for an
+/// error row's class, `class FAMILY(name)` in `native_members!`, handed to
+/// the member's body under that name: what throwing the family's error
+/// ([`ErrorClasses::throw`]) and making its class ([`ErrorClasses::class`])
+/// take. The macro alone makes one, from the declaration, which the native
+/// members' table lists, so a member throws no family it didn't declare,
+/// and every row with a member that throws one hands the realm's `Error`
+/// over ([`hands_over_error`](super::native::hands_over_error)). Nothing at
+/// compile time keeps the maker to the macro: a test reads the source for
+/// any other call of it.
+#[derive(Debug, Clone, Copy)]
+pub struct DeclaredFamily(&'static ErrorFamily);
+
+impl DeclaredFamily {
+    /// The family a member's declaration names, made by `native_members!`
+    /// alone.
+    pub const fn of_member_declaration(family: &'static ErrorFamily) -> Self {
+        Self(family)
+    }
+
+    /// `family`, for a test that throws or makes a class outside a member.
+    #[cfg(test)]
+    pub const fn for_test(family: &'static ErrorFamily) -> Self {
+        Self(family)
+    }
+
+    /// The family declared.
+    pub const fn family(self) -> &'static ErrorFamily {
+        self.0
+    }
+}
 
 /// Every family the host makes a class of, which a class's native
 /// functions find their own by name in, one for each error row of the
@@ -96,14 +132,6 @@ const NO_REALM_ERROR: &str = "the host holds no realm Error to make an error cla
 /// What making a class throws when the value handed over as the realm's
 /// `Error` isn't it.
 const NOT_REALM_ERROR: &str = "an error class extends the realm's Error";
-
-/// Whether the row `specifier` hands the realm's `Error` over to the
-/// namespace op: whether it's one of a family's [`ErrorFamily::rows`].
-pub fn hands_over_error(specifier: &str) -> bool {
-    FAMILIES
-        .iter()
-        .any(|family| family.rows.contains(&specifier))
-}
 
 /// What a family's class's native function throws when its family isn't
 /// one of [`FAMILIES`], naming it.
@@ -215,13 +243,13 @@ impl ErrorClasses {
     /// extending the realm's `Error` the run holds, checked now if it
     /// wasn't ([`Self::realm_error`]). `None` when making it threw, the
     /// exception pending, an `Error` saying so among them when the run
-    /// holds no `Error`, which no member reached through a row's import
-    /// meets.
+    /// holds no `Error`, which no member that declares the family meets.
     pub fn class<'s>(
         &self,
         scope: &v8::PinScope<'s, '_>,
-        family: &'static ErrorFamily,
+        family: DeclaredFamily,
     ) -> Option<v8::Local<'s, v8::Function>> {
+        let family = family.family();
         if let Some(made) = self.made.borrow().iter().find(|made| made.family == family) {
             return Some(v8::Local::new(scope, &made.class));
         }
@@ -234,7 +262,8 @@ impl ErrorClasses {
         Some(class)
     }
 
-    /// Throws a new error of `family` through `scope`, of `kind`, about
+    /// Throws a new error of `family`, the one its member declared,
+    /// through `scope`, of `kind`, about
     /// `target`: what `new Class(kind, target)` makes, its message `kind:
     /// target`, made by the family's class, which is made now if the run
     /// has none, extending the realm's `Error` the run holds. Runs no code
@@ -244,7 +273,7 @@ impl ErrorClasses {
     pub fn throw<'s>(
         &self,
         scope: &v8::PinScope<'s, '_>,
-        family: &'static ErrorFamily,
+        family: DeclaredFamily,
         kind: &str,
         target: v8::Local<'s, v8::String>,
     ) {
@@ -455,6 +484,8 @@ fn data_property<'s>(
 #[cfg(test)]
 mod tests {
     use super::FAMILIES;
+    use crate::host::NATIVE_MEMBERS;
+    use crate::host::native::Member;
     use crate::resolver::BUILTINS;
 
     /// Every error row's class is a family of [`FAMILIES`], in the table's
@@ -472,24 +503,36 @@ mod tests {
         assert_eq!(families, rows);
     }
 
-    /// Each family's rows are the table's, each once, its error row first,
-    /// whose first export is the class: each a row whose implementation
-    /// hands the realm's `Error` over.
+    /// Each family is declared by its error row's class, the export named
+    /// for it, a value, and by no other member as its class; and every
+    /// family a member declares, thrown or a class, is one of
+    /// [`FAMILIES`], whose class the host can make.
     #[test]
-    fn a_family_s_rows_are_its_error_row_then_the_rows_that_throw_it() {
+    fn each_family_is_its_error_row_s_class_and_the_host_s() {
         for family in FAMILIES {
-            let mut seen = Vec::new();
-            let first = BUILTINS
+            let classes: Vec<(&str, &str)> = NATIVE_MEMBERS
                 .iter()
-                .find(|row| Some(&row.specifier) == family.rows.first());
-            assert_eq!(first.map(|row| row.exports[0]), Some(family.name));
-            for specifier in family.rows {
+                .filter(|member| {
+                    matches!(member.member, Member::Value(_))
+                        && member.family.is_some_and(|declared| declared == family)
+                })
+                .map(|member| (member.module, member.name))
+                .collect();
+            let row = BUILTINS
+                .iter()
+                .find(|row| row.exports.first() == Some(&family.name))
+                .map(|row| row.specifier);
+            assert_eq!(classes, [(row.unwrap(), family.name)], "{}", family.name);
+        }
+        for member in NATIVE_MEMBERS {
+            if let Some(declared) = member.family {
                 assert!(
-                    BUILTINS.iter().any(|row| row.specifier == *specifier),
-                    "{specifier}"
+                    FAMILIES.contains(&declared),
+                    "{} of {}: {}",
+                    member.name,
+                    member.module,
+                    declared.name
                 );
-                assert!(!seen.contains(specifier), "{specifier}");
-                seen.push(*specifier);
             }
         }
     }

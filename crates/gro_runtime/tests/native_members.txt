@@ -2,12 +2,12 @@
 @fuzdev/gro/cwd.ts cwd export length 0 grant-free
 @fuzdev/gro/exit.ts exit export length 1 grant exit
 @fuzdev/gro/exit.ts set_exit_code export length 1 grant exit
-@fuzdev/gro/env_error.ts EnvError export value grant-free
+@fuzdev/gro/env_error.ts EnvError export value grant-free class EnvError
 @fuzdev/gro/env_error.ts is_env_error export length 2 grant-free
 @fuzdev/gro/env.ts env export value grant env
-@fuzdev/gro/env.ts get method of @fuzdev/gro/env.ts#handle length 1 grant env
+@fuzdev/gro/env.ts get method of @fuzdev/gro/env.ts#handle length 1 grant env throws EnvError
 @fuzdev/gro/env.ts get_all method of @fuzdev/gro/env.ts#handle length 0 grant env
-@fuzdev/gro/env.ts narrow method of @fuzdev/gro/env.ts#handle length 1 grant env
+@fuzdev/gro/env.ts narrow method of @fuzdev/gro/env.ts#handle length 1 grant env throws EnvError
 @fuzdev/gro/pid.ts pid export value grant-free
 @fuzdev/gro/runtime_version.ts runtime_version export value grant-free
 @fuzdev/gro/blake3.ts hash export length 1 grant-free

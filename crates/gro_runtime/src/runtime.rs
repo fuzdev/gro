@@ -254,8 +254,10 @@ mod tests {
     use crate::bootstrap::web_scripts;
     use crate::confine::{Confinement, Jit};
     use crate::engine::{EngineOptions, init_engine};
-    use crate::host::error_class::{ErrorClasses, hands_over_error};
-    use crate::host::native::{self, Member, NativeMember, NativeNamespaces, Place, Prototypes};
+    use crate::host::error_class::{DeclaredFamily, ErrorClasses};
+    use crate::host::native::{
+        self, Member, NativeMember, NativeNamespaces, Place, Prototypes, hands_over_error,
+    };
     use crate::host::{HOST_OPS, NATIVE_MEMBERS};
     use crate::loader::graph::Recording;
     use crate::process_tests::{backing_scripts_file, make_startup_snapshot, run_test_in_child};
@@ -498,7 +500,6 @@ JSON.stringify({
         static MISSING: ErrorFamily = ErrorFamily {
             name: "MissingError",
             target: "target",
-            rows: &[],
         };
         let (message, made) = on_new_runtime("missing_family", Mode::Run, |runtime| {
             let classes = ErrorClasses::default();
@@ -508,7 +509,11 @@ JSON.stringify({
             let error = global.get(scope, key.into()).unwrap();
             v8::tc_scope!(let tc, scope);
             classes.hand_over(tc, error);
-            assert!(classes.class(tc, &MISSING).is_none());
+            assert!(
+                classes
+                    .class(tc, DeclaredFamily::for_test(&MISSING))
+                    .is_none()
+            );
             let thrown = tc.exception().unwrap();
             let thrown = v8::Local::<v8::Object>::try_from(thrown).unwrap();
             let message = v8::String::new(tc, "message").unwrap();
@@ -556,7 +561,9 @@ JSON.stringify({
                 let classes = state.borrow::<ErrorClasses>();
                 deno_core::scope!(scope, runtime);
                 v8::tc_scope!(let tc, scope);
-                let made = classes.class(tc, &ENV_ERROR).is_some();
+                let made = classes
+                    .class(tc, DeclaredFamily::for_test(&ENV_ERROR))
+                    .is_some();
                 let thrown = tc.exception().map(|thrown| {
                     let thrown = v8::Local::<v8::Object>::try_from(thrown).unwrap();
                     let message = v8::String::new(tc, "message").unwrap();
@@ -1604,7 +1611,8 @@ globalThis.namespaces = {};";
     fn the_namespace_op_knows_the_row_by_its_script() {
         let not_a_row = "TypeError: a namespace is asked for by a builtin's own script";
         let not_a_scope = "TypeError: no row takes a scope yet";
-        let not_handed = "TypeError: a row whose members throw no host error hands over no Error";
+        let not_handed =
+            "TypeError: a row whose members declare no error family hands over no Error";
         for start in STARTS {
             assert_eq!(
                 probed("native_members", start)["rows_refused"],
