@@ -225,10 +225,10 @@ impl PendingArrayBuffer {
         // lives; every byte is initialized, zeroed by the allocation (V8's
         // default `kZeroInitialized`, which calls the allocator's
         // `Allocate`, whose contract zeroes them) and written only as `u8`
-        // since; no
-        // `&mut` to them exists while `self` is borrowed shared, the store
-        // being this value's alone ([`PendingArrayBuffer`]); a `u8` needs no
-        // alignment, and an allocation never exceeds `isize::MAX` bytes
+        // since then; no `&mut` to them exists while `self` is borrowed shared,
+        // the store being this value's alone ([`PendingArrayBuffer`]); a
+        // `u8` needs no alignment, and an allocation never exceeds
+        // `isize::MAX` bytes
         unsafe { std::slice::from_raw_parts(data.as_ptr().cast::<u8>(), self.len()) }
     }
 

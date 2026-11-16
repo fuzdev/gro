@@ -181,8 +181,10 @@ the reads (`read`, `read_text`, `read_if_exists`, `read_text_if_exists`, `read_t
 - `read` and `read_if_exists` resolve with a `Uint8Array` of a buffer of its own, which the program owns.
   V8 allocates the buffer, of the size the file reports, and the file is read straight into it,
   so V8's collector counts every read's bytes, as it counts a buffer JS allocates, and frees the ones a program dropped before more pile up.
-  A file whose size was wrong (a `/proc` file, one that grew or shrank since it reported it) is copied once into a buffer of the length it had.
-  A buffer V8 can't allocate, after collecting all it can, ends the process as out of memory.
+  A file whose size was wrong (a `/proc` file, one that grew or shrank since it reported it) is copied once into a buffer of the length it had,
+  so one that grew is held about twice while it's copied.
+  A buffer V8 can't allocate, after collecting all it can, ends the process as out of memory, and so does `read_text`'s,
+  where the Node module's read rejects with `io_error`, its cause Node's `RangeError` (`ERR_MEMORY_ALLOCATION_FAILED`).
   `read_text` decodes as Node's does: each malformed sequence a U+FFFD, a BOM kept.
   As a promise fulfilled with any object does, the bytes' promise looks their `then` up through the realm's prototypes,
   so a `then` a program put on `Object.prototype` runs there, as on Node.

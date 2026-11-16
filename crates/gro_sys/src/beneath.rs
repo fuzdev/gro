@@ -1420,6 +1420,42 @@ mod tests {
         }
     }
 
+    /// A fill reads until its buffer is full, however few bytes each read
+    /// gives: a datagram socket gives one datagram a read, as a regular
+    /// file gives at most `0x7ffff000` bytes.
+    #[test]
+    fn a_fill_reads_until_its_buffer_is_full() {
+        use std::os::unix::net::UnixDatagram;
+        let (reader, writer) = UnixDatagram::pair().unwrap();
+        writer.send(b"12").unwrap();
+        writer.send(b"345").unwrap();
+        let file = std::fs::File::from(std::os::fd::OwnedFd::from(reader));
+        let mut reading = super::Reading::new(file, 5, 5).unwrap();
+        let mut bytes = [0; 5];
+        assert_eq!(reading.fill(&mut bytes).unwrap(), 5);
+        assert_eq!(&bytes, b"12345");
+    }
+
+    /// A read past its limit reads at most one byte past it, counting what
+    /// its fill read, so a file longer than the limit is never read whole.
+    #[test]
+    fn a_read_past_its_limit_reads_one_byte_past_it() {
+        use std::io::{Read as _, Write as _};
+        use std::os::unix::net::UnixStream;
+        let (reader, mut writer) = UnixStream::pair().unwrap();
+        writer.write_all(b"1234567890").unwrap();
+        drop(writer);
+        let mut file = std::fs::File::from(std::os::fd::OwnedFd::from(reader));
+        let mut reading = super::Reading::new(file.try_clone().unwrap(), 2, 4).unwrap();
+        let mut bytes = [0; 2];
+        assert_eq!(reading.fill(&mut bytes).unwrap(), 2);
+        let error = reading.rest().unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::FileTooLarge);
+        let mut left = Vec::new();
+        file.read_to_end(&mut left).unwrap();
+        assert_eq!(left, b"67890");
+    }
+
     /// Records that run past the bytes, are too short for a name, or hold a
     /// name with no NUL fail to parse; `.` and `..` are left out.
     #[test]
