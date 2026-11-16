@@ -227,19 +227,15 @@ It names only ASCII letters, digits, and `_`, which every shell passes as printe
 and reads `some of what env refused` when it can't name them all: past 8 names, a name longer than 2 KiB, or a name of any other character
 (a comma, which separates the flag's names, a glob, a space, a quote, a shell's `$`, a control character, a lookalike letter).
 With no name it can show, there's no hint line, so a run whose first 8 refused names all fall outside these characters prints none.
-After it come the hints for `fs`, one for each flag a refusal needed, `--allow-read` first:
-`hint: add --allow-read=/a,/b to grant what fs refused` (or `--allow-write=`), naming each directory the run's grants lacked,
-by the same rules, a path shown only when it's absolute and made of ASCII letters, digits, `_`, `.`, `/`, and `-`, which neither bash nor fish reads as anything else,
-and only when it's the real path of a directory as the run ends, no symlink, `.`, or `..` on it, so the flag grants the directory it shows
-and the walk that refused finds it by that text (a symlink's path, `/proc/self/root` among them, would grant another directory, and a file or nothing grants nothing),
-and `some of what fs refused` when it can't show them all;
-with none it can show, the line names the flag alone, `hint: add --allow-read naming the directory to grant what fs refused`.
-The directory a reach outside every root needs is the one its refused step opens in: the names before a `..`, which the walk looks up first, or the whole path,
-and for `fs.real_path`'s last step its parent; a step that leaves its root through a symlink needs a grant of a path through the symlink, which no hint shows, so its line names the flag alone.
-The one an op a handle's scope lacked needs is the handle's root, by its real path: the project's root itself for a write through `fs.project`, since a handle never gains what its root lacked; a copy is judged by the path it writes, its `to`.
-But when a root already grants what was refused, holding the op's target by its text, no flag is hinted, which would widen past it (the whole project, for a write through `fs.project`),
-and the line names the directory to open instead, after the flags' lines: `hint: the run grants what fs refused in /p/dist: open it with fs.open_dir and use that handle`,
-by the same rules (`in a directory not named here` when it can't show it). So `fs.project.write('dist/x')` with `--allow-write=dist` prints that line, not `--allow-write=` of the project.
+After it come the hints for `fs`, each once when a refusal needed it, in this order, each fixed text that names no path:
+`hint: add --allow-read naming the directory to grant what fs refused`, for a reach outside every root, a step out of its root through a symlink included, or a read through a handle that doesn't read;
+`hint: add --allow-write naming the directory to grant what fs refused, then open it with fs.open_dir and write through that handle`, for a write through a handle that doesn't write,
+since a handle never gains what its root lacked, so `fs.project` writes nothing, whatever is granted inside it;
+and, when a root already grants what was refused, holding by its text the path a read reads or each path a write writes (a copy's `to`, a rename's `from` and `to`), `hint: the run grants what fs refused: open the directory with fs.open_dir and use that handle`,
+never a flag, which would widen the handle's root (the whole project, for a write through `fs.project`).
+A copy is refused naming the path it writes, its `to`, and judged by it, so a copy into a directory written from outside it hints the handle to open, which writes the copy but can't name its source: the program reads through one handle and writes through the other.
+A walk opens the names before a `..` first, so `fs.real_path('/usr/../etc')` needs `/usr` granted as well as `/etc`.
+The listed refusal names the path; a hint never does, since a path the program chose, shown back, can grant another directory than it names, through a symlink, or run something when pasted.
 There's no hint for a name a narrowed handle refused, which no flag widens, for any refusal under `-A`, whose roots reach everything,
 or for a refused `import()`, which records no grant: a package is granted no host module by any flag, most rules are grantable by nothing,
 and the project's `import()` of `env` without `--allow-env=` names no variable the flag could list.

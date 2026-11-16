@@ -553,7 +553,7 @@ if (refusals.join() !== 'not_granted: B,not_granted: B,not_granted: B,not_grante
     );
     assert_eq!(outcome.refused.unlisted, 0);
     assert_eq!(outcome.refused.needed, [needs("B")]);
-    assert!(!outcome.refused.more_needed);
+    assert!(!outcome.refused.more_names);
     let uncaught = "import { env } from '@fuzdev/gro/env.ts';
 try {
 \tenv.get('C');

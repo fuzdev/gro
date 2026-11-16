@@ -1272,9 +1272,9 @@ console.log(JSON.stringify(ended));
 /// into `/proc`, a FIFO, and a directory beside it: every escape from a
 /// handle is `outside_root` and every reach past the project's root
 /// `not_granted`, recorded and failing the run, listed in order, a
-/// symlink out of the root among them, the hint showing only the real
-/// directory a grant lets the walk through, never a missing one or a
-/// symlink's path; a FIFO is stat'd as `other` without
+/// symlink out of the root among them, the hints naming each flag and no
+/// path, a write through `fs.project` the directory to open after its
+/// grant, never the project's; a FIFO is stat'd as `other` without
 /// waiting for a writer, and isn't a directory; a cloned, look-alike,
 /// other row's, or read-only handle is refused before anything is read;
 /// and a polluted `Object.prototype.then` is adopted by no record or handle
@@ -1323,8 +1323,8 @@ fn fs_refuses_every_escape_and_forgery() {
              error: fs refused: not_granted: {root}/to_outside/f.txt\n\
              error: fs refused: not_granted: {root}/new.txt\n\
              error: a refusal fails the run, whether or not the program caught it\n\
-             hint: add --allow-read={out} to grant some of what fs refused\n\
-             hint: add --allow-write={root} to grant what fs refused\n"
+             {HINT_READ}\n\
+             {HINT_WRITE}\n"
         ),
         "{stdout}"
     );
@@ -1442,9 +1442,8 @@ console.log(JSON.stringify(ended));
 /// is, and reaching the project through a symlink out of it; and
 /// `fs.project`, whose handles never write, whatever root inside it is
 /// written. Every refusal is listed and fails the run, and the hints name
-/// the real directories each flag would grant, but for a step out of its
-/// root through a symlink, and, for a write a root already grants, the
-/// directory to open a handle on instead.
+/// each flag a refusal needed and, for a write a root already grants, a
+/// handle to open instead, never a path.
 #[test]
 fn fs_roots_by_flag_scope_their_handles() {
     let project = Scratch::new(
@@ -1536,10 +1535,9 @@ fn fs_roots_by_flag_scope_their_handles() {
              error: fs refused: not_granted: {r}/abs\n\
              error: fs refused: not_granted: {p}/to_r\n\
              error: a refusal fails the run, whether or not the program caught it\n\
-             hint: add --allow-read={w} to grant some of what fs refused\n\
-             hint: add --allow-write={r},{p} to grant what fs refused\n\
-             hint: the run grants what fs refused in {p}/out: \
-             open it with fs.open_dir and use that handle\n"
+             {HINT_READ}\n\
+             {HINT_WRITE}\n\
+             {HINT_OPEN_DIR}\n"
         )
     );
     assert_eq!(output.status.code(), Some(1));
@@ -1763,8 +1761,21 @@ fn fs_unconfined_reads_and_writes_everything() {
     );
 }
 
-/// The script [`fs_hints_name_only_paths_a_shell_passes_as_printed`] runs:
-/// a reach outside every root by each path given.
+/// The hint after an fs refusal that a grant to read lets through.
+const HINT_READ: &str = "hint: add --allow-read naming the directory to grant what fs refused";
+
+/// The hint after an fs refusal that a grant to write lets through, once
+/// the directory granted is opened.
+const HINT_WRITE: &str = "hint: add --allow-write naming the directory to grant what fs refused, \
+                          then open it with fs.open_dir and write through that handle";
+
+/// The hint after an fs refusal through a handle whose scope lacks the op,
+/// on a directory a root already grants it in.
+const HINT_OPEN_DIR: &str = "hint: the run grants what fs refused: \
+                             open the directory with fs.open_dir and use that handle";
+
+/// The script [`fs_hints_name_the_flag_and_no_path`] runs: a reach outside
+/// every root by each path given.
 const FS_HINTS: &str = "import { fs } from '@fuzdev/gro/fs.ts';
 import { args } from '@fuzdev/gro/args.ts';
 for (const path of args) {
@@ -1774,15 +1785,13 @@ for (const path of args) {
 }
 ";
 
-/// The hint after a refused path names it only when it's absolute and of
-/// characters neither bash nor fish reads as anything else, and the real
-/// path of a directory, and otherwise names the flag alone: never a
-/// symlink, `/proc/self/root`, a file, or nothing; a path with a `..`
-/// names the directory before it, which the walk opens first, and one
-/// with a `.` or a trailing `/` the directory it names. A hint
-/// names the directory it grants, never what the listing shows.
+/// The hint after a refused path names the flag alone, once however many
+/// paths were refused, never a path: not a real directory's, which the
+/// refusal names, nor one a shell would read as something else, nor a
+/// symlink's, `/proc/self/root`'s, a file's, or a missing one's, which
+/// would grant another directory than it names, or nothing.
 #[test]
-fn fs_hints_name_only_paths_a_shell_passes_as_printed() {
+fn fs_hints_name_the_flag_and_no_path() {
     let project = Scratch::new(
         "fs_hints",
         &[
@@ -1808,68 +1817,51 @@ fn fs_hints_name_only_paths_a_shell_passes_as_printed() {
             .map(ToOwned::to_owned)
             .collect::<Vec<_>>()
     };
-    let flag_alone = ["hint: add --allow-read naming the directory to grant what fs refused"];
     let at = |name: &str| format!("{}/{name}", outside.0.display());
-    let dir = at("such-dir_1.0");
-    let unsafe_paths = [
-        "/a b",
-        "/a'b",
-        "/a\"b",
-        "/$HOME",
-        "/a$(touch pwned)",
-        "/a\nhint: forged",
-        "/a\u{202e}b",
-        "/a,b",
-        "/~",
-    ];
-    let unreal_paths = [
+    let paths = [
+        at("such-dir_1.0"),
+        format!("{}/../such-dir_1.0", at("such-dir_1.0")),
+        "/etc".to_owned(),
+        "/a b".to_owned(),
+        "/a$(touch pwned)".to_owned(),
+        "/a\nhint: forged".to_owned(),
+        "/a\u{202e}b".to_owned(),
+        "/a,b".to_owned(),
         "/no/such-dir_1.0".to_owned(),
         "/proc/self/root".to_owned(),
         at("link"),
         at("such-dir_1.0/f.txt"),
     ];
-    for path in unsafe_paths
-        .into_iter()
-        .chain(unreal_paths.iter().map(String::as_str))
-    {
-        assert_eq!(run(&[path]), flag_alone, "{path:?}");
+    for path in &paths {
+        assert_eq!(run(&[path]), [HINT_READ], "{path:?}");
     }
-    assert_eq!(
-        run(&[&dir, "/a b", &dir]),
-        [format!(
-            "hint: add --allow-read={dir} to grant some of what fs refused"
-        )]
-    );
-    for path in [format!("{dir}/../such-dir_1.0"), format!("{dir}/./")] {
-        assert_eq!(
-            run(&[&path]),
-            [format!(
-                "hint: add --allow-read={dir} to grant what fs refused"
-            )],
-            "{path}"
-        );
-    }
+    let all: Vec<&str> = paths.iter().map(String::as_str).collect();
+    assert_eq!(run(&all), [HINT_READ]);
     assert!(!project.0.join("pwned").exists());
 }
 
 /// The script [`fs_a_scope_a_root_grants_hints_the_handle_to_open`] runs:
 /// a write through `fs.project` to a directory `--allow-write=` grants,
-/// uncaught; or, given a directory only written, that write, a read
-/// through a handle on it of a directory `--allow-read=` grants, and two
-/// copies through `fs.project`, into the directory written and out of it,
-/// caught.
+/// uncaught; or each call it names, caught: that write, a read through a
+/// handle on the directory given, only written, of a directory
+/// `--allow-read=` grants inside it, two copies through `fs.project`,
+/// into the directory written and out of it, and two renames, into it and
+/// out of it.
 const FS_PROJECT_WRITE: &str = "import { fs } from '@fuzdev/gro/fs.ts';
 import { args } from '@fuzdev/gro/args.ts';
-const [w] = args;
-if (w === undefined) await fs.project.write('dist/x', 'x');
-for (const call of [
-\t() => fs.project.write('dist/x', 'x'),
-\tasync () => (await fs.open_dir(w)).read_text('sub/g.txt'),
-\t() => fs.project.copy('main.js', 'dist/y'),
-\t() => fs.project.copy('dist/.keep', 'x'),
-]) {
+const [w, ...names] = args;
+const calls = {
+\twrite: () => fs.project.write('dist/x', 'x'),
+\tread: async () => (await fs.open_dir(w)).read_text('sub/g.txt'),
+\tcopy_in: () => fs.project.copy('main.js', 'dist/y'),
+\tcopy_out: () => fs.project.copy('dist/.keep', 'x'),
+\trename_in: () => fs.project.rename('main.js', 'dist/z'),
+\trename_out: () => fs.project.rename('dist/.keep', 'z'),
+};
+if (names.length === 0) await fs.project.write('dist/x', 'x');
+for (const name of names) {
 \ttry {
-\t\tawait call();
+\t\tawait calls[name]();
 \t} catch (error) {
 \t\tconsole.log(error.kind);
 \t}
@@ -1879,12 +1871,15 @@ for (const call of [
 /// An op through a handle whose scope lacks it, on a directory a root
 /// already grants, is refused, since a handle's scope never widens, and
 /// its hint names no grant, which would widen the handle's whole root (the
-/// project, for a write through `fs.project`), but the directory to open a
-/// handle on with `fs.open_dir`, which does the op: a write into a
-/// directory written, a copy's into it, judged by the path it writes, and
-/// a read through a root only written of a directory read inside it; a
-/// copy out of the directory written into one no root writes needs the
-/// handle's root written.
+/// project, for a write through `fs.project`), but a handle to open with
+/// `fs.open_dir`, which does the op: a write into a directory written, a
+/// copy's into it, judged by the path it writes, and a read through a root
+/// only written of a directory read inside it. A copy out of the directory
+/// written into one no root writes, judged by the path it writes too,
+/// needs a directory granted and opened, and so does a rename into the
+/// directory written or out of it, judged by both paths it writes and
+/// named by its first; a read through a root only written, with no root reading what it
+/// reads, needs a grant to read. Each line is printed once.
 #[test]
 fn fs_a_scope_a_root_grants_hints_the_handle_to_open() {
     let project = Scratch::new(
@@ -1912,11 +1907,19 @@ fn fs_a_scope_a_root_grants_hints_the_handle_to_open() {
             String::from_utf8(output.stderr).unwrap(),
         )
     };
-    let open_dir = |dir: &str| {
-        format!(
-            "hint: the run grants what fs refused in {dir}: \
-             open it with fs.open_dir and use that handle\n"
-        )
+    let refused = |paths: &[String], hints: &[&str]| {
+        let mut stderr = String::new();
+        for path in paths {
+            stderr.push_str("error: fs refused: not_granted: ");
+            stderr.push_str(path);
+            stderr.push('\n');
+        }
+        stderr.push_str("error: a refusal fails the run, whether or not the program caught it\n");
+        for hint in hints {
+            stderr.push_str(hint);
+            stderr.push('\n');
+        }
+        ("not_granted\n".repeat(paths.len()), stderr)
     };
     assert_eq!(
         run(&["--allow-write=dist", "main.js"]),
@@ -1924,10 +1927,39 @@ fn fs_a_scope_a_root_grants_hints_the_handle_to_open() {
             String::new(),
             format!(
                 "error: Uncaught (in promise) FsError: not_granted: {p}/dist/x\n    \
-                 at file://{p}/main.js:4:39\n{}",
-                open_dir(&format!("{p}/dist"))
+                 at file://{p}/main.js:12:42\n{HINT_OPEN_DIR}\n"
             )
         )
+    );
+    assert_eq!(
+        run(&["--allow-write=dist", "main.js", "-", "copy_in"]),
+        refused(&[format!("{p}/dist/y")], &[HINT_OPEN_DIR])
+    );
+    assert_eq!(
+        run(&["--allow-write=dist", "main.js", "-", "copy_out"]),
+        refused(&[format!("{p}/x")], &[HINT_WRITE])
+    );
+    assert_eq!(
+        run(&["--allow-write=dist", "main.js", "-", "rename_in"]),
+        refused(&[format!("{p}/main.js")], &[HINT_WRITE])
+    );
+    assert_eq!(
+        run(&["--allow-write=dist", "main.js", "-", "rename_out"]),
+        refused(&[format!("{p}/dist/.keep")], &[HINT_WRITE])
+    );
+    assert_eq!(
+        run(&[
+            &format!("--allow-write={w}"),
+            &format!("--allow-read={w_sub}"),
+            "main.js",
+            &w,
+            "read",
+        ]),
+        refused(&[format!("{w}/sub/g.txt")], &[HINT_OPEN_DIR])
+    );
+    assert_eq!(
+        run(&[&format!("--allow-write={w}"), "main.js", &w, "read"]),
+        refused(&[format!("{w}/sub/g.txt")], &[HINT_READ])
     );
     assert_eq!(
         run(&[
@@ -1935,19 +1967,19 @@ fn fs_a_scope_a_root_grants_hints_the_handle_to_open() {
             &format!("--allow-read={w_sub}"),
             "main.js",
             &w,
+            "write",
+            "read",
+            "copy_in",
+            "copy_out",
         ]),
-        (
-            "not_granted\nnot_granted\nnot_granted\nnot_granted\n".to_owned(),
-            format!(
-                "error: fs refused: not_granted: {p}/dist/x\n\
-                 error: fs refused: not_granted: {w}/sub/g.txt\n\
-                 error: fs refused: not_granted: {p}/dist/y\n\
-                 error: fs refused: not_granted: {p}/x\n\
-                 error: a refusal fails the run, whether or not the program caught it\n\
-                 hint: add --allow-write={p} to grant what fs refused\n{}{}",
-                open_dir(&format!("{p}/dist")),
-                open_dir(&w_sub)
-            )
+        refused(
+            &[
+                format!("{p}/dist/x"),
+                format!("{w}/sub/g.txt"),
+                format!("{p}/dist/y"),
+                format!("{p}/x"),
+            ],
+            &[HINT_WRITE, HINT_OPEN_DIR]
         )
     );
 }

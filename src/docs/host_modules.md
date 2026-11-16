@@ -169,7 +169,7 @@ the reads (`read`, `read_text`, `read_if_exists`, `read_text_if_exists`, `read_t
   `fs.open_dir` and `fs.project` give a handle its root's scope, `dir()` keeps its receiver's (an `FsReadDir`'s writing nothing),
   and `readonly()` drops the write; nothing widens a scope, so `fs.project.dir('out')` writes nothing even when `out` is granted:
   a program writes a granted directory through a handle `fs.open_dir` makes on it, and `fs.open_dir` of `out` is the handle that writes it.
-  The hint after such a refusal names that directory to open, never a flag that would widen the handle's root ([run](run.md#errors-and-exit-codes)).
+  The hint after such a refusal says to open the directory with `fs.open_dir`, never to grant a flag that would widen the handle's root ([run](run.md#errors-and-exit-codes)).
   A read op (`stat`, `exists`, the reads, `read_link`, `list`) through a handle that doesn't read is `not_granted`, after its path is checked and before anything is looked up,
   and so is a write op through one that doesn't write. A write op through one that writes throws a plain `Error` saying it isn't built on `fgro` yet.
   `dir()` and `readonly()` work on any handle, so a handle that only writes still narrows to a subdirectory.

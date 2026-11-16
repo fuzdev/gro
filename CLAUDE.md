@@ -715,9 +715,10 @@ Invariants that live in the code:
   record listed, cut, and counted alike, so either fails the run caught or
   not; a refusal by `env`'s root, and an `fs` reach no root holds or an op
   a handle's scope lacks, also records the grant that would have allowed
-  it (`NeededGrant`: a variable, a directory to read or write, or, for an
-  op a handle's scope lacks that a root already grants, the directory to
-  open a handle on), from which `fgro` prints its hints. No
+  it (`NeededGrant`: a variable by its name, a grant to read or to write
+  by its kind alone, or, for an op a handle's scope lacks that a root
+  already grants, a handle to open), from which `fgro` prints its hints,
+  an fs hint naming no path. No
   in-process test grants a step that returns: a program that exits is run
   in a child process.
 - A change to the seccomp allowlist reruns the census

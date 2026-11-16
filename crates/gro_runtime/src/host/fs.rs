@@ -64,12 +64,13 @@
 //! naming `/`, which resolves an absolute path as the kernel does.
 //! Such a refusal is recorded in the run's record of refusals as it's
 //! thrown, with what would have allowed it ([`NeededGrant`]), which fails
-//! the run whatever the program does with the error: the grant of the
-//! directory the refused step opens in, none for a step that left its
-//! root through a symlink, whose real path a root matches by another text;
-//! and for an op a handle's scope lacks, a handle `fs.open_dir` makes on a
-//! root that grants it, since a grant never widens the handle that refused
-//! it, or, with no such root, the grant of the handle's root.
+//! the run whatever the program does with the error: a grant to read; and
+//! for an op a handle's scope lacks, a handle `fs.open_dir` makes on a root
+//! that grants it, since a grant never widens the handle that refused it,
+//! or, with no such root, a grant of what the scope lacked. A need names
+//! its kind, never a directory: a path a program chose, shown back, can
+//! name another directory than the one the refusal needed, through a
+//! symlink, and the refusal itself names the path.
 //!
 //! A whole-file read opens its target beneath the handle without waiting
 //! for it, and `gro_sys` refuses anything but a regular file by the opened
@@ -453,23 +454,13 @@ impl Failure {
         }
     }
 
-    /// `not_granted` about `path`, which no root the call may use holds,
-    /// so granting `dir` to read, the directory the call's walk opens in,
-    /// lets the call through.
-    fn unheld(path: &str, dir: String) -> Self {
+    /// `not_granted` about `path`, which no root the call may use reaches:
+    /// none holds it by its text, or it leaves each that does through a
+    /// symlink, so a grant to read lets the call through.
+    fn unreached(path: &str) -> Self {
         Self::NotGranted {
             path: path.to_owned(),
-            needed: Some(NeededGrant::Read(dir)),
-        }
-    }
-
-    /// `not_granted` about `path`, which leaves the root that holds it
-    /// through a symlink, so only a grant of a path through the symlink
-    /// lets the call through.
-    fn escaped(path: &str) -> Self {
-        Self::NotGranted {
-            path: path.to_owned(),
-            needed: Some(NeededGrant::ReadThroughSymlink),
+            needed: Some(NeededGrant::Read),
         }
     }
 
@@ -852,7 +843,6 @@ fn beneath(roots: &[Root], handle: Handle, requested: String) -> Result<Beneath,
     if !handle.scope.read {
         let needed = scope_needed(
             roots,
-            root,
             std::slice::from_ref(&target),
             Scope::READ,
             NeededGrant::Read,
@@ -1343,7 +1333,7 @@ pub fn write_op<'s>(
         run_state(state)?.ready()?;
         let handle = read_handle(scope, &FS_DIR, receiver)?;
         let roots = run_roots(state)?;
-        let (root, handle_path) = handle_root(&roots, &handle)?;
+        let (_, handle_path) = handle_root(&roots, &handle)?;
         let mut targets = Vec::with_capacity(paths.len());
         for path in paths {
             let requested = path_text(scope, *path)?;
@@ -1355,7 +1345,7 @@ pub fn write_op<'s>(
             )));
         }
         let written = targets.get(written..).unwrap_or_default();
-        let needed = scope_needed(&roots, root, written, Scope::WRITE, NeededGrant::Write);
+        let needed = scope_needed(&roots, written, Scope::WRITE, NeededGrant::Write);
         let first = written.first().cloned().unwrap_or(handle_path);
         Err::<v8::Local<'s, v8::Value>, _>(Failure::NotGranted {
             path: first,
@@ -1465,20 +1455,18 @@ fn handle_root<'r>(roots: &'r [Root], handle: &Handle) -> Result<(&'r Root, Stri
     Ok((root, path))
 }
 
-/// What lets through an op on `targets`, absolute paths, that a handle on
-/// `root` refused for want of `need`, a handle's scope being its root's or
-/// less: a handle `fs.open_dir` makes on the longest root doing `need`
-/// that holds every target by its text, when one does, since a grant
-/// wouldn't widen the handle that refused it; else `need` granted to
-/// `root`, by its real path, as `grant` records it.
+/// What lets through an op on `targets`, absolute paths, that a handle
+/// refused for want of `need`: a handle `fs.open_dir` makes on a root
+/// doing `need` that holds every target by its text, when one does, since
+/// a grant wouldn't widen the handle that refused it; else `grant`, the
+/// grant of `need`.
 fn scope_needed(
     roots: &[Root],
-    root: &Root,
     targets: &[String],
     need: Scope,
-    grant: fn(String) -> NeededGrant,
+    grant: NeededGrant,
 ) -> NeededGrant {
-    // each target's roots doing `need`, the longest first
+    // each target's roots doing `need`
     let mut held = targets.iter().map(|target| {
         let names: Vec<String> = target
             .split('/')
@@ -1492,14 +1480,14 @@ fn scope_needed(
     });
     let first = held.next().unwrap_or_default();
     let rest: Vec<Vec<usize>> = held.collect();
-    first
-        .into_iter()
-        .find(|index| rest.iter().all(|other| other.contains(index)))
-        .and_then(|index| roots.get(index))
-        .map_or_else(
-            || grant(root.path.clone()),
-            |held| NeededGrant::OpenDir(held.path.clone()),
-        )
+    if first
+        .iter()
+        .any(|index| rest.iter().all(|other| other.contains(index)))
+    {
+        NeededGrant::OpenDir
+    } else {
+        grant
+    }
 }
 
 /// `root`'s descriptor, or `io_error` about `path` naming why it isn't
@@ -1678,7 +1666,7 @@ fn reach<'r>(
         let found =
             sys::open_in_root(fd, root.path.clone(), rel, step, root.whole).map_err(|error| {
                 if sys::is_escape(&error) {
-                    Failure::escaped(path)
+                    Failure::unreached(path)
                 } else if matches!(step, sys::Opened::Directory)
                     && error.kind() == std::io::ErrorKind::NotADirectory
                 {
@@ -1736,15 +1724,15 @@ fn walk<'r>(
         )));
     }
     let mut step = |names: &[String], dir: bool, step: sys::Opened| {
-        let mut refused = Failure::unheld(path, step_dir(names, step));
         for (index, root, rel) in find_roots(roots, names, dir, need) {
             match open(root, rel, step) {
                 Ok(beneath) => return Ok((index, root, beneath)),
-                Err(failure @ Failure::NotGranted { .. }) => refused = failure,
+                // it left this root by a symlink, so the next may hold it
+                Err(Failure::NotGranted { .. }) => {}
                 Err(failure) => return Err(failure),
             }
         }
-        Err(refused)
+        Err(Failure::unreached(path))
     };
     // a trailing `/` or `/.` asks for a directory, as the kernel reads it
     let dir = path.ends_with('/') || path.ends_with("/.");
@@ -1777,17 +1765,6 @@ fn walk<'r>(
         }
     }
     step(&names, dir, opened)
-}
-
-/// The directory a walk's step on `names` opens in, as an absolute path:
-/// the path they name when it opens a directory, else their parent, so
-/// the entry is whatever is there.
-fn step_dir(names: &[String], step: sys::Opened) -> String {
-    let names = match (step, names.split_last()) {
-        (sys::Opened::Entry, Some((_, parent))) => parent,
-        _ => names,
-    };
-    format!("/{}", names.join("/"))
 }
 
 /// The roots of `roots` whose scope meets `need` that hold the path of
@@ -2404,7 +2381,7 @@ mod tests {
                                     cause: None,
                                 });
                             }
-                            "out" => return Err(Failure::escaped(path)),
+                            "out" => return Err(Failure::unreached(path)),
                             name => real.push(name),
                         }
                     }
@@ -2485,15 +2462,13 @@ mod tests {
         );
     }
 
-    /// A refused walk records the directory its refused step opens in,
-    /// never the path as asked: a directory step's own names, the names
-    /// before a `..` included, and an entry's parent, so a grant of it lets
-    /// the step through; a root that holds the names but doesn't do what's
-    /// needed adds nothing to that. A step that leaves the roots holding it
-    /// through a symlink records no directory, since a root matches by its
-    /// text and a grant of the symlink's real path holds another.
+    /// A refused walk names the path as asked and needs a grant to read,
+    /// whatever step it was refused at: a directory step's, the names
+    /// before a `..` included, an entry's, or one that leaves the roots
+    /// holding it through a symlink; a root that holds the names but
+    /// doesn't do what's needed changes nothing.
     #[test]
-    fn a_refused_walk_needs_the_directory_its_step_opens_in() {
+    fn a_refused_walk_needs_a_grant_to_read() {
         let roots = [root("/p"), scoped("/w", &[], Scope::WRITE)];
         let needed = |path: &str, opened: sys::Opened, need: Scope| match walk(
             &roots,
@@ -2502,7 +2477,7 @@ mod tests {
             opened,
             need,
             |_, rel, _| match rel.as_str() {
-                "out" => Err(Failure::escaped(path)),
+                "out" => Err(Failure::unreached(path)),
                 "." => Ok(String::new()),
                 _ => Ok(rel),
             },
@@ -2516,38 +2491,31 @@ mod tests {
             }
             _ => panic!("{path} wasn't refused"),
         };
-        let read = |dir: &str| Some(NeededGrant::Read(dir.to_owned()));
         let (directory, entry) = (sys::Opened::Directory, sys::Opened::Entry);
-        for (path, opened, need, expected) in [
-            ("/q/a", directory, Scope::ALL, read("/q/a")),
-            ("/q/a/", directory, Scope::ALL, read("/q/a")),
-            ("/q/a", entry, Scope::READ, read("/q")),
-            ("/q/../p/a", entry, Scope::READ, read("/q")),
-            ("/usr/../etc", directory, Scope::ALL, read("/usr")),
-            ("/p/../etc", directory, Scope::ALL, read("/etc")),
-            ("/", entry, Scope::READ, read("/")),
-            ("/w/a/f.txt", entry, Scope::READ, read("/w/a")),
-            (
-                "/p/out",
-                directory,
-                Scope::ALL,
-                Some(NeededGrant::ReadThroughSymlink),
-            ),
-            (
-                "/p/out",
-                entry,
-                Scope::READ,
-                Some(NeededGrant::ReadThroughSymlink),
-            ),
+        for (path, opened, need) in [
+            ("/q/a", directory, Scope::ALL),
+            ("/q/a/", directory, Scope::ALL),
+            ("/q/a", entry, Scope::READ),
+            ("/q/../p/a", entry, Scope::READ),
+            ("/usr/../etc", directory, Scope::ALL),
+            ("/p/../etc", directory, Scope::ALL),
+            ("/", entry, Scope::READ),
+            ("/w/a/f.txt", entry, Scope::READ),
+            ("/p/out", directory, Scope::ALL),
+            ("/p/out", entry, Scope::READ),
         ] {
-            assert_eq!(needed(path, opened, need), expected, "{path}");
+            assert_eq!(
+                needed(path, opened, need),
+                Some(NeededGrant::Read),
+                "{path}"
+            );
         }
     }
 
     /// An op a handle's scope lacks needs a handle `fs.open_dir` makes on
-    /// the longest root doing it that holds the op's target by its text,
-    /// by its real path, a path it was granted as included; else the grant
-    /// of the handle's root, by its real path.
+    /// a root doing it that holds every one of the op's targets by its
+    /// text, by its real path or a path it was granted as; else a grant of
+    /// what it lacks.
     #[test]
     fn a_scope_refusal_needs_a_handle_on_a_root_that_grants_it() {
         let roots = [
@@ -2557,64 +2525,36 @@ mod tests {
             scoped("/data/w", &["/w"], Scope::WRITE),
             scoped("/data/w/sub", &[], Scope::ALL),
         ];
-        let open_dir = |dir: &str| NeededGrant::OpenDir(dir.to_owned());
-        for (root, target, need, expected) in [
-            (0, "/p/out/x", Scope::WRITE, open_dir("/p/out")),
-            (0, "/p/out", Scope::WRITE, open_dir("/p/out")),
-            (
-                0,
-                "/p/out/deeper/x",
-                Scope::WRITE,
-                open_dir("/p/out/deeper"),
-            ),
-            (
-                0,
-                "/p/outer/x",
-                Scope::WRITE,
-                NeededGrant::Write("/p".to_owned()),
-            ),
-            (0, "/p/x", Scope::WRITE, NeededGrant::Write("/p".to_owned())),
-            (0, "/w/x", Scope::WRITE, open_dir("/data/w")),
-            (3, "/data/w/sub/x", Scope::READ, open_dir("/data/w/sub")),
-            (
-                3,
-                "/data/w/x",
-                Scope::READ,
-                NeededGrant::Read("/data/w".to_owned()),
-            ),
-        ] {
+        let needed = |targets: &[&str], need: Scope| {
             let grant = if need.write {
                 NeededGrant::Write
             } else {
                 NeededGrant::Read
             };
-            assert_eq!(
-                scope_needed(&roots, &roots[root], &[target.to_owned()], need, grant),
-                expected,
-                "{target}"
-            );
-        }
-        // every target held by one root doing the need, the longest that
-        // holds them all, else the handle's root's grant
-        let both = |a: &str, b: &str| {
-            scope_needed(
-                &roots,
-                &roots[0],
-                &[a.to_owned(), b.to_owned()],
-                Scope::WRITE,
-                NeededGrant::Write,
-            )
+            let targets: Vec<String> = targets.iter().map(|&target| target.to_owned()).collect();
+            scope_needed(&roots, &targets, need, grant)
         };
-        assert_eq!(both("/p/out/a", "/p/out/b"), open_dir("/p/out"));
-        assert_eq!(both("/p/out/deeper/a", "/p/out/b"), open_dir("/p/out"));
-        assert_eq!(
-            both("/p/src/a", "/p/out/b"),
-            NeededGrant::Write("/p".to_owned())
-        );
-        assert_eq!(
-            scope_needed(&roots, &roots[0], &[], Scope::WRITE, NeededGrant::Write),
-            NeededGrant::Write("/p".to_owned())
-        );
+        let (open_dir, read, write) = (NeededGrant::OpenDir, NeededGrant::Read, NeededGrant::Write);
+        for (targets, need, expected) in [
+            (&["/p/out/x"][..], Scope::WRITE, &open_dir),
+            (&["/p/out"], Scope::WRITE, &open_dir),
+            (&["/p/out/deeper/x"], Scope::WRITE, &open_dir),
+            (&["/p/outer/x"], Scope::WRITE, &write),
+            (&["/p/x"], Scope::WRITE, &write),
+            (&["/w/x"], Scope::WRITE, &open_dir),
+            (&["/data/w/sub/x"], Scope::READ, &open_dir),
+            (&["/data/w/x"], Scope::READ, &read),
+            (&["/p/x"], Scope::READ, &open_dir),
+            // every target held by one root doing the need
+            (&["/p/out/a", "/p/out/b"], Scope::WRITE, &open_dir),
+            (&["/p/out/deeper/a", "/p/out/b"], Scope::WRITE, &open_dir),
+            (&["/p/out/a", "/w/b"], Scope::WRITE, &write),
+            (&["/p/src/a", "/p/out/b"], Scope::WRITE, &write),
+            (&["/p/out/b", "/p/src/a"], Scope::WRITE, &write),
+            (&[], Scope::WRITE, &write),
+        ] {
+            assert_eq!(&needed(targets, need), expected, "{targets:?}");
+        }
     }
 
     /// A path the kernel named beneath a root is its text, and none is no
@@ -2702,7 +2642,7 @@ mod tests {
                     match (root.path.as_str(), rel.as_str()) {
                         // `up`, a symlink to `../x`, leaves `/p/in` into
                         // `/p`, and `out` leaves both
-                        ("/p/in", "up") | (_, "in/out" | "out") => Err(Failure::escaped(path)),
+                        ("/p/in", "up") | (_, "in/out" | "out") => Err(Failure::unreached(path)),
                         ("/p", "in/up") => Ok("x".to_owned()),
                         (_, "missing") => Err(Failure::Fs {
                             kind: "not_found",

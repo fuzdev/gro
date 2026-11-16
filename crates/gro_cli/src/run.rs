@@ -169,9 +169,8 @@ const REFUSALS_FAIL: &str = "error: a refusal fails the run, whether or not the 
 /// what refused it, an `import()` or a host module, and its message, its
 /// control characters escaped, since the program chose the specifier or
 /// the name, then one line counting the refusals it doesn't list, then,
-/// when there were any, [`REFUSALS_FAIL`]; then the hints of the flags
-/// that grant what the refused calls needed, and of the handles to open
-/// for what a root already grants ([`grant_hints`]), if any does, which
+/// when there were any, [`REFUSALS_FAIL`]; then the hints saying what
+/// grants the refused calls' needs ([`grant_hints`]), if any does, which
 /// the refusal that is the run's uncaught error, not listed, has too.
 fn report_refused(refused: &Refusals) {
     for refusal in &refused.listed {
@@ -191,104 +190,74 @@ fn report_refused(refused: &Refusals) {
     if !refused.is_empty() {
         stderr_line(REFUSALS_FAIL);
     }
-    for hint in grant_hints(refused, is_real_dir) {
+    for hint in grant_hints(refused) {
         stderr_line(hint);
     }
 }
 
-/// Whether `path` is the real path of a directory: one is there, and no
-/// symlink, `.`, `..`, or doubled or trailing `/` is on its text, so a
-/// flag naming it grants that directory, and a root of it holds a path by
-/// that text.
-fn is_real_dir(path: &str) -> bool {
-    std::fs::canonicalize(path).is_ok_and(|real| real.as_os_str() == path && real.is_dir())
-}
-
-/// The lines naming the flags that grant the refused calls' needed grants
-/// (`refused.needed`), made of that data, never of a listed message, one
-/// for each flag, `--allow-env`, then `--allow-read`, then `--allow-write`,
-/// then one for each directory a handle on it would reach:
+/// The lines saying what grants the refused calls' needs
+/// (`refused.needed`), made of that data, never of a listed message:
 ///
 /// - `hint: add --allow-env=A,B to grant what env refused`, of each name
 ///   that's a [`hint_name`], or `... to grant some of what env refused`
-///   when a call needed a name the line doesn't show, and no line when it
-///   shows none;
-/// - `hint: add --allow-read=/a,/b to grant what fs refused`, of each path
-///   that's a [`hint_path`] and, as `real_dir` tells, the real path of a
-///   directory, so pasting the line grants what it shows and the walk
-///   that refused finds it by that text: a path through a symlink, which a
-///   program chooses, grants another directory than it names
-///   (`/proc/self/root` grants `/`), and a file or nothing grants nothing.
-///   Else `... some of what fs refused` as for env, and when it shows no
-///   path,
-///   `hint: add --allow-read naming the directory to grant what fs
-///   refused`, the flag without a path, which a shell reads as it's
-///   printed, as for a step out of its root through a symlink, which only
-///   a grant of a path through the symlink lets through; the same for
-///   `--allow-write`;
-/// - `hint: the run grants what fs refused in /a: open it with fs.open_dir
-///   and use that handle`, of each such path that a root already grants as
-///   the refused op needed, since a handle's scope never widens; and `...
-///   in a directory not named here: ...` when one isn't shown.
+///   when a call needed a name the line doesn't show, past the record's
+///   bound (`more_names`) included, and no line when it shows none;
+/// - `hint: add --allow-read naming the directory to grant what fs
+///   refused`, for a read;
+/// - `hint: add --allow-write naming the directory to grant what fs
+///   refused, then open it with fs.open_dir and write through that
+///   handle`, for a write, since a handle made from another root never
+///   gains the scope (`fs.project` writes nothing, whatever is granted
+///   inside it);
+/// - `hint: the run grants what fs refused: open the directory with
+///   fs.open_dir and use that handle`, for an op through a handle whose
+///   scope lacks it, on a directory a root already grants it in.
 ///
-/// A need past the record's bounds (`more_needed`) is one the flags' lines
-/// don't show, of whichever flag. None for a refusal by rule or by a
-/// handle the program narrowed, which need none, or under `-A`, which
-/// refuses no grant.
-fn grant_hints(refused: &Refusals, real_dir: impl Fn(&str) -> bool) -> Vec<String> {
-    let shown = |path: &str| hint_path(path) && real_dir(path);
+/// Each fs line is printed once, when a refusal needed it, and is fixed
+/// text: the refusal names the path, and a path a program chose, shown
+/// back, can grant another directory than it names, through a symlink,
+/// or run something when pasted.
+///
+/// None for a refusal by rule or by a handle the program narrowed, which
+/// need none, or under `-A`, which refuses no grant.
+fn grant_hints(refused: &Refusals) -> Vec<String> {
     let mut names: Vec<&str> = Vec::new();
-    let mut reads: Vec<&str> = Vec::new();
-    let mut writes: Vec<&str> = Vec::new();
-    let mut handles: Vec<&str> = Vec::new();
-    let (mut some_env, mut some_read, mut some_write, mut some_handle) =
-        (false, false, false, false);
+    let mut some_env = refused.more_names;
+    let (mut read, mut write, mut open_dir) = (false, false, false);
     for needed in &refused.needed {
         match needed {
             NeededGrant::Env(name) if hint_name(name) => names.push(name),
             NeededGrant::Env(_) => some_env = true,
-            NeededGrant::Read(path) if shown(path) => reads.push(path),
-            NeededGrant::Read(_) | NeededGrant::ReadThroughSymlink => some_read = true,
-            NeededGrant::Write(path) if shown(path) => writes.push(path),
-            NeededGrant::Write(_) => some_write = true,
-            NeededGrant::OpenDir(path) if shown(path) => handles.push(path),
-            NeededGrant::OpenDir(_) => some_handle = true,
+            NeededGrant::Read => read = true,
+            NeededGrant::Write => write = true,
+            NeededGrant::OpenDir => open_dir = true,
         }
     }
-    let more = refused.more_needed;
-    let what = |some: bool| if some || more { "some of what" } else { "what" };
     let mut hints = Vec::new();
     if !names.is_empty() {
+        let what = if some_env { "some of what" } else { "what" };
         hints.push(format!(
-            "hint: add {ALLOW_ENV}={} to grant {} env refused",
-            names.join(","),
-            what(some_env)
+            "hint: add {ALLOW_ENV}={} to grant {what} env refused",
+            names.join(",")
         ));
     }
-    for (flag, paths, some) in [
-        (ALLOW_READ, reads, some_read),
-        (ALLOW_WRITE, writes, some_write),
-    ] {
-        if !paths.is_empty() {
-            hints.push(format!(
-                "hint: add {flag}={} to grant {} fs refused",
-                paths.join(","),
-                what(some)
-            ));
-        } else if some {
-            hints.push(format!(
-                "hint: add {flag} naming the directory to grant what fs refused"
-            ));
-        }
+    if read {
+        hints.push(format!(
+            "hint: add {ALLOW_READ} naming the directory to grant what fs refused"
+        ));
     }
-    let handle = |dir: &str| {
-        format!(
-            "hint: the run grants what fs refused in {dir}: open it with fs.open_dir and use that handle"
-        )
-    };
-    hints.extend(handles.into_iter().map(handle));
-    if some_handle {
-        hints.push(handle("a directory not named here"));
+    if write {
+        hints.push(format!(
+            "hint: add {ALLOW_WRITE} naming the directory to grant what fs refused, \
+             then open it with fs.open_dir and write through that handle"
+        ));
+    }
+    if open_dir {
+        hints.push(
+            "hint: the run grants what fs refused: \
+             open the directory with fs.open_dir and use that handle"
+                .to_owned(),
+        );
     }
     hints
 }
@@ -300,19 +269,6 @@ fn grant_hints(refused: &Refusals, real_dir: impl Fn(&str) -> bool) -> Vec<Strin
 /// control character, or a lookalike letter.
 fn hint_name(name: &str) -> bool {
     !name.is_empty() && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
-}
-
-/// Whether the hint names `path`: an absolute path of ASCII letters,
-/// digits, `_`, `.`, `/`, and `-` only, which neither bash nor fish reads
-/// as anything but the word it's printed as, so pasting the hint runs
-/// nothing. A program chooses the paths it asks for, and a path
-/// can hold a space, a comma, which separates the flag's directories, a
-/// quote, `$(…)`, a `~`, a control character, or a lookalike letter.
-fn hint_path(path: &str) -> bool {
-    path.starts_with('/')
-        && path
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b'/' | b'-'))
 }
 
 /// Where `fgro run` reads the environment variables it hands the runtime:
@@ -672,173 +628,71 @@ mod tests {
         assert_eq!(options.authority, gro_runtime::Authority::Unconfined);
     }
 
-    /// The hints name each flag's values a shell passes as printed, in the
-    /// order first needed, one line a flag, env's first: a path shows only
-    /// when it's absolute and of letters, digits, `_`, `.`, `/`, and `-`; a
-    /// line that can't show every value says `some of what`, and one that
-    /// can show none names its flag without a value; a need past the
-    /// record's bounds is one no line shows.
+    /// The hints say what grants each need, in the order first needed for
+    /// env, one line a flag: env's first, naming the variables a shell
+    /// passes as printed, `some of what` when it can't show every one, a
+    /// need past the record's bound included, and no line when it can show
+    /// none; then each fs line once, read, write, then a handle to open,
+    /// each fixed text naming no path.
     #[test]
-    fn the_hints_show_only_what_a_shell_passes_as_printed() {
+    fn the_hints_name_env_s_variables_and_fs_s_kinds() {
         use gro_runtime::{NeededGrant, Refusals};
 
         use super::grant_hints;
 
-        // every path a directory's real path, so only the shell decides
-        let hints = |needed: &[NeededGrant], more_needed: bool| {
-            grant_hints(
-                &Refusals {
-                    needed: needed.to_vec(),
-                    more_needed,
-                    ..Refusals::default()
-                },
-                |_| true,
-            )
+        let hints = |needed: &[NeededGrant], more_names: bool| {
+            grant_hints(&Refusals {
+                needed: needed.to_vec(),
+                more_names,
+                ..Refusals::default()
+            })
         };
-        let read = |path: &str| NeededGrant::Read(path.to_owned());
-        let write = |path: &str| NeededGrant::Write(path.to_owned());
-        let open_dir = |path: &str| NeededGrant::OpenDir(path.to_owned());
         let env = |name: &str| NeededGrant::Env(name.to_owned());
+        let read = "hint: add --allow-read naming the directory to grant what fs refused";
+        let write = "hint: add --allow-write naming the directory to grant what fs refused, \
+                     then open it with fs.open_dir and write through that handle";
+        let open_dir = "hint: the run grants what fs refused: \
+                        open the directory with fs.open_dir and use that handle";
         assert!(hints(&[], false).is_empty());
         assert_eq!(
             hints(
                 &[
-                    write("/p"),
-                    read("/a/b-c_d.e"),
+                    NeededGrant::OpenDir,
+                    NeededGrant::Write,
                     env("HOME"),
-                    read("/x"),
+                    NeededGrant::Read,
                     env("A_1"),
                 ],
                 false
             ),
             [
                 "hint: add --allow-env=HOME,A_1 to grant what env refused",
-                "hint: add --allow-read=/a/b-c_d.e,/x to grant what fs refused",
-                "hint: add --allow-write=/p to grant what fs refused",
+                read,
+                write,
+                open_dir,
             ]
         );
-        let unsafe_paths = [
-            "relative/dir",
-            "/a b",
-            "/a'b",
-            "/a\"b",
-            "/a$b",
-            "/a$(touch x)",
-            "/a`b`",
-            "/a\nb",
-            "/a\u{1b}[2J",
-            "/a\u{202e}b",
-            "/a,b",
-            "/a*",
-            "/~",
-            "/a;b",
-            "/a\\b",
-            "/\u{e9}",
-            "/a\u{ff0f}b",
-            "",
-        ];
-        for path in unsafe_paths {
-            assert_eq!(
-                hints(&[read(path)], false),
-                ["hint: add --allow-read naming the directory to grant what fs refused"],
-                "{path:?}"
-            );
-            assert_eq!(
-                hints(&[write("/ok"), write(path)], false),
-                ["hint: add --allow-write=/ok to grant some of what fs refused"],
-                "{path:?}"
-            );
-            assert_eq!(
-                hints(&[open_dir(path)], false),
-                [
-                    "hint: the run grants what fs refused in a directory not named here: \
-                     open it with fs.open_dir and use that handle"
-                ],
-                "{path:?}"
-            );
-        }
+        assert_eq!(hints(&[NeededGrant::Read], false), [read]);
+        assert_eq!(hints(&[NeededGrant::Write], false), [write]);
+        assert_eq!(hints(&[NeededGrant::OpenDir], false), [open_dir]);
         assert_eq!(
-            hints(&[read("/ok"), env("A")], true),
-            [
-                "hint: add --allow-env=A to grant some of what env refused",
-                "hint: add --allow-read=/ok to grant some of what fs refused",
-            ]
+            hints(&[NeededGrant::Read], true),
+            [read],
+            "a variable past the bound makes no fs line"
+        );
+        assert_eq!(
+            hints(&[env("A"), env("A B")], false),
+            ["hint: add --allow-env=A to grant some of what env refused"]
+        );
+        assert_eq!(
+            hints(&[env("A")], true),
+            ["hint: add --allow-env=A to grant some of what env refused"]
         );
         assert_eq!(
             hints(&[env("A B")], false),
             Vec::<String>::new(),
             "an env name it can't show makes no line"
         );
-    }
-
-    /// A path a refusal needed shows only when it's the real path of a
-    /// directory, so a flag naming it grants it and the walk that refused
-    /// finds it by that text: never a symlink, inside a root or
-    /// `/proc/self/root`, which grants another directory than it names,
-    /// nor a file or nothing, which grants nothing; a step out of its root
-    /// through a symlink shows the flag alone. A directory a root already
-    /// grants shows as a handle to open on it, never a flag, after the
-    /// flags' lines.
-    #[test]
-    fn the_hints_show_only_real_directories() {
-        use gro_runtime::{NeededGrant, Refusals};
-
-        use super::{grant_hints, is_real_dir};
-
-        let hints = |needed: &[NeededGrant]| {
-            grant_hints(
-                &Refusals {
-                    needed: needed.to_vec(),
-                    ..Refusals::default()
-                },
-                |path| matches!(path, "/p" | "/p/out" | "/r"),
-            )
-        };
-        let read = |path: &str| NeededGrant::Read(path.to_owned());
-        let write = |path: &str| NeededGrant::Write(path.to_owned());
-        let open_dir = |path: &str| NeededGrant::OpenDir(path.to_owned());
-        assert_eq!(
-            hints(&[read("/p/docs"), read("/proc/self/root"), read("/r")]),
-            ["hint: add --allow-read=/r to grant some of what fs refused"]
-        );
-        assert_eq!(
-            hints(&[NeededGrant::ReadThroughSymlink, write("/p/x.txt")]),
-            [
-                "hint: add --allow-read naming the directory to grant what fs refused",
-                "hint: add --allow-write naming the directory to grant what fs refused",
-            ]
-        );
-        assert_eq!(
-            hints(&[open_dir("/p/out"), write("/p"), open_dir("/p/gone")]),
-            [
-                "hint: add --allow-write=/p to grant what fs refused",
-                "hint: the run grants what fs refused in /p/out: \
-                 open it with fs.open_dir and use that handle",
-                "hint: the run grants what fs refused in a directory not named here: \
-                 open it with fs.open_dir and use that handle",
-            ]
-        );
-        let real = std::fs::canonicalize(env!("CARGO_MANIFEST_DIR"))
-            .unwrap()
-            .display()
-            .to_string();
-        let at = |name: &str| format!("{real}/{name}");
-        let shown: Vec<String> = [
-            at("src"),
-            at("src/../src"),
-            at("./src"),
-            format!("{real}//src"),
-            at("src/"),
-            at("Cargo.toml"),
-            at("no_such_dir"),
-            "/proc/self/root".to_owned(),
-            "/proc/self/cwd".to_owned(),
-            "/".to_owned(),
-        ]
-        .into_iter()
-        .filter(|path| is_real_dir(path))
-        .collect();
-        assert_eq!(shown, [at("src"), "/".to_owned()]);
     }
 
     /// The variables' `Debug` names them and prints no value.
