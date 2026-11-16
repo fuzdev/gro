@@ -278,7 +278,9 @@ Crates:
   safe API; Linux only
 - `gro_v8` - the V8 boundary: the calls rusty_v8 exposes only as `unsafe`,
   behind a safe API (eval's recording `ArrayBuffer` allocator,
-  `record_array_buffers`); `v8` is pinned to the exact version
+  `record_array_buffers`, and `PendingArrayBuffer`, an `ArrayBuffer`'s bytes
+  from the isolate's own allocator, held by Rust alone while the host writes
+  them, which the fs reads fill); `v8` is pinned to the exact version
   `deno_core` re-exports, so a `deno_core` upgrade moves the pin with it
 - `gro_bench` - the measurement harness, independent of the runtime crates;
   its `lib.rs` lists its modules and suites
@@ -487,7 +489,11 @@ Invariants that live in the code:
     the one root so far; every fs member first checks that the kernel
     serves `openat2` (but `list` and its listing's methods, whose one I/O,
     the first `next()`, checks it), and an op's I/O takes owned arguments,
-    so it can move off the thread.
+    so it can move off the thread, but for a read's filling of its buffer,
+    which V8 allocated (`gro_v8::PendingArrayBuffer`, not `Send`), so V8's
+    collector counts it: the open (`gro_sys::beneath::Reading`, which is
+    `Send`) can move, and the read into the buffer stays on the isolate's
+    thread.
   - The resolver returns a table hit ahead of any package lookup; the loader
     checks it against the run's `Authority` at link time, for a static import
     and `import()` alike (`loader/resolve.rs`): with none (eval's) nothing is
