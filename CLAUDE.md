@@ -284,7 +284,9 @@ Crates:
   `record_array_buffers`, and `PendingArrayBuffer`, an `ArrayBuffer`'s bytes
   from the isolate's own allocator, held by Rust alone while the host writes
   them, which the fs reads fill); `v8` is pinned to the exact version
-  `deno_core` re-exports, so a `deno_core` upgrade moves the pin with it
+  `deno_core` re-exports through `deno_v8` (its `v8` dependency, a wrapper
+  that re-exports `v8`), so a `deno_core` upgrade whose `deno_v8` requires
+  another `v8` moves the pin with it
 - `gro_bench` - the measurement harness, independent of the runtime crates;
   its `lib.rs` lists its modules and suites
 - `xtask` - dev automation (`cargo xtask`): `fetch-v8`, `build`, `check`,
@@ -551,7 +553,9 @@ else loading the machine. It builds the release `fgro` at that revision in a
 clone outside the checkout, runs each `fgro` row beside the base copy
 interleaved, prints instruction, cycle, and wall medians against the base's,
 and records nothing. An instruction move past 2% needs a written reason in
-review.
+review. Both suites read checkouts beside gro's, as their recorded runs do:
+`../corpora` (the baseline's module graph), `../zap` (eval's driver and
+recipes), and `../fuz_forge` (eval's `forge2` config).
 
 ## Implementation reference
 

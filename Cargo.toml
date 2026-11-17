@@ -52,8 +52,9 @@ tokio = { version = "1", features = ["rt"] }
 tsv_ts = { version = "0.8.1", default-features = false }
 url = "2.5"
 # the V8 binding itself, for gro_v8's calls `deno_core` doesn't wrap; pinned to
-# the exact version `deno_core` re-exports as `deno_core::v8`, with the features
-# it enables, so both name one crate and V8 builds once
+# the exact version `deno_core` re-exports as `deno_core::v8` (its `deno_v8`
+# dependency, a wrapper that re-exports `v8`), with the features it enables,
+# so both name one crate and V8 builds once
 v8 = { version = "=150.4.0", default-features = false, features = ["simdutf", "use_custom_libcxx"] }
 
 # deno_core as published, plus gro's patch for deterministic snapshots:

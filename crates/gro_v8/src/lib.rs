@@ -4,8 +4,9 @@
 //! `unsafe`: they forbid it, and this one denies it and allows it per
 //! function, each `unsafe` block beside the argument for why it's sound.
 //!
-//! Its `v8` is the crate `deno_core` re-exports as `deno_core::v8`, so the
-//! types here are the ones the runtime holds.
+//! Its `v8` is the crate `deno_core` re-exports as `deno_core::v8` (through
+//! `deno_v8`, a wrapper that re-exports `v8`), so the types here are the ones
+//! the runtime holds.
 //!
 //! - [`record_array_buffers`] gives an isolate an `ArrayBuffer` allocator
 //!   that records whether its latest allocation failed

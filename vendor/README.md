@@ -11,15 +11,23 @@ comment syntax (`// gro patch:` in Rust).
 
 These checks hold the tree to this index:
 
-- `cargo xtask check-rust` (and `check`) fetches each crate's `.crate` from
-  crates.io once, caching it under `target/vendor/<sha256>/`, verifies the
-  SHA-256 recorded below, applies the patch, and fails unless the result
-  equals the vendored tree, contents and executable bits, naming each file
-  that differs
+- `cargo xtask check-rust` (and `check`) downloads each crate's `.crate`
+  from `static.crates.io` with `curl`, once, caching it under
+  `target/vendor/<sha256>/`, verifies the SHA-256 recorded below, applies the
+  patch, and fails unless the result equals the vendored tree, contents and
+  executable bits, naming each file that differs
   (`crates/xtask/src/vendor.rs`)
 - its unit tests check that every file a patch touches is listed below, that
   every file it modifies carries a marker, and that each tree's markers are
   the ones its patch adds
+
+`cargo xtask vendor-patch`, below, reads the same cache. Offline, seed it
+from cargo's registry cache, which holds the same bytes once cargo has
+downloaded it (`cargo fetch`, or a build): copy
+`~/.cargo/registry/cache/*/<name>-<version>.crate` to
+`target/vendor/<sha256>/<name>-<version>.crate`. Either way the file is
+checked against the recorded SHA-256, and one that doesn't match is deleted
+and downloaded again.
 
 The patch is regenerated from the tree, never edited by hand:
 
@@ -198,10 +206,14 @@ Reportable upstream: no, a check of gro's own.
 ## Upgrading a vendored crate
 
 1. Bump the version in the root `Cargo.toml` (for `deno_core`, with `deno_web`
-   and `deno_webidl`, and the `v8` pin to the version it re-exports). With the
-   old copy still patched in, cargo warns the patch is unused and resolves the
-   registry crate, downloading and verifying the new `.crate` against the
-   index's checksum.
+   and `deno_webidl`). For `deno_core`, move the `v8` pin with it when the
+   new version needs another `v8`: its `v8` dependency is the `deno_v8`
+   crate, a wrapper that re-exports `v8`, and the V8 archive's pin moves
+   too (`crates/xtask/src/v8_archive.rs`, and the path `.cargo/config.toml`
+   names). Then `cargo update -p <name>` each crate whose version moved.
+   With the old copy still patched in, cargo warns the patch is unused and
+   locks the registry crate at the index's checksum; `cargo fetch` then
+   downloads the new `.crate`s and verifies each against it.
 2. Record the new `.crate`'s SHA-256 above (`sha256sum` of
    `~/.cargo/registry/cache/*/<name>-<version>.crate`, which equals the
    `checksum` cargo wrote to `Cargo.lock`).
@@ -209,8 +221,10 @@ Reportable upstream: no, a check of gro's own.
    then reapply the patch in it (`patch -p1 -i ../<name>.patch`), adapting
    each site, dropping any part upstream has fixed, and updating the entries
    above.
-4. `cargo xtask vendor-patch <name>` regenerates the patch from the tree.
-5. `cargo update -p <name> --offline` points `Cargo.lock` back at the path,
+4. `cargo update -p <name> --offline` points `Cargo.lock` back at the path.
+   Until it does, every `cargo xtask` fails: the alias passes `--locked`,
+   and the lock names the registry crate the patch now replaces.
+5. `cargo xtask vendor-patch <name>` regenerates the patch from the tree,
    then `cargo xtask check` reruns the vendor check and, in its snapshot
    build, the reproducibility gate.
 6. For `deno_core` and `deno_web`, review each op the upgrade adds, removes,
