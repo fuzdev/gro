@@ -325,12 +325,18 @@ describe('a reader that leaves', () => {
 	);
 });
 
+/**
+ * Whether `pid` names a process, a zombie not yet reaped included. Only `ESRCH`
+ * says it's gone: `EPERM` is another user's process, which the run's child never
+ * is, so it throws rather than reading a pid like init's as ended.
+ */
 const is_running = (pid: number): boolean => {
 	try {
 		process.kill(pid, 0);
 		return true;
-	} catch {
-		return false;
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === 'ESRCH') return false;
+		throw error;
 	}
 };
 

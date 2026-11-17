@@ -9,7 +9,8 @@ use crate::test_support::run_authority;
 const ARGS: &str = "@fuzdev/gro/args.ts";
 const BAR: &str = "file:///p/node_modules/bar/i.mjs";
 
-/// `fgro run`'s authority: `args` and `exit` granted.
+/// `fgro run`'s authority (`run_authority`): `args`, `exit`, `env` for one
+/// variable, and `fs`.
 fn granted() -> Authority {
     run_authority()
 }

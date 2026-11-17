@@ -17,8 +17,8 @@ use crate::{Authority, RuntimeOptions, STACK_SIZE};
 
 pub(super) const ARGS: &str = "@fuzdev/gro/args.ts";
 
-/// `fgro run`'s authority: `args` and `exit` granted, the exit step one
-/// no program here reaches.
+/// `fgro run`'s authority (`run_authority`): `args`, `exit`, `env` for one
+/// variable, and `fs`, the exit step one no program here reaches.
 pub(super) fn granted() -> Authority {
     run_authority()
 }

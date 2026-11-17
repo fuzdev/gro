@@ -130,7 +130,9 @@ fn run_help() -> String {
 /// The authority a run's flags give it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RunGrant {
-    /// The project's modules granted `args` and `exit`, and `env` for the
+    /// The project's modules granted `args`, `exit`, and `fs`, which reads
+    /// the project's tree and the directories `--allow-read=` lists and
+    /// writes those `--allow-write=` lists ([`FlagDirs`]), and `env` for the
     /// names `--allow-env=` listed, when it listed any.
     Named {
         /// The environment variables granted, each an exact name.

@@ -1671,6 +1671,74 @@ fn fs_flag_directories_are_checked_as_the_run_starts() {
     }
 }
 
+/// Gives a directory its search permission back when dropped, a panic's
+/// unwinding included, so `Scratch`'s drop can remove it; it never panics,
+/// since a panic while unwinding aborts.
+struct Unlock(PathBuf);
+
+impl Drop for Unlock {
+    fn drop(&mut self) {
+        use std::os::unix::fs::PermissionsExt as _;
+        let _ = std::fs::set_permissions(&self.0, std::fs::Permissions::from_mode(0o755));
+    }
+}
+
+/// A directory a flag lists that can't be looked at, beneath a directory
+/// with no search permission, is a usage error naming it with the OS's
+/// reason, under `-A` too, before anything runs.
+#[test]
+fn a_flag_directory_that_cant_be_looked_at_is_a_usage_error() {
+    let project = Scratch::new(
+        "fs_flag_unreadable",
+        &[
+            (
+                "package.json",
+                "{\"name\": \"fs_flag_unreadable\", \"type\": \"module\"}\n",
+            ),
+            ("main.js", "console.log('ran');\n"),
+            ("locked/inner/x.txt", ""),
+        ],
+    );
+    let p = project.0.display().to_string();
+    project.set_mode("locked", 0o000);
+    let unlock = Unlock(project.0.join("locked"));
+    // a user the mode doesn't bind, root, looks anyway
+    let looked = std::fs::metadata(project.0.join("locked/inner")).is_ok();
+    let outputs = (!looked).then(|| {
+        [
+            &["--allow-read=locked/inner"][..],
+            &["-A", "--allow-write=locked/inner"],
+        ]
+        .map(|args| {
+            let args = [&["run"][..], args, &["main.js"]].concat();
+            let mut command = fgro_command(&args);
+            command.env_clear().current_dir(&project.0);
+            (args.join(" "), spawn(command, b""))
+        })
+    });
+    // restored before any assertion, so the directory is removed on drop
+    drop(unlock);
+    let Some(outputs) = outputs else {
+        eprintln!(
+            "skipped: {p}/locked/inner is looked at with its parent's mode 0o000 (running as root?)"
+        );
+        return;
+    };
+    let help = "Run fgro run --help for more information.";
+    for ((args, output), flag) in outputs.into_iter().zip(["--allow-read", "--allow-write"]) {
+        assert_eq!(
+            String::from_utf8(output.stderr).unwrap(),
+            format!(
+                "error: a {flag} directory can't be looked at: {p}/locked/inner \
+                 (Permission denied (os error 13))\n{help}\n"
+            ),
+            "{args}"
+        );
+        assert_eq!(output.stdout, b"", "{args}");
+        assert_eq!(output.status.code(), Some(2), "{args}");
+    }
+}
+
 /// A directory a flag lists whose real path isn't its text, resolved
 /// against the working directory with its `.` and `..` by their text, is
 /// noted with its real path as the run starts, before the program runs:

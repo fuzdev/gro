@@ -17,7 +17,10 @@
 //! order of its steps is `eval::confine_eval`'s.
 //!
 //! Exit codes, the same for `run` and `eval`: `0` success, `1` a run that
-//! fails, `2` a usage error, an entry that doesn't resolve included. A
+//! fails, `2` a usage error, an entry the resolver refuses included (one
+//! that's missing, say), or under `eval` one that isn't a project's own.
+//! An entry whose resolution fails reading the tree, on an I/O error or a
+//! symlink loop, exits `1`: no change to the command line fixes it. A
 //! program under `run` can exit with a code of its own, 0 to 255, by the
 //! exit host module (`run::exit_code` has the rules).
 //!

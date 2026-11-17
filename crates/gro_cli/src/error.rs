@@ -184,8 +184,10 @@ pub enum DirFault {
 
 impl CliError {
     /// The exit code: [`EXIT_USAGE`] when the caller must change the
-    /// arguments, an entry that doesn't resolve included, else
-    /// [`EXIT_FAILURE`].
+    /// arguments, an entry the resolver refuses included
+    /// (`ResolveErrorKind::is_refusal`), else [`EXIT_FAILURE`], an entry
+    /// whose resolution failed reading the tree (an I/O error, a symlink
+    /// loop) among them.
     pub const fn exit_code(&self) -> u8 {
         match self {
             Self::Prices(_)
