@@ -142,48 +142,47 @@ fn push_header(scope: &v8::PinScope<'_, '_>, text: &mut String, error: v8::Local
 /// do.
 struct Failed;
 
-/// The call site getters a frame reads.
-#[derive(Clone, Copy)]
-enum Getter {
-    FileName,
-    LineNumber,
-    ColumnNumber,
-    EvalOrigin,
-    TypeName,
-    FunctionName,
-    MethodName,
-    IsToplevel,
-    IsEval,
-    IsNative,
-    IsConstructor,
-    IsAsync,
-    IsPromiseAll,
-    PromiseIndex,
+/// Declares [`Getter`] from one table of its variants and their property
+/// names, so [`Getter::ALL`], and the size of [`Sites`]' table, hold every
+/// variant.
+macro_rules! getters {
+    ($($variant:ident => $name:literal,)*) => {
+        /// The call site getters a frame reads.
+        #[derive(Clone, Copy)]
+        enum Getter {
+            $($variant,)*
+        }
+
+        impl Getter {
+            /// Every getter, in declaration order, so each one's
+            /// discriminant is its place.
+            const ALL: &[Self] = &[$(Self::$variant,)*];
+
+            /// The getter's property name on a call site.
+            const fn name(self) -> &'static [u8] {
+                match self {
+                    $(Self::$variant => $name,)*
+                }
+            }
+        }
+    };
 }
 
-impl Getter {
-    /// How many getters there are, the size of [`Sites`]' table.
-    const COUNT: usize = Self::PromiseIndex as usize + 1;
-
-    /// The getter's property name on a call site.
-    const fn name(self) -> &'static [u8] {
-        match self {
-            Self::FileName => b"getFileName",
-            Self::LineNumber => b"getLineNumber",
-            Self::ColumnNumber => b"getColumnNumber",
-            Self::EvalOrigin => b"getEvalOrigin",
-            Self::TypeName => b"getTypeName",
-            Self::FunctionName => b"getFunctionName",
-            Self::MethodName => b"getMethodName",
-            Self::IsToplevel => b"isToplevel",
-            Self::IsEval => b"isEval",
-            Self::IsNative => b"isNative",
-            Self::IsConstructor => b"isConstructor",
-            Self::IsAsync => b"isAsync",
-            Self::IsPromiseAll => b"isPromiseAll",
-            Self::PromiseIndex => b"getPromiseIndex",
-        }
-    }
+getters! {
+    FileName => b"getFileName",
+    LineNumber => b"getLineNumber",
+    ColumnNumber => b"getColumnNumber",
+    EvalOrigin => b"getEvalOrigin",
+    TypeName => b"getTypeName",
+    FunctionName => b"getFunctionName",
+    MethodName => b"getMethodName",
+    IsToplevel => b"isToplevel",
+    IsEval => b"isEval",
+    IsNative => b"isNative",
+    IsConstructor => b"isConstructor",
+    IsAsync => b"isAsync",
+    IsPromiseAll => b"isPromiseAll",
+    PromiseIndex => b"getPromiseIndex",
 }
 
 /// The getters of one error's call sites, each looked up on first use: V8
@@ -191,7 +190,7 @@ impl Getter {
 /// getter of all.
 #[derive(Default)]
 struct Sites<'s> {
-    getters: [Option<v8::Local<'s, v8::Function>>; Getter::COUNT],
+    getters: [Option<v8::Local<'s, v8::Function>>; Getter::ALL.len()],
 }
 
 impl<'s> Sites<'s> {
