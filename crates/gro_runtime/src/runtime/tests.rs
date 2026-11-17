@@ -287,5 +287,6 @@ fn host_data() -> HostData {
             .into_iter()
             .collect(),
         project: None,
+        temp_dir: None,
     }
 }

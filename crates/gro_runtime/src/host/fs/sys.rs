@@ -14,7 +14,7 @@
 use std::ffi::{OsStr, OsString};
 use std::io;
 use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 pub use gro_sys::beneath::Reading;
@@ -940,6 +940,121 @@ fn planned_real(
         }
     }
     real_of(root, root_path, dir)
+}
+
+/// How many names [`make_temp`] tries before it gives up, each taken.
+const TEMP_TRIES: u32 = 100;
+
+/// The letters a temporary directory's name ends in six of, as
+/// `mkdtemp`'s.
+const TEMP_LETTERS: &[u8; 62] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+
+/// A directory [`make_temp`] made.
+pub struct MadeTemp {
+    /// Its real path.
+    pub path: String,
+    /// Its descriptor, a path only.
+    pub fd: OwnedFd,
+    /// The directory it was made in, by its descriptor.
+    pub parent: Arc<OwnedFd>,
+    /// Its name there.
+    pub name: String,
+}
+
+/// Makes a fresh directory in `temp`, the OS's temporary directory by the
+/// absolute real path the embedder read as the run started (where it
+/// couldn't be resolved then, its path with `.` and `..` resolved by their
+/// text), as `mkdtemp`
+/// makes one: named `prefix` then six letters from the OS's random source
+/// (`getrandom`), mode `0o700` less the process's umask, another six tried
+/// while a name is taken. `temp` is opened by that path with no symlink on
+/// it ([`beneath::open_root`]), so one made on the way since, at the last
+/// name or before it, by a run that writes there, is refused, never
+/// followed; the directory is made by its name in that descriptor, then
+/// opened beneath it, no symlink allowed, so no path is resolved again past
+/// the first. A directory made that doesn't then open is removed, best
+/// effort, so a failure leaves none behind.
+pub fn make_temp(temp: PathBuf, prefix: String) -> io::Result<MadeTemp> {
+    let parent = Arc::new(beneath::open_root(&temp).map_err(|error| {
+        if error.raw_os_error() == Some(libc::ELOOP) {
+            io::Error::other(TEMP_LINKED)
+        } else {
+            error
+        }
+    })?);
+    let temp = temp
+        .into_os_string()
+        .into_string()
+        .map_err(|temp| io::Error::other(format!("{} isn't UTF-8", temp.display())))?;
+    for _ in 0..TEMP_TRIES {
+        let mut random = [0u8; 6];
+        getrandom::fill(&mut random).map_err(|error| io::Error::other(error.to_string()))?;
+        let mut name = prefix.clone();
+        name.extend(
+            random
+                .iter()
+                .map(|byte| char::from(TEMP_LETTERS[usize::from(*byte) % TEMP_LETTERS.len()])),
+        );
+        match Last::open(parent.as_fd(), Path::new(&name)).and_then(|last| last.mkdir(TEMP_MODE)) {
+            Err(error) if error.raw_os_error() == Some(libc::EEXIST) => continue,
+            made => made?,
+        }
+        let fd = beneath::open(
+            parent.as_fd(),
+            Path::new(&name),
+            OpenAs::Directory,
+            Links::Refused,
+        )
+        .inspect_err(|_| {
+            // best effort: the open's error is the one reported
+            let _ = Last::open(parent.as_fd(), Path::new(&name)).and_then(|last| last.remove_dir());
+        })?;
+        return Ok(MadeTemp {
+            path: super::join(&temp, &name),
+            fd,
+            parent,
+            name,
+        });
+    }
+    Err(io::Error::from_raw_os_error(libc::EEXIST))
+}
+
+/// Why [`make_temp`] refuses a temporary directory with a symlink on its
+/// path.
+const TEMP_LINKED: &str = "a symlink is on the temporary directory's path, which is held to \
+                           its real path as the run started";
+
+/// The permission bits a temporary directory is made with, less the
+/// process's umask, as `mkdtemp`'s.
+const TEMP_MODE: u32 = 0o700;
+
+/// Removes the temporary directory whose descriptor is `root`, made in
+/// `parent` by the name `name`: everything in it first, each entry by its
+/// name beneath `root`'s own descriptor, no symlink followed
+/// ([`Last::remove_tree`]), then the directory itself, by its name in
+/// `parent`, which fails rather than remove another directory with
+/// entries swapped in at the name. Nothing there is no failure, as a
+/// forced `rm` finds nothing.
+pub fn remove_temp(root: Arc<OwnedFd>, parent: Arc<OwnedFd>, name: String) -> io::Result<()> {
+    let gone = |error: &io::Error| error.raw_os_error() == Some(libc::ENOENT);
+    match beneath::read_dir(root.as_fd(), Path::new(".")) {
+        Ok(entries) => {
+            for entry in entries {
+                match Last::open(root.as_fd(), Path::new(&entry.name))
+                    .and_then(|last| last.remove_tree())
+                {
+                    Err(error) if !gone(&error) => return Err(error),
+                    _ => {}
+                }
+            }
+        }
+        Err(error) if !gone(&error) => return Err(error),
+        Err(_) => {}
+    }
+    match Last::open(parent.as_fd(), Path::new(&name)).and_then(|last| last.remove_dir()) {
+        Err(error) if !gone(&error) => Err(error),
+        _ => Ok(()),
+    }
 }
 
 /// The real path beneath `root`, whose real path is `root_path`,

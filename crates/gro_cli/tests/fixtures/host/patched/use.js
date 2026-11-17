@@ -43,6 +43,12 @@ const written = await namespace_of('@fuzdev/gro/fs.ts').fs.open_dir(
 );
 
 /**
+ * A temporary directory the run's grant makes, made before the realm is armed, whose disposal is
+ * exercised below.
+ */
+const temp = await namespace_of('@fuzdev/gro/fs.ts').fs.temp_dir('exercised-');
+
+/**
  * The arguments each function or class a builtin exports or reaches is exercised with, by its
  * path as the reports name it (`<specifier> <export>`, then `.member` or `()` for each step):
  * lists that reach what a call with no argument or with hostile ones doesn't, and none for a
@@ -115,7 +121,10 @@ const EXERCISES = new Map([
 	// the project's directory and a file in it, which the run reads
 	['@fuzdev/gro/fs.ts fs.open_dir', [[project]]],
 	['@fuzdev/gro/fs.ts fs.real_path', [[`${project}/package.json`]]],
-	['@fuzdev/gro/fs.ts fs.temp_dir', []],
+	// a prefix, so a hostile one in its place is read
+	['@fuzdev/gro/fs.ts fs.temp_dir', [['made-']]],
+	// the temporary directory above, removed, then removed again
+	['@fuzdev/gro/fs.ts temp.Symbol(Symbol.asyncDispose)', [[], []]],
 	// a file, a missing path and a final link kept, and a directory, beneath the project
 	['@fuzdev/gro/fs.ts fs.project.stat', [['package.json'], ['missing', { follow: false }]]],
 	['@fuzdev/gro/fs.ts fs.project.stat_sync', [['package.json'], ['missing', { follow: false }]]],
@@ -222,6 +231,14 @@ for (const name of [
 ]) {
 	exerciser.exercise(`@fuzdev/gro/fs.ts written.${name}`, written_prototype[name], written, 1);
 }
+
+// a temporary directory's disposal, reached through its handle
+exerciser.exercise(
+	'@fuzdev/gro/fs.ts temp.Symbol(Symbol.asyncDispose)',
+	Object.getPrototypeOf(temp)[Symbol.asyncDispose],
+	temp,
+	1
+);
 
 const replaced = count_replaced();
 restore_realm();

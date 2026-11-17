@@ -119,6 +119,9 @@ pub enum FsNeed {
     /// handle that refused it, made from another root's, never gains the
     /// scope.
     OpenDir,
+    /// A fresh temporary directory, which `fs.temp_dir` makes under the
+    /// OS's temporary directory once it's granted.
+    Temp,
 }
 
 /// One refusal, as a run's record lists it.

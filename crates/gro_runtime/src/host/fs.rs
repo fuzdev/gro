@@ -94,9 +94,6 @@ use crate::{Authority, FsNeed};
 use roots::{Root, Table, holds_a_root};
 use walk::scope_needed;
 
-/// The fs namespace's specifier.
-const MODULE: &str = "@fuzdev/gro/fs.ts";
-
 /// What a member throws in a runtime started without the run's fs state,
 /// which only a runtime made outside a run's start is.
 const NO_FS_STATE: &str = "this runtime was started without the fs host module's state";
@@ -206,7 +203,46 @@ impl Access {
     }
 }
 
+/// What an op throws when the run's roots are borrowed as it would change
+/// them, which no op does while another runs.
+const ROOTS_BUSY: &str = "the run's fs roots are in use, so a root can't be added or retired";
+
 impl FsState {
+    /// Appends `root` to the run's table, made whole first if it wasn't
+    /// ([`FsState::roots`]), and to the project's view with `scope`: its
+    /// place. No op holds the roots while one is appended: a borrow left
+    /// is a plain `Error`, never a panic.
+    fn append(
+        &self,
+        data: &HostData,
+        authority: Option<&Authority>,
+        root: Root,
+        scope: Scope,
+    ) -> Result<usize, Failure> {
+        drop(self.roots(data, authority));
+        let mut table = self
+            .roots
+            .try_borrow_mut()
+            .map_err(|_| Failure::Plain(ROOTS_BUSY.to_owned()))?;
+        table
+            .as_mut()
+            .map(|table| table.append(root, scope))
+            .ok_or_else(|| Failure::Plain(NO_FS_STATE.to_owned()))
+    }
+
+    /// Retires the root at `place` ([`Table::retire`]), its ops failing as
+    /// `why` says.
+    fn retire(&self, place: usize, why: String) -> Result<(), Failure> {
+        let mut table = self
+            .roots
+            .try_borrow_mut()
+            .map_err(|_| Failure::Plain(ROOTS_BUSY.to_owned()))?;
+        if let Some(table) = table.as_mut() {
+            table.retire(place, why);
+        }
+        Ok(())
+    }
+
     /// That the kernel serves `openat2`, asked once a run while it does,
     /// else a plain `Error` saying what's missing.
     fn ready(&self) -> Result<(), Failure> {

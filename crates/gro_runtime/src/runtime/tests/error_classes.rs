@@ -45,7 +45,8 @@ JSON.stringify({
         let state = runtime.op_state();
         state.borrow_mut().put(Authority::default());
         state.borrow_mut().put(ErrorClasses::default());
-        state.borrow_mut().put(NativeNamespaces::default());
+        let namespaces = NativeNamespaces::new(runtime);
+        state.borrow_mut().put(namespaces);
         let before = state.borrow().borrow::<ErrorClasses>().len();
         drop(state);
         let row = backing_script("@fuzdev/gro/env_error.ts");
@@ -137,7 +138,8 @@ fn the_realm_s_error_is_checked_when_a_class_is_first_made() {
         state.borrow_mut().put(crate::test_support::run_authority());
         state.borrow_mut().put(host_data());
         state.borrow_mut().put(ErrorClasses::default());
-        state.borrow_mut().put(NativeNamespaces::default());
+        let namespaces = NativeNamespaces::new(runtime);
+        state.borrow_mut().put(namespaces);
         drop(state);
         let env = backing_script("@fuzdev/gro/env.ts");
         let import = |runtime: &mut JsRuntime, error: &str| {
@@ -208,7 +210,8 @@ fn a_refusal_with_no_record_to_land_in_fails_loudly() {
         }));
         state.borrow_mut().put(host_data());
         state.borrow_mut().put(ErrorClasses::default());
-        state.borrow_mut().put(NativeNamespaces::default());
+        let namespaces = NativeNamespaces::new(runtime);
+        state.borrow_mut().put(namespaces);
         drop(state);
         named_script_json(
             runtime,

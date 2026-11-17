@@ -14332,6 +14332,82 @@
 			}
 		}
 	},
+	"fs_temp_dir": {
+		"code": 0,
+		"output": {
+			"named": "{project}/scratch/gro- then six letters",
+			"mode": 448,
+			"frozen": true,
+			"extends": true,
+			"own_dispose": [
+				"Symbol(Symbol.asyncDispose)"
+			],
+			"dispose": {
+				"type": "function",
+				"length": 0,
+				"name": "[Symbol.asyncDispose]"
+			},
+			"read": "a",
+			"listed": [
+				"a.txt: a",
+				"sub/"
+			],
+			"sub_disposes": false,
+			"read_only_disposes": false,
+			"real": true,
+			"disposed": {},
+			"left": false,
+			"again": {},
+			"not_a_temp_dir": {
+				"rejected": "TypeError"
+			},
+			"prefixes": {
+				"dots": {
+					"resolved": "{project}/scratch/.. then six letters"
+				},
+				"empty": {
+					"resolved": "{project}/scratch/ then six letters"
+				},
+				"a_slash": {
+					"rejected": {
+						"class": "TypeError",
+						"message": "fs.temp_dir takes a name prefix: a/b"
+					}
+				},
+				"a_number": {
+					"rejected": {
+						"class": "TypeError",
+						"message": "fs.temp_dir takes a string prefix"
+					}
+				},
+				"null": {
+					"rejected": {
+						"class": "TypeError",
+						"message": "fs.temp_dir takes a string prefix"
+					}
+				},
+				"a_boxed_string": {
+					"rejected": {
+						"class": "TypeError",
+						"message": "fs.temp_dir takes a string prefix"
+					}
+				},
+				"a_nul": {
+					"rejected": {
+						"class": "TypeError",
+						"message": "fs paths hold no NUL byte"
+					}
+				},
+				"a_lone_surrogate": {
+					"rejected": {
+						"class": "TypeError",
+						"message": "fs paths are well-formed Unicode"
+					}
+				}
+			},
+			"using_left": false
+		}
+	},
 	"fs_write_arguments": {
 		"code": 0,
 		"output": {

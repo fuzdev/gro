@@ -922,6 +922,15 @@
 		]
 	},
 	{
+		"name": "fs_temp_dir",
+		"module": "fs",
+		"args": ["temp_dir"],
+		"flags": ["--allow-temp"],
+		"env": {"TMPDIR": "scratch"},
+		"scratch": {"dir": "scratch", "links": {}},
+		"differs": []
+	},
+	{
 		"name": "fs_write_arguments",
 		"module": "fs",
 		"args": [

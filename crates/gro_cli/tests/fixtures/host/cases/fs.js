@@ -1093,6 +1093,61 @@ const SCENARIOS = {
 			}
 		});
 	},
+	// `temp_dir` under the temporary directory the case names, `scratch/`: each directory's path
+	// shown by its name's prefix and the form of the six letters after it, never the letters,
+	// which are random; the handle's shape; what it reads and writes; and its disposal, by
+	// `await using` and by hand, twice
+	temp_dir: async (ns) => {
+		const { fs } = ns;
+		/** @type {(dir: {path: string}) => unknown} */
+		const named = (dir) => {
+			const path = relative(dir.path);
+			const letters = path.slice(-6);
+			return `${path.slice(0, -6)} then ${/^[A-Za-z0-9]{6}$/.test(letters) ? 'six letters' : letters}`;
+		};
+		/** @type {(dir: {path: string}) => Promise<boolean>} */
+		const left = (dir) => fs.project.exists(relative(dir.path).slice('{project}/'.length));
+		const dir = await fs.temp_dir();
+		const prototype = Object.getPrototypeOf(dir);
+		const dispose = /** @type {any} */ (dir)[Symbol.asyncDispose];
+		await dir.write('a.txt', 'a');
+		await dir.mkdir('sub');
+		const sub = dir.dir('sub');
+		const shown = {
+			named: named(dir),
+			mode: (await dir.stat(''))?.mode,
+			frozen: Object.isFrozen(dir),
+			extends: Object.getPrototypeOf(prototype) === Object.getPrototypeOf(fs.project),
+			own_dispose: Object.getOwnPropertySymbols(prototype).map(String),
+			dispose: { type: typeof dispose, length: dispose.length, name: dispose.name },
+			read: await dir.read_text('a.txt'),
+			listed: await tree(dir),
+			sub_disposes: Symbol.asyncDispose in sub,
+			read_only_disposes: Symbol.asyncDispose in dir.readonly(),
+			real: relative(await fs.real_path(dir.path)) === relative(dir.path),
+			disposed: await outcome(() => dispose.call(dir)),
+			left: await left(dir),
+			again: await outcome(() => dispose.call(dir)),
+			not_a_temp_dir: await class_outcome(() => dispose.call(fs.project)),
+			prefixes: await outcomes({
+				dots: async () => named(await fs.temp_dir('..')),
+				empty: async () => named(await fs.temp_dir('')),
+				a_slash: () => fs.temp_dir('a/b'),
+				a_number: () => fs.temp_dir(/** @type {any} */ (1)),
+				null: () => fs.temp_dir(/** @type {any} */ (null)),
+				a_boxed_string: () => fs.temp_dir(/** @type {any} */ (new String('x'))),
+				a_nul: () => fs.temp_dir('a\0'),
+				a_lone_surrogate: () => fs.temp_dir('a\uD800')
+			})
+		};
+		let used = '';
+		{
+			await using using_dir = await fs.temp_dir('using-');
+			used = using_dir.path;
+			await using_dir.write('f', 'f');
+		}
+		return { ...shown, using_left: await left({ path: used }) };
+	},
 	// paths and options that are none for each op that writes, each a `TypeError`
 	write_arguments: async (ns) => {
 		const dir = await open_scratch(ns);

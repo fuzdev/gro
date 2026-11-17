@@ -93,6 +93,13 @@ pub const ALLOW_WRITE: &str = "--allow-write";
 /// `--allow-write`'s spelling with its directories, which follow it.
 const ALLOW_WRITE_DIRS: &str = "--allow-write=";
 
+/// The option that grants the fs host module fresh directories under the
+/// OS's temporary directory, made by `fs.temp_dir`.
+pub const ALLOW_TEMP: &str = "--allow-temp";
+
+/// `--allow-temp` given a value, which it takes none of.
+const ALLOW_TEMP_VALUE: &str = "--allow-temp=";
+
 /// The option that runs unconfined, every grant at its widest.
 pub const ALLOW_ALL: &str = "-A";
 
@@ -101,7 +108,7 @@ fn run_help() -> String {
     [
         &format!(
             "Usage: fgro {RUN} [{ALLOW_ENV}=<names>] [{ALLOW_READ}=<dirs>] [{ALLOW_WRITE}=<dirs>] \
-             [{ALLOW_ALL}] [--] <file> [<args...>]"
+             [{ALLOW_TEMP}] [{ALLOW_ALL}] [--] <file> [<args...>]"
         ),
         "",
         RUN_DESCRIPTION,
@@ -126,6 +133,10 @@ fn run_help() -> String {
         "                    grant the project's modules `@fuzdev/gro/fs.ts` writing these",
         "                    directories, as --allow-read lists them; a directory only",
         "                    written isn't read",
+        "  --allow-temp      grant the project's modules `@fuzdev/gro/fs.ts` making fresh",
+        "                    directories under the OS's temporary directory, each read",
+        "                    and written by the run, with fs.temp_dir; nothing else of",
+        "                    that directory",
         "  -A                run unconfined: every grant at its widest, to every module,",
         "                    every environment variable and every directory among them",
         "  --help, help      display usage information",
@@ -139,10 +150,14 @@ pub enum RunGrant {
     /// The project's modules granted `args`, `exit`, and `fs`, which reads
     /// the project's tree and the directories `--allow-read=` lists and
     /// writes those `--allow-write=` lists ([`FlagDirs`]), and `env` for the
-    /// names `--allow-env=` listed, when it listed any.
+    /// names `--allow-env=` listed, when it listed any, and fresh
+    /// temporary directories when `--allow-temp` was given.
     Named {
         /// The environment variables granted, each an exact name.
         env: BTreeSet<String>,
+        /// Whether `fs.temp_dir` makes fresh directories under the OS's
+        /// temporary directory.
+        temp: bool,
     },
     /// `-A`: unconfined, every grant at its widest, the one option that
     /// grants beyond what it names.
@@ -180,8 +195,9 @@ impl RunInvocation {
     /// argh spells it for every command), which asks for the help whatever
     /// follows it; `--allow-env=<names>`, repeatable, its names one set;
     /// `--allow-read=<dirs>` and `--allow-write=<dirs>`, each repeatable,
-    /// its directories one set; and `-A`, which grants everything, so names
-    /// and directories given beside it are checked and add nothing. A file
+    /// its directories one set; `--allow-temp`, which takes no value; and
+    /// `-A`, which grants everything, so names, directories, and
+    /// `--allow-temp` given beside it are checked and add nothing. A file
     /// starting with `-` comes after `--`.
     ///
     /// # Errors
@@ -189,13 +205,15 @@ impl RunInvocation {
     /// Returns the usage error, checked in the order the arguments come: an
     /// option before the file that isn't one of these (a bare `--allow-env`,
     /// `--allow-read`, or `--allow-write` among them, which grants
-    /// nothing), a name `--allow-env=` lists that no variable can have
+    /// nothing, and `--allow-temp` given a value), a name `--allow-env=`
+    /// lists that no variable can have
     /// ([`check_env_flag_names`]), a directory `--allow-read=` or
     /// `--allow-write=` lists that no path can be ([`check_dir_flag`]), or
     /// no file.
     fn check(args: RunArgs) -> Result<Task, CliError> {
         let mut help = false;
         let mut all = false;
+        let mut temp = false;
         let mut env = BTreeSet::new();
         let mut dirs = FlagDirs::default();
         let mut args = args.args.into_iter();
@@ -204,6 +222,10 @@ impl RunInvocation {
                 Some(arg) if HELP_TRIGGERS.contains(&arg.as_str()) => help = true,
                 Some(arg) if arg == "--" => break args.next(),
                 Some(arg) if arg == ALLOW_ALL => all = true,
+                Some(arg) if arg == ALLOW_TEMP => temp = true,
+                Some(arg) if arg.starts_with(ALLOW_TEMP_VALUE) => {
+                    return Err(CliError::AllowTempValue);
+                }
                 Some(arg) if arg == ALLOW_ENV => return Err(CliError::AllowEnvBare),
                 Some(ref arg) if let Some(names) = arg.strip_prefix(ALLOW_ENV_NAMES) => {
                     env.extend(check_env_flag_names(names)?);
@@ -233,7 +255,7 @@ impl RunInvocation {
                 grant: if all {
                     RunGrant::All
                 } else {
-                    RunGrant::Named { env }
+                    RunGrant::Named { env, temp }
                 },
                 dirs,
             })),
@@ -607,6 +629,8 @@ mod tests {
         AllowDirsBare(DirFlag),
         /// [`CliError::AllowDir`].
         AllowDir(DirFlag, DirFlagFault),
+        /// [`CliError::AllowTempValue`].
+        AllowTempValue,
     }
 
     fn run_outcome(args: &[&str]) -> Run {
@@ -621,6 +645,7 @@ mod tests {
             Err(CliError::AllowEnvName(fault)) => Run::AllowEnvName(fault),
             Err(CliError::AllowDirsBare(flag)) => Run::AllowDirsBare(flag),
             Err(CliError::AllowDir(flag, fault)) => Run::AllowDir(flag, fault),
+            Err(CliError::AllowTempValue) => Run::AllowTempValue,
             _ => panic!("{args:?} is not one of run's outcomes"),
         }
     }
@@ -637,6 +662,7 @@ mod tests {
     fn env(names: &[&str]) -> RunGrant {
         RunGrant::Named {
             env: names.iter().map(|&name| name.to_owned()).collect(),
+            temp: false,
         }
     }
 
@@ -797,6 +823,19 @@ mod tests {
                 &["run", "-A", "--allow-write", "a.js"],
                 AllowDirsBare(DirFlag::Write),
             ),
+            // the temp flag: bare, never given a value, a script's after the file
+            (&["run", "--allow-temp", "a.js"], runs("a.js", &[])),
+            (
+                &["run", "a.js", "--allow-temp"],
+                runs("a.js", &["--allow-temp"]),
+            ),
+            (&["run", "--allow-temp=x", "a.js"], Run::AllowTempValue),
+            (&["run", "--allow-temp=", "a.js"], Run::AllowTempValue),
+            (
+                &["run", "-A", "--allow-temp=1", "a.js"],
+                Run::AllowTempValue,
+            ),
+            (&["run", "--allow-temps", "a.js"], option("--allow-temps")),
             (
                 &["run", "--allow-read=", "a.js"],
                 AllowDir(DirFlag::Read, DirFlagFault::Empty),
@@ -846,10 +885,19 @@ mod tests {
             ]),
             RunGrant::Named {
                 env: BTreeSet::from(["A", "a", "b", "Ä", " x"].map(ToOwned::to_owned)),
+                temp: false,
+            }
+        );
+        assert_eq!(
+            grant(&["--allow-temp", "--allow-env=A", "a.js"]),
+            RunGrant::Named {
+                env: BTreeSet::from(["A".to_owned()]),
+                temp: true,
             }
         );
         for args in [
             &["-A", "a.js"][..],
+            &["--allow-temp", "-A", "a.js"],
             &["--allow-env=A", "-A", "a.js"],
             &["-A", "--allow-env=A", "a.js"],
             &["-A", "-A", "--", "a.js"],
@@ -967,7 +1015,7 @@ mod tests {
     #[test]
     fn run_s_help_reads_as_argh_s() {
         const EXPECTED: &str = "\
-Usage: fgro run [--allow-env=<names>] [--allow-read=<dirs>] [--allow-write=<dirs>] [-A] [--] <file> [<args...>]
+Usage: fgro run [--allow-env=<names>] [--allow-read=<dirs>] [--allow-write=<dirs>] [--allow-temp] [-A] [--] <file> [<args...>]
 
 run an ES module (.js, .mjs, .ts, or .mts) from disk
 
@@ -991,6 +1039,10 @@ Options:
                     grant the project's modules `@fuzdev/gro/fs.ts` writing these
                     directories, as --allow-read lists them; a directory only
                     written isn't read
+  --allow-temp      grant the project's modules `@fuzdev/gro/fs.ts` making fresh
+                    directories under the OS's temporary directory, each read
+                    and written by the run, with fs.temp_dir; nothing else of
+                    that directory
   -A                run unconfined: every grant at its widest, to every module,
                     every environment variable and every directory among them
   --help, help      display usage information";

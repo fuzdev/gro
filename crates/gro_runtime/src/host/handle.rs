@@ -101,6 +101,15 @@ pub const FS_DIR: HandleKind = HandleKind {
     fields: &[],
 };
 
+/// The fs host module's temporary directories, what `temp_dir` returns: an
+/// `FsDir` that is a TypeScript `AsyncDisposable` too, as the Node module's
+/// `NodeFsTempDir` is, extending `FsDir`.
+pub const FS_TEMP_DIR: HandleKind = HandleKind {
+    brand: "@fuzdev/gro/fs.ts#AsyncDisposable",
+    parent: Some(&FS_DIR),
+    fields: &[],
+};
+
 /// The fs host module's listings, what `list` returns: an async iterator
 /// of a directory's entries, a TypeScript `AsyncIterableIterator`, as the
 /// Node module's async generator is.

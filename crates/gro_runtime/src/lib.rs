@@ -181,6 +181,16 @@ pub struct RuntimeOptions {
     /// why stopping V8 isn't enough): an embedder that must outlive its
     /// program doesn't grant `exit`.
     pub exit_step: Option<ExitStep>,
+    /// The OS's temporary directory, which `fs.temp_dir` makes its
+    /// directories under when the authority grants it: data, not
+    /// authority. It's an absolute path, its real path as the embedder
+    /// read it when the run started or, where it can't be resolved then,
+    /// its path with `.` and `..` resolved by their text, and
+    /// `fs.temp_dir` refuses a symlink on it, never following one: one
+    /// made on the way since, by a run that writes there, would lead its
+    /// directories anywhere. An embedder names it only for a run that
+    /// grants it, so a run that doesn't learns nothing of where it is.
+    pub temp_dir: Option<PathBuf>,
 }
 
 /// The console's output: which stream each level writes to, and whether each
@@ -311,13 +321,18 @@ pub struct EnvGrant {
 /// a path by the path as granted as well as by its real path. Write
 /// doesn't imply read: a directory only written is read only if a read
 /// grant holds it too. An unconfined run reads and writes everything, one
-/// root at `/`, whatever this holds.
+/// root at `/`, whatever this holds, and makes temporary directories.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct FsGrant {
     /// The directories read, each by the path it was granted as.
     pub read: BTreeMap<PathBuf, GrantedDir>,
     /// The directories written, each by the path it was granted as.
     pub write: BTreeMap<PathBuf, GrantedDir>,
+    /// Whether `fs.temp_dir` makes fresh directories under the temporary
+    /// directory the embedder names ([`RuntimeOptions::temp_dir`]), each a
+    /// root its maker reads and writes, made as the run goes, and nothing
+    /// else of that directory.
+    pub temp: bool,
 }
 
 /// The directory a path the fs grant holds named as the run started, as

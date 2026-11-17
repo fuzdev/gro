@@ -65,6 +65,11 @@
 //! once the table is made: a root's directory moved out from beneath
 //! another after that keeps the scope it joined, for every handle on it,
 //! and one moved beneath another takes none of its scope.
+//!
+//! A root `fs.temp_dir` makes joins the table and the project's view as
+//! the run goes ([`Table::append`]), read and written; it's fresh, so it
+//! holds no other root and takes no other's scope. Disposing of its
+//! handle removes its directory and retires it ([`Table::retire`]).
 
 use std::cell::Ref;
 use std::os::fd::OwnedFd;
@@ -98,6 +103,14 @@ pub(super) struct Root {
     /// Its descriptor, a path only, shared with any op under way, or why it
     /// isn't open, which every op through it reports.
     pub(super) fd: Result<Arc<OwnedFd>, String>,
+    /// For a root `fs.temp_dir` made, the directory it was made in, by its
+    /// descriptor, and its name there, which disposing of it removes it
+    /// from, until it's retired ([`Table::retire`]); none for every other
+    /// root.
+    made_in: Option<(Arc<OwnedFd>, String)>,
+    /// Whether it was retired: removed when its temporary directory's
+    /// handle was disposed of, so no path matches it, in any view.
+    retired: bool,
 }
 
 impl Root {
@@ -125,22 +138,46 @@ impl Root {
                 granted: granted.iter().map(|&path| path.to_owned()).collect(),
                 holders: Vec::new(),
                 fd: Err("not opened".to_owned()),
+                made_in: None,
+                retired: false,
             },
             scope,
         )
     }
 
-    /// Its absolute real path, none for a root no path matches as its own.
-    pub(super) fn path(&self) -> Option<&str> {
-        self.path.as_deref()
+    /// The root `fs.temp_dir` made at `path`, its real path, opened as
+    /// `fd`, made in `parent` by the name `name`. It's fresh, so it holds
+    /// no other root and no root's scope joins its own.
+    pub(super) fn made(path: String, fd: OwnedFd, parent: Arc<OwnedFd>, name: String) -> Self {
+        Self {
+            path: Some(path),
+            granted: Vec::new(),
+            holders: Vec::new(),
+            fd: Ok(Arc::new(fd)),
+            made_in: Some((parent, name)),
+            retired: false,
+        }
     }
 
-    /// The path a path beneath it extends: its real path, or empty with
-    /// none, which only the project's handle in a runtime given no project
-    /// extends, since a root with no real path never opens, and a handle
-    /// on any other root is made through its open descriptor.
+    /// The directory a temporary root was made in and its name there, while
+    /// it isn't retired; none for any other root.
+    pub(super) fn made_in(&self) -> Option<(Arc<OwnedFd>, String)> {
+        self.made_in.clone()
+    }
+
+    /// Its absolute real path, none for a root no path matches as its own,
+    /// a retired one among them.
+    pub(super) fn path(&self) -> Option<&str> {
+        self.path.as_deref().filter(|_| !self.retired)
+    }
+
+    /// The path a path beneath it extends: its real path, a retired root's
+    /// included, or empty with none, which only the project's handle in a
+    /// runtime given no project extends, since a root with no real path
+    /// never opens, and a handle on any other root is made through its open
+    /// descriptor.
     pub(super) fn handle_base(&self) -> &str {
-        self.path().unwrap_or_default()
+        self.path.as_deref().unwrap_or_default()
     }
 
     /// Whether it's `/`, which resolves an absolute symlink and a `..` as
@@ -226,6 +263,28 @@ impl Table {
     /// ([`Held`]): the project's alone.
     pub(super) fn views(&self) -> impl Iterator<Item = &View> {
         std::iter::once(&self.project)
+    }
+
+    /// Appends `root`, made as the run goes, to the table and to the
+    /// project's view, which made it, with `scope`: its place.
+    pub(super) fn append(&mut self, root: Root, scope: Scope) -> usize {
+        let place = self.roots.len();
+        self.roots.push(root);
+        self.project.entries.push((place, scope));
+        place
+    }
+
+    /// Retires the root at `place`, its directory removed: it stays in its
+    /// place, and in each view's entries, so a handle on it still names its
+    /// path, but holds no descriptor, neither its own nor the directory it
+    /// was made in, every op through it failing as `why` says, and no path
+    /// matches it ([`Root::path`]), in any view.
+    pub(super) fn retire(&mut self, place: usize, why: String) {
+        if let Some(root) = self.roots.get_mut(place) {
+            root.fd = Err(why);
+            root.made_in = None;
+            root.retired = true;
+        }
     }
 
     /// A table of `roots`, each given its scope as a test's view gives it,
@@ -512,7 +571,7 @@ fn root_table(project: Option<&Path>, authority: Option<&Authority>) -> Table {
             granted: None,
         }),
         Some(Authority::Confined(grants)) => {
-            if let Some(FsGrant { read, write }) = &grants.fs {
+            if let Some(FsGrant { read, write, .. }) = &grants.fs {
                 for (dirs, scope) in [(read, Scope::READ), (write, Scope::WRITE)] {
                     for (dir, at_start) in dirs {
                         wanted.push(Wanted {
@@ -644,6 +703,8 @@ fn root((joined, holders): (Joined<'_>, Vec<usize>)) -> Root {
         granted: names,
         holders,
         fd: joined.fd.map(|(fd, _)| Arc::new(fd)),
+        made_in: None,
+        retired: false,
     }
 }
 
@@ -914,6 +975,7 @@ mod tests {
         }
         let authority = Authority::Confined(Grants {
             fs: Some(FsGrant {
+                temp: false,
                 read: [checked(&at("o"))].into(),
                 write: [
                     checked(&at("o/w")),
@@ -1054,6 +1116,7 @@ mod tests {
         std::os::unix::fs::symlink("x", at("to_w")).unwrap();
         let authority = Authority::Confined(Grants {
             fs: Some(FsGrant {
+                temp: false,
                 read: [r, x, p_as_x, y_reborn].into(),
                 write: [to_w, still_w, checked(&at("p"))].into(),
             }),
@@ -1118,6 +1181,7 @@ mod tests {
         std::fs::rename(at("c"), at("a")).unwrap();
         let authority = Authority::Confined(Grants {
             fs: Some(FsGrant {
+                temp: false,
                 read,
                 write: std::collections::BTreeMap::new(),
             }),
@@ -1200,6 +1264,7 @@ mod tests {
         std::os::unix::fs::symlink("fake/w", at("wl")).unwrap();
         let authority = Authority::Confined(Grants {
             fs: Some(FsGrant {
+                temp: false,
                 read: [checked(&at("r"))].into(),
                 write: [
                     checked(&at("wl")),
@@ -1274,6 +1339,7 @@ mod tests {
         let grants = |read: &[PathBuf], write: &[PathBuf]| {
             Authority::Confined(Grants {
                 fs: Some(FsGrant {
+                    temp: false,
                     read: read.iter().map(|path| checked(path)).collect(),
                     write: write.iter().map(|path| checked(path)).collect(),
                 }),

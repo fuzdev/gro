@@ -618,11 +618,15 @@ impl Reports {
 
     /// The `line` reports, in order, with the path of `project`, the run's
     /// own, as `{project}`.
+    /// A temporary directory's name, made in the project's `tmp`, ends in
+    /// six random letters, shown as `XXXXXX`.
     fn lines(&self, project: &Scratch) -> Vec<String> {
         let dir = project.0.canonicalize().unwrap();
         let dir = dir.to_str().unwrap();
         let lines = self.strings("line").into_iter();
-        lines.map(|line| line.replace(dir, "{project}")).collect()
+        lines
+            .map(|line| unrandom_temp_names(&line.replace(dir, "{project}")))
+            .collect()
     }
 
     /// Each trap the run reported, as `<call>: <trap>`, the call the one
@@ -713,14 +717,41 @@ const GRANT_ENV: &str = "--allow-env=GRO_PATCHED_SET,GRO_PATCHED_UNSET,hostile";
 /// options they read.
 const GRANT_WRITE: &str = "--allow-write=w";
 
-/// `fgro run` of `entry` in `project`, granted [`GRANT_ENV`] and
-/// [`GRANT_WRITE`], given two arguments, in an environment holding only
-/// `GRO_PATCHED_SET`: its exit code, what it reported, and its stderr.
+/// `line` with each temporary directory's name in the project's `tmp`
+/// ending in `XXXXXX` in place of its six random letters.
+fn unrandom_temp_names(line: &str) -> String {
+    const TMP: &str = "{project}/tmp/";
+    let mut shown = String::new();
+    let mut rest = line;
+    while let Some(at) = rest.find(TMP) {
+        let (before, after) = rest.split_at(at + TMP.len());
+        shown.push_str(before);
+        let end = after.find(['"', ' ', '/']).unwrap_or(after.len());
+        let (name, after) = after.split_at(end);
+        let kept = name.len().saturating_sub(6);
+        shown.push_str(&name[..kept]);
+        shown.push_str(&"X".repeat(name.len() - kept));
+        rest = after;
+    }
+    shown.push_str(rest);
+    shown
+}
+
+/// The grant to make temporary directories, which the run makes in `tmp`
+/// in the project [`patched_project`] makes, as `TMPDIR` names it.
+const GRANT_TEMP: &str = "--allow-temp";
+
+/// `fgro run` of `entry` in `project`, granted [`GRANT_ENV`],
+/// [`GRANT_WRITE`], and [`GRANT_TEMP`], given two arguments, in an
+/// environment holding only `GRO_PATCHED_SET` and `TMPDIR`: its exit code,
+/// what it reported, and its stderr.
 fn run_entry(project: &Scratch, entry: &str) -> (Option<i32>, Reports, String) {
-    let mut command = fgro_command(&["run", GRANT_ENV, GRANT_WRITE, entry, "a", "b c"]);
+    let mut command = fgro_command(&["run", GRANT_ENV, GRANT_WRITE, GRANT_TEMP, entry, "a", "b c"]);
+    std::fs::create_dir_all(project.0.join("tmp")).unwrap();
     command
         .env_clear()
         .env("GRO_PATCHED_SET", "set")
+        .env("TMPDIR", project.0.join("tmp"))
         .current_dir(&project.0);
     let output = spawn(command, b"");
     let stdout = String::from_utf8(output.stdout).unwrap();
@@ -2327,6 +2358,8 @@ try {
 /// included, since none reads.
 #[test]
 fn fs_a_write_s_paths_are_judged_by_the_handle_s_scope() {
+    use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
+
     let project = Scratch::new(
         "fs_copy_gate",
         &[
@@ -2414,7 +2447,6 @@ fn fs_a_write_s_paths_are_judged_by_the_handle_s_scope() {
             "{name}"
         );
     }
-    use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
     let metadata = std::fs::metadata(&f).unwrap();
     assert_eq!(
         (metadata.mtime(), metadata.permissions().mode() & 0o777),
@@ -2554,6 +2586,474 @@ fn fs_a_copy_drops_the_setuid_setgid_and_sticky_bits() {
         })
         .collect();
     assert_eq!(modes, [0o755, 0o777, 0o755, 0o750]);
+}
+
+/// The script [`fs_a_temporary_directory_is_a_root_until_disposed_of`]
+/// runs: the scenario it names, given the temporary directory's real path,
+/// each call's outcome shown as `ok`, its value, or its error's kind.
+const FS_TEMP: &str = "import { fs } from '@fuzdev/gro/fs.ts';
+import { args } from '@fuzdev/gro/args.ts';
+const [name, temp] = args;
+const show = async (call) => {
+\ttry {
+\t\tconst value = await call();
+\t\treturn value === undefined ? 'ok' : value;
+\t} catch (error) {
+\t\treturn error.kind ?? error.constructor.name;
+\t}
+};
+const scenarios = {
+\trefused: async () => [await show(() => fs.temp_dir())],
+\tlifecycle: async () => {
+\t\tconst t = await fs.temp_dir('life-');
+\t\tawait t.mkdir('d');
+\t\tconst sub = t.dir('d');
+\t\tconst before = [await show(() => t.write('d/f', 'f')), await show(() => sub.read_text('f'))];
+\t\tconst o = await fs.open_dir(temp);
+\t\tconst name = t.path.slice(temp.length + 1);
+\t\tconst ruled = [
+\t\t\tawait show(() => o.remove(name, { recursive: true })),
+\t\t\tawait show(() => o.rename(name, 'x')),
+\t\t];
+\t\tconst disposed = [
+\t\t\tawait show(() => t[Symbol.asyncDispose]()),
+\t\t\tawait show(() => t[Symbol.asyncDispose]()),
+\t\t];
+\t\tconst after = [
+\t\t\tawait show(() => t.write('g', 'g')),
+\t\t\tawait show(() => sub.read_text('f')),
+\t\t\tawait show(() => t.dir('d')),
+\t\t\tawait show(() => o.exists(name)),
+\t\t];
+\t\tawait o.mkdir(name);
+\t\tconst remade = await show(() => o.remove(name));
+\t\treturn { before, ruled, disposed, after, remade, prefixed: name.startsWith('life-') };
+\t},
+\treopened: async () => {
+\t\tconst t = await fs.temp_dir();
+\t\tconst o = await fs.open_dir(t.path);
+\t\tawait o.write('x', 'x');
+\t\tconst read = await o.read_text('x');
+\t\tawait t[Symbol.asyncDispose]();
+\t\treturn [read, await show(() => fs.open_dir(t.path))];
+\t},
+\tkept: async () => {
+\t\tconst t = await fs.temp_dir('kept-');
+\t\tawait t.write('f', 'f');
+\t\treturn t.path.slice(temp.length + 1);
+\t},
+};
+console.log(JSON.stringify(await scenarios[name]()));
+";
+
+/// `fs.temp_dir` makes a fresh directory under `TMPDIR`, a root the run
+/// reads and writes, only with `--allow-temp` or `-A`: without either it's
+/// refused `not_granted`, naming the prefix, never the temporary directory,
+/// with a hint naming the flag, and fails the run. The root's directory is
+/// kept by the rule while it's a root, a remove or a rename of it through a
+/// handle on the temporary directory refused `io_error`; disposing of it
+/// removes it and everything in it, and again does nothing; a handle on it
+/// or beneath it then fails `io_error` and the path is no root, so a
+/// directory made there again is removed as any is. Until then
+/// `fs.open_dir` reaches it as a root of its own, and after, through none. One never disposed of
+/// stays after the run, as on Node.
+#[test]
+fn fs_a_temporary_directory_is_a_root_until_disposed_of() {
+    let project = Scratch::new(
+        "fs_temp",
+        &[
+            (
+                "package.json",
+                "{\"name\": \"fs_temp\", \"type\": \"module\"}\n",
+            ),
+            ("main.js", FS_TEMP),
+        ],
+    );
+    let temp = Scratch::new("fs_temp_tmp", &[]);
+    let real = temp.0.canonicalize().unwrap();
+    let real = real.to_str().unwrap();
+    let run = |flags: &[&str], name: &str| {
+        let mut args = vec!["run"];
+        args.extend(flags);
+        args.extend(["main.js", name, real]);
+        let mut command = fgro_command(&args);
+        command
+            .env_clear()
+            .env("TMPDIR", real)
+            .current_dir(&project.0);
+        let output = spawn(command, b"");
+        (
+            output.status.code(),
+            String::from_utf8(output.stdout).unwrap(),
+            String::from_utf8(output.stderr).unwrap(),
+        )
+    };
+    assert_eq!(
+        run(&[], "refused"),
+        (
+            Some(1),
+            "[\"not_granted\"]\n".to_owned(),
+            "error: fs refused a temporary directory: not_granted: gro-\n\
+             error: a refusal fails the run, whether or not the program caught it\n\
+             hint: add --allow-temp to grant what fs refused\n"
+                .to_owned()
+        )
+    );
+    let flags = [
+        "--allow-temp",
+        &format!("--allow-read={real}"),
+        &format!("--allow-write={real}"),
+    ];
+    let (code, stdout, stderr) = run(&flags, "lifecycle");
+    assert_eq!((code, stderr.as_str()), (Some(0), ""), "{stdout}");
+    let ended: Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(
+        ended,
+        serde_json::json!({
+            "before": ["ok", "f"],
+            "ruled": ["io_error", "io_error"],
+            "disposed": ["ok", "ok"],
+            "after": ["io_error", "io_error", "io_error", false],
+            "remade": "ok",
+            "prefixed": true,
+        })
+    );
+    assert_eq!(std::fs::read_dir(&temp.0).unwrap().count(), 0);
+    let (code, stdout, stderr) = run(&["--allow-temp"], "reopened");
+    assert_eq!(
+        (code, stdout.as_str()),
+        (Some(1), "[\"x\",\"not_granted\"]\n"),
+        "{stderr}"
+    );
+    assert!(
+        stderr.starts_with("error: fs refused a read: not_granted: "),
+        "{stderr}"
+    );
+    let (code, stdout, stderr) = run(&["-A"], "kept");
+    assert_eq!((code, stderr.as_str()), (Some(0), ""), "{stdout}");
+    let name: String = serde_json::from_str(&stdout).unwrap();
+    assert!(name.starts_with("kept-"), "{name}");
+    assert_eq!(
+        std::fs::read_to_string(temp.0.join(&name).join("f")).unwrap(),
+        "f"
+    );
+}
+
+/// The script [`fs_a_failed_disposal_keeps_the_temporary_root`] runs: a
+/// temporary directory holding a directory whose entries it may not
+/// remove, disposed of, then made removable and disposed of again, each
+/// outcome shown.
+const FS_TEMP_FAILED_DISPOSAL: &str = "import { fs } from '@fuzdev/gro/fs.ts';
+const t = await fs.temp_dir('held-');
+await t.mkdir('ro');
+await t.write('ro/f', 'f');
+await t.set_mode('ro', 0o500);
+const kinds = [];
+try {
+\tawait t[Symbol.asyncDispose]();
+\tkinds.push('ok');
+} catch (error) {
+\tkinds.push(error.kind);
+}
+await t.set_mode('ro', 0o700);
+kinds.push(await t.exists('ro/f'));
+await t[Symbol.asyncDispose]();
+console.log(JSON.stringify(kinds));
+";
+
+/// A disposal that fails rejects with the kind the OS said and keeps the
+/// root: its handles still work, and a later disposal removes it.
+#[test]
+fn fs_a_failed_disposal_keeps_the_temporary_root() {
+    let project = Scratch::new(
+        "fs_temp_failed",
+        &[
+            (
+                "package.json",
+                "{\"name\": \"fs_temp_failed\", \"type\": \"module\"}\n",
+            ),
+            ("main.js", FS_TEMP_FAILED_DISPOSAL),
+        ],
+    );
+    let temp = Scratch::new("fs_temp_failed_tmp", &[]);
+    let mut command = fgro_command(&["run", "--allow-temp", "main.js"]);
+    command
+        .env_clear()
+        .env("TMPDIR", &temp.0)
+        .current_dir(&project.0);
+    let output = spawn(command, b"");
+    assert_eq!(
+        (
+            output.status.code(),
+            String::from_utf8(output.stdout).unwrap(),
+            String::from_utf8(output.stderr).unwrap(),
+        ),
+        (
+            Some(0),
+            "[\"permission_denied\",true]\n".to_owned(),
+            String::new()
+        ),
+    );
+    assert_eq!(std::fs::read_dir(&temp.0).unwrap().count(), 0);
+}
+
+/// The script [`fs_a_temporary_directory_swapped_for_a_symlink_is_refused`]
+/// runs: `fs.temp_dir` once, its path shown, then the entry its first
+/// argument names, on the temporary directory's path, replaced through a
+/// handle on the project by a symlink to the directory its second names,
+/// and `fs.temp_dir` again, its error's kind and cause shown.
+const FS_TEMP_SWAPPED: &str = "import { fs } from '@fuzdev/gro/fs.ts';
+import { args } from '@fuzdev/gro/args.ts';
+const [name, outside] = args;
+const made = await fs.temp_dir();
+const path = made.path;
+await made[Symbol.asyncDispose]();
+const project = await fs.open_dir(fs.project.path);
+await project.remove(name, { recursive: true });
+await project.symlink(name, outside);
+try {
+\tconsole.log(JSON.stringify([path, (await fs.temp_dir()).path]));
+} catch (error) {
+\tconsole.log(JSON.stringify([path, error.kind, error.cause?.message]));
+}
+";
+
+/// `fs.temp_dir` makes its directories under the temporary directory's
+/// real path as the run started, `TMPDIR` named through a symlink
+/// resolved: once a run that writes on that path replaces its last name,
+/// or a directory before it, by a symlink, `fs.temp_dir` is `io_error`,
+/// saying why, and makes nothing where the symlink leads, which no grant
+/// reaches.
+#[test]
+fn fs_a_temporary_directory_swapped_for_a_symlink_is_refused() {
+    let project = Scratch::new(
+        "fs_temp_swapped",
+        &[
+            (
+                "package.json",
+                "{\"name\": \"fs_temp_swapped\", \"type\": \"module\"}\n",
+            ),
+            ("main.js", FS_TEMP_SWAPPED),
+        ],
+    );
+    let outside = Scratch::new("fs_temp_swapped_outside", &[]);
+    for name in ["tmp", "a"] {
+        std::fs::create_dir_all(project.0.join("a/tmp")).unwrap();
+        std::fs::create_dir_all(outside.0.join("tmp")).unwrap();
+        std::fs::remove_file(project.0.join("linked")).ok();
+        std::os::unix::fs::symlink("a", project.0.join("linked")).unwrap();
+        let (moved, target) = if name == "tmp" {
+            ("a/tmp", outside.0.join("tmp"))
+        } else {
+            ("a", outside.0.clone())
+        };
+        let mut command = fgro_command(&[
+            "run",
+            "--allow-temp",
+            "--allow-write=.",
+            "main.js",
+            moved,
+            target.to_str().unwrap(),
+        ]);
+        command
+            .env_clear()
+            .env("TMPDIR", project.0.join("linked/tmp"))
+            .current_dir(&project.0);
+        let output = spawn(command, b"");
+        assert_eq!(
+            (
+                output.status.code(),
+                String::from_utf8(output.stderr).unwrap()
+            ),
+            (Some(0), String::new()),
+            "{name}"
+        );
+        let shown: Vec<String> = serde_json::from_slice(&output.stdout).unwrap();
+        let real = project.0.join("a/tmp");
+        assert!(
+            shown
+                .first()
+                .is_some_and(|made| Path::new(made).parent() == Some(real.as_path())),
+            "{name}: {shown:?}"
+        );
+        assert_eq!(
+            shown[1..],
+            [
+                "io_error",
+                "a symlink is on the temporary directory's path, which is held to its real path \
+                 as the run started"
+            ],
+            "{name}"
+        );
+        assert_eq!(
+            std::fs::read_dir(outside.0.join("tmp")).unwrap().count(),
+            0,
+            "{name}"
+        );
+        std::fs::remove_file(project.0.join(moved)).unwrap();
+        std::fs::remove_dir_all(outside.0.join("tmp")).unwrap();
+    }
+}
+
+/// The script [`fs_a_disposed_temporary_directory_holds_no_descriptor`]
+/// runs: more temporary directories made and disposed of, one at a time,
+/// than the descriptors it may hold, then how many were.
+const FS_TEMP_CYCLED: &str = "import { fs } from '@fuzdev/gro/fs.ts';
+let made = 0;
+try {
+\tfor (; made < 200; made++) {
+\t\tconst dir = await fs.temp_dir();
+\t\tawait dir[Symbol.asyncDispose]();
+\t}
+} catch (error) {
+\tconsole.log(error.kind);
+}
+console.log(made);
+";
+
+/// Disposing of a temporary directory's handle lets go of every descriptor
+/// its root held, the directory it was made in among them, so a run makes
+/// and disposes of more temporary directories, one at a time, than it may
+/// hold descriptors.
+#[test]
+fn fs_a_disposed_temporary_directory_holds_no_descriptor() {
+    let project = Scratch::new(
+        "fs_temp_cycled",
+        &[
+            (
+                "package.json",
+                "{\"name\": \"fs_temp_cycled\", \"type\": \"module\"}\n",
+            ),
+            ("main.js", FS_TEMP_CYCLED),
+        ],
+    );
+    let temp = Scratch::new("fs_temp_cycled_tmp", &[]);
+    let mut prlimit = std::process::Command::new("prlimit");
+    prlimit.arg("--nofile=128:128");
+    let mut command = support::wrapped_fgro_command(prlimit, &["run", "--allow-temp", "main.js"]);
+    command
+        .env_clear()
+        .env("TMPDIR", &temp.0)
+        .current_dir(&project.0);
+    let output = spawn(command, b"");
+    assert_eq!(
+        (
+            output.status.code(),
+            String::from_utf8(output.stdout).unwrap().as_str(),
+        ),
+        (Some(0), "200\n"),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(std::fs::read_dir(&temp.0).unwrap().count(), 0);
+}
+
+/// The script [`fs_a_temporary_directory_that_fails_to_open_is_removed`]
+/// runs: temporary directories made, none disposed of, until one fails,
+/// then how many were and the failure's kind.
+const FS_TEMP_EXHAUSTED: &str = "import { fs } from '@fuzdev/gro/fs.ts';
+let made = 0;
+try {
+\tfor (; made < 1000; made++) await fs.temp_dir();
+} catch (error) {
+\tconsole.log(JSON.stringify([made, error.kind]));
+}
+";
+
+/// A temporary directory made that then fails to open is removed, so a
+/// failed `fs.temp_dir` leaves no directory behind. Each one made holds two
+/// descriptors, its own and the temporary directory's it was made in,
+/// taken in that order around the `mkdir`, so of two runs whose descriptor
+/// limits differ by one, one runs out between the two, where only the
+/// directory's open fails.
+#[test]
+fn fs_a_temporary_directory_that_fails_to_open_is_removed() {
+    let project = Scratch::new(
+        "fs_temp_exhausted",
+        &[
+            (
+                "package.json",
+                "{\"name\": \"fs_temp_exhausted\", \"type\": \"module\"}\n",
+            ),
+            ("main.js", FS_TEMP_EXHAUSTED),
+        ],
+    );
+    for limit in [128, 129] {
+        let temp = Scratch::new(&format!("fs_temp_exhausted_tmp_{limit}"), &[]);
+        let mut prlimit = std::process::Command::new("prlimit");
+        prlimit.arg(format!("--nofile={limit}:{limit}"));
+        let mut command =
+            support::wrapped_fgro_command(prlimit, &["run", "--allow-temp", "main.js"]);
+        command
+            .env_clear()
+            .env("TMPDIR", &temp.0)
+            .current_dir(&project.0);
+        let output = spawn(command, b"");
+        assert_eq!(output.status.code(), Some(0), "{output:?}");
+        let (made, kind): (usize, String) = serde_json::from_slice(&output.stdout).unwrap();
+        assert!(made > 0, "{limit}: none made");
+        assert_eq!(
+            (kind.as_str(), std::fs::read_dir(&temp.0).unwrap().count()),
+            ("io_error", made),
+            "{limit}"
+        );
+    }
+}
+
+/// The script [`fs_a_temporary_directory_missing_as_the_run_starts_is_made_later`]
+/// runs: `fs.temp_dir` before and after the run makes the temporary
+/// directory through a handle on the project, each outcome's kind or the
+/// path made.
+const FS_TEMP_MISSING: &str = "import { fs } from '@fuzdev/gro/fs.ts';
+const show = async () => {
+\ttry {
+\t\treturn (await fs.temp_dir()).path;
+\t} catch (error) {
+\t\treturn [error.kind, error.cause?.message];
+\t}
+};
+const before = await show();
+const project = await fs.open_dir(fs.project.path);
+await project.mkdir('later/tmp', { recursive: true });
+console.log(JSON.stringify([before, await show()]));
+";
+
+/// A temporary directory with nothing there as the run starts is held to
+/// its path as named: `fs.temp_dir` is `not_found`, the OS's error, until
+/// the run makes the directory, by no symlink, then makes its directories
+/// there.
+#[test]
+fn fs_a_temporary_directory_missing_as_the_run_starts_is_made_later() {
+    let project = Scratch::new(
+        "fs_temp_missing",
+        &[
+            (
+                "package.json",
+                "{\"name\": \"fs_temp_missing\", \"type\": \"module\"}\n",
+            ),
+            ("main.js", FS_TEMP_MISSING),
+        ],
+    );
+    let mut command = fgro_command(&["run", "--allow-temp", "--allow-write=.", "main.js"]);
+    command
+        .env_clear()
+        .env("TMPDIR", project.0.join("later/tmp"))
+        .current_dir(&project.0);
+    let output = spawn(command, b"");
+    assert_eq!(
+        (
+            output.status.code(),
+            String::from_utf8(output.stderr).unwrap()
+        ),
+        (Some(0), String::new())
+    );
+    let (before, made): (Value, String) = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(
+        before,
+        serde_json::json!(["not_found", "No such file or directory (os error 2)"])
+    );
+    let real = project.0.join("later/tmp");
+    assert_eq!(Path::new(&made).parent(), Some(real.as_path()));
 }
 
 /// The script [`fs_a_refused_move_of_a_root_hints_no_grant`] runs: the call

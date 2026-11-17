@@ -134,13 +134,16 @@ pub fn start_runtime(
         (_, None) => return Err(StartError::NoExitStep),
     };
     let refusals = loader.refusal_log();
-    let runtime = new_runtime(snapshot, loader, Mode::Run, None).map_err(StartError::Runtime)?;
+    let mut runtime =
+        new_runtime(snapshot, loader, Mode::Run, None).map_err(StartError::Runtime)?;
+    // before any code of a program's runs
+    let namespaces = NativeNamespaces::new(&mut runtime);
     let state = runtime.op_state();
     state.borrow_mut().put(authority);
     state.borrow_mut().put(data);
     state.borrow_mut().put(refusals);
     state.borrow_mut().put(ErrorClasses::default());
-    state.borrow_mut().put(NativeNamespaces::default());
+    state.borrow_mut().put(namespaces);
     state.borrow_mut().put(Blake3State::default());
     state.borrow_mut().put(FsState::default());
     if let Some(exit) = exit {

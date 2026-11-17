@@ -70,6 +70,14 @@ pub enum CliError {
          Run fgro run --help for more information."
     )]
     AllowDirsBare(DirFlag),
+    /// `run --allow-temp=` with a value, which it takes none of; the value
+    /// isn't echoed.
+    #[error(
+        "--allow-temp takes no value: it grants fresh directories under the OS's temporary \
+         directory, as --allow-temp\n\
+         Run fgro run --help for more information."
+    )]
+    AllowTempValue,
     /// `run --allow-read=` or `--allow-write=` listing a path that names
     /// nothing.
     #[error(
@@ -200,6 +208,7 @@ impl CliError {
             | Self::AllowEnvBare
             | Self::AllowEnvName(_)
             | Self::AllowDirsBare(_)
+            | Self::AllowTempValue
             | Self::AllowDir(..)
             | Self::NoDir { .. }
             | Self::TimeoutZero

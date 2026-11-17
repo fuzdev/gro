@@ -23,7 +23,7 @@
 @fuzdev/gro/fs.ts project data of @fuzdev/gro/fs.ts#Fs handle @fuzdev/gro/fs.ts#FsDir grant fs
 @fuzdev/gro/fs.ts open_dir method of @fuzdev/gro/fs.ts#Fs length 1 async grant fs throws FsError
 @fuzdev/gro/fs.ts real_path method of @fuzdev/gro/fs.ts#Fs length 1 async grant fs throws FsError
-@fuzdev/gro/fs.ts temp_dir method of @fuzdev/gro/fs.ts#Fs length 0 async grant fs
+@fuzdev/gro/fs.ts temp_dir method of @fuzdev/gro/fs.ts#Fs length 0 async grant fs throws FsError
 @fuzdev/gro/fs.ts dir method of @fuzdev/gro/fs.ts#FsReadDir length 1 grant fs throws FsError
 @fuzdev/gro/fs.ts stat method of @fuzdev/gro/fs.ts#FsReadDir length 2 async grant fs throws FsError
 @fuzdev/gro/fs.ts exists method of @fuzdev/gro/fs.ts#FsReadDir length 1 async grant fs throws FsError
@@ -47,6 +47,7 @@
 @fuzdev/gro/fs.ts remove method of @fuzdev/gro/fs.ts#FsDir length 2 async grant fs throws FsError
 @fuzdev/gro/fs.ts rename method of @fuzdev/gro/fs.ts#FsDir length 2 async grant fs throws FsError
 @fuzdev/gro/fs.ts copy method of @fuzdev/gro/fs.ts#FsDir length 3 async grant fs throws FsError
+@fuzdev/gro/fs.ts [Symbol.asyncDispose] method of @fuzdev/gro/fs.ts#AsyncDisposable length 0 async grant fs throws FsError
 @fuzdev/gro/fs.ts set_times method of @fuzdev/gro/fs.ts#FsDir length 3 async grant fs throws FsError
 @fuzdev/gro/fs.ts set_mode method of @fuzdev/gro/fs.ts#FsDir length 2 async grant fs throws FsError
 @fuzdev/gro/fs.ts symlink method of @fuzdev/gro/fs.ts#FsDir length 2 async grant fs throws FsError

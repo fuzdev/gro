@@ -4,11 +4,12 @@ use super::*;
 
 /// Puts what the blake3 row's namespace and hashers need in `runtime`'s
 /// `OpState`, in a run that grants nothing, as a run's start does.
-fn put_blake3_state(runtime: &JsRuntime) {
+fn put_blake3_state(runtime: &mut JsRuntime) {
     let state = runtime.op_state();
     state.borrow_mut().put(Authority::default());
     state.borrow_mut().put(ErrorClasses::default());
-    state.borrow_mut().put(NativeNamespaces::default());
+    let namespaces = NativeNamespaces::new(runtime);
+    state.borrow_mut().put(namespaces);
     state.borrow_mut().put(Blake3State::default());
 }
 

@@ -19,7 +19,9 @@ use gro_runtime::{
 };
 
 use crate::EXIT_FAILURE;
-use crate::cli::{ALLOW_ENV, ALLOW_READ, ALLOW_WRITE, DirFlag, FlagDirs, RunGrant, RunInvocation};
+use crate::cli::{
+    ALLOW_ENV, ALLOW_READ, ALLOW_TEMP, ALLOW_WRITE, DirFlag, FlagDirs, RunGrant, RunInvocation,
+};
 use crate::color;
 use crate::error::{CliError, DirFault};
 use crate::print::{escape_controls, stderr_line};
@@ -125,7 +127,7 @@ fn start_and_run(run: &RunInvocation) -> Result<RunOutcome, CliError> {
     }
     let engine = init_engine(Confinement::Unconfined, &EngineOptions::default())?;
     phases::mark(Phase::Engine);
-    let options = runtime_options(run, &ProcessEnvironment, fs);
+    let options = runtime_options(run, &ProcessEnvironment, fs, &cwd);
     Ok(gro_runtime::run_main(engine, &options, &run.file, &cwd))
 }
 
@@ -175,6 +177,7 @@ fn fs_grant(dirs: &FlagDirs, cwd: &Path) -> Result<(FsGrant, Vec<String>), CliEr
             .iter()
             .map(|dir| check(DirFlag::Write, dir))
             .collect::<Result<_, _>>()?,
+        temp: false,
     };
     Ok((fs, notes))
 }
@@ -243,6 +246,7 @@ fn refusal_line(refusal: &Refusal) -> String {
                 Some(FsNeed::Read) => "a read",
                 Some(FsNeed::Write) => "a write",
                 Some(FsNeed::OpenDir) => "what the run grants",
+                Some(FsNeed::Temp) => "a temporary directory",
                 None => "what no grant allows",
             };
             format!("error: fs refused {need}: {message}")
@@ -258,7 +262,7 @@ fn refusal_line(refusal: &Refusal) -> String {
 fn grant_hints(refused: &Refusals) -> Vec<String> {
     let mut names: Vec<&str> = Vec::new();
     let mut some_env = refused.more_names;
-    let (mut read, mut write, mut open_dir) = (false, false, false);
+    let (mut read, mut write, mut open_dir, mut temp) = (false, false, false, false);
     for needed in &refused.needed {
         match needed {
             NeededGrant::Env(name) if hint_name(name) => names.push(name),
@@ -266,6 +270,7 @@ fn grant_hints(refused: &Refusals) -> Vec<String> {
             NeededGrant::Fs(FsNeed::Read) => read = true,
             NeededGrant::Fs(FsNeed::Write) => write = true,
             NeededGrant::Fs(FsNeed::OpenDir) => open_dir = true,
+            NeededGrant::Fs(FsNeed::Temp) => temp = true,
         }
     }
     let mut hints = Vec::new();
@@ -293,6 +298,9 @@ fn grant_hints(refused: &Refusals) -> Vec<String> {
              open the directory with fs.open_dir and use that handle"
                 .to_owned(),
         );
+    }
+    if temp {
+        hints.push(format!("hint: add {ALLOW_TEMP} to grant what fs refused"));
     }
     hints
 }
@@ -328,16 +336,25 @@ impl Environment for ProcessEnvironment {
 /// The options `run`'s runtime starts with: the authority its flags grant
 /// ([`authority`]), `fs` among them, and the environment variables that
 /// authority reaches, read from `environment` now, once ([`env_vars`]);
-/// the exit step [`exit_now`]; the script's arguments; and the runtime's
-/// name and version.
+/// the OS's temporary directory when the authority makes temporary
+/// directories, read from `environment` too, resolved against `cwd`
+/// ([`temp_dir`]), by its real path now ([`real_temp_dir`]); the exit step
+/// [`exit_now`]; the script's arguments; and the runtime's name and
+/// version.
 fn runtime_options(
     run: &RunInvocation,
     environment: &impl Environment,
     fs: FsGrant,
+    cwd: &Path,
 ) -> RuntimeOptions {
+    let temp = matches!(
+        run.grant,
+        RunGrant::All | RunGrant::Named { temp: true, .. }
+    );
     RuntimeOptions {
         authority: authority(&run.grant, fs),
         env: env_vars(&run.grant, environment),
+        temp_dir: temp.then(|| real_temp_dir(&cwd.join(temp_dir(environment)))),
         exit_step: Some(exit_now),
         snapshot: STARTUP_SNAPSHOT,
         console: color::console_options(),
@@ -355,13 +372,42 @@ fn runtime_options(
 fn authority(grant: &RunGrant, fs: FsGrant) -> Authority {
     match grant {
         RunGrant::All => Authority::Unconfined,
-        RunGrant::Named { env } => Authority::Confined(Grants {
+        RunGrant::Named { env, temp } => Authority::Confined(Grants {
             args: Some(ArgsGrant {}),
             exit: Some(ExitGrant {}),
             env: (!env.is_empty()).then(|| EnvGrant { names: env.clone() }),
-            fs: Some(fs),
+            fs: Some(FsGrant { temp: *temp, ..fs }),
         }),
     }
+}
+
+/// The OS's temporary directory, as Node's `os.tmpdir()` names it, read
+/// from `environment`: the first of `TMPDIR`, `TMP`, and `TEMP` that's set
+/// and not empty, else `/tmp`, a trailing `/` dropped but from `/` itself.
+/// A value that isn't UTF-8 is decoded with U+FFFD in place of each invalid
+/// sequence, as Node reads one.
+fn temp_dir(environment: &impl Environment) -> std::path::PathBuf {
+    let set = ["TMPDIR", "TMP", "TEMP"]
+        .into_iter()
+        .filter_map(|name| environment.var(name))
+        .map(|value| value.to_string_lossy().into_owned())
+        .find(|value| !value.is_empty());
+    let mut dir = set.unwrap_or_else(|| "/tmp".to_owned());
+    if dir.len() > 1 && dir.ends_with('/') {
+        dir.pop();
+    }
+    std::path::PathBuf::from(dir)
+}
+
+/// `dir`, the OS's temporary directory, an absolute path, by its real path
+/// as the run starts, so `fs.temp_dir`, which refuses a symlink on it,
+/// makes its directories where it led then and never where a symlink the
+/// run made since leads. With nothing there now, it's `dir` with its `.`
+/// and `..` resolved by their text ([`normalize`]): `fs.temp_dir` fails
+/// on it until the run makes it, by no symlink, and always when a symlink
+/// is on it.
+fn real_temp_dir(dir: &Path) -> std::path::PathBuf {
+    std::fs::canonicalize(dir).unwrap_or_else(|_| normalize(dir))
 }
 
 /// The environment variables `grant` reaches, read from `environment`:
@@ -373,7 +419,7 @@ fn authority(grant: &RunGrant, fs: FsGrant) -> Authority {
 fn env_vars(grant: &RunGrant, environment: &impl Environment) -> EnvVars {
     let read = |(name, value): (String, OsString)| (name, value.to_string_lossy().into_owned());
     match grant {
-        RunGrant::Named { env } => env
+        RunGrant::Named { env, .. } => env
             .iter()
             .filter_map(|name| Some((name.clone(), environment.var(name)?)))
             .map(read)
@@ -397,10 +443,11 @@ mod tests {
     use std::cell::{Cell, RefCell};
     use std::ffi::OsString;
     use std::os::unix::ffi::OsStringExt as _;
+    use std::path::{Path, PathBuf};
 
     use super::{
         EXIT_FAILURE, Ended, Environment, FsGrant, GrantedDir, RUNTIME_VERSION, exit_code,
-        exit_now, runtime_options,
+        exit_now, real_temp_dir, runtime_options,
     };
     use crate::cli::{Invocation, RunInvocation, Task, parse};
 
@@ -455,6 +502,69 @@ mod tests {
             panic!("{args:?} runs a file");
         };
         run
+    }
+
+    /// `--allow-temp` grants `fs.temp_dir` and names the OS's temporary
+    /// directory as Node's `os.tmpdir()` does: the first of `TMPDIR`, `TMP`,
+    /// and `TEMP` set and not empty, else `/tmp`, a trailing `/` dropped but
+    /// from `/`, a relative one resolved against the working directory; `-A`
+    /// names it too; a run granting neither names none, and reads no
+    /// variable for it.
+    #[test]
+    fn the_temp_flag_names_the_temporary_directory() {
+        let named = |args: &[&str], vars: &[(&[u8], &[u8])]| {
+            let environment = TestEnvironment::of(vars);
+            let options = runtime_options(
+                &invocation(args),
+                &environment,
+                FsGrant::default(),
+                Path::new("/w"),
+            );
+            (options, environment.asked.take())
+        };
+        for (vars, expected) in [
+            (&[][..], "/tmp"),
+            (&[(&b"TMPDIR"[..], &b"/t/"[..])], "/t"),
+            (&[(b"TMPDIR", b""), (b"TMP", b"/x"), (b"TEMP", b"/y")], "/x"),
+            (&[(b"TEMP", b"rel/")], "/w/rel"),
+            (&[(b"TMPDIR", b"/")], "/"),
+        ] {
+            let (options, _) = named(&["--allow-temp", "a.js"], vars);
+            assert_eq!(options.temp_dir, Some(PathBuf::from(expected)), "{vars:?}");
+            let gro_runtime::Authority::Confined(grants) = options.authority else {
+                panic!("a run without -A is confined");
+            };
+            assert!(grants.fs.is_some_and(|fs| fs.temp));
+            let (options, _) = named(&["-A", "a.js"], vars);
+            assert_eq!(options.temp_dir, Some(PathBuf::from(expected)), "{vars:?}");
+        }
+        let (options, asked) = named(&["a.js"], &[(b"TMPDIR", b"/t")]);
+        assert_eq!(options.temp_dir, None);
+        assert_eq!(asked, Vec::<String>::new());
+        let gro_runtime::Authority::Confined(grants) = options.authority else {
+            panic!("a run without -A is confined");
+        };
+        assert!(grants.fs.is_some_and(|fs| !fs.temp));
+    }
+
+    /// The temporary directory is named by its real path as the run
+    /// starts, a symlink on it resolved, so `fs.temp_dir` refuses one made
+    /// since; a path with nothing there passes with its `.` and `..`
+    /// resolved by their text.
+    #[test]
+    fn the_temporary_directory_is_named_by_its_real_path() {
+        let base = std::env::temp_dir().join(format!("gro_cli_temp_dir_{}", std::process::id()));
+        let real = base.join("real");
+        std::fs::create_dir_all(&real).unwrap();
+        std::os::unix::fs::symlink(&real, base.join("link")).unwrap();
+        let expected = std::fs::canonicalize(&real).unwrap();
+        let named = [
+            real_temp_dir(&base.join("link")),
+            real_temp_dir(&base.join("link/./")),
+            real_temp_dir(&base.join("missing/./x/..")),
+        ];
+        std::fs::remove_dir_all(&base).unwrap();
+        assert_eq!(named, [expected.clone(), expected, base.join("missing")]);
     }
 
     /// A program's code passes as it is, however the run ended: the one
@@ -523,16 +633,27 @@ mod tests {
             panic!("{args:?} runs a.js");
         };
         assert_eq!(
-            runtime_options(&run, &TestEnvironment::default(), FsGrant::default()).args,
+            runtime_options(
+                &run,
+                &TestEnvironment::default(),
+                FsGrant::default(),
+                Path::new("/w")
+            )
+            .args,
             script_args
         );
         let Ok(Invocation::Sized(Task::Run(run))) = parse(&["run", "a.js"]) else {
             panic!("runs a.js");
         };
         assert!(
-            runtime_options(&run, &TestEnvironment::default(), FsGrant::default())
-                .args
-                .is_empty()
+            runtime_options(
+                &run,
+                &TestEnvironment::default(),
+                FsGrant::default(),
+                Path::new("/w")
+            )
+            .args
+            .is_empty()
         );
     }
 
@@ -543,7 +664,13 @@ mod tests {
             panic!("runs a.js");
         };
         assert_eq!(
-            runtime_options(&run, &TestEnvironment::default(), FsGrant::default()).runtime_version,
+            runtime_options(
+                &run,
+                &TestEnvironment::default(),
+                FsGrant::default(),
+                Path::new("/w")
+            )
+            .runtime_version,
             RUNTIME_VERSION
         );
     }
@@ -555,7 +682,7 @@ mod tests {
     fn the_run_grants_args_exit_and_fs() {
         let run = invocation(&["a.js"]);
         let environment = TestEnvironment::of(&[(b"HOME", b"/home/a")]);
-        let options = runtime_options(&run, &environment, FsGrant::default());
+        let options = runtime_options(&run, &environment, FsGrant::default(), Path::new("/w"));
         assert_eq!(
             options.authority,
             gro_runtime::Authority::Confined(gro_runtime::Grants {
@@ -590,7 +717,7 @@ mod tests {
         ]);
         let environment =
             TestEnvironment::of(&[(b"A", b"1"), (b"B", b"b\xff"), (b"D", b"4"), (b"E", b"5")]);
-        let options = runtime_options(&run, &environment, FsGrant::default());
+        let options = runtime_options(&run, &environment, FsGrant::default(), Path::new("/w"));
         assert_eq!(
             options.authority,
             gro_runtime::Authority::Confined(gro_runtime::Grants {
@@ -627,13 +754,14 @@ mod tests {
                 (b"A", b"1"),
                 (b"B", b"again"),
             ]);
-            let options = runtime_options(&run, &environment, FsGrant::default());
+            let options = runtime_options(&run, &environment, FsGrant::default(), Path::new("/w"));
             assert_eq!(
                 options.authority,
                 gro_runtime::Authority::Unconfined,
                 "{args:?}"
             );
-            assert!(environment.asked.borrow().is_empty());
+            // asked by name only for the temporary directory, which `-A` names
+            assert_eq!(*environment.asked.borrow(), ["TMPDIR", "TMP", "TEMP"]);
             assert!(environment.listed.get());
             let read: Vec<(&str, &str)> = options.env.iter().collect();
             assert_eq!(read, [("B", "2"), ("A*", "glob"), ("A", "1")], "{args:?}");
@@ -657,15 +785,21 @@ mod tests {
         let fs = FsGrant {
             read: [("/r".into(), granted("/r"))].into(),
             write: [("/w".into(), granted("/w"))].into(),
+            temp: false,
         };
         let run = invocation(&["--allow-read=/r", "a.js"]);
-        let options = runtime_options(&run, &TestEnvironment::default(), fs.clone());
+        let options = runtime_options(
+            &run,
+            &TestEnvironment::default(),
+            fs.clone(),
+            Path::new("/w"),
+        );
         let gro_runtime::Authority::Confined(grants) = options.authority else {
             panic!("a run without -A is confined");
         };
         assert_eq!(grants.fs, Some(fs.clone()));
         let run = invocation(&["--allow-read=/r", "-A", "a.js"]);
-        let options = runtime_options(&run, &TestEnvironment::default(), fs);
+        let options = runtime_options(&run, &TestEnvironment::default(), fs, Path::new("/w"));
         assert_eq!(options.authority, gro_runtime::Authority::Unconfined);
     }
 
@@ -819,7 +953,7 @@ mod tests {
     fn the_variables_debug_prints_no_value() {
         let run = invocation(&["--allow-env=TOKEN", "a.js"]);
         let environment = TestEnvironment::of(&[(b"TOKEN", b"secret-value")]);
-        let options = runtime_options(&run, &environment, FsGrant::default());
+        let options = runtime_options(&run, &environment, FsGrant::default(), Path::new("/w"));
         let printed = format!("{options:?}");
         assert!(printed.contains("TOKEN"), "{printed}");
         assert!(!printed.contains("secret-value"), "{printed}");

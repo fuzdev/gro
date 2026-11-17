@@ -90,8 +90,11 @@
 //!
 //! A member can be keyed by a well-known symbol in place of a name,
 //! declared `fn [ASYNC_ITERATOR](..)` ([`WellKnownSymbol`]): its record
-//! is keyed by the symbol V8 holds for the isolate, never one a program
-//! can replace, and its function named as JS names a method of that key
+//! is keyed by the symbol V8 holds for the isolate, or, for
+//! `Symbol.asyncDispose`, which `rusty_v8` binds no getter for, the one the
+//! run read from the realm as it started, before any code of a program's
+//! ran ([`NativeNamespaces::new`]), never one a program can replace, and
+//! its function named as JS names a method of that key
 //! (`[Symbol.asyncIterator]`), as the table lists it. And a member can read
 //! arguments past its `length`, each written in brackets after the others,
 //! `fn list(state; scope, [path])`, as a defaulted parameter is left out of
@@ -106,9 +109,7 @@
 //! which `fs`'s handles and listings, holding plain data, don't; a member
 //! whose promise settles in a later turn ([`settle`] settles before it
 //! returns), which an iterator that waits (`watch`'s), a child's exit, and
-//! an op moved off the thread need; and a key V8's API gives no getter for:
-//! [`WellKnownSymbol`] can name only a symbol `rusty_v8` binds a getter
-//! for, which `Symbol.asyncDispose` (`temp_dir`'s handles) isn't.
+//! an op moved off the thread need.
 
 use std::cell::RefCell;
 
@@ -138,6 +139,10 @@ const NOT_A_SCOPE: &str = "no row takes a scope yet";
 /// What the namespace op throws for a value handed over as the realm's
 /// `Error` by a row whose members declare no error family.
 const NOT_HANDED: &str = "a row whose members declare no error family hands over no Error";
+
+/// What making a member keyed by `Symbol.asyncDispose` throws when the run
+/// holds none, which only a runtime started without reading it meets.
+const NO_ASYNC_DISPOSE: &str = "the run holds no Symbol.asyncDispose to key a member by";
 
 /// What the namespace op throws in a runtime started without the holder
 /// of the namespaces, which only a runtime made outside a run's start is.
@@ -258,6 +263,10 @@ pub struct WellKnownSymbol {
 enum WellKnown {
     /// `Symbol.asyncIterator`.
     AsyncIterator,
+    /// `Symbol.asyncDispose`, which `rusty_v8` binds no getter for, so the
+    /// run reads it as it starts, before any code of a program's runs
+    /// ([`NativeNamespaces::new`]).
+    AsyncDispose,
 }
 
 /// `Symbol.asyncIterator`, the key of an async iterable's method that
@@ -267,11 +276,40 @@ pub const ASYNC_ITERATOR: WellKnownSymbol = WellKnownSymbol {
     which: WellKnown::AsyncIterator,
 };
 
+/// `Symbol.asyncDispose`, the key of an async disposable's method that
+/// disposes of it, as `await using` calls it.
+pub const ASYNC_DISPOSE: WellKnownSymbol = WellKnownSymbol {
+    name: "[Symbol.asyncDispose]",
+    which: WellKnown::AsyncDispose,
+};
+
 impl WellKnownSymbol {
-    /// The symbol, as V8 holds it for the isolate.
-    fn get<'s>(self, scope: &v8::PinScope<'s, '_>) -> v8::Local<'s, v8::Symbol> {
+    /// The symbol: as V8 holds it for the isolate, or, for one V8's API
+    /// gives no getter for, as the run read it as it started
+    /// ([`NativeNamespaces::new`]). `None` with an `Error` thrown when the
+    /// run holds none.
+    fn get<'s>(
+        self,
+        state: &OpState,
+        scope: &v8::PinScope<'s, '_>,
+    ) -> Option<v8::Local<'s, v8::Symbol>> {
         match self.which {
-            WellKnown::AsyncIterator => v8::Symbol::get_async_iterator(scope),
+            WellKnown::AsyncIterator => Some(v8::Symbol::get_async_iterator(scope)),
+            WellKnown::AsyncDispose => {
+                let handed = state
+                    .try_borrow::<NativeNamespaces>()
+                    .and_then(|namespaces| {
+                        namespaces
+                            .async_dispose
+                            .borrow()
+                            .as_ref()
+                            .map(|symbol| v8::Local::new(scope, symbol))
+                    });
+                if handed.is_none() {
+                    throw_error(scope, NO_ASYNC_DISPOSE);
+                }
+                handed
+            }
         }
     }
 }
@@ -618,6 +656,34 @@ pub fn hands_over_error(specifier: &str) -> bool {
 pub struct NativeNamespaces {
     /// The rows made, each held whole.
     made: RefCell<Vec<Made>>,
+    /// `Symbol.asyncDispose`, as the run read it as it started, which the
+    /// members keyed by it are made with.
+    async_dispose: RefCell<Option<v8::Global<v8::Symbol>>>,
+}
+
+impl NativeNamespaces {
+    /// None made yet, holding `Symbol.asyncDispose` as `runtime`'s realm
+    /// holds it now, read from the global `Symbol` before any code of a
+    /// program's runs, since V8's API gives no getter for it and a program
+    /// can replace the global; none when the realm has no such symbol. The
+    /// realm installs it once its context is made, past the snapshot, so
+    /// `primordials` holds none to hand over. Two property reads a start.
+    pub fn new(runtime: &mut JsRuntime) -> Self {
+        deno_core::scope!(scope, runtime);
+        let global = scope.get_current_context().global(scope);
+        let symbol = name(scope, "Symbol")
+            .and_then(|key| global.get(scope, key.into()))
+            .and_then(|symbol| v8::Local::<v8::Object>::try_from(symbol).ok())
+            .and_then(|symbol| {
+                name(scope, "asyncDispose").and_then(|key| symbol.get(scope, key.into()))
+            })
+            .and_then(|symbol| v8::Local::<v8::Symbol>::try_from(symbol).ok())
+            .map(|symbol| v8::Global::new(scope, symbol));
+        Self {
+            made: RefCell::default(),
+            async_dispose: RefCell::new(symbol),
+        }
+    }
 }
 
 /// A row's namespace and its handles' prototypes, made.
@@ -847,7 +913,7 @@ fn record<'s, 'm>(
     let mut values: Vec<v8::Local<'s, v8::Value>> = Vec::new();
     for member in members {
         names.push(match member.symbol {
-            Some(symbol) => symbol.get(scope).into(),
+            Some(symbol) => symbol.get(state, scope)?.into(),
             None => name(scope, member.name)?,
         });
         values.push(match member.member {

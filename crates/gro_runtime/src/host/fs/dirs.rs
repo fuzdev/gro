@@ -1,18 +1,20 @@
-//! The members that make a handle: `fs.project`, `fs.open_dir`, and a
-//! handle's `dir()` and `readonly()`; `fs.real_path`, which reaches an
-//! entry as `fs.open_dir` reaches a directory ([`reach`]); and a member
-//! not built on fgro yet.
+//! The members that make a handle: `fs.project`, `fs.open_dir`,
+//! `fs.temp_dir`, and a handle's `dir()` and `readonly()`; `fs.real_path`,
+//! which reaches an entry as `fs.open_dir` reaches a directory
+//! ([`reach`]); and a temporary directory's disposal.
 
 use deno_core::{OpState, v8};
 
+use super::roots::Root;
 use super::walk::reach;
 use super::{
-    Failure, MODULE, Op, Scope, beneath_of, finish, join, make_dir, path_text, read_handle,
-    run_roots, run_state, sys,
+    Failure, NO_FS_STATE, Op, Scope, beneath_of, finish, join, kind_of, make_dir, path_text,
+    read_handle, run_roots, run_state, sys,
 };
 use crate::host::error_class::DeclaredFamily;
-use crate::host::handle::{FS_DIR, FS_READ_DIR, HandleKind};
-use crate::host::{native, string};
+use crate::host::handle::{FS_DIR, FS_READ_DIR, FS_TEMP_DIR, HandleKind};
+use crate::host::{HostData, native, string};
+use crate::{Authority, FsNeed};
 
 /// `fs.project`: an `FsDir` on the project's root, made of `prototype`, the
 /// `FsDir`s' prototype the namespace is being made with, opening the
@@ -178,23 +180,129 @@ pub fn readonly<'s>(
     finish(state, scope, None, result)
 }
 
-/// A member not built on fgro yet, `name`, called on `receiver`, a handle of
-/// `kind`, or on none for the root's: a plain `Error` saying so, once the
-/// receiver is checked, since no kind of `FsError` is a missing feature.
-pub fn unbuilt<'s>(
+/// The prefix `fs.temp_dir` names its directories by when given none.
+const TEMP_PREFIX: &str = "gro-";
+
+/// What a temporary directory's ops fail with once its handle was disposed
+/// of, which removed it.
+fn retired_why(path: &str) -> String {
+    format!("the temporary directory {path} was removed when its handle was disposed of")
+}
+
+/// `fs.temp_dir(prefix?)`: an `FsDir` that is `AsyncDisposable` on a fresh
+/// directory under the OS's temporary directory, which the run grants by
+/// `--allow-temp` or `-A`, named as the Node module names it, `prefix`
+/// then six random letters, concatenated, never joined, so the name's the
+/// only one it makes ([`sys::make_temp`]); the directory a root the
+/// project's view reads and writes, appended to the run's table
+/// ([`super::roots::Table::append`]). The prefix is checked as the Node
+/// module checks it, `'gro-'` when it's `undefined`; then the grant, else
+/// `not_granted` naming the prefix, recorded with the grant that lets it
+/// through, never the temporary directory's path, which the run doesn't
+/// learn; a failure to make it names the path the Node module's would,
+/// the temporary directory's joined with the prefix.
+pub fn temp_dir<'s>(
     state: &OpState,
     scope: &v8::PinScope<'s, '_>,
-    name: &str,
-    on: Option<(&'static HandleKind, v8::Local<'s, v8::Value>)>,
+    prefix: v8::Local<'s, v8::Value>,
+    errors: DeclaredFamily,
 ) -> Option<v8::Local<'s, v8::Value>> {
     let result = (|| {
-        run_state(state)?.ready()?;
-        if let Some((kind, receiver)) = on {
-            read_handle(scope, kind, receiver)?;
+        let fs = run_state(state)?;
+        fs.ready()?;
+        let prefix = if prefix.is_undefined() {
+            TEMP_PREFIX.to_owned()
+        } else {
+            if !prefix.is_string() {
+                return Err(Failure::Type(
+                    "fs.temp_dir takes a string prefix".to_owned(),
+                ));
+            }
+            let prefix = path_text(scope, prefix)?;
+            if prefix.contains('/') {
+                return Err(Failure::Type(format!(
+                    "fs.temp_dir takes a name prefix: {prefix}"
+                )));
+            }
+            prefix
+        };
+        let authority = state.try_borrow::<Authority>();
+        let granted = match authority {
+            Some(Authority::Unconfined) => true,
+            Some(Authority::Confined(grants)) => grants.fs.as_ref().is_some_and(|fs| fs.temp),
+            None => false,
+        };
+        if !granted {
+            return Err(Failure::NotGranted {
+                path: prefix,
+                need: Some(FsNeed::Temp),
+            });
         }
-        Err::<v8::Local<'s, v8::Value>, _>(Failure::Plain(format!(
-            "{name} of {MODULE} isn't built on fgro yet"
-        )))
+        let data = state
+            .try_borrow::<HostData>()
+            .ok_or_else(|| Failure::Plain(NO_FS_STATE.to_owned()))?;
+        let temp = data
+            .temp_dir
+            .clone()
+            .ok_or_else(|| Failure::Plain(NO_TEMP_DIR.to_owned()))?;
+        let template = format!("{}/{prefix}", temp.to_string_lossy());
+        let made = sys::make_temp(temp, prefix)
+            .map_err(|error| Failure::of(kind_of(&error), &template, &error))?;
+        let path = made.path.clone();
+        let root = Root::made(made.path, made.fd, made.parent, made.name);
+        let place = fs.append(data, authority, root, Scope::ALL)?;
+        let prototype = native::prototype(state, scope, &FS_TEMP_DIR).ok_or(Failure::Thrown)?;
+        make_dir(scope, &FS_TEMP_DIR, prototype, place, &path, "", Scope::ALL)
+            .map(Into::into)
+            .ok_or(Failure::Thrown)
     })();
-    finish(state, scope, None, result)
+    finish(state, scope, Some(errors), result)
+}
+
+/// What `fs.temp_dir` throws in a run that grants it with no temporary
+/// directory named, which no embedder's run that grants it is.
+const NO_TEMP_DIR: &str = "this run grants fs.temp_dir but was started naming no temporary \
+                           directory";
+
+/// `[Symbol.asyncDispose]()` called on `receiver`, a temporary directory's
+/// handle: removes its directory and everything in it, beneath the root's
+/// own descriptor ([`sys::remove_temp`]), then retires the root
+/// ([`super::roots::Table::retire`]), so every op through a handle on it,
+/// this one's and each made from it, fails `io_error` saying it was
+/// removed, `fs.open_dir` reaches it through no root of its own, and the
+/// rule no longer keeps its path. Called again, once it's retired, it does
+/// nothing, as a forced `rm` of nothing does. A failure to remove it is the
+/// kind the OS said, naming its path, and keeps the root, so a call after
+/// can try again.
+pub fn dispose<'s>(
+    state: &OpState,
+    scope: &v8::PinScope<'s, '_>,
+    receiver: v8::Local<'s, v8::Value>,
+    errors: DeclaredFamily,
+) -> Option<v8::Local<'s, v8::Value>> {
+    let result = (|| {
+        let fs = run_state(state)?;
+        fs.ready()?;
+        let handle = read_handle(scope, &FS_TEMP_DIR, receiver)?;
+        let (made_in, path, fd) = {
+            let table = run_roots(state)?;
+            let root = table.roots().get(handle.root).ok_or_else(|| {
+                Failure::Plain("an fs handle names no root of the run".to_owned())
+            })?;
+            (
+                root.made_in(),
+                root.handle_base().to_owned(),
+                root.fd.clone(),
+            )
+        };
+        // retired already: nothing to remove
+        let (Some((parent, name)), Ok(fd)) = (made_in, fd) else {
+            return Ok(v8::undefined(scope).into());
+        };
+        sys::remove_temp(fd, parent, name)
+            .map_err(|error| Failure::of(kind_of(&error), &path, &error))?;
+        fs.retire(handle.root, retired_why(&path))?;
+        Ok(v8::undefined(scope).into())
+    })();
+    finish(state, scope, Some(errors), result)
 }

@@ -88,7 +88,8 @@ globalThis.op_gro_color = Deno.core.ops.op_gro_color;",
                     ..host_data()
                 });
                 state.borrow_mut().put(ErrorClasses::default());
-                state.borrow_mut().put(NativeNamespaces::default());
+                let namespaces = NativeNamespaces::new(&mut runtime);
+                state.borrow_mut().put(namespaces);
                 state.borrow_mut().put(Blake3State::default());
                 state.borrow_mut().put(refusals);
                 let mut runtime =

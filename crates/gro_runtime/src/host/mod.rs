@@ -43,9 +43,9 @@ use deno_core::{OpDecl, OpState, op2, v8};
 use error_class::{ENV_ERROR, FS_ERROR};
 use exit::{ExitState, NOT_A_CODE, to_exit_code};
 use grant::require_authority;
-use handle::{BLAKE3_HASHER, ENV_HANDLE, FS_DIR, FS_LISTING, FS_READ_DIR, FS_ROOT};
-use native::ASYNC_ITERATOR;
+use handle::{BLAKE3_HASHER, ENV_HANDLE, FS_DIR, FS_LISTING, FS_READ_DIR, FS_ROOT, FS_TEMP_DIR};
 use native::native_members;
+use native::{ASYNC_DISPOSE, ASYNC_ITERATOR};
 
 use crate::loader::RefusalLog;
 use crate::{ArgsGrant, EnvGrant, EnvVars, ExitGrant, FsGrant};
@@ -83,6 +83,10 @@ pub struct HostData {
     /// The project's root, the entry's, a real path: the fs host module's
     /// first root, opened when the run first makes the fs namespace.
     pub project: Option<std::path::PathBuf>,
+    /// The OS's temporary directory, as the embedder names it for a run
+    /// whose `fs` grant makes temporary directories
+    /// ([`RuntimeOptions::temp_dir`](crate::RuntimeOptions::temp_dir)).
+    pub temp_dir: Option<std::path::PathBuf>,
 }
 
 /// Declares host ops, each an `#[op2]` whose first step is
@@ -411,9 +415,11 @@ native_members! {
         fs::dirs::real_path(state, scope, path, errors)
     }
 
-    /// `fs.temp_dir(prefix?)`, not built ([`fs::dirs::unbuilt`]).
-    async temp_dir(state, _granted: FsGrant; scope) for "@fuzdev/gro/fs.ts" on FS_ROOT {
-        fs::dirs::unbuilt(state, scope, "temp_dir", None)
+    /// `fs.temp_dir(prefix?)` ([`fs::dirs::temp_dir`]).
+    async temp_dir(state, _granted: FsGrant; scope, [prefix]) for "@fuzdev/gro/fs.ts" on FS_ROOT
+        throws FS_ERROR(errors)
+    {
+        fs::dirs::temp_dir(state, scope, prefix, errors)
     }
 
     /// `dir.dir(path)`, called on `handle`, an `FsReadDir`
@@ -579,6 +585,14 @@ native_members! {
         on FS_DIR(handle) throws FS_ERROR(errors)
     {
         fs::writes::copy(state, scope, handle, from, to, options, errors)
+    }
+
+    /// A temporary directory's `[Symbol.asyncDispose]()`, called on
+    /// `handle` ([`fs::dirs::dispose`]).
+    async [ASYNC_DISPOSE](state, _granted: FsGrant; scope) for "@fuzdev/gro/fs.ts"
+        on FS_TEMP_DIR(handle) throws FS_ERROR(errors)
+    {
+        fs::dirs::dispose(state, scope, handle, errors)
     }
 
     /// `dir.set_times(path, times, options?)` ([`fs::writes::set_times`]).

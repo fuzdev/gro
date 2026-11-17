@@ -215,6 +215,7 @@ fn run_resolved(
             runtime_version: options.runtime_version.clone(),
             env: options.env.clone(),
             project: Some(loader.graph().roots().project().dir.clone()),
+            temp_dir: options.temp_dir.clone(),
         },
         exit_step: options.exit_step,
     };

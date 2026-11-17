@@ -291,6 +291,16 @@ mod tests {
             )
         );
         assert_eq!(
+            message(&["run", "--allow-temp=secret", "a.js"]),
+            (
+                "--allow-temp takes no value: it grants fresh directories under the OS's \
+                 temporary directory, as --allow-temp\nRun fgro run --help for more \
+                 information."
+                    .to_owned(),
+                EXIT_USAGE
+            )
+        );
+        assert_eq!(
             message(&["run"]),
             (
                 "a file to run is required\nRun fgro run --help for more information.".to_owned(),
