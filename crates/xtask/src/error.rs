@@ -42,7 +42,7 @@ pub enum XtaskError {
     #[error("{}{message}", .stage.prefix())]
     Input {
         /// Where it was refused.
-        stage: BenchStage,
+        stage: InputStage,
         /// What must change.
         message: String,
     },
@@ -54,14 +54,14 @@ pub enum XtaskError {
 /// Where an [`XtaskError::Input`] was refused, which its message's prefix
 /// names.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BenchStage {
+pub enum InputStage {
     /// The bench's command line: flags that don't combine, or a flag's
     /// value (`bench: `).
-    Usage,
+    BenchUsage,
     /// A bench run, past its command line (`bench failed: `).
-    Run,
+    BenchRun,
     /// `bench report` (`bench report: `).
-    Report,
+    BenchReport,
     /// The vendored crates: a tree that isn't its crate plus its patch, or
     /// an index that doesn't describe it (`vendor: `).
     Vendor,
@@ -70,13 +70,13 @@ pub enum BenchStage {
     Reproducible,
 }
 
-impl BenchStage {
+impl InputStage {
     /// The prefix a message refused here takes.
     const fn prefix(self) -> &'static str {
         match self {
-            Self::Usage => "bench: ",
-            Self::Run => "bench failed: ",
-            Self::Report => "bench report: ",
+            Self::BenchUsage => "bench: ",
+            Self::BenchRun => "bench failed: ",
+            Self::BenchReport => "bench report: ",
             Self::Vendor => "vendor: ",
             Self::Reproducible => "check-reproducible: ",
         }
@@ -87,7 +87,7 @@ impl XtaskError {
     /// A bench command line refused with `message`.
     pub fn bench_usage(message: impl Into<String>) -> Self {
         Self::Input {
-            stage: BenchStage::Usage,
+            stage: InputStage::BenchUsage,
             message: message.into(),
         }
     }
@@ -95,7 +95,7 @@ impl XtaskError {
     /// A bench run's input refused with `message`.
     pub fn bench_input(message: impl Into<String>) -> Self {
         Self::Input {
-            stage: BenchStage::Run,
+            stage: InputStage::BenchRun,
             message: message.into(),
         }
     }
@@ -104,7 +104,7 @@ impl XtaskError {
     /// `message`.
     pub fn vendor_input(message: impl Into<String>) -> Self {
         Self::Input {
-            stage: BenchStage::Vendor,
+            stage: InputStage::Vendor,
             message: message.into(),
         }
     }
@@ -113,7 +113,7 @@ impl XtaskError {
     /// `message`.
     pub fn reproducible_input(message: impl Into<String>) -> Self {
         Self::Input {
-            stage: BenchStage::Reproducible,
+            stage: InputStage::Reproducible,
             message: message.into(),
         }
     }
@@ -121,7 +121,7 @@ impl XtaskError {
     /// `bench report`'s input refused with `message`.
     pub fn report_input(message: impl Into<String>) -> Self {
         Self::Input {
-            stage: BenchStage::Report,
+            stage: InputStage::BenchReport,
             message: message.into(),
         }
     }
