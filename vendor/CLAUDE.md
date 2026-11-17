@@ -10,5 +10,7 @@ to upgrade.
   `cargo xtask check-rust` and the xtask's vendor tests fail until the three
   agree.
 - Never reformat, lint-fix, or tidy vendored code; keep each patch minimal.
+  The vendored crates are outside the workspace and its checks: their own
+  rustc warnings print but fail nothing.
 - Upgrades re-vendor from the checksum-verified `.crate` per README.md, never
   by editing the old copy forward.

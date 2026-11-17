@@ -16,6 +16,11 @@
 //! would check it. A handle's prototype is fixed (it's frozen), so a
 //! child handle takes the prototype its parent has.
 //!
+//! A method decides from its handle's state, never from the run's grants,
+//! which gate only that the run holds the row at all: what a handle may
+//! reach was fixed when it was made, and a handle made from it only narrows
+//! it.
+//!
 //! The state is a value of the row's choosing, which no JS ever holds:
 //! `env`'s is a record of the names a handle may read and their values,
 //! and `blake3`'s hasher's is a number naming its native state, a Rust

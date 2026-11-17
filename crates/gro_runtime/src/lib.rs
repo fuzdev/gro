@@ -13,8 +13,11 @@
 //! A run that ends on its own hands its runtime back in the outcome
 //! ([`SpentRuntime`]), with the exit code its program set, if it set one:
 //! dropped, the runtime is torn down, and a process about to exit can
-//! forget it instead. A program granted the exit host module can end the
-//! run from inside a call, and since this crate doesn't end its embedder's
+//! forget it instead. A host module that buffers stdout or stderr must have
+//! it written before the runtime is handed back and before `exit` calls the
+//! embedder's step, since the embedder may end the process next. A program
+//! granted the exit host module can end the run from inside a call, and
+//! since this crate doesn't end its embedder's
 //! process for a program, it does so by the step the embedder gave
 //! ([`RuntimeOptions::exit_step`], [`Exit`]). It ends the process itself in two
 //! places, neither a program's choice: eval's out-of-memory backstop exits

@@ -30,10 +30,12 @@
 //! and `import()` alike: one whose grant the importer isn't granted is
 //! refused ([`FailureReason::NotGranted`]), the message naming the grant. A
 //! loader made without an authority, as eval's is, imports no builtin, a
-//! grant-free one included, checked before the grant; a package's module is
-//! granted nothing whatever the authority. A granted
-//! import returns the builtin's `builtin:` URL, which `deno_core` serves as
-//! the builtin's synthetic module, never asking the loader to load it.
+//! grant-free one included, checked before the grant; a confined run's
+//! package module is granted nothing, and imports a grant-free builtin as
+//! the project does, while an unconfined run grants every module every
+//! builtin. A granted import returns the builtin's `builtin:` URL, which
+//! `deno_core` serves as the builtin's synthetic module, never asking the
+//! loader to load it.
 //! `import.meta.resolve` returns that URL to any importer, granted or not:
 //! it imports nothing, and the URL imports nothing either, its scheme
 //! refused from source.
@@ -66,7 +68,8 @@
 //! whatever its value, since no module type past JS loads yet
 //! ([`LoadFailure::ModuleType`]). A static import's attributes and an
 //! `import()`'s alike reach the loader, the latter through gro's patch of
-//! `deno_core`.
+//! `deno_core`, since the runtime's import-attributes callback, the
+//! unpatched route, runs on every static import as well.
 //!
 //! Its [`Rules`] refuse more than the resolver does, for eval: every
 //! `import()`, before anything is resolved, and every import from the

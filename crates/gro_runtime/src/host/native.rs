@@ -63,7 +63,9 @@
 //! classes (`error_class.rs`), read from the source by the type every native
 //! callback names and by each API that makes one; one on a member that
 //! runs without its grant or without an authority, or whose body ran before
-//! its refusal; one on a member whose grant isn't its row's; one on a
+//! its refusal; one on a value made with no authority or without its
+//! grant; one on a member whose grant isn't its row's; one on the
+//! namespace op answering a script that isn't the row's; one on a
 //! namespace whose exports or a prototype whose methods aren't the table's,
 //! or a function or record that isn't frozen; one on a declared family
 //! made anywhere but by the macro, read from the source as the makers of

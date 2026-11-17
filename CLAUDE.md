@@ -288,7 +288,9 @@ Crates:
   `check-rust`, `check-js`, `check-reproducible`, `vendor-patch`, `bench`;
   its `main.rs` has the commands and exit codes
 
-Invariants that live in the code:
+Invariants that live in the code. Each file named is the authority for its
+area, in its module doc; these are the rules an editor of `crates/` must not
+miss there, and the contracts no one module doc owns:
 
 - **`unsafe`** only in `gro_sys` and `gro_v8`. Every crate takes the workspace
   lints with `unsafe_code` forbidden; those two re-declare the whole table
@@ -297,14 +299,12 @@ Invariants that live in the code:
   that and `clippy::undocumented_unsafe_blocks`. Each `unsafe` block is
   allowed by its function's `#[expect]` and explained by a `// SAFETY:`
   comment. `deno_core::scope!` and the `v8` scope macros hide `unsafe` inside
-  dependency macros, outside the lint; eval uses them for handle scopes.
+  dependency macros, outside the lint; the runtime uses them for handle scopes.
 - The embedded source (`crates/gro_runtime/js/bootstrap.js`) must be 7-bit
-  ASCII, or the build fails (`ascii_str_include!`). A builtin has no source of
-  its own: each row's backing script is made from the row, of
-  `bootstrap/template.rs`'s literals, which the build holds to ASCII (the
-  wrapping `format!` adds, by the test that holds each script). A
-  builtin embeds no module of `src/lib`: what it shares with its Node module
-  is behavior, held by the differential cases, never source.
+  ASCII, or the build fails, and so must the backing scripts' literals
+  (`bootstrap/template.rs`). A builtin embeds no module of `src/lib`: what it
+  shares with its Node module is behavior, held by the differential cases,
+  never source.
 - The resolver (`resolver/`) is a pure module: no deno_core types, reading
   only through the `SourceTree` trait. The loader owns the admitted roots
   (`Roots`) and passes them into `resolve_from`. Failures are enums (the
@@ -312,206 +312,45 @@ Invariants that live in the code:
   from a message; eval's error kind comes from the step that failed and the
   graph's record.
 - The builtin table (`resolver/builtin.rs`) is the one source of the builtin
-  modules: `&'static` data of gro's own types, each row's specifier, grant,
-  and exports. `builtin_rows!` hands the rows to the bootstrap, which names
-  each row's backing script and synthetic module from it, and
-  `bootstrap/template.rs` makes the backing script from the row, when the
-  snapshot is made, into the residual table the binary embeds, or once a
-  process when a runtime starts without a snapshot. No snapshot holds a
-  backing script, and gro's extension declares no lazy script: `deno_core`
-  reads a backing script from its residual table the first time a run
-  imports the builtin, and runs it then, so an unimported builtin costs a
-  start its facade's name.
-  - A backing script is one function in two levels, of one of two
-    templates. The outer takes `deno_core`'s bootstrap object, runs once a
-    run, and takes the one op, `op_gro_namespace`, from `core.ops`, and, in
-    a row with a member that declares an error family
-    (`native::hands_over_error`, read from the native members' table:
-    the error rows and `env` and `fs` today), the realm's `Error` from `primordials`, a
-    read that costs a first import, so no other row takes it. It returns
-    the inner, which takes the scope of its importer's grant, an argument
-    the script's call passes (`template::scope_argument`; `undefined` while
-    no grant has one), and asks the host for the namespace. The script
-    calls both at once. A first import can come after user code has
-    patched the global intrinsics, and the script names no global but
-    `undefined` and reads no member of an intrinsic: each read is a
-    destructuring of what `deno_core` handed it before any user code ran.
-    It hands on nothing but what the op returns, reads no other op, and
-    lets no level escape. `template.rs`'s test holds every row's script to
-    the two texts byte for byte, the one with `Error` to exactly the rows
-    the pinned table (`tests/native_members.txt`) shows declaring a family.
-    A row's script reads nothing and decides nothing; the namespace and
-    whatever has identity or state are the host's (a member, a class, a
-    brand, a table of handles, an exit code), in `OpState`.
-  - Every row's members are native (`host/native.rs`): each export, and
-    each method of a kind of handle the row makes, a function or a value
-    the host makes from `NATIVE_MEMBERS`, the table `native_members!`
-    declares, the first time a run asks for the row's namespace. The inner
-    level calls `op_gro_namespace`, handing over its scope, and from a row
-    that hands it over the realm's `Error`, which the run holds unchecked
-    (`ErrorClasses::hand_over`) until a class is first made of it; the op
-    refuses an `Error` from any other row. The op
-    serves every row and knows the row by the script that calls it, the
-    backing script `deno_core` compiled under the row's name from the
-    table, never by an argument, so no row's script can ask for another's;
-    it returns the namespace the run holds, or makes it and holds it
-    (`NativeNamespaces`, which every run's start puts, empty), one per row
-    while no row is scoped (an instance per origin keys it by the scope as
-    well, the functions and prototypes made once a row): a frozen
-    null-prototype record of the exports and `default`, each function
-    frozen, named, of the `length` its declared arguments give, and no
-    constructor, each value made once with it, data (the arguments'
-    frozen array, the process's id, the runtime's version), a handle
-    (`env`'s root), or a class (`EnvError`), each kind's prototype a frozen
-    null-prototype record of its methods, or of its parent's prototype for
-    a kind that extends another (`FsDir` over `FsReadDir`). A kind whose
-    functions take no receiver (`on KIND` with no binding) is a record's:
-    its one object, `fs`'s root, holds them and its values (`fs.project`)
-    as its own, and the export is that record. Nothing is held until the
-    namespace is whole. So a start pays one op for every row, and a first
-    import no shell's compile. A factory makes its handles of the
-    prototype the run holds (`native::prototype`), and a value declared a
-    handle of a kind (`handle KIND(prototype)`) is given the one the
-    namespace is being made with. A member declared `async` returns a
-    promise the host made and settled before returning it
-    (`native::settle`), rejected with what its check or body threw, so it
-    never throws to its caller; no host op is a `deno_core` async op.
-  - An `import()` runs a backing script on the caller's stack, so a first
-    `import()` of a builtin with less than `BUILTIN_IMPORT_STACK` left above
-    V8's limit has `deno_core` build the module from the event loop instead
-    (the loader's `should_load_synthetic_esm`; `loader/headroom.rs`, with
-    the measurement behind the amount), and the import settles a turn later:
-    no importer can cut a first import short, and no failure of one is
-    reported on a stack too short for the report, which could end the
-    process. `deno_core` builds one module of a builtin however its loads
-    interleave (the `deno_core` patch, `vendor/README.md`), so every import
-    gets the one namespace. A backing script throws nothing at load: what
-    can fail for a reason of the run's fails in what the module exports, as
-    `cwd` does when called.
-    Nothing known ends a level early (a first import has the stack it needs,
-    an op a level calls throws only for want of stack, and a run never
-    terminates V8), and both stay safe to run again all the same: the amount
-    is a measurement each build's sweep holds, not a bound, and where the
-    stack start isn't read (off glibc) nothing is deferred, so a deep first
-    import can be cut short there; `deno_core` answers a failure by keeping
-    nothing of the run and running the whole script at the next import
-    (`bootstrap.rs`), so a cause found later costs a rerun, never a
-    half-made module or an effect done twice. Neither level stores anything
-    outside its own bindings: `deno_core` keeps the namespace only once both
-    have returned, so nothing half-made is published. State every importer
-    shares is the host's, and an op either level calls can be called again.
-    `crates/gro_cli/tests/host.rs` starts every row's first import a frame
-    apart up from the stack's limit, interleaves deep and shallow first
-    imports in a turn, and holds every import to one whole module; nothing
-    checks that an op a level calls is safe to repeat.
-  - `crates/gro_cli/tests/host.rs` imports every row of the table in a
-    realm whose every reachable intrinsic is a trap that reports as it's
-    used, and exercises everything the row exports or reaches: each
-    function called with no arguments, with hostile ones (a proxy, a proxy of
-    a function, an object of getters, a subclassed string and array), with
-    each argument the fixture gives for it replaced in turn by a hostile one,
-    and with a hostile receiver, each class constructed (one the host made
-    among them, told by its `prototype`, which can't be replaced), each
-    getter read, each setter given a value, and the same for what a call
-    returns or throws. The names a backing script reads, every member's,
-    and each export's are trapped on the shared prototypes too, so a read
-    of one that an object lacks reports. A hostile argument answers every
-    read made of it,
-    `cause` included, and what a proxy's trap does by default runs
-    unwatched, since it's the caller's code. A promise a call returns is
-    handled at once, and how it settled is reported once every call is
-    made. A function reached fails it
-    until the fixture has an entry for it, with the arguments it takes or
-    none, and a use of a hostile argument until the test lists it for that
-    function, reviewed: only an error class's constructor makes any, the
-    conversions and the `cause` read the Node class makes. A call that ends
-    the process, as `exit`'s do, is one the test lists with its code: each
-    call is reported before it's made, and the run is made again without the
-    one it ended in. What a call leaves to run later, a promise's reaction,
-    it doesn't watch.
-  - An error row's class and guard are the host's: the class
-    (`host/error_class.rs`) made natively the first time a run needs it,
-    the realm's `Error.prototype` taken from an error V8 makes and its
-    `Error` handed over from `primordials` by the backing script of the
-    first row a run imports that hands it over, held for the run, and
-    checked the first time a class is made of it, so a run that makes no
-    class pays for no check, and a value that fails is dropped for the next
-    import's; and the class held in `OpState` (`ErrorClasses`) once whole,
-    so a first import ended early makes it again and every later need finds
-    the one class; the row's namespace holds it as a native value, and its
-    guard as a native function (`host/native.rs`), and any member throws an
-    instance with one call (`ErrorClasses::throw`). A member declares the
-    family whose error it throws (`throws ENV_ERROR(errors)` in
-    `native_members!`), and the error row's class the family it is
-    (`class ENV_ERROR(family)`); throwing a family's error and making its
-    class take the `DeclaredFamily` only the macro makes, from the
-    declaration, so a member throws no family it didn't declare and its row
-    hands the `Error` over. A family missing from `FAMILIES` throws when its
-    class would be made. A start makes none and puts the empty holder only.
-    The guard reads data properties only, so it runs no code of a caller's.
-    Each instance the constructor makes holds the family's brand, a private
-    symbol, which the guard of a family's own errors reads
-    (`is_own_fs_error`).
-  - A handle is the host's (`host/handle.rs`): an object the host makes of
-    a prototype, the record of native methods the host made with the row's
-    namespace, its state under a private symbol of its kind, the brand,
-    then frozen; a kind's fields (`FsReadDir`'s `path`) are own data given
-    by what makes the handle, and a handle of a kind that extends another
-    holds its parent's brand too. A method reads the handle it's called on natively and
-    refuses anything without the brand (a look-alike, a proxy, another
-    row's handle) and decides from the handle's state, never from the run's
-    grants, which only gate that the run holds the row at all. `env`'s root
-    handle is a value of its namespace, made from the run's grant with it,
-    and the one handle whose refusal hints at a grant: a method knows it
-    by comparing it with the export the run's namespace holds, which the
-    host never hands out (`native::is_held_export`). A handle whose
-    state is native Rust holds a number under its brand, naming its state
-    in a table in `OpState` (`host/blake3.rs`'s hashers, `Blake3State`,
-    which every run's start puts, empty), beside a weak reference to the
-    handle whose finalizer drops the state once the handle is collected;
-    what makes one takes the scope mutably, as a native member's callback
-    is given it, since the weak reference is made of the isolate. An `fs`
-    handle's state is plain data (`host/fs.rs`): its root's place in the
-    run's root table, its real path beneath the root, and its scope,
-    whether it reads and whether it writes, its root's when `open_dir` or
-    `project` makes it, which `dir()` and `readonly()` only narrow, so no
-    op checks the run's roots.
-    Only a root holds a descriptor, opened once (`O_PATH`, no symlink on
-    its path) when the run first makes the fs namespace (`FsState`, which
-    every run's start puts, empty), the table only appended to, a flag's
-    root held to the identity its directory had as the run started
-    (`FsGrant`'s `GrantedDir`s, from `fgro run`'s check) or held as why, as a
-    gone one is; an op opens the handle's directory
-    beneath it, refusing a symlink, then its path beneath that by
-    `openat2`, its `..` resolved by the text first, so no handle owns a
-    descriptor or needs a finalizer. A read opens its file without
-    waiting and `gro_sys` refuses anything but a regular file by the
-    opened descriptor, before a byte is read. A listing (`list`'s, of
-    TypeScript's `AsyncIterableIterator`, its `[Symbol.asyncIterator]`
-    keyed by the well-known symbol the host gets from V8) holds its
-    state as a record under its brand, which its first `next()` fills
-    with the whole directory, the descriptor closed before it settles, so
-    no listing holds a descriptor either. The roots are the project's, the
-    entry's, read, then the directories the run's `FsGrant` reads and
-    writes, one root per real path, each also matched by the paths it was
-    granted as, or under `-A` one more at `/`; a root at `/`, `-A`'s or a
-    flag's, alone resolves an absolute symlink as the kernel does
-    (`gro_sys`'s `Links::InRoot`); a
-    root's scope joins every root's that holds it: whose real path holds
-    its own, both read as the run starts (`fs_grant` reads a flag's, and
-    the table opens the flag's root by it), and whose descriptor holds its
-    directory at that path, no symlink on the way, as the table is made;
-    nothing is read again after, so a directory moved out of a root later
-    keeps the scope it joined. An entry's path beneath its root is the
-    kernel's, checked against the root's by its text, then
-    looked up beneath the root (`gro_sys::beneath::path_beneath`), so no
-    lookup leaves a root. Every fs member first checks that the kernel
-    serves `openat2` (but `list` and its listing's methods, whose one I/O,
-    the first `next()`, checks it), and an op's I/O takes owned arguments,
-    so it can move off the thread, but for a read's filling of its buffer,
-    which V8 allocated (`gro_v8::PendingArrayBuffer`, not `Send`), so V8's
-    collector counts it: the open (`gro_sys::beneath::Reading`, which is
-    `Send`) can move, and the read into the buffer stays on the isolate's
+  modules: the bootstrap names each row's backing script and synthetic module
+  from it, and no snapshot holds a backing script, which `deno_core` runs at
+  a run's first import of the row (`bootstrap.rs`'s module doc).
+  - A backing script (`bootstrap/template.rs`) only asks the host for its
+    namespace: it names no global but `undefined`, reads no member of an
+    intrinsic, and decides nothing; whatever has identity or state is the
+    host's, in `OpState`. Its test holds every row's script to the two texts
+    in the module doc, byte for byte.
+  - Every row's members are native (`host/native.rs`): made from the table
+    `native_members!` declares, the first time a run asks for the row's
+    namespace through the one op, `op_gro_namespace`, which knows the row by
+    the script that calls it. No host op is a `deno_core` async op: an
+    `async` member returns a promise the host settled before returning it.
+  - A first `import()` of a builtin short of stack is built from the event
+    loop (`loader/headroom.rs`), and both levels of a backing script stay safe
+    to end at any call and to run again (`bootstrap.rs`'s module doc has the
+    rules). An op a level calls must be safe to call again, and nothing checks
+    that.
+  - `crates/gro_cli/tests/host.rs` imports every row in a realm of trapped
+    intrinsics and exercises everything it reaches with hostile arguments and
+    receivers (its module doc; `tests/fixtures/host/patched/exercise.js`). A
+    function it reaches fails until `patched/use.js` has an entry for it, and
+    a use of a hostile argument until `ARGUMENT_USES` lists it for that
+    function, reviewed.
+  - An error row's class and guard are the host's (`host/error_class.rs`): a
+    member throws only a family it declares (`throws FAMILY(name)` in
+    `native_members!`), since throwing one and making its class each take a
+    `DeclaredFamily`, which only the macro makes.
+  - A handle is the host's (`host/handle.rs`): a frozen object of a prototype
+    the host made, its state under its kind's brand, a private symbol. A
+    method refuses anything without the brand and decides from the handle's
+    state, never from the run's grants, which gate only that the run holds
+    the row.
+  - An `fs` handle's state is plain data, and only a root holds a descriptor
+    (`host/fs.rs`'s module doc owns the roots, their scopes and nesting, the
+    `openat2` lookups, reads, and listings): no handle's op checks the run's
+    roots, and no lookup leaves a root. An op's I/O takes owned arguments, so it can
+    move off the thread, but for a read's fill of the buffer V8 allocated
+    (`gro_v8::PendingArrayBuffer`, not `Send`), which stays on the isolate's
     thread.
   - The resolver returns a table hit ahead of any package lookup; the loader
     checks it against the run's `Authority` at link time, for a static import
@@ -524,40 +363,16 @@ Invariants that live in the code:
     no per-importer state.
   - A builtin declares no types: its types are its Node module's.
     `src/test/builtin_types.test.ts` holds the native members' table, as
-    `tests/native_members.txt` pins it, to each row's Node module, read
-    through the TypeScript compiler, both ways, naming any member on one
-    side only: the same exports, each the same kind (a function, data, a
-    handle of the same kind, a class), each kind of handle's methods the
-    own members of the Node module's interface it's named for (a kind's
-    brand is `<specifier>#<Interface>`), or of TypeScript's own of the name
-    when the module exports none (`AsyncIterableIterator`, a listing's),
-    and each function and method of a
-    `length` its declaration allows: exactly JS's count, to the first
-    defaulted or rest parameter, for a function with a body, and for an
-    interface's method from its required parameters to all of them, since
-    only its implementation says whether an optional one is defaulted.
-    Names, kinds, and arity, never argument or result types, reading the
-    rows from the table.
-    `crates/gro_cli/tests/host.rs` holds every row's values to what its Node
-    module printed (`tests/fixtures/host/`, whose
-    `expected.json` `node oracle.js --write` regenerates under Node and
-    `src/test/host_differential.test.ts` checks against Node).
-  - The table also reserves specifiers it doesn't serve (each row's `.js`
-    spelling, derived from the row, `UNBUILT_HOST_MODULES`, the error modules
-    not built among them, `SPLIT_MODULES`, the modules Gro has none of whose
-    members are modules of their own, each refused naming them, and a respelling of these or of a row's specifier,
-    read as URL parsing and the path's decoding read an `"exports"` target, in
-    `resolver/specifier.rs`), which the resolver refuses ahead of any package
-    lookup; a reserved one is data only, never reaching `builtin_rows!`. A
-    package's module can't reach a grant through the project's: its bare
-    import resolving into the project root is refused
-    (`ResolveErrorKind::PackageImportsProject`). The loader's
-    `resolve_with_scope` refuses an `import()` in code compiled from a string
-    first, then an attribute under any key but `type` for every specifier,
-    then any attribute on a builtin before its grant; an `import()`'s
-    attributes reach it through the `deno_core` patch (`vendor/README.md`),
-    since the runtime's attribute callback, the unpatched route, runs on every
-    static import.
+    `tests/native_members.txt` pins it, to each row's Node module: names,
+    kinds, and arity. `crates/gro_cli/tests/host.rs` holds every row's values
+    to what its Node module printed (`tests/fixtures/host/expected.json`,
+    which `node oracle.js --write` there regenerates under Node).
+  - The table also reserves specifiers it doesn't serve
+    (`resolver/builtin.rs`), refused ahead of any package lookup; a package's
+    bare import into the project root is refused
+    (`ResolveErrorKind::PackageImportsProject`); the loader's refusals of a
+    string-compiled `import()` and of attributes, and their order, are
+    `loader/mod.rs`'s.
 - Type state: `confine::Prepared` → `Prepared::confine` → `Confined`, or
   `Confinement::Unconfined` named by `fgro run`, `make-snapshot`, and unit
   tests; `engine::init_engine` takes a `Confinement` and returns an `Engine`,
@@ -570,75 +385,27 @@ Invariants that live in the code:
   until it's confined, in the step order written once, in `confine_eval`'s
   doc in `crates/gro_cli/src/eval.rs`. Every other command runs on one thread
   sized `gro_runtime::STACK_SIZE`.
-- `bootstrap::extensions` drops every lazy ES module the extensions declare
-  and every other extension's synthetic ES modules, keeping gro's own, one
-  per builtin, each named by its `builtin:` URL; gro's own extension
-  declares no lazy script, which deno_core would register at every start
-  (the builtins' backing scripts are residual ones). deno_core falls back to a
-  lazy ES module of the exact name when the loader refuses an import, which
-  would load it past the resolver's refusal of `ext:`; and it links a static
-  import naming a synthetic module by that raw name, whatever the loader
-  resolved the name to (a refusal still fails the import), so a synthetic
-  module's name must be one the resolver refuses from source. `gro_runtime`'s
-  tests import every `ext:` and `builtin:` specifier the build knows and
-  expect the refusal, and pin the kept synthetic names to the table's URLs.
+- `bootstrap::extensions` drops every lazy ES module and every other
+  extension's synthetic ones, since `deno_core` would load either past the
+  loader's refusal (its doc has how), so a synthetic module's name must be
+  one the resolver refuses from source.
 - One grant choke point: the one host op, `op_gro_namespace`, is declared
-  through `host::host_ops!`, whose first step is `require_authority` in
-  `host/grant.rs`, which refuses only a runtime that holds no `Authority`
-  at all, so the op runs in every run and in no eval; it checks the row's
-  grant once it knows the row from its calling script
-  (`grant::require_grant`), before anything is made. It takes each
-  argument as the JS value passed (`v8::Local<v8::Value>`), never through
-  an `#[op2]` conversion, which could run the caller's code or truncate:
-  its body reads the value natively, after the check, and throws through
-  the scope an error V8 makes from the realm's intrinsic
-  (`throw_type_error` in `host/mod.rs`), since an op's `Err` is built by a
-  JS callback of `deno_core`'s. The run's `Authority` goes into the
-  loader and the runtime's `OpState` per run, never into the snapshot or
-  the extension list, and eval's runtime takes none. A test fails on an
-  op of gro's extension, whatever its name, that's neither on
-  `bootstrap::UNGATED_OPS` nor a host op (or that's on an object), and
-  another on a host op that runs with no authority. Nothing at compile
-  time makes a host op use the macro: the first test is the check.
-- The same choke point for native members (`host/native.rs`): each is
-  declared through `native_members!`, a function or a value made with the
-  namespace, whose callback's or maker's first step is the check,
-  `require` of the grant it names or `require_authority`, throwing
-  `not_granted` through the scope, and which then hands a function's body
-  its receiver and each argument as the JS value passed, never converted.
-  The host makes every native function but an error family's class
-  (`error_class.rs`, whose constructor checks nothing: it reads no state
-  of the run and reaches nothing a grant guards, and no runtime without
-  an authority makes one) from the table the macro writes. Tests fail on a
-  native function or callback made in the code of the crates linked into
-  `fgro` anywhere but `native.rs` and `error_class.rs` (a source scan, by
-  the `CallbackArguments` type every native callback names and each API
-  that makes one), on a member that runs with no authority, or whose body
-  ran before its refusal, on a value made with no authority or without its
-  grant, on a member of a granted row (a probe table's)
-  that runs without its grant, on a member whose grant isn't its row's, on
-  the namespace op answering a script that isn't the row's, on a
-  namespace or prototype whose records or functions aren't the table's, or
-  aren't frozen, and on a `DeclaredFamily` made anywhere but by the macro
-  (a source scan, by its maker's name, and in its own module by every
-  line that names it); `tests/native_members.txt` pins the table
-  (module, name, place, a function's `length` and whether it's `async` or a
-  value's kind, grant, the family declared, then each kind's fields) as
-  `op_names.txt` pins the ops.
-- `bootstrap::REFUSED_OPS` lists the ops eval refuses, each one the runtime
-  registers. Of the ops and classes `deno_web` declares, the runtime registers
-  those on `bootstrap::WEB_OPS` and `bootstrap::WEB_CLASSES`, the ones a
-  script it can load reads from `core.ops`, and drops the rest before the
-  runtime or the snapshot is made (`bootstrap::extensions`). The tests of
-  `bootstrap/web_scripts.rs` read the web extensions' scripts the runtime can
-  load, and fail on a read that isn't kept, on a kept name no script reads,
-  and on a script that reaches `ops` any way but destructuring `core.ops`; a
-  runtime test fails on a read that isn't a function. Tests pin every
-  registered op name in `crates/gro_runtime/tests/op_names.txt` and every
-  dropped one in `tests/dropped_op_names.txt` beside it, so a
-  `deno_core`/`deno_web` upgrade that adds an op fails until it's reviewed,
-  and every refused one in `tests/refused_op_names.txt`, since the tests of
-  the refusals read their names from the list itself.
+  through `host::host_ops!`, whose first step is `require_authority`
+  (`host/mod.rs`). Nothing at compile time makes a host op use the macro: a
+  test fails on an op of gro's extension that's neither a host op nor on
+  `bootstrap::UNGATED_OPS`.
+- The same choke point for native members: each is declared through
+  `native_members!`, whose callback checks the grant first and hands the
+  body each argument unconverted, and no native function is made outside
+  `native.rs` and `error_class.rs`; source-scanning tests hold both
+  (`host/native.rs`'s module doc lists them). `tests/native_members.txt`
+  pins the table as `op_names.txt` pins the ops.
+- `bootstrap::REFUSED_OPS` lists the ops eval refuses. Of `deno_web`'s ops
+  and classes the runtime registers only those on `bootstrap::WEB_OPS` and
+  `WEB_CLASSES`, which `bootstrap/web_scripts.rs` holds to the scripts.
+  `crates/gro_runtime/tests/op_names.txt`, `dropped_op_names.txt`, and
+  `refused_op_names.txt` pin them, so a `deno_core`/`deno_web` upgrade that
+  adds an op fails until it's reviewed (`vendor/README.md`'s upgrade steps).
 - A start from the snapshot binds no op again (`skip_op_registration`, set
   in `runtime::new_runtime`): the snapshot's op functions, each without its
   fast call, are the only ones for the run (a builtin's backing script takes
@@ -665,18 +432,9 @@ Invariants that live in the code:
   not `fgro`: the release profile but for `panic = "abort"`, which cargo
   leaves off a test, over another crate graph, so what its link merges
   needn't be what `fgro`'s does.
-- No snapshot is made of ops eval's refusals can't land on. A snapshot
-  writes an op's function by the first external reference that holds its
-  address, a release build merges identical functions into one address,
-  and eval puts its refusal at the refused ops' references alone. So
-  `snapshot::make_snapshot` fails, naming both ops, when a refused op's
-  slow function shares its address with another op's function, unless
-  that is a refused op's slow one, or its fast function with another op's
-  slow one, and when a name on
-  `bootstrap::REFUSED_OPS` is no op's (the module doc of `snapshot.rs`).
-  The addresses are the making process's, read through the `deno_core`
-  patch: the plain `fgro` of stage one, whose snapshot the build embeds,
-  and the snapshot `fgro` when `--verify` makes it again.
+- No snapshot is made of ops eval's refusals can't land on:
+  `snapshot::make_snapshot` fails when a refused op's function shares its
+  address with another op's (`snapshot.rs`'s module doc has why).
 - `gro_runtime` reads no environment variable but the `phases` feature's
   `GRO_PHASES_FILE` and the `prices` feature's `GRO_PRICES_OFF`; `fgro`
   decides color and passes it in, as it passes the working directory and
@@ -692,44 +450,20 @@ Invariants that live in the code:
   `gro_cli`, enabling `gro_runtime`'s) are off in the binary that ships;
   without them nothing reads the variables.
 - A run's or an eval's runtime is handed back when it's over
-  (`SpentRuntime`, in `RunOutcome` and beside eval's envelope): dropped, it's
-  torn down, which is what an embedder gets, and `fgro` forgets it on the
-  thread that owns it, since the process exits next. Every command exits
-  through `end` in `crates/gro_cli/src/main.rs`, the one exit step, but for
-  eval's out-of-memory backstop (`eval/limits.rs`), which ends the process
-  from V8's out-of-memory callback without reaching it. `end` takes only a
-  code and reaches no runtime. Console output is written and flushed as
-  it's printed, so nothing is buffered there today; a later host module
-  that buffers stdout or stderr must have it written before the runtime is
-  handed back and before `exit` calls the embedder's step, or keep
-  the buffer where `end` can reach it.
-- `gro_runtime` ends its embedder's process itself in two places only:
-  eval's out-of-memory backstop exits 1, and a confined engine whose random
-  source fails aborts (`engine.rs`). A program's `exit` doesn't: its
-  function calls the step the embedder gave (`RuntimeOptions::exit_step`), from
-  inside the call, since stopping V8 doesn't stop a program at once
-  (`host/exit.rs` has why); a run that grants `exit` without a step fails
-  before it starts (`StartError::NoExitStep`), so the grants stay plain
-  data, and an embedder that must outlive its program doesn't grant
-  `exit`. `fgro`'s step is `run::exit_now`, which prints what was refused
-  and reaches `end`; `run::exit_code` is the one place a run's exit code
-  is decided, for a program's code, a failure, and a refusal alike. The
-  exit code a program sets is the run's state in `OpState`, never a
-  script's, and so is the run's record of refusals
-  (`loader::refused::Refusals`), the loader's, which `OpState` holds for
-  any op (`loader::RefusalLog`): the `import()`s the loader refuses by
-  rule, and each call a native member refuses for a grant its handle
-  lacks, recorded by the member as it throws (`env`'s and `fs`'s
-  `not_granted`), one
-  record listed, cut, and counted alike, so either fails the run caught or
-  not; a refusal by `env`'s root, and an `fs` reach no root holds or an op
-  a handle's scope lacks, also records the grant that would have allowed
-  it (`NeededGrant`: a variable by its name, a grant to read or to write
-  by its kind alone, or, for an op a handle's scope lacks that a root
-  already grants, a handle to open), from which `fgro` prints its hints,
-  an fs hint naming no path. No
-  in-process test grants a step that returns: a program that exits is run
-  in a child process.
+  (`SpentRuntime`), and every command exits through `end` in
+  `crates/gro_cli/src/main.rs` but for eval's out-of-memory backstop. A host
+  module that buffers stdout or stderr must have it written before the
+  runtime is handed back and before `exit` calls the embedder's step
+  (`lib.rs`'s module doc).
+- `gro_runtime` ends its embedder's process itself in two places only
+  (`lib.rs`'s module doc). A program's `exit` calls the step the embedder
+  gave (`RuntimeOptions::exit_step`; `host/exit.rs` has why), and a run that
+  grants `exit` without one fails before it starts. `fgro`'s step is
+  `run::exit_now`, and `run::exit_code` is the one place a run's exit code
+  is decided. A refusal by rule, or for a grant a handle lacks, fails the
+  run caught or not, recorded, with the grant that would have allowed it
+  where one would (`loader/refused.rs`), from which `fgro` prints its hints. No in-process
+  test grants a step that returns.
 - A change to the seccomp allowlist reruns the census
   ([src/docs/eval.md](src/docs/eval.md#changing-the-allowlist)).
 
@@ -744,37 +478,20 @@ tests with the features it runs under (`INTEGRATION_TESTS` in
 the environment, cap memory, or signal run in a child process, harness off.
 
 **Vendored crates.** `vendor/` holds patched copies of published crates
-(`deno_core`, patched for deterministic snapshots and what else its index
-lists), wired through
-`[patch.crates-io]` and outside the workspace and its checks (their own rustc
-warnings print but fail nothing). [vendor/README.md](vendor/README.md) is the
-index of every patch and the upgrade procedure, so a `deno_core` upgrade
-re-vendors it per the README; edit vendored code only as a marked
-`// gro patch:` ([vendor/CLAUDE.md](vendor/CLAUDE.md)). `check-rust` proves
-each tree is its published crate plus its patch, and
-`cargo xtask vendor-patch <name>` regenerates a patch. With the patch, a
-clean checkout of one commit, the same toolchain, and the same cargo home
-build the same `fgro`, byte for byte, wherever the checkout is. The
-toolchain is the system's as well as Rust's: the C compiler and C library
-reach the binary (its startup objects, the C a build script compiles), so on
-CI it's the runner's image. `fgro` embeds the commit it was built from, so a
-dirty tree (a changed file, or an untracked one git doesn't ignore: a
-`-dirty` marker) or one git can't read as its own top level (no commit)
-builds other bytes. `cargo xtask check-reproducible` holds it for the
-release build: the release `fgro` built in the checkout and again in a
-clone of its commit at another path, both with rustc wrappers turned off and
-`PATH`'s `rustc`, compared byte for byte. It refuses a dirty tree, one
-outside git, a variable cargo reads as a compile setting
-(`CARGO_INCREMENTAL` and the like), a rustc wrapper in its own environment (the caller's, or one a
-cargo config's `[env]` sets), or a cargo config only the clone's build
-would read (in the clone's directory or above it, not above the checkout,
-and not cargo home's). CI's `reproducible` job runs it on the release's
-image, so it proves the release build path-independent there, but not a
-release's own bytes, which build under another cargo home. It can't see
-another machine, toolchain, or cargo home, a cargo config only the
-checkout's build reads (above it, not above the clone), or what both builds
-read alike on one machine: a directory's listing order on one filesystem,
-the day's date, a cache they share.
+(`deno_core` among them), wired through `[patch.crates-io]` and outside the
+workspace and its checks. [vendor/README.md](vendor/README.md) is the index
+of every patch and the upgrade procedure; edit vendored code only as a
+marked `// gro patch:` ([vendor/CLAUDE.md](vendor/CLAUDE.md)). `check-rust`
+proves each tree is its published crate plus its patch, and
+`cargo xtask vendor-patch <name>` regenerates a patch.
+
+**Reproducible builds.** A clean checkout of one commit, the same toolchain
+(the system's C compiler and library included), and the same cargo home
+build the same `fgro`, byte for byte, wherever the checkout is; `fgro`
+embeds its commit, so a dirty tree builds other bytes.
+`cargo xtask check-reproducible` holds it for the release build;
+`crates/xtask/src/reproducible.rs` says what it refuses and what it can't
+see.
 
 **V8 archive, fetch first.** Every cargo build links the prebuilt V8 static
 library at the path `.cargo/config.toml` sets as `RUSTY_V8_ARCHIVE`, so the
@@ -786,59 +503,28 @@ cargo; it verifies the pinned SHA-256 (`crates/xtask/src/v8_archive.rs`).
 or `CARGO_ENCODED_RUSTFLAGS` in the environment replaces its flags and drops
 it.
 
-**Commands.** The toolchain is pinned in `rust-toolchain.toml`.
+**Commands.** The toolchain is pinned in `rust-toolchain.toml`. Each
+command's steps are its module's doc under `crates/xtask/src/` (`main.rs`
+lists them).
 
 - `cargo xtask check` - the one local gate: `check-rust`, `check-js` (the
-  JS/TS under `crates/`, which `gro check` doesn't reach: `tsc` over every
-  `tsconfig.json` under `crates/*/js/`, then the format check), then `gro check`.
-  CI runs `check-rust` and `check-js` as its own jobs, so the steps live in
-  the xtask only (`crates/xtask/src/check.rs`)
-- `cargo xtask build [--release] [--verify]` - the snapshot `fgro`, built in
-  two stages, at `<target>/gro_snapshot/<profile>/fgro`; `--verify` adds
-  the snapshot remade by that `fgro` and compared byte for byte, clippy over
-  the `snapshot` feature, `gro_runtime`'s tests of its runtimes built with
-  the build's profile, the integration tests against that
-  build, the size budgets, and a run with the build tree hidden
-  (`unshare -rm`, which needs unprivileged user namespaces). A plain
-  `cargo build` makes an `fgro` with no snapshot that runs only from its
-  build tree and can't `eval`
-- `cargo xtask check-reproducible [--dir <dir>]` - the release `fgro` built
-  in a clean checkout and again in a clone of its commit under `<dir>`
-  (default `$XDG_CACHE_HOME/gro/reproducible`), from the cleared
-  environment the perf rule's base build uses, then compared byte for byte,
-  a difference failing with the sections that differ and the clone kept;
-  two release builds and the clone's target dir, so `check` leaves it to CI.
-  `<dir>` is apart from the checkout, without `..`, and the check's own:
-  missing, empty, marked `.check-reproducible` by an earlier run, or
-  holding only the lock an earlier one left; it refuses any other rather
-  than replace its `src`
+  JS/TS under `crates/`, which `gro check` doesn't reach), then `gro check`;
+  CI runs the first two as jobs of their own
+- `cargo xtask build [--release] [--verify]` - the snapshot `fgro`, at
+  `<target>/gro_snapshot/<profile>/fgro`; a plain `cargo build` makes an
+  `fgro` with no snapshot that runs only from its build tree and can't
+  `eval`
+- `cargo xtask check-reproducible` - two release builds and a clone, so
+  `check` leaves it to CI
 
 **Benchmarks.** `gro_bench` times runtimes × workloads in fresh processes,
 interleaved, with an A/A noise row, and appends one JSON line per run to
-`crates/gro_bench/history.jsonl`. Suites live in `crates/gro_bench/suites/`
-(`baseline`, `eval`, `prices`, `memory`; described in gro_bench's `lib.rs`).
-Flags are in `crates/xtask/src/bench/mod.rs`, exit codes in
-`crates/xtask/src/main.rs` and `crates/xtask/src/error.rs`.
-
-- `cargo xtask bench <suite.json>` - a wall run; `--counters` counts
-  instructions and cycles under `perf stat`, `--phases` records per-phase
-  durations from a `phases` build; `--samples N` overrides the count
-- a suite's `budgets` cap `fgro`'s executable and snapshot sizes; a run over
-  one fails before sampling (exit `2`)
-- a workload project's `blake3` pins its committed files, and a run refuses
-  files that hash otherwise; a change to them bumps the suite's `version` and
-  re-pins, which a `gro_bench` test holds against `history.jsonl`
-- a workload runs under every runtime, or the ones its `runtimes` names when
-  it's of one runtime's own API: the baseline's `import_builtins`, a first
-  import of a few builtin rows, runs under `fgro` alone, and an A/B runs it
-  under the base copy too, so the baseline's A/B reports first imports,
-  against `empty`
-- `cargo xtask bench report` - each row's latest record against the previous
-  and the last attested one
-- Record a suite on a quiet machine, after `cargo xtask build --release` (so
-  the bench's own build is a cache hit):
-  `cargo xtask bench crates/gro_bench/suites/baseline/suite.json --attest-quiet`
-  (or `suites/eval/suite.json`)
+`crates/gro_bench/history.jsonl`; its `lib.rs` describes the suites, and
+`crates/xtask/src/bench/mod.rs` the flags. A change to a workload project's
+committed files bumps its suite's `version` and re-pins its `blake3`. Record
+a suite on a quiet machine, after `cargo xtask build --release`:
+`cargo xtask bench crates/gro_bench/suites/baseline/suite.json --attest-quiet`
+(or `suites/eval/suite.json`).
 
 **The perf rule.** A change to anything the release `fgro` is built from
 (`gro_runtime`, `gro_cli`, `gro_sys`, `gro_v8`, `vendor/`, the root

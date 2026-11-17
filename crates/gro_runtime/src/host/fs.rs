@@ -147,7 +147,11 @@
 //! promise the host already settled. Its I/O ([`sys`]) takes owned
 //! arguments, a root's descriptor shared by count and the paths as Rust
 //! text, and borrows nothing of V8's, so it can move to a blocking pool
-//! with no change to what it's given.
+//! with no change to what it's given. A read's fill of its buffer is the
+//! exception: the buffer is V8's, so its collector counts it, and isn't
+//! `Send` (`gro_v8::PendingArrayBuffer`): the open, whose `Reading` is
+//! `Send`, can move, and the read into the buffer stays on the isolate's
+//! thread.
 
 use std::cell::{Cell, Ref, RefCell};
 use std::ffi::OsString;

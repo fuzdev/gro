@@ -4,7 +4,8 @@
 //! `cargo xtask check` runs these steps in order, printing each command first
 //! and stopping at the first failure with that step's exit code;
 //! `check-rust` runs 1 to 3 (CI's rust job), `check-js` only 4 (CI's Node
-//! job, which has no V8 build):
+//! job, which has no V8 build). The steps live here only, and CI's jobs run
+//! these commands rather than repeating them:
 //!
 //! 1. the V8 archive, as `fetch-v8`, and the vendored crates, each its
 //!    published crate plus its patch ([`crate::vendor::check`])

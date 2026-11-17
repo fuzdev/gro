@@ -19,6 +19,11 @@
 //! on the bootstrap's ungated list, and each host op refuses a runtime with
 //! no authority.
 //!
+//! Nothing the host serves is a `deno_core` async op: not the host op, and
+//! not an `async` member, whose promise the host makes and settles before
+//! returning it (`native::settle`), so nothing of a call is left to the
+//! event loop.
+//!
 //! The loader refuses an ungranted builtin at link time already, and every
 //! builtin in an eval, so a refusal here is the second check, for a path to
 //! a member past the loader.
@@ -90,7 +95,9 @@ pub struct HostData {
 /// argument is the JS value as it was passed, a `v8::Local<'s, v8::Value>`,
 /// never converted on the way in: `#[op2]`'s typed arguments convert, and
 /// a conversion can run the caller's code or truncate, so the body reads
-/// the value natively and throws through the scope. The check still comes
+/// the value natively and throws through the scope, an error V8 makes from
+/// the realm's intrinsic ([`throw_type_error`]) rather than an `Err`, which
+/// a JS callback of `deno_core`'s would build. The check still comes
 /// first, before the body sees an argument. The body is the op's result, a
 /// value made in the scope, `'s` the scope's lifetime, which the macro
 /// declares; an op that throws returns `undefined` beside the exception,

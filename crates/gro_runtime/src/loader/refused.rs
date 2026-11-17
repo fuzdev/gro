@@ -2,8 +2,9 @@
 //! or not the program caught it: an `import()` the loader refused
 //! ([`FailureReason::guards_a_boundary`](super::graph::FailureReason::guards_a_boundary)),
 //! and a host function's call refused for a grant its handle doesn't hold (an
-//! environment variable outside an env handle's names). One record holds
-//! both, so both are listed, cut, and counted alike. A refused call that a
+//! environment variable outside an env handle's names, or an `fs` path no
+//! root holds). One record holds both, so both are listed, cut, and counted
+//! alike. A refused call that a
 //! grant of the run would have allowed also records that grant
 //! ([`NeededGrant`]), as data, never parsed from a message, so a report can
 //! say what to grant. What a program can make it keep outside V8's heap is

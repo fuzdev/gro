@@ -41,8 +41,10 @@
 //! [`BUILTIN_IMPORT_STACK`](crate::loader::headroom::BUILTIN_IMPORT_STACK)
 //! left has its module built from the event loop, with nearly the whole
 //! stack, and a backing script throws nothing at load: nothing known ends
-//! a script early. That holds by measurement, not by a bound: the amount is
-//! what each build's sweep holds, and off glibc, where the stack start
+//! a script early, since an op a level calls throws only for want of stack
+//! and a run never terminates V8 (eval's limits do, but eval imports no
+//! builtin). That holds by measurement, not by a bound: the amount is what
+//! each build's sweep holds, and off glibc, where the stack start
 //! isn't read, nothing is deferred, so a deep first import can be cut short
 //! there. Should anything end a script early, `deno_core` rejects that
 //! import with a `TypeError` carrying its own report of what the script
@@ -425,7 +427,9 @@ pub enum Ops {
 /// an `import()` the loader resolves to one. Either way an `import` could
 /// reach a module past the loader's refusal of every `ext:` specifier and
 /// its grant check. gro installs no global from them, so nothing else
-/// changes.
+/// changes. The runtime's tests import every `ext:` and `builtin:`
+/// specifier the build knows and expect the refusal, and pin the kept
+/// synthetic names to the table's URLs.
 pub fn extensions(ops: Ops) -> Vec<Extension> {
     restrict(declared_extensions(), ops)
 }
