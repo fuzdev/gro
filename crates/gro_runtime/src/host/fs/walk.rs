@@ -29,7 +29,7 @@
 
 use super::roots::Root;
 use super::{Failure, Scope, beneath_of, join, kind_of, root_fd, sys};
-use crate::NeededGrant;
+use crate::{FsNeed, NeededGrant};
 
 /// What lets through an op on `targets`, absolute paths, that a handle
 /// refused for want of `need`: a handle `fs.open_dir` makes on a root
@@ -60,7 +60,7 @@ pub(super) fn scope_needed(
         .iter()
         .any(|index| rest.iter().all(|other| other.contains(index)))
     {
-        NeededGrant::OpenDir
+        NeededGrant::Fs(FsNeed::OpenDir)
     } else {
         grant
     }
@@ -237,7 +237,7 @@ fn find_roots<'r>(
 mod tests {
     use super::super::tests::shown;
     use super::{Failure, Root, Scope, find_roots, scope_needed, sys, walk};
-    use crate::NeededGrant;
+    use crate::{FsNeed, NeededGrant};
 
     /// A root at `path`, never opened, reading and writing.
     fn root(path: &str) -> Root {
@@ -424,7 +424,7 @@ mod tests {
         ] {
             assert_eq!(
                 needed(path, opened, need),
-                Some(NeededGrant::Read),
+                Some(NeededGrant::Fs(FsNeed::Read)),
                 "{path}"
             );
         }
@@ -445,14 +445,18 @@ mod tests {
         ];
         let needed = |targets: &[&str], need: Scope| {
             let grant = if need.write {
-                NeededGrant::Write
+                NeededGrant::Fs(FsNeed::Write)
             } else {
-                NeededGrant::Read
+                NeededGrant::Fs(FsNeed::Read)
             };
             let targets: Vec<String> = targets.iter().map(|&target| target.to_owned()).collect();
             scope_needed(&roots, &targets, need, grant)
         };
-        let (open_dir, read, write) = (NeededGrant::OpenDir, NeededGrant::Read, NeededGrant::Write);
+        let (open_dir, read, write) = (
+            NeededGrant::Fs(FsNeed::OpenDir),
+            NeededGrant::Fs(FsNeed::Read),
+            NeededGrant::Fs(FsNeed::Write),
+        );
         for (targets, need, expected) in [
             (&["/p/out/x"][..], Scope::WRITE, &open_dir),
             (&["/p/out"], Scope::WRITE, &open_dir),

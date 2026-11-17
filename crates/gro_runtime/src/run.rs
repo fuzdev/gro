@@ -17,7 +17,7 @@ use crate::loader::graph::Graph;
 use crate::loader::graph::Recording;
 use crate::loader::refused::Refusals;
 use crate::phases::{self, Phase};
-use crate::report::uncaught;
+use crate::report::{Report, uncaught};
 use crate::resolver::{self, DiskTree, ResolveError};
 use crate::runtime::{HostState, SpentRuntime, start_runtime};
 use crate::snapshot::StartupSnapshot;
@@ -33,9 +33,10 @@ pub enum RunError {
     #[error("failed to start the runtime: {0}")]
     Start(#[from] StartError),
     /// The program threw, rejected a promise no one handled, or failed to
-    /// load a module. The report is printable as is.
+    /// load a module: its report, as lines that can hold text the program
+    /// chose, line breaks among it ([`Report`]).
     #[error("{0}")]
-    Uncaught(String),
+    Uncaught(Report),
 }
 
 /// Why the runtime couldn't start, before any of the program ran.

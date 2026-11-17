@@ -270,6 +270,7 @@ fn an_uncaught_refusal_is_the_error_and_not_listed() {
         let Err(RunError::Uncaught(report)) = &outcome.result else {
             panic!("{name}: {:?}", outcome.result);
         };
+        let report = report.to_string();
         assert!(report.contains(reason), "{name}: {report}");
         let listed = &outcome.refused.messages();
         assert_eq!(listed.len(), 1, "{name}: {listed:?}");
@@ -306,6 +307,7 @@ throw new TypeError(message);
     let Err(RunError::Uncaught(report)) = &outcome.result else {
         panic!("{:?}", outcome.result);
     };
+    let report = report.to_string();
     assert!(report.contains("the scheme 'ext:'"), "{report}");
     assert!(outcome.refused.is_empty(), "{:?}", outcome.refused);
     for (name, thrown) in [
@@ -323,6 +325,7 @@ throw {thrown};
         let Err(RunError::Uncaught(report)) = &outcome.result else {
             panic!("{name}: {:?}", outcome.result);
         };
+        let report = report.to_string();
         assert!(report.contains("the scheme 'ext:'"), "{name}: {report}");
         assert_listed(
             &outcome.refused.messages(),
@@ -419,6 +422,7 @@ fn a_refusal_in_a_graph_an_import_loads_is_listed() {
     let Err(RunError::Uncaught(report)) = &outcome.result else {
         panic!("{:?}", outcome.result);
     };
+    let report = report.to_string();
     assert!(report.contains("it is the .js spelling"), "{report}");
     assert!(outcome.refused.is_empty(), "{:?}", outcome.refused);
 }
@@ -543,10 +547,12 @@ if (refusals.join() !== 'not_granted: B,not_granted: B,not_granted: B,not_grante
         [
             Refusal {
                 by: env,
+                fs_need: None,
                 message: "not_granted: B".to_owned(),
             },
             Refusal {
                 by: env,
+                fs_need: None,
                 message: "not_granted: C".to_owned(),
             },
         ]
@@ -564,6 +570,7 @@ env.get('B');
     let Err(RunError::Uncaught(report)) = &outcome.result else {
         panic!("{:?}", outcome.result);
     };
+    let report = report.to_string();
     assert!(
         report.starts_with("Uncaught (in promise) EnvError: not_granted: B"),
         "{report}"

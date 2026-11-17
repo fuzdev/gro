@@ -11,10 +11,10 @@ use std::path::Path;
 use gro_runtime::confine::Confinement;
 use gro_runtime::engine::{EngineOptions, init_engine};
 use gro_runtime::phases::{self, Phase};
-use gro_runtime::resolver::FileId;
+use gro_runtime::resolver::{Capability, FileId, normalize};
 use gro_runtime::{
-    ArgsGrant, Authority, EnvGrant, EnvVars, Exit, ExitGrant, FsGrant, GrantedDir, Grants,
-    NeededGrant, Refusals, RefusedBy, RunOutcome, RuntimeOptions, env_name_fault,
+    ArgsGrant, Authority, EnvGrant, EnvVars, Exit, ExitGrant, FsGrant, FsNeed, GrantedDir, Grants,
+    NeededGrant, Refusal, Refusals, RefusedBy, RunOutcome, RuntimeOptions, env_name_fault,
 };
 
 use crate::EXIT_FAILURE;
@@ -115,7 +115,13 @@ const fn exit_code(ended: Ended, refused: bool) -> u8 {
 fn start_and_run(run: &RunInvocation) -> Result<RunOutcome, CliError> {
     // read here, not in the runtime, which takes it as an input
     let cwd = std::env::current_dir().map_err(CliError::Cwd)?;
-    let fs = fs_grant(&run.dirs, &cwd)?;
+    let (fs, notes) = fs_grant(&run.dirs, &cwd)?;
+    // a directory `-A` names grants nothing more, so there's nothing to note
+    if !matches!(run.grant, RunGrant::All) {
+        for note in notes {
+            stderr_line(note);
+        }
+    }
     let engine = init_engine(Confinement::Unconfined, &EngineOptions::default())?;
     phases::mark(Phase::Engine);
     let options = runtime_options(run, &ProcessEnvironment, fs);
@@ -129,20 +135,25 @@ fn start_and_run(run: &RunInvocation) -> Result<RunOutcome, CliError> {
 /// ones. The runtime opens each by that real path when the run first
 /// imports `fs` and holds it to that identity, so a directory moved or
 /// replaced between, like one gone by then, fails every op through it, and
-/// the roots nest as these real paths do.
+/// the roots nest as these real paths do. With it, the notes ([`grant_note`])
+/// for the directories whose real path isn't their text.
 ///
 /// # Errors
 ///
 /// Returns [`CliError::NoDir`] for the first that's missing, isn't a
 /// directory, or can't be looked at.
-fn fs_grant(dirs: &FlagDirs, cwd: &Path) -> Result<FsGrant, CliError> {
-    let check = |flag: DirFlag, dir: &String| {
+fn fs_grant(dirs: &FlagDirs, cwd: &Path) -> Result<(FsGrant, Vec<String>), CliError> {
+    let mut notes = Vec::new();
+    let mut check = |flag: DirFlag, dir: &String| {
         let path = cwd.join(dir);
         let found = std::fs::canonicalize(&path)
             .and_then(|real| std::fs::metadata(&real).map(|metadata| (real, metadata)));
         let fault = match found {
             Ok((real, metadata)) if metadata.is_dir() => match FileId::of(&metadata) {
-                Ok(id) => return Ok((path, GrantedDir { real, id })),
+                Ok(id) => {
+                    notes.extend(grant_note(flag, dir, &path, &real));
+                    return Ok((path, GrantedDir { real, id }));
+                }
                 Err(error) => DirFault::Unreadable(error),
             },
             Ok(_) => DirFault::NotADirectory,
@@ -154,7 +165,7 @@ fn fs_grant(dirs: &FlagDirs, cwd: &Path) -> Result<FsGrant, CliError> {
         };
         Err(CliError::NoDir { flag, path, fault })
     };
-    Ok(FsGrant {
+    let fs = FsGrant {
         read: dirs
             .read
             .iter()
@@ -165,6 +176,29 @@ fn fs_grant(dirs: &FlagDirs, cwd: &Path) -> Result<FsGrant, CliError> {
             .iter()
             .map(|dir| check(DirFlag::Write, dir))
             .collect::<Result<_, _>>()?,
+    };
+    Ok((fs, notes))
+}
+
+/// The note, if one is due, that `flag` listing `dir`, the text typed,
+/// which is `path` resolved against the working directory, grants `real`,
+/// its real path as the run starts: `note: --allow-read=<dir> grants
+/// <real>`, each escaped ([`escape_controls`]), when `real` isn't `path`
+/// with its `.` and `..` resolved by their text, so the path passes through
+/// a symlink. A refusal names a path the program chose, and one copied into
+/// a flag can lead through a symlink to another directory than it names.
+///
+/// Every symlink is noted, one in a directory above the working directory
+/// too, as a symlinked home is: which symlinks the person made is past
+/// knowing, and the note is fixed by typing the real path, or a path
+/// relative to the working directory, which is real already.
+fn grant_note(flag: DirFlag, dir: &str, path: &Path, real: &Path) -> Option<String> {
+    (normalize(path) != real).then(|| {
+        format!(
+            "note: {flag}={} grants {}",
+            escape_controls(dir),
+            escape_controls(&real.to_string_lossy())
+        )
     })
 }
 
@@ -173,22 +207,15 @@ fn fs_grant(dirs: &FlagDirs, cwd: &Path) -> Result<FsGrant, CliError> {
 /// out of one.
 const REFUSALS_FAIL: &str = "error: a refusal fails the run, whether or not the program caught it";
 
-/// Prints to stderr each refusal `refused` lists, one line each, naming
-/// what refused it, an `import()` or a host module, and its message, its
-/// control characters escaped, since the program chose the specifier or
-/// the name, then one line counting the refusals it doesn't list, then,
-/// when there were any, [`REFUSALS_FAIL`]; then the hints saying what
-/// grants the refused calls' needs ([`grant_hints`]), if any does, which
-/// the refusal that is the run's uncaught error, not listed, has too.
+/// Prints to stderr each refusal `refused` lists, one line each
+/// ([`refusal_line`]), then one line counting the refusals it doesn't
+/// list, then, when there were any, [`REFUSALS_FAIL`]; then the hints
+/// saying what grants the refused calls' needs ([`grant_hints`]), if any
+/// does, which the refusal that is the run's uncaught error, not listed,
+/// has too.
 fn report_refused(refused: &Refusals) {
     for refusal in &refused.listed {
-        let message = escape_controls(&refusal.message);
-        match refusal.by {
-            RefusedBy::Import => stderr_line(format_args!("error: import() refused: {message}")),
-            RefusedBy::Grant { grant, .. } => {
-                stderr_line(format_args!("error: {grant} refused: {message}"));
-            }
-        }
+        stderr_line(refusal_line(refusal));
     }
     match refused.unlisted {
         0 => {}
@@ -200,6 +227,40 @@ fn report_refused(refused: &Refusals) {
     }
     for hint in grant_hints(refused) {
         stderr_line(hint);
+    }
+}
+
+/// A listed refusal's line, naming what refused it, an `import()` or a
+/// host module, and its message, escaped ([`escape_controls`]), since the
+/// program chose the specifier, the name, or the path:
+///
+/// - `error: import() refused: <message>`;
+/// - `error: env refused: <message>`, whose message names the variable,
+///   as the hint naming it does;
+/// - for `fs`, the kind of grant it needed, as the hint of that kind says
+///   ([`grant_hints`]), so a hint pairs with the listed refusals of its
+///   kind, or with none, never with another kind's: `error: fs refused a
+///   read: <message>` for a read, `fs refused a write` for a write, `fs
+///   refused what the run grants` for an op a root already grants, through
+///   a handle of its own, and `fs refused what no grant allows` for one
+///   that needed none.
+fn refusal_line(refusal: &Refusal) -> String {
+    let message = escape_controls(&refusal.message);
+    match refusal.by {
+        RefusedBy::Import => format!("error: import() refused: {message}"),
+        RefusedBy::Grant {
+            grant: Capability::Fs,
+            ..
+        } => {
+            let need = match refusal.fs_need {
+                Some(FsNeed::Read) => "a read",
+                Some(FsNeed::Write) => "a write",
+                Some(FsNeed::OpenDir) => "what the run grants",
+                None => "what no grant allows",
+            };
+            format!("error: fs refused {need}: {message}")
+        }
+        RefusedBy::Grant { grant, .. } => format!("error: {grant} refused: {message}"),
     }
 }
 
@@ -236,9 +297,9 @@ fn grant_hints(refused: &Refusals) -> Vec<String> {
         match needed {
             NeededGrant::Env(name) if hint_name(name) => names.push(name),
             NeededGrant::Env(_) => some_env = true,
-            NeededGrant::Read => read = true,
-            NeededGrant::Write => write = true,
-            NeededGrant::OpenDir => open_dir = true,
+            NeededGrant::Fs(FsNeed::Read) => read = true,
+            NeededGrant::Fs(FsNeed::Write) => write = true,
+            NeededGrant::Fs(FsNeed::OpenDir) => open_dir = true,
         }
     }
     let mut hints = Vec::new();
@@ -653,7 +714,7 @@ mod tests {
     /// each fixed text naming no path.
     #[test]
     fn the_hints_name_env_s_variables_and_fs_s_kinds() {
-        use gro_runtime::{NeededGrant, Refusals};
+        use gro_runtime::{FsNeed, NeededGrant, Refusals};
 
         use super::grant_hints;
 
@@ -674,10 +735,10 @@ mod tests {
         assert_eq!(
             hints(
                 &[
-                    NeededGrant::OpenDir,
-                    NeededGrant::Write,
+                    NeededGrant::Fs(FsNeed::OpenDir),
+                    NeededGrant::Fs(FsNeed::Write),
                     env("HOME"),
-                    NeededGrant::Read,
+                    NeededGrant::Fs(FsNeed::Read),
                     env("A_1"),
                 ],
                 false
@@ -689,11 +750,14 @@ mod tests {
                 open_dir,
             ]
         );
-        assert_eq!(hints(&[NeededGrant::Read], false), [read]);
-        assert_eq!(hints(&[NeededGrant::Write], false), [write]);
-        assert_eq!(hints(&[NeededGrant::OpenDir], false), [open_dir]);
+        assert_eq!(hints(&[NeededGrant::Fs(FsNeed::Read)], false), [read]);
+        assert_eq!(hints(&[NeededGrant::Fs(FsNeed::Write)], false), [write]);
         assert_eq!(
-            hints(&[NeededGrant::Read], true),
+            hints(&[NeededGrant::Fs(FsNeed::OpenDir)], false),
+            [open_dir]
+        );
+        assert_eq!(
+            hints(&[NeededGrant::Fs(FsNeed::Read)], true),
             [read],
             "a variable past the bound makes no fs line"
         );
@@ -709,6 +773,91 @@ mod tests {
             hints(&[env("A B")], false),
             Vec::<String>::new(),
             "an env name it can't show makes no line"
+        );
+    }
+
+    /// A listed refusal's line names what refused it, and for `fs` the
+    /// kind of grant it needed in the words of that kind's hint, or that it
+    /// needed none, its message escaped.
+    #[test]
+    fn a_listed_refusal_names_what_refused_it_and_an_fs_one_its_need() {
+        use gro_runtime::resolver::Capability;
+        use gro_runtime::{FsNeed, Refusal, RefusedBy};
+
+        use super::refusal_line;
+
+        let fs = RefusedBy::Grant {
+            grant: Capability::Fs,
+            error: "FsError",
+        };
+        let env = RefusedBy::Grant {
+            grant: Capability::Env,
+            error: "EnvError",
+        };
+        let line = |by: RefusedBy, fs_need: Option<FsNeed>, message: &str| {
+            refusal_line(&Refusal {
+                by,
+                fs_need,
+                message: message.to_owned(),
+            })
+        };
+        assert_eq!(
+            line(fs, Some(FsNeed::Read), "not_granted: /r"),
+            "error: fs refused a read: not_granted: /r"
+        );
+        assert_eq!(
+            line(fs, Some(FsNeed::Write), "not_granted: /w"),
+            "error: fs refused a write: not_granted: /w"
+        );
+        assert_eq!(
+            line(fs, Some(FsNeed::OpenDir), "not_granted: /o"),
+            "error: fs refused what the run grants: not_granted: /o"
+        );
+        assert_eq!(
+            line(fs, None, "not_granted: /n\u{1b}[2K\u{2028}"),
+            "error: fs refused what no grant allows: not_granted: /n\\u{1b}[2K\\u{2028}"
+        );
+        assert_eq!(
+            line(env, None, "not_granted: HOME\n"),
+            "error: env refused: not_granted: HOME\\u{a}"
+        );
+        assert_eq!(
+            line(RefusedBy::Import, None, "cannot resolve 'ext:x'"),
+            "error: import() refused: cannot resolve 'ext:x'"
+        );
+    }
+
+    /// A flag's directory is noted when its real path isn't its text,
+    /// resolved against the working directory with its `.` and `..`
+    /// resolved by their text: through a symlink, a `..` after one
+    /// included, and never for a path that is real already however it's
+    /// spelled; the typed text and the real path printed escaped.
+    #[test]
+    fn a_flag_through_a_symlink_is_noted_with_its_real_path() {
+        use std::path::Path;
+
+        use super::grant_note;
+        use crate::cli::DirFlag;
+
+        let note = |flag: DirFlag, dir: &str, real: &str| {
+            grant_note(flag, dir, &Path::new("/c").join(dir), Path::new(real))
+        };
+        for dir in [
+            "d", "./d", "d/", "d/.", "x/../d", "/c/d", "/c//d/", "/../c/d",
+        ] {
+            assert_eq!(note(DirFlag::Read, dir, "/c/d"), None, "{dir}");
+        }
+        assert_eq!(
+            note(DirFlag::Read, "l", "/elsewhere"),
+            Some("note: --allow-read=l grants /elsewhere".to_owned())
+        );
+        assert_eq!(
+            note(DirFlag::Write, "l/..", "/r"),
+            Some("note: --allow-write=l/.. grants /r".to_owned())
+        );
+        assert_eq!(
+            note(DirFlag::Read, "l\u{1b}[2K", "/r\u{202e}"),
+            Some("note: --allow-read=l\\u{1b}[2K grants /r\\u{202e}".to_owned())
         );
     }
 

@@ -296,6 +296,7 @@ if (failures.length > 0) throw new Error(failures.join('; '));
     let Err(RunError::Uncaught(report)) = result else {
         panic!("{result:?}");
     };
+    let report = report.to_string();
     assert!(
         report.starts_with(&format!("Uncaught (in promise) Error: {message}\n")),
         "{report}"

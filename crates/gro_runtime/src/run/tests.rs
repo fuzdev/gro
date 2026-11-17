@@ -186,6 +186,7 @@ fn a_static_import_of_every_ext_specifier_is_refused() {
         let Err(RunError::Uncaught(report)) = run_source(&format!("static_{i}"), &source) else {
             panic!("a static import of {specifier} ran");
         };
+        let report = report.to_string();
         for expected in refusal(specifier) {
             assert!(report.contains(&expected), "{specifier}: {report}");
         }

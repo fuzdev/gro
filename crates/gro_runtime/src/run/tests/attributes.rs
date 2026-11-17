@@ -100,6 +100,7 @@ fn a_static_import_with_another_key_is_refused_before_it_resolves() {
         let Err(RunError::Uncaught(report)) = result else {
             panic!("{case}: {result:?}");
         };
+        let report = report.to_string();
         let key = if case == "several" { "a" } else { "x" };
         assert!(
             report.contains(&key_refusal(&graph, specifier, "main.mjs", key)),
@@ -133,6 +134,7 @@ fn a_static_import_with_another_key_is_refused_before_it_resolves() {
     let Err(RunError::Uncaught(report)) = result else {
         panic!("{result:?}");
     };
+    let report = report.to_string();
     let root = &graph.roots().project().dir;
     assert!(
         report.contains(&format!(
@@ -171,6 +173,7 @@ fn a_static_import_of_a_file_with_type_is_refused_when_it_loads() {
         let Err(RunError::Uncaught(report)) = result else {
             panic!("{value}: {result:?}");
         };
+        let report = report.to_string();
         assert!(
             report.contains(&format!(
                 "cannot load file://{}/who.mjs: import attributes are not supported yet",

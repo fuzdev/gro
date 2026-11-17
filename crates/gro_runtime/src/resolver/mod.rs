@@ -79,7 +79,7 @@ pub use builtin::{
     find_builtin, find_reserved,
 };
 pub(crate) use builtin::{builtin_rows, builtin_url};
-pub use entry::{EntryBound, resolve_entry, resolve_entry_with_bound};
+pub use entry::{EntryBound, normalize, resolve_entry, resolve_entry_with_bound};
 pub use error::{PackageSearchBound, ResolveError, ResolveErrorKind, TargetFault, UrlFault};
 pub use format::{ModuleFormat, module_format};
 pub use roots::{Origin, Root, Roots};

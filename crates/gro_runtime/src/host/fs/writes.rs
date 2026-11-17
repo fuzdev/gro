@@ -45,10 +45,10 @@ use super::{
     path_text, read_flag, read_handle, read_option, root_fd, rule_failure, run_roots, run_state,
     sys, to_lexical,
 };
-use crate::NeededGrant;
 use crate::host::error_class::DeclaredFamily;
 use crate::host::handle::FS_DIR;
 use crate::host::string;
+use crate::{FsNeed, NeededGrant};
 
 /// The permission bits a file `write` makes gets when its options name
 /// none, less the process's umask, as Node's `writeFile` makes one.
@@ -154,7 +154,7 @@ impl Op<'_> {
                     &self.roots,
                     read,
                     Scope::READ,
-                    NeededGrant::Read,
+                    NeededGrant::Fs(FsNeed::Read),
                 )),
             });
         }
@@ -168,7 +168,7 @@ impl Op<'_> {
                 &self.roots,
                 write,
                 Scope::WRITE,
-                NeededGrant::Write,
+                NeededGrant::Fs(FsNeed::Write),
             ))
         };
         Err(Failure::NotGranted {

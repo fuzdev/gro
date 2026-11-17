@@ -259,9 +259,8 @@ fn check_env_flag_names(names: &str) -> Result<Vec<String>, CliError> {
 }
 
 /// Why a name `--allow-env=` lists can't be granted. Only a glob's name is
-/// kept, echoed with its control and bidirectional formatting characters
-/// escaped: a name holding a `=` is never echoed, since what follows it can
-/// be a value.
+/// kept, echoed escaped ([`escape_controls`]): a name holding a `=` is
+/// never echoed, since what follows it can be a value.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EnvFlagFault {
     /// An empty name: a list that's empty, or starts, ends, or doubles a
@@ -545,7 +544,7 @@ pub const MAX_SHOWN_ARGUMENT: usize = 80;
 /// they were given to, `fgro eval` when the first argument that isn't an
 /// option is `eval`, else `fgro`, and the first [`MAX_SHOWN_ARGUMENTS`]
 /// arguments as given, each as [`echo_argument`] prints it (up to its
-/// first `=`, its control and bidirectional formatting characters escaped),
+/// first `=`, escaped),
 /// cut past [`MAX_SHOWN_ARGUMENT`] characters, an empty one as `""`, then
 /// how many more there were.
 fn invalid_arguments(args: &[&str]) -> CliError {
@@ -1007,7 +1006,7 @@ Options:
     }
 
     /// A usage error argh refused prints no part of an argument past its
-    /// first `=` and no raw control or bidirectional formatting character,
+    /// first `=` and no raw character [`crate::print::is_escaped`] names,
     /// whatever the arguments: lists of every size up to thousands, of
     /// arguments empty to very long, of controls, line breaks, bidi marks,
     /// and non-ASCII, each value after a first `=` made of characters

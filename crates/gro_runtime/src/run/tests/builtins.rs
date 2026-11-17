@@ -295,6 +295,7 @@ fn an_ungranted_import_is_refused_naming_the_grant() {
     let Err(RunError::Uncaught(report)) = result else {
         panic!("{result:?}");
     };
+    let report = report.to_string();
     assert!(
         report.contains(&format!(
             "cannot import '{ARGS}' from file://{}/main.mjs: it needs the grant 'args', \
@@ -444,6 +445,7 @@ for (const url of [import.meta.resolve('{ARGS}'), resolve()]) {{
     let Err(RunError::Uncaught(report)) = result else {
         panic!("{result:?}");
     };
+    let report = report.to_string();
     assert!(
         report.contains(&format!(
             "cannot import '{ARGS}' from file://{}/node_modules/dep/static.js: it needs the \
@@ -565,6 +567,7 @@ if (JSON.stringify(results) !== expected) throw new Error(JSON.stringify(results
     let Err(RunError::Uncaught(report)) = result else {
         panic!("{result:?}");
     };
+    let report = report.to_string();
     assert!(report.contains(SOURCE_REFUSED), "{report}");
 }
 
@@ -620,6 +623,7 @@ fn an_import_of_a_builtin_with_attributes_is_refused() {
         let Err(RunError::Uncaught(report)) = result else {
             panic!("{case}: {result:?}");
         };
+        let report = report.to_string();
         assert!(
             report.contains(&format!(
                 "cannot import '{ARGS}' from file://{}/main.mjs: a builtin module takes no \
@@ -761,6 +765,7 @@ for (const reach of [hop, where]) {
     let Err(RunError::Uncaught(report)) = result else {
         panic!("{result:?}");
     };
+    let report = report.to_string();
     let root = graph.roots().project().dir.display().to_string();
     assert!(
         report.contains(&format!(
@@ -890,6 +895,7 @@ for (const [specifier, words] of cases) {
     let Err(RunError::Uncaught(report)) = result else {
         panic!("{result:?}");
     };
+    let report = report.to_string();
     assert!(
         report.contains(&format!(
             "cannot resolve '@fuzdev/gro/args.js' from file://{}/node_modules/dep/static.js: \
@@ -913,6 +919,7 @@ for (const [specifier, words] of cases) {
     let Err(RunError::Uncaught(report)) = result else {
         panic!("{result:?}");
     };
+    let report = report.to_string();
     assert!(
         report.contains(&format!(
             "cannot resolve '@fuzdev/gro/process.ts' from file://{}/main.mjs: it names \
@@ -1012,6 +1019,7 @@ for (const neighbor of [await import('@fuzdev/gro/fs_paths.ts'), await load('@fu
         let Err(RunError::Uncaught(report)) = result else {
             panic!("{case}: {result:?}");
         };
+        let report = report.to_string();
         assert!(
             report.contains(&format!(
                 "cannot resolve '@fuzdev/gro/arg%73.ts' from file://{}/{importer}: it respells \

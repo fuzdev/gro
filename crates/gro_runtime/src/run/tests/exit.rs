@@ -26,9 +26,9 @@ fn run_granted(name: &str, source: &str) -> Ended {
 }
 
 /// The message of the error a run failed with.
-fn failure(ended: &Ended) -> &str {
+fn failure(ended: &Ended) -> String {
     match &ended.result {
-        Err(RunError::Uncaught(report)) => report,
+        Err(RunError::Uncaught(report)) => report.to_string(),
         other => panic!("the run failed with an uncaught error: {other:?}"),
     }
 }

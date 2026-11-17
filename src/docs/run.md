@@ -28,7 +28,8 @@ The last part is `no snapshot` for a build without a startup snapshot.
 and every argument after the file is the script's, passed as written, `--` and `--help` included.
 Its options are `--help` (or `help`, as for every command) and the grant flags, in Deno's spelling,
 and any other before the file is a usage error, `--allow-all` among them (`-A` is the one spelling).
-A usage error that names an argument, an unknown option or one that isn't UTF-8, prints it only up to its first `=`, marked `=…`, with control and bidirectional formatting characters escaped,
+A usage error that names an argument, an unknown option or one that isn't UTF-8, prints it only up to its first `=`, marked `=…`,
+with control characters, the line and paragraph separators, and format characters (Unicode's `Cf`: zero-width ones, the soft hyphen, the byte order mark, the bidirectional controls) escaped as `\u{…}`,
 so what follows a `=`, which could be a value, never reaches the terminal, and neither does a raw control character
 (a name `--allow-env=` can't grant is echoed only for a `*`, escaped, and never when it holds a `=`).
 Arguments the command-line parser refuses before `run` reads its own, an unknown flag of `fgro` or of `eval` among them, print as
@@ -49,6 +50,9 @@ A run grants the project's own modules `args`, `exit`, and `fs`, whose root read
   Each is repeatable, its directories one set, a path relative to the working directory or absolute,
   and each must be a directory when the run starts, under `-A` too:
   a path missing, a file, or one `fgro` can't look at is a usage error naming it as resolved, before anything runs.
+  One whose real path isn't its text resolved against the working directory, `.` and `..` read by their text, as a path through a symlink, is noted on stderr before the program runs:
+  `note: --allow-read=<as typed> grants <real path>`, both escaped, since a path copied from a refusal is the program's text and can lead elsewhere through a symlink.
+  Every symlink is noted, a symlinked home's included; the working directory is read as its real path, so a relative path through no symlink notes nothing. `-A` notes nothing.
   `fs` opens each, by the real path it had as the run started, when the run first imports `fs`, and every op through one moved or replaced before then fails ([host modules](host_modules.md#fs-on-fgro)).
   A bare flag, an empty list, an empty path (`--allow-read=a,`), and a NUL byte are usage errors too, and a path holding a comma can't be listed.
   Write doesn't imply read: a directory only written is read by no read op, though `fs.open_dir`, `dir()`, and a write can still tell whether something is there,
@@ -70,7 +74,8 @@ User code can't read stdin (there is no `process` global, `Deno`, or `Bun`) and 
 it reads the filesystem only through `@fuzdev/gro/fs.ts`, beneath the project's root and the directories `--allow-read=` names (everything under `-A`),
 and writes only beneath the directories `--allow-write=` names; no module gives it the network or a process.
 That is the whole of today's confinement: the process itself has no kernel box and no resource limits, the JIT is on,
-and console output reaches the terminal unescaped, so `fgro run` is not yet for code you treat as hostile
+and console output reaches the terminal unescaped: it's the program's own, and can imitate `fgro`'s lines, an `error:` or a `hint:` among them.
+So `fgro run` is not yet for code you treat as hostile
 ([authority](authority.md#threat-model) and [backstop](backstop.md) have what's designed).
 The event loop drains before the run ends, so timers and pending promises complete,
 and a top-level `await` on a promise that never settles ends the run as an error, not a hang.
@@ -194,6 +199,9 @@ Errors print to stderr prefixed `error:`.
 An uncaught error prints `Uncaught Error: message`, read `Uncaught (in promise)` for a module's top-level throw
 or an unhandled rejection, then V8's frames as `at file:///path:line:column`,
 then each `cause` as `Caused by:` with its frames.
+Each line is escaped as a usage error's argument is ([above](#usage)), line breaks included,
+and a message breaks into lines only before a frame's `at` (a module that failed to strip names its position so),
+so the program's text, a message, a thrown value, or a stack it set, starts no line but a frame's.
 A frame's path prints percent-decoded, so a directory with a space reads as it does on disk.
 fgro applies no source maps, as Node doesn't by default, so a position always names the code that ran,
 in a stack, a report, and a failed import's position alike (its vendored `deno_core` is patched to apply none).
@@ -215,8 +223,8 @@ an environment variable outside the names an `env` handle may read, the root's b
 which throws `EnvError` `not_granted` and fails the run (an unset granted name, a `narrow` to a subset of the names, and an argument that is no name, a `TypeError`, don't);
 or a path `fs` refuses `not_granted`: one outside every root the call may use, or an op its handle's scope lacks.
 After the run's own error, if it has one, stderr lists the first 8 distinct refusals of either kind in the order they happened,
-`error: import() refused: <its message>` for an import and `error: env refused: not_granted: <name>` or `error: fs refused: not_granted: <path>` for a call, never a value,
-control and bidirectional formatting characters escaped (`\u{1b}`)
+`error: import() refused: <its message>` for an import and `error: env refused: not_granted: <name>` or `error: fs refused <need>: not_granted: <path>` for a call, never a value,
+escaped as a usage error's argument is (`\u{1b}`),
 and a message past 2 KiB cut there and marked with its length,
 then counts the rest, a retry of an unlisted one included: `error: N more refusals, not listed`,
 then closes with `error: a refusal fails the run, whether or not the program caught it`.
@@ -236,6 +244,10 @@ and, when a root already grants what was refused, holding by its text the path a
 never a flag, which would widen the handle's root (the whole project, for a write through `fs.project`).
 A copy is refused naming the path it writes, its `to`, and judged by it, so a copy into a directory written from outside it hints the handle to open, which writes the copy but can't name its source: the program reads through one handle and writes through the other.
 A walk opens the names before a `..` first, so `fs.real_path('/usr/../etc')` needs `/usr` granted as well as `/etc`.
+An fs refusal's `<need>` is the kind of grant it needed, in its hint's words:
+`a read`, `a write`, `what the run grants` (a handle to open), or `what no grant allows`, for a remove or a rename a root's directory refuses,
+so a hint pairs with the listed refusals of its kind or with none listed, never with another kind's,
+and two refusals of one path that needed different kinds are two lines.
 The listed refusal names the path; a hint never does, since a path the program chose, shown back, can grant another directory than it names, through a symlink, or run something when pasted.
 There's no hint for a name a narrowed handle refused, which no flag widens, for any refusal under `-A`, whose roots reach everything,
 or for a refused `import()`, which records no grant: a package is granted no host module by any flag, most rules are grantable by nothing,

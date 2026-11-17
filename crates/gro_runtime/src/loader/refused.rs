@@ -76,6 +76,14 @@ impl RefusedBy {
 pub enum NeededGrant {
     /// An environment variable to read, by its name.
     Env(String),
+    /// An fs grant, by its kind.
+    Fs(FsNeed),
+}
+
+/// The kind of fs grant a refused call needed, which a listed fs refusal
+/// names, so a hint of a kind pairs with the listed refusals of that kind.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FsNeed {
     /// A directory to read.
     Read,
     /// A directory to write, through a handle `fs.open_dir` makes on it
@@ -94,6 +102,10 @@ pub enum NeededGrant {
 pub struct Refusal {
     /// What refused it.
     pub by: RefusedBy,
+    /// The kind of fs grant it needed, for a refusal by `fs` that one
+    /// would have allowed; `None` for any other, a refusal by `env` among
+    /// them, whose message names what it needed.
+    pub fs_need: Option<FsNeed>,
     /// The message of the error JS saw, cut past [`MAX_LISTED_MESSAGE`]
     /// bytes and marked there with its whole length: `cannot resolve
     /// 'data:… (4096 bytes)`. A refused op's names its target and never a
@@ -108,8 +120,8 @@ pub struct Refusal {
 pub struct Refusals {
     /// The first [`MAX_LISTED_REFUSALS`] distinct refusals, in the order
     /// each first happened. Two refusals are one when what refused them is
-    /// the same and their messages, cut, are the same text, as a retry's
-    /// are.
+    /// the same, they needed the same kind of fs grant or none, and their
+    /// messages, cut, are the same text, as a retry's are.
     pub listed: Vec<Refusal>,
     /// How many more refusals there were than `listed` lists: each that
     /// isn't listed, a retry of one included.
@@ -146,15 +158,17 @@ impl Refusals {
     /// and `needed`, the grant that would have allowed it, if one would
     /// have, kept unless it's kept already, while there's room.
     pub(crate) fn record(&mut self, by: RefusedBy, message: &str, needed: Option<NeededGrant>) {
+        let fs_need = match &needed {
+            Some(NeededGrant::Fs(need)) => Some(*need),
+            Some(NeededGrant::Env(_)) | None => None,
+        };
         if let Some(needed) = needed {
             self.need(needed);
         }
         let message = cut(message);
-        if self
-            .listed
-            .iter()
-            .any(|listed| listed.by == by && *listed.message == message)
-        {
+        if self.listed.iter().any(|listed| {
+            listed.by == by && listed.fs_need == fs_need && *listed.message == message
+        }) {
             return;
         }
         if self.listed.len() == MAX_LISTED_REFUSALS {
@@ -162,6 +176,7 @@ impl Refusals {
         } else {
             self.listed.push(Refusal {
                 by,
+                fs_need,
                 message: message.into_owned(),
             });
         }
@@ -211,7 +226,9 @@ fn cut(message: &str) -> Cow<'_, str> {
 
 #[cfg(test)]
 mod tests {
-    use super::{MAX_LISTED_MESSAGE, MAX_LISTED_REFUSALS, NeededGrant, Refusals, RefusedBy};
+    use super::{
+        FsNeed, MAX_LISTED_MESSAGE, MAX_LISTED_REFUSALS, NeededGrant, Refusals, RefusedBy,
+    };
     use crate::resolver::Capability;
 
     const ENV: RefusedBy = RefusedBy::Grant {
@@ -345,6 +362,48 @@ mod tests {
         assert_eq!(RefusedBy::Import.error(), "TypeError");
     }
 
+    /// An fs refusal is listed with the kind of grant it needed, and two of
+    /// one path are one listing only when they needed the same kind, or
+    /// both none; an env refusal keeps no kind, whatever it needed.
+    #[test]
+    fn an_fs_refusal_is_listed_with_the_kind_it_needed() {
+        let fs = RefusedBy::Grant {
+            grant: Capability::Fs,
+            error: "FsError",
+        };
+        let mut refused = Refusals::default();
+        let read = Some(NeededGrant::Fs(FsNeed::Read));
+        let write = Some(NeededGrant::Fs(FsNeed::Write));
+        refused.record(fs, "not_granted: /a", read.clone());
+        refused.record(fs, "not_granted: /a", write.clone());
+        refused.record(fs, "not_granted: /a", read);
+        refused.record(fs, "not_granted: /a", None);
+        refused.record(
+            fs,
+            "not_granted: /a",
+            Some(NeededGrant::Fs(FsNeed::OpenDir)),
+        );
+        refused.record(fs, "not_granted: /a", write);
+        refused.record(fs, "not_granted: /a", None);
+        refused.record(ENV, "not_granted: A", Some(needs("A")));
+        refused.record(ENV, "not_granted: A", None);
+        assert_eq!(
+            refused
+                .listed
+                .iter()
+                .map(|listed| (listed.by, listed.fs_need))
+                .collect::<Vec<_>>(),
+            [
+                (fs, Some(FsNeed::Read)),
+                (fs, Some(FsNeed::Write)),
+                (fs, None),
+                (fs, Some(FsNeed::OpenDir)),
+                (ENV, None),
+            ]
+        );
+        assert_eq!(refused.unlisted, 0);
+    }
+
     /// The grant a refused call needed, by its name for `env`.
     fn needs(value: &str) -> NeededGrant {
         NeededGrant::Env(value.to_owned())
@@ -398,21 +457,25 @@ mod tests {
             error: "FsError",
         };
         for (path, needed) in [
-            ("/a", NeededGrant::Write),
-            ("/b", NeededGrant::Read),
-            ("/c", NeededGrant::Write),
-            ("/d", NeededGrant::OpenDir),
-            ("/e", NeededGrant::Read),
+            ("/a", NeededGrant::Fs(FsNeed::Write)),
+            ("/b", NeededGrant::Fs(FsNeed::Read)),
+            ("/c", NeededGrant::Fs(FsNeed::Write)),
+            ("/d", NeededGrant::Fs(FsNeed::OpenDir)),
+            ("/e", NeededGrant::Fs(FsNeed::Read)),
         ] {
             refused.record(fs, &format!("not_granted: {path}"), Some(needed));
         }
         assert_eq!(
             refused.needed[MAX_LISTED_REFUSALS..],
-            [NeededGrant::Write, NeededGrant::Read, NeededGrant::OpenDir]
+            [
+                NeededGrant::Fs(FsNeed::Write),
+                NeededGrant::Fs(FsNeed::Read),
+                NeededGrant::Fs(FsNeed::OpenDir)
+            ]
         );
         // and none takes a variable's room
         let mut refused = Refusals::default();
-        refused.record(fs, "not_granted: /a", Some(NeededGrant::Read));
+        refused.record(fs, "not_granted: /a", Some(NeededGrant::Fs(FsNeed::Read)));
         for i in 0..MAX_LISTED_REFUSALS {
             refused.record(
                 ENV,

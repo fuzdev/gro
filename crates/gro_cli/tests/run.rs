@@ -105,6 +105,73 @@ fn uncaught_error_exits_1_with_positions() {
     );
 }
 
+/// An uncaught error's report escapes each of its lines whole, the message,
+/// each frame of a stack the program set, and each `cause`, so no text of
+/// the program's starts a line, like a hint's, and none moves the cursor,
+/// breaks a line, hides itself, or reorders the text around it.
+#[test]
+fn an_uncaught_error_s_report_escapes_each_line_whole() {
+    let run = run("throw_controls.js");
+    assert_eq!(run.code, 1);
+    assert!(run.stdout.is_empty());
+    let url = fixtures_url();
+    assert_eq!(
+        run.stderr,
+        format!(
+            "error: Uncaught (in promise) Error: boom\\u{{a}}hint: add \
+             --allow-read=/\\u{{1b}}[2K\\u{{2028}}\\u{{200b}}\\u{{202e}}\n    \
+             at \\u{{1b}}[1Afake\n    at real\\u{{2029}}\n\
+             Caused by: Error: the cause\\u{{a}}hint: add --allow-write=/ to grant what fs \
+             refused\n    at {url}/throw_controls.js:3:15\n"
+        )
+    );
+}
+
+/// A static import that fails, which isn't a JS error, prints its message
+/// escaped, the specifier the program chose in it; and an entry that
+/// doesn't resolve names it escaped too.
+#[test]
+fn a_failed_static_import_and_entry_print_escaped() {
+    let run = run("import_static_controls.js");
+    assert_eq!(run.code, 1);
+    assert_eq!(
+        run.stderr,
+        format!(
+            "error: cannot resolve './missing\\u{{1b}}\\u{{2028}}.js' from \
+             {}/import_static_controls.js: no such file\n",
+            fixtures_url()
+        )
+    );
+    let output = fgro(&["run", "missing\u{1b}\u{2028}.js"]);
+    assert_eq!(
+        String::from_utf8(output.stderr).unwrap(),
+        format!(
+            "error: cannot resolve 'missing\\u{{1b}}\\u{{2028}}.js' from {}: no such file\n",
+            fixtures().display()
+        )
+    );
+    assert_eq!(output.status.code(), Some(2));
+}
+
+/// A cause's message breaks into lines before a frame's `at` as the
+/// error's own does: a strip's refusal names its position on a line of
+/// its own.
+#[test]
+fn a_cause_s_message_breaks_before_a_frame() {
+    let run = run("cause_strip.js");
+    assert_eq!(run.code, 1);
+    let url = fixtures_url();
+    assert!(
+        run.stderr.contains(&format!(
+            "\nCaused by: TypeError: cannot strip an enum. Fix: use a union of literal types, \
+             or an object with 'as const' (TypeScript's erasableSyntaxOnly option reports \
+             these)\n    at {url}/enum.ts:2:1\n"
+        )),
+        "{}",
+        run.stderr
+    );
+}
+
 #[test]
 fn unhandled_rejection_exits_1() {
     let run = run("reject.js");
@@ -1038,8 +1105,8 @@ fn a_refusal_that_is_the_run_s_error_prints_once() {
     }
 }
 
-/// A listed refusal's specifier, which the program chose, prints with its
-/// control and bidirectional formatting characters escaped, so it can't
+/// A listed refusal's specifier, which the program chose, prints escaped
+/// (`escape_controls`), so it can't
 /// start a line of its own, erase or conceal the lines around it, or
 /// reorder them.
 #[test]

@@ -175,8 +175,12 @@ pub(super) fn entry_roots(
 }
 
 /// Removes `.` and resolves `..` lexically, as URL parsing does for a
-/// specifier, so an entry path names the same file its URL does.
-fn normalize(path: &Path) -> PathBuf {
+/// specifier, so an entry path names the same file its URL does; a `..`
+/// at the root stays there.
+///
+/// It's lexical only and looks nothing up, so it differs from the real
+/// path exactly where the path crosses a symlink.
+pub fn normalize(path: &Path) -> PathBuf {
     let mut normalized = PathBuf::new();
     for component in path.components() {
         match component {

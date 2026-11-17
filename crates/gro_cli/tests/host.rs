@@ -1372,12 +1372,12 @@ fn fs_refuses_every_escape_and_forgery() {
     assert_eq!(
         stderr,
         format!(
-            "error: fs refused: not_granted: {out}\n\
-             error: fs refused: not_granted: {out}/missing\n\
-             error: fs refused: not_granted: {root}/../fs_outside_of_it\n\
-             error: fs refused: not_granted: {root}/to_outside\n\
-             error: fs refused: not_granted: {root}/to_outside/f.txt\n\
-             error: fs refused: not_granted: {root}/new.txt\n\
+            "error: fs refused a read: not_granted: {out}\n\
+             error: fs refused a read: not_granted: {out}/missing\n\
+             error: fs refused a read: not_granted: {root}/../fs_outside_of_it\n\
+             error: fs refused a read: not_granted: {root}/to_outside\n\
+             error: fs refused a read: not_granted: {root}/to_outside/f.txt\n\
+             error: fs refused a write: not_granted: {root}/new.txt\n\
              error: a refusal fails the run, whether or not the program caught it\n\
              {HINT_READ}\n\
              {HINT_WRITE}\n"
@@ -1497,9 +1497,11 @@ console.log(JSON.stringify(ended));
 /// write root inside the project, read as the project is, and reaching
 /// the project through a symlink out of it; and
 /// `fs.project`, whose handles never write, whatever root inside it is
-/// written. Every refusal is listed and fails the run, and the hints name
-/// each flag a refusal needed and, for a write a root already grants, a
-/// handle to open instead, never a path.
+/// written. The flag through a symlink is noted with its real path as the
+/// run starts. Every refusal is listed with the kind of grant it needed
+/// and fails the run, and the hints name each flag a refusal needed and,
+/// for a write a root already grants, a handle to open instead, never a
+/// path.
 #[test]
 fn fs_roots_by_flag_scope_their_handles() {
     let project = Scratch::new(
@@ -1587,14 +1589,15 @@ fn fs_roots_by_flag_scope_their_handles() {
     assert_eq!(
         stderr,
         format!(
-            "error: fs refused: not_granted: {r}/x.txt\n\
-             error: fs refused: not_granted: {w}/f.txt\n\
-             error: fs refused: not_granted: {w}\n\
-             error: fs refused: not_granted: {w}/sub/g.txt\n\
-             error: fs refused: not_granted: {p}/out/x.txt\n\
-             error: fs refused: not_granted: {p}/x.txt\n\
-             error: fs refused: not_granted: {r}/abs\n\
-             error: fs refused: not_granted: {p}/to_r\n\
+            "note: --allow-read={l} grants {r}\n\
+             error: fs refused a write: not_granted: {r}/x.txt\n\
+             error: fs refused a read: not_granted: {w}/f.txt\n\
+             error: fs refused a read: not_granted: {w}\n\
+             error: fs refused a read: not_granted: {w}/sub/g.txt\n\
+             error: fs refused what the run grants: not_granted: {p}/out/x.txt\n\
+             error: fs refused a write: not_granted: {p}/x.txt\n\
+             error: fs refused a read: not_granted: {r}/abs\n\
+             error: fs refused a read: not_granted: {p}/to_r\n\
              error: a refusal fails the run, whether or not the program caught it\n\
              {HINT_READ}\n\
              {HINT_WRITE}\n\
@@ -1666,6 +1669,55 @@ fn fs_flag_directories_are_checked_as_the_run_starts() {
         assert_eq!(output.stdout, b"ran\n", "{args:?}");
         assert_eq!(output.status.code(), Some(0), "{args:?}");
     }
+}
+
+/// A directory a flag lists whose real path isn't its text, resolved
+/// against the working directory with its `.` and `..` by their text, is
+/// noted with its real path as the run starts, before the program runs:
+/// through a symlink, and by a `..` after one; never for one real already,
+/// however it's spelled, and never under `-A`, whose directories grant
+/// nothing more.
+#[test]
+fn a_flag_directory_through_a_symlink_is_noted_as_the_run_starts() {
+    let project = Scratch::new(
+        "fs_flag_notes",
+        &[
+            (
+                "package.json",
+                "{\"name\": \"fs_flag_notes\", \"type\": \"module\"}\n",
+            ),
+            ("main.js", "console.error('ran');\n"),
+            ("data/f.txt", ""),
+            ("sub/inner/f.txt", ""),
+        ],
+    );
+    std::os::unix::fs::symlink("data", project.0.join("ln")).unwrap();
+    std::os::unix::fs::symlink("sub/inner", project.0.join("deep_ln")).unwrap();
+    let real = project.0.canonicalize().unwrap();
+    let real = real.display();
+    let run = |args: &[&str]| {
+        let mut command = fgro_command(&[&["run"][..], args, &["main.js"]].concat());
+        command.env_clear().current_dir(&project.0);
+        let output = spawn(command, b"");
+        assert_eq!(output.status.code(), Some(0), "{args:?}");
+        String::from_utf8(output.stderr).unwrap()
+    };
+    assert_eq!(
+        run(&[
+            &format!("--allow-read=data,./data/,sub/../data,{real}/data,ln,deep_ln/.."),
+            "--allow-write=ln,sub",
+        ]),
+        format!(
+            "note: --allow-read=deep_ln/.. grants {real}/sub\n\
+             note: --allow-read=ln grants {real}/data\n\
+             note: --allow-write=ln grants {real}/data\n\
+             ran\n"
+        )
+    );
+    assert_eq!(
+        run(&["-A", "--allow-read=ln", "--allow-write=deep_ln"]),
+        "ran\n"
+    );
 }
 
 /// The script [`fs_flag_roots_open_at_the_first_import`] runs: once the
@@ -1761,7 +1813,15 @@ fn fs_flag_roots_open_at_the_first_import() {
     line.clear();
     stdout.read_line(&mut line).unwrap();
     let output = child.wait_with_output().unwrap();
-    assert_eq!(String::from_utf8(output.stderr).unwrap(), "", "{line}");
+    assert_eq!(
+        String::from_utf8(output.stderr).unwrap(),
+        format!(
+            "note: --allow-write={} grants {}\n",
+            text(&l),
+            text(&project.0.join("v"))
+        ),
+        "{line}"
+    );
     assert_eq!(output.status.code(), Some(0));
     let ended: Value = serde_json::from_str(&line).unwrap();
     assert_eq!(
@@ -1878,7 +1938,15 @@ fn fs_a_flag_root_nests_as_the_run_started() {
     line.clear();
     stdout.read_line(&mut line).unwrap();
     let output = child.wait_with_output().unwrap();
-    assert_eq!(String::from_utf8(output.stderr).unwrap(), "", "{line}");
+    assert_eq!(
+        String::from_utf8(output.stderr).unwrap(),
+        format!(
+            "note: --allow-write={} grants {}\n",
+            text(&at("wl")),
+            text(&at("fake/w"))
+        ),
+        "{line}"
+    );
     assert_eq!(output.status.code(), Some(0));
     let ended: Value = serde_json::from_str(&line).unwrap();
     assert_eq!(
@@ -2210,9 +2278,9 @@ fn fs_a_copy_s_read_is_judged_by_the_handle_s_read() {
         )
     };
     let p = project.0.display();
-    let refusal = |path: String, hint: &str| {
+    let refusal = |need: &str, path: String, hint: &str| {
         format!(
-            "error: fs refused: not_granted: {path}\n\
+            "error: fs refused {need}: not_granted: {path}\n\
              error: a refusal fails the run, whether or not the program caught it\n\
              {hint}\n"
         )
@@ -2222,7 +2290,7 @@ fn fs_a_copy_s_read_is_judged_by_the_handle_s_read() {
         (
             Some(1),
             "FsError not_granted\n".to_owned(),
-            refusal(format!("{w_path}/f.txt"), HINT_READ)
+            refusal("a read", format!("{w_path}/f.txt"), HINT_READ)
         )
     );
     assert_eq!(
@@ -2230,7 +2298,7 @@ fn fs_a_copy_s_read_is_judged_by_the_handle_s_read() {
         (
             Some(1),
             "FsError not_granted\n".to_owned(),
-            refusal(format!("{p}/g.txt"), HINT_WRITE)
+            refusal("a write", format!("{p}/g.txt"), HINT_WRITE)
         )
     );
     for name in ["project_above", "project_absolute", "above", "absolute"] {
@@ -2292,10 +2360,16 @@ fn fs_a_refused_move_of_a_root_hints_no_grant() {
         assert_eq!(String::from_utf8(output.stdout).unwrap(), "not_granted\n");
         String::from_utf8(output.stderr).unwrap()
     };
+    // the line names the need as the hint does, or that there's none
     let refused = |path: &str, hint: Option<&str>| {
         format!(
-            "error: fs refused: not_granted: {p}/{path}\n\
+            "error: fs refused {}: not_granted: {p}/{path}\n\
              error: a refusal fails the run, whether or not the program caught it\n{}",
+            if hint.is_some() {
+                "what the run grants"
+            } else {
+                "what no grant allows"
+            },
             hint.map_or_else(String::new, |hint| format!("{hint}\n"))
         )
     };
@@ -2456,6 +2530,7 @@ fn fs_a_scope_a_root_grants_hints_the_handle_to_open() {
         ],
     );
     let written = Scratch::new("fs_project_write_w", &[("sub/g.txt", "")]);
+    let (read, write, open_dir) = ("a read", "a write", "what the run grants");
     let p = project.0.display();
     let w_sub = written.path("sub");
     let w = written.0.display().to_string();
@@ -2469,10 +2544,13 @@ fn fs_a_scope_a_root_grants_hints_the_handle_to_open() {
             String::from_utf8(output.stderr).unwrap(),
         )
     };
-    let refused = |paths: &[String], hints: &[&str]| {
+    // each refusal by the kind of grant it needed, as its hint names it
+    let refused = |paths: &[(&str, String)], hints: &[&str]| {
         let mut stderr = String::new();
-        for path in paths {
-            stderr.push_str("error: fs refused: not_granted: ");
+        for (need, path) in paths {
+            stderr.push_str("error: fs refused ");
+            stderr.push_str(need);
+            stderr.push_str(": not_granted: ");
             stderr.push_str(path);
             stderr.push('\n');
         }
@@ -2495,19 +2573,19 @@ fn fs_a_scope_a_root_grants_hints_the_handle_to_open() {
     );
     assert_eq!(
         run(&["--allow-write=dist", "main.js", "-", "copy_in"]),
-        refused(&[format!("{p}/dist/y")], &[HINT_OPEN_DIR])
+        refused(&[(open_dir, format!("{p}/dist/y"))], &[HINT_OPEN_DIR])
     );
     assert_eq!(
         run(&["--allow-write=dist", "main.js", "-", "copy_out"]),
-        refused(&[format!("{p}/x")], &[HINT_WRITE])
+        refused(&[(write, format!("{p}/x"))], &[HINT_WRITE])
     );
     assert_eq!(
         run(&["--allow-write=dist", "main.js", "-", "rename_in"]),
-        refused(&[format!("{p}/main.js")], &[HINT_WRITE])
+        refused(&[(write, format!("{p}/main.js"))], &[HINT_WRITE])
     );
     assert_eq!(
         run(&["--allow-write=dist", "main.js", "-", "rename_out"]),
-        refused(&[format!("{p}/dist/.keep")], &[HINT_WRITE])
+        refused(&[(write, format!("{p}/dist/.keep"))], &[HINT_WRITE])
     );
     assert_eq!(
         run(&[
@@ -2517,11 +2595,11 @@ fn fs_a_scope_a_root_grants_hints_the_handle_to_open() {
             &w,
             "read",
         ]),
-        refused(&[format!("{w}/sub/g.txt")], &[HINT_OPEN_DIR])
+        refused(&[(open_dir, format!("{w}/sub/g.txt"))], &[HINT_OPEN_DIR])
     );
     assert_eq!(
         run(&[&format!("--allow-write={w}"), "main.js", &w, "read"]),
-        refused(&[format!("{w}/sub/g.txt")], &[HINT_READ])
+        refused(&[(read, format!("{w}/sub/g.txt"))], &[HINT_READ])
     );
     assert_eq!(
         run(&[
@@ -2536,10 +2614,10 @@ fn fs_a_scope_a_root_grants_hints_the_handle_to_open() {
         ]),
         refused(
             &[
-                format!("{p}/dist/x"),
-                format!("{w}/sub/g.txt"),
-                format!("{p}/dist/y"),
-                format!("{p}/x"),
+                (open_dir, format!("{p}/dist/x")),
+                (open_dir, format!("{w}/sub/g.txt")),
+                (open_dir, format!("{p}/dist/y")),
+                (write, format!("{p}/x")),
             ],
             &[HINT_WRITE, HINT_OPEN_DIR]
         )

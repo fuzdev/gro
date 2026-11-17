@@ -144,12 +144,30 @@ pub enum CliError {
     /// The working directory couldn't be read.
     #[error("failed to read the working directory: {0}")]
     Cwd(#[source] std::io::Error),
-    /// `fgro run`'s module failed.
-    #[error(transparent)]
+    /// `fgro run`'s module failed, printed as [`run_failure`] prints it.
+    #[error("{}", run_failure(.0))]
     Run(#[from] RunError),
     /// Output couldn't be written to stdout (a closed pipe, a full disk).
     #[error("failed to write to stdout: {0}")]
     Stdout(#[source] std::io::Error),
+}
+
+/// `error` as `fgro` prints it: a report, which can hold any text the
+/// program chose, each of its lines escaped whole, its line breaks included
+/// ([`escape_controls`]), so its only breaks are the report's own; an entry
+/// that didn't resolve escaped as a directory a flag names is; and a
+/// runtime that didn't start, before any of the program ran, as it is.
+fn run_failure(error: &RunError) -> String {
+    match error {
+        RunError::Uncaught(report) => report
+            .lines()
+            .iter()
+            .map(|line| escape_controls(line))
+            .collect::<Vec<_>>()
+            .join("\n"),
+        RunError::Entry(error) => escape_controls(&error.to_string()).into_owned(),
+        RunError::Start(_) => error.to_string(),
+    }
 }
 
 /// Why a directory a flag lists can't be granted, found by a `stat` as the

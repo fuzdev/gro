@@ -89,7 +89,7 @@ use super::handle::{self, HandleKind};
 use super::{HostData, NO_ERROR_CLASSES, name, string, throw_error, throw_type_error};
 use crate::loader::RefusalLog;
 use crate::resolver::Capability;
-use crate::{Authority, NeededGrant, RefusedBy};
+use crate::{Authority, FsNeed, NeededGrant, RefusedBy};
 use roots::Root;
 use walk::scope_needed;
 
@@ -234,7 +234,7 @@ impl Failure {
     fn unreached(path: &str) -> Self {
         Self::NotGranted {
             path: path.to_owned(),
-            needed: Some(NeededGrant::Read),
+            needed: Some(NeededGrant::Fs(FsNeed::Read)),
         }
     }
 
@@ -380,7 +380,7 @@ fn beneath(roots: &[Root], handle: Handle, requested: String) -> Result<Beneath,
             roots,
             std::slice::from_ref(&target),
             Scope::READ,
-            NeededGrant::Read,
+            NeededGrant::Fs(FsNeed::Read),
         );
         return Err(Failure::NotGranted {
             path: target,

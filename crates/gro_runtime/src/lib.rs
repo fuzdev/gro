@@ -113,8 +113,9 @@ use crate::snapshot::StartupSnapshot;
 
 pub use crate::host::exit::{Exit, ExitStep};
 pub use crate::loader::refused::{
-    MAX_LISTED_MESSAGE, MAX_LISTED_REFUSALS, NeededGrant, Refusal, Refusals, RefusedBy,
+    FsNeed, MAX_LISTED_MESSAGE, MAX_LISTED_REFUSALS, NeededGrant, Refusal, Refusals, RefusedBy,
 };
+pub use crate::report::Report;
 pub use crate::run::{RunError, RunOutcome, StartError, run_main};
 pub use crate::runtime::SpentRuntime;
 

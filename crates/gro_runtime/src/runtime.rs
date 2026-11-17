@@ -1963,13 +1963,13 @@ globalThis.op_gro_color = Deno.core.ops.op_gro_color;",
                     let id = runtime
                         .load_main_es_module(&entry.url)
                         .await
-                        .map_err(|error| report(&error))?;
+                        .map_err(|error| report(&error).to_string())?;
                     let evaluation = runtime.mod_evaluate(id);
                     runtime
                         .run_event_loop(deno_core::PollEventLoopOptions::default())
                         .await
-                        .map_err(|error| report(&error))?;
-                    evaluation.await.map_err(|error| report(&error))
+                        .map_err(|error| report(&error).to_string())?;
+                    evaluation.await.map_err(|error| report(&error).to_string())
                 })
             })
             .unwrap()
