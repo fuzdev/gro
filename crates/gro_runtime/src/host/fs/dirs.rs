@@ -28,18 +28,18 @@ pub fn project<'s>(
 ) -> Option<v8::Local<'s, v8::Value>> {
     // a runtime made outside a run's start has no root, which every op
     // through the handle reports
-    let roots = run_roots(state).ok();
-    let first = roots.as_ref().and_then(|roots| roots.first());
+    let table = run_roots(state).ok();
+    let first = table.as_ref().and_then(|table| table.roots().first());
     let path = first.map_or_else(String::new, |root| root.handle_base().to_owned());
-    let access = first.map_or_else(Scope::default, |root| root.scope);
+    let access = table.map_or_else(Scope::default, |table| table.project().scope_of(0));
     make_dir(scope, &FS_DIR, prototype, 0, &path, "", access).map(Into::into)
 }
 
 /// `fs.open_dir(path)`: an `FsDir` on the directory at `path`, an absolute
-/// path inside a root, of the root's scope, `not_granted` outside every
-/// root, also when nothing is there, or when it leads out of its root by a
-/// `..` or a symlink; `errors`, `FsError`'s family as the member declares
-/// it.
+/// path inside a root of the project's view, of the scope the view gives
+/// the root, `not_granted` outside every root of it, also when nothing is
+/// there, or when it leads out of its root by a `..` or a symlink;
+/// `errors`, `FsError`'s family as the member declares it.
 pub fn open_dir<'s>(
     state: &OpState,
     scope: &v8::PinScope<'s, '_>,
@@ -49,9 +49,11 @@ pub fn open_dir<'s>(
     let result = (|| {
         run_state(state)?.ready()?;
         let path = path_text(scope, path)?;
-        let roots = run_roots(state)?;
+        let table = run_roots(state)?;
+        let view = table.project();
         let (index, root, beneath) = reach(
-            &roots,
+            table.roots(),
+            view,
             &path,
             "fs.open_dir",
             sys::Opened::Directory,
@@ -65,7 +67,7 @@ pub fn open_dir<'s>(
             index,
             root.handle_base(),
             &beneath,
-            root.scope,
+            view.scope_of(index),
         )
         .map(Into::into)
         .ok_or(Failure::Thrown)
@@ -74,7 +76,8 @@ pub fn open_dir<'s>(
 }
 
 /// `fs.real_path(path)`: the real path of the entry at `path`, an absolute
-/// path inside a root the run reads, every symlink followed beneath it,
+/// path inside a root the project's view reads, every symlink followed
+/// beneath it,
 /// always a path inside its root; refused as `open_dir` refuses one, a
 /// root only written holding none, and `io_error` when the entry left its
 /// root while it was opened.
@@ -87,9 +90,10 @@ pub fn real_path<'s>(
     let result = (|| {
         run_state(state)?.ready()?;
         let path = path_text(scope, path)?;
-        let roots = run_roots(state)?;
+        let table = run_roots(state)?;
         let (_, root, beneath) = reach(
-            &roots,
+            table.roots(),
+            table.project(),
             &path,
             "fs.real_path",
             sys::Opened::Entry,

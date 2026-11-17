@@ -350,9 +350,11 @@ miss there, and the contracts no one module doc owns:
     the row.
   - An `fs` handle's state is plain data, and only a root holds a descriptor
     (`host/fs.rs`'s module doc maps its children and owns the `openat2`
-    lookups beneath a handle; `host/fs/roots.rs`'s owns the roots, their
-    scopes and nesting, and the rule that keeps a root's directory where
-    it is, `host/fs/walk.rs`'s the walk of an absolute path from them,
+    lookups beneath a handle; `host/fs/roots.rs`'s owns the run table of
+    roots, the view whose scopes join within it alone (the project's, a
+    run's one view), their nesting, and the rule that keeps a root's
+    directory where it is, `host/fs/walk.rs`'s the walk of an absolute
+    path from a view's roots,
     `host/fs/reads.rs`'s and `host/fs/listing.rs`'s the reads and
     listings, and `host/fs/writes.rs`'s the writes): what a handle's op may
     do is the handle's scope, never the run's roots, which only that rule

@@ -71,7 +71,7 @@ impl Op<'_> {
     /// The roots beneath the handle's directory, which a rename or a remove
     /// checks its ends against, or none when none is.
     fn held(&self) -> Option<Held> {
-        Held::of(&self.roots, &self.handle_path)
+        Held::of(&self.table, &self.handle_path)
     }
 }
 

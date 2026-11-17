@@ -6,8 +6,11 @@
 //! starts at a root, and a `..` above one is text. A step that leaves the
 //! longest root by a symlink is opened beneath the next longest that holds
 //! its names, if one does, so a root granted inside another takes nothing
-//! from what the outer one reached. `fs.real_path` takes only the roots the
-//! run reads, `fs.open_dir` every root. The entry's real path is always
+//! from what the outer one reached. The roots a walk takes, and their
+//! scopes, are the caller's view's ([`View`]), never the whole table:
+//! `fs.real_path` takes only the roots its view reads, `fs.open_dir` every
+//! root of its view, and a refusal's hint names what its view would let
+//! through. The entry's real path is always
 //! beneath its root, checked by its text before it's looked up, beneath
 //! the root: one that left the root while it was opened is `io_error`, its
 //! cause naming no path outside. A path no root holds is `not_granted`,
@@ -27,15 +30,21 @@
 //! name another directory than the one the refusal needed, through a
 //! symlink, and the refusal itself names the path.
 
-use super::roots::Root;
+use super::roots::{Root, View};
 use super::{Access, Failure, FsErrorKind, Scope, beneath_of, join, kind_of, root_fd, sys};
 use crate::FsNeed;
 
 /// What lets through an op on `targets`, absolute paths, that a handle
-/// refused for want of `access`: a handle `fs.open_dir` makes on a root
-/// doing it that holds every target by its text, when one does, since a
-/// grant wouldn't widen the handle that refused it; else the grant of it.
-pub(super) fn scope_needed(roots: &[Root], targets: &[&str], access: Access) -> FsNeed {
+/// refused for want of `access`: a handle `fs.open_dir` makes on a root of
+/// `view` doing it that holds every target by its text, when one does,
+/// since a grant wouldn't widen the handle that refused it; else the grant
+/// of it.
+pub(super) fn scope_needed(
+    roots: &[Root],
+    view: &View,
+    targets: &[&str],
+    access: Access,
+) -> FsNeed {
     let need = access.scope();
     // each target's roots doing `access`
     let mut held = targets.iter().map(|target| {
@@ -44,7 +53,7 @@ pub(super) fn scope_needed(roots: &[Root], targets: &[&str], access: Access) -> 
             .filter(|name| !name.is_empty())
             .map(ToOwned::to_owned)
             .collect();
-        find_roots(roots, &names, false, need)
+        find_roots(roots, view, &names, false, need)
             .into_iter()
             .map(|(index, ..)| index)
             .collect::<Vec<_>>()
@@ -61,18 +70,19 @@ pub(super) fn scope_needed(roots: &[Root], targets: &[&str], access: Access) -> 
     }
 }
 
-/// The entry at `path`, an absolute path inside a root whose scope meets
-/// `need`, opened as `opened`, as [`walk`] reaches it, each step opened
-/// beneath its root by `openat2`: its root's place, the root, and its real
-/// path beneath the root.
+/// The entry at `path`, an absolute path inside a root of `view` whose
+/// scope meets `need`, opened as `opened`, as [`walk`] reaches it, each
+/// step opened beneath its root by `openat2`: its root's place, the root,
+/// and its real path beneath the root.
 pub(super) fn reach<'r>(
     roots: &'r [Root],
+    view: &View,
     path: &str,
     what: &str,
     opened: sys::Opened,
     need: Scope,
 ) -> Result<(usize, &'r Root, String), Failure> {
-    walk(roots, path, what, opened, need, |root, rel, step| {
+    walk(roots, view, path, what, opened, need, |root, rel, step| {
         let fd = root_fd(root, path)?;
         let entry = sys::open_in_root(fd, root.handle_base().to_owned(), rel, step, root.whole());
         let found = entry.map_err(|error| {
@@ -112,7 +122,8 @@ pub(super) fn reach<'r>(
 /// names by their text. Each step costs the depth of the path it opens,
 /// never the length of what's left of the path.
 ///
-/// Only the roots whose scope meets `need` hold a path. A step is opened
+/// Only the roots of `view` whose scope there meets `need` hold a path. A
+/// step is opened
 /// beneath the longest root that holds its names, and, when that open is
 /// `not_granted` (it left the root by a symlink), beneath the next longest,
 /// and so on, so a root granted inside another refuses nothing the other
@@ -123,6 +134,7 @@ pub(super) fn reach<'r>(
 /// `not_granted` for one whose names no root holds at any step.
 fn walk<'r>(
     roots: &'r [Root],
+    view: &View,
     path: &str,
     what: &str,
     opened: sys::Opened,
@@ -135,7 +147,7 @@ fn walk<'r>(
         )));
     }
     let mut step = |names: &[String], dir: bool, step: sys::Opened| {
-        for (index, root, rel) in find_roots(roots, names, dir, need) {
+        for (index, root, rel) in find_roots(roots, view, names, dir, need) {
             match open(root, rel, step) {
                 Ok(beneath) => return Ok((index, root, beneath)),
                 // it left this root by a symlink, so the next may hold it
@@ -178,7 +190,7 @@ fn walk<'r>(
     step(&names, dir, opened)
 }
 
-/// The roots of `roots` whose scope meets `need` that hold the path of
+/// The roots of `view` whose scope there meets `need` that hold the path of
 /// `names`, none of them `.` or `..`, by their text, by their real path or
 /// a path they were granted as, the longest first, each with its place and
 /// the path beneath it for the kernel to open: `.` for the root's own
@@ -186,15 +198,16 @@ fn walk<'r>(
 /// the root's own, as a handle's isn't asked for.
 fn find_roots<'r>(
     roots: &'r [Root],
+    view: &View,
     names: &[String],
     dir: bool,
     need: Scope,
 ) -> Vec<(usize, &'r Root, String)> {
     let mut found: Vec<(usize, &Root, usize)> = Vec::new();
-    for (index, root) in roots.iter().enumerate() {
-        if !root.scope.meets(need) {
+    for (index, scope) in view.entries() {
+        let Some(root) = roots.get(index).filter(|_| scope.meets(need)) else {
             continue;
-        }
+        };
         let depth = root
             .spellings()
             .filter(|held| {
@@ -231,17 +244,18 @@ fn find_roots<'r>(
 #[cfg(test)]
 mod tests {
     use super::super::tests::shown;
+    use super::super::roots::Table;
     use super::{Access, Failure, FsErrorKind, Root, Scope, find_roots, scope_needed, sys, walk};
     use crate::FsNeed;
 
     /// A root at `path`, never opened, reading and writing.
-    fn root(path: &str) -> Root {
+    fn root(path: &str) -> (Root, Scope) {
         scoped(path, &[], Scope::ALL)
     }
 
     /// A root at `path`, never opened, granted as `granted` too, doing what
     /// `scope` says.
-    fn scoped(path: &str, granted: &[&str], scope: Scope) -> Root {
+    fn scoped(path: &str, granted: &[&str], scope: Scope) -> (Root, Scope) {
         Root::unopened(path, granted, scope)
     }
 
@@ -254,15 +268,16 @@ mod tests {
     /// never handed a `..`.
     #[test]
     fn a_path_walks_its_dot_dots_after_the_symlinks_before_them() {
-        let roots = [
+        let roots = Table::of([
             root("/p"),
             root("/p/inner"),
             Root::unplaced(&[], Scope::ALL),
-        ];
+        ]);
         let walked = |path: &str, opened: sys::Opened| {
             let mut opens = Vec::new();
             let result = walk(
-                &roots,
+                roots.roots(),
+                roots.project(),
                 path,
                 "fs.open_dir",
                 opened,
@@ -386,9 +401,10 @@ mod tests {
     /// doesn't do what's needed changes nothing.
     #[test]
     fn a_refused_walk_needs_a_grant_to_read() {
-        let roots = [root("/p"), scoped("/w", &[], Scope::WRITE)];
+        let roots = Table::of([root("/p"), scoped("/w", &[], Scope::WRITE)]);
         let needed = |path: &str, opened: sys::Opened, need: Scope| match walk(
-            &roots,
+            roots.roots(),
+            roots.project(),
             path,
             "fs.real_path",
             opened,
@@ -431,20 +447,20 @@ mod tests {
     /// what it lacks.
     #[test]
     fn a_scope_refusal_needs_a_handle_on_a_root_that_grants_it() {
-        let roots = [
+        let roots = Table::of([
             scoped("/p", &[], Scope::READ),
             scoped("/p/out", &[], Scope::ALL),
             scoped("/p/out/deeper", &[], Scope::ALL),
             scoped("/data/w", &["/w"], Scope::WRITE),
             scoped("/data/w/sub", &[], Scope::ALL),
-        ];
+        ]);
         let needed = |targets: &[&str], need: Scope| {
             let access = if need.write {
                 Access::Write
             } else {
                 Access::Read
             };
-            scope_needed(&roots, targets, access)
+            scope_needed(roots.roots(), roots.project(), targets, access)
         };
         let (open_dir, read, write) = (FsNeed::OpenDir, FsNeed::Read, FsNeed::Write);
         for (targets, need, expected) in [
@@ -474,20 +490,20 @@ mod tests {
     /// scope meets the need: a root only written holds nothing for a read.
     #[test]
     fn roots_hold_a_path_by_any_spelling_the_longest_first() {
-        let roots = [
+        let roots = Table::of([
             scoped("/p", &[], Scope::READ),
             scoped("/data/home/u/c", &["/home/u/c"], Scope::READ),
             scoped("/p/out", &[], Scope::WRITE),
             scoped("/p/out/both", &["/link"], Scope::ALL),
             Root::unplaced(&["/gone"], Scope::READ),
-        ];
+        ]);
         let held = |path: &str, need: Scope| {
             let names: Vec<String> = path
                 .split('/')
                 .filter(|name| !name.is_empty())
                 .map(ToOwned::to_owned)
                 .collect();
-            find_roots(&roots, &names, false, need)
+            find_roots(roots.roots(), roots.project(), &names, false, need)
                 .into_iter()
                 .map(|(index, _, rel)| (index, rel))
                 .collect::<Vec<_>>()
@@ -526,11 +542,12 @@ mod tests {
     /// walk at the first root.
     #[test]
     fn a_step_out_of_an_inner_root_falls_back_to_the_outer() {
-        let roots = [root("/p"), root("/p/in")];
+        let roots = Table::of([root("/p"), root("/p/in")]);
         let walked = |path: &str| {
             let mut opens = Vec::new();
             let result = walk(
-                &roots,
+                roots.roots(),
+                roots.project(),
                 path,
                 "fs.open_dir",
                 sys::Opened::Entry,

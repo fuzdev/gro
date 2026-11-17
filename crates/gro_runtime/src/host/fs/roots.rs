@@ -4,22 +4,33 @@
 //! ([`FsState`]): the project's root, the entry's, first, read and never
 //! written but by a grant; then each directory the run's fs grant reads or
 //! writes ([`FsGrant`]), one root per real path, its scopes joined; or,
-//! unconfined, one more at `/`, read and written. A root's scope is what it
-//! reads and writes, its own grant's joined with every root's that holds
-//! its directory, so a directory written inside the project is read too,
-//! and write never implies read. A root matches a path by its real path and
-//! by each path it was granted as, so a directory granted by a path through
-//! a symlink is held by that path too, while every lookup resolves beneath
-//! its descriptor. The table is only ever appended to, so a handle's place
-//! in it stays its root's.
+//! unconfined, one more at `/`, read and written. A root matches a path by
+//! its real path and by each path it was granted as, so a directory
+//! granted by a path through a symlink is held by that path too, while
+//! every lookup resolves beneath its descriptor.
+//!
+//! The roots are one run table ([`Table`]), only ever appended to, so a
+//! handle's place in it stays its root's: each root's descriptor, its real
+//! path and the paths it was granted as, and the roots holding its
+//! directory as the table was made. What a root reads and writes is a
+//! view's ([`View`]): a list of places in the table, each with the scope
+//! its grants give it there, joined with the scope of each root of the
+//! same view that holds its directory, so a directory written inside a
+//! read one is read too, and write never implies read. Scopes join within
+//! a view only. A run has one view today, the project's, holding every
+//! root, so its join is the run's; a view per origin would join only its
+//! own grants, since a join across two would hand one origin's scope to
+//! another's root. An op that reaches outside a handle (`fs.open_dir`,
+//! `fs.real_path`) and every refusal's hint read the view; whether a path
+//! is or holds a root reads the table, whoever's root it is.
 //!
 //! No `remove` or `rename` removes or moves a root's directory, or a
 //! directory holding one, and no `rename` moves an entry where the deepest
-//! root holding it grants what the source's doesn't ([`Held`]): a rule the
-//! roots keep whatever the run grants, `-A` included, not a grant, and the
-//! one place an op reads the run's roots to decide, only ever to refuse;
-//! beside it, a refusal's hint reads them, to name what would let the op
-//! through ([`super::walk::scope_needed`]).
+//! root holding it grants what the source's doesn't, in any view
+//! ([`Held`]): a rule the roots keep whatever the run grants, `-A`
+//! included, not a grant, and the one place an op reads the run's roots to
+//! decide, only ever to refuse; beside it, a refusal's hint reads them, to
+//! name what would let the op through ([`super::walk::scope_needed`]).
 //!
 //! A granted directory is the one its path named as the run started
 //! ([`FsGrant`]): the embedder reads its real path then, and the identity
@@ -81,35 +92,42 @@ pub(super) struct Root {
     /// The other absolute paths it was granted as, each by its text with no
     /// `.`, `..`, or empty name, which match a path as its real path does.
     granted: Vec<String>,
-    /// What it reads and writes: its grants', joined with each root's that
-    /// holds its directory ([`holds_beneath`]).
-    pub(super) scope: Scope,
+    /// The places of the roots holding its directory as the table was
+    /// made ([`holds_beneath`]), whose scopes a view joins to its own.
+    holders: Vec<usize>,
     /// Its descriptor, a path only, shared with any op under way, or why it
     /// isn't open, which every op through it reports.
     pub(super) fd: Result<Arc<OwnedFd>, String>,
 }
 
 impl Root {
-    /// A root at `path`, never opened, granted as `granted` too, doing what
-    /// `scope` says.
+    /// A root at `path`, never opened, granted as `granted` too, with the
+    /// scope a test's view gives it.
     #[cfg(test)]
-    pub(super) fn unopened(path: &str, granted: &[&str], scope: Scope) -> Self {
-        Self {
-            path: Some(path.to_owned()),
-            ..Self::unplaced(granted, scope)
-        }
+    pub(super) fn unopened(path: &str, granted: &[&str], scope: Scope) -> (Self, Scope) {
+        let (root, scope) = Self::unplaced(granted, scope);
+        (
+            Self {
+                path: Some(path.to_owned()),
+                ..root
+            },
+            scope,
+        )
     }
 
-    /// A root with no real path, never opened, granted as `granted`, doing
-    /// what `scope` says.
+    /// A root with no real path, never opened, granted as `granted`, with
+    /// the scope a test's view gives it.
     #[cfg(test)]
-    pub(super) fn unplaced(granted: &[&str], scope: Scope) -> Self {
-        Self {
-            path: None,
-            granted: granted.iter().map(|&path| path.to_owned()).collect(),
+    pub(super) fn unplaced(granted: &[&str], scope: Scope) -> (Self, Scope) {
+        (
+            Self {
+                path: None,
+                granted: granted.iter().map(|&path| path.to_owned()).collect(),
+                holders: Vec::new(),
+                fd: Err("not opened".to_owned()),
+            },
             scope,
-            fd: Err("not opened".to_owned()),
-        }
+        )
     }
 
     /// Its absolute real path, none for a root no path matches as its own.
@@ -140,20 +158,115 @@ impl Root {
     }
 }
 
+/// The run's roots: the run table, which handles index, and the project's
+/// view of it, the one view a run has.
+#[derive(Debug)]
+pub(super) struct Table {
+    /// Every root of the run, by its place, only ever appended to.
+    roots: Vec<Root>,
+    /// What the project reads and writes of the roots.
+    project: View,
+}
+
+/// What one origin reads and writes of the run's roots: places in the
+/// table, each with its scope, its own grants' joined with each root's of
+/// this view that holds its directory, and no other view's.
+#[derive(Debug, Default)]
+pub(super) struct View {
+    /// Each root of the view, by its place in the table, with its scope.
+    entries: Vec<(usize, Scope)>,
+}
+
+impl View {
+    /// The view of `granted`, places in `roots` with the scope each one's
+    /// grants give it, each scope joined with every one of `granted`'s
+    /// whose root holds its root's directory ([`Root::holders`]).
+    fn joined(roots: &[Root], granted: &[(usize, Scope)]) -> Self {
+        let entries = granted
+            .iter()
+            .map(|&(place, scope)| {
+                let holders = roots.get(place).map_or(&[][..], |root| &root.holders);
+                let joined = granted
+                    .iter()
+                    .filter(|(outer, _)| holders.contains(outer))
+                    .fold(scope, |scope, &(_, outer)| scope.join(outer));
+                (place, joined)
+            })
+            .collect();
+        Self { entries }
+    }
+
+    /// Each root of the view, its place and scope, in the table's order.
+    pub(super) fn entries(&self) -> impl Iterator<Item = (usize, Scope)> + '_ {
+        self.entries.iter().copied()
+    }
+
+    /// The scope the view gives the root at `place`, none when it holds no
+    /// such root.
+    pub(super) fn scope_of(&self, place: usize) -> Scope {
+        self.entries
+            .iter()
+            .find(|&&(held, _)| held == place)
+            .map_or_else(Scope::default, |&(_, scope)| scope)
+    }
+}
+
+impl Table {
+    /// The roots, by their places.
+    pub(super) fn roots(&self) -> &[Root] {
+        &self.roots
+    }
+
+    /// The project's view, the one a run has.
+    pub(super) const fn project(&self) -> &View {
+        &self.project
+    }
+
+    /// Every view of the run, which the rule's scope gain is checked in
+    /// ([`Held`]): the project's alone.
+    pub(super) fn views(&self) -> impl Iterator<Item = &View> {
+        std::iter::once(&self.project)
+    }
+
+    /// A table of `roots`, each given its scope as a test's view gives it,
+    /// joined already.
+    #[cfg(test)]
+    pub(super) fn of(roots: impl IntoIterator<Item = (Root, Scope)>) -> Self {
+        let (roots, scopes): (Vec<Root>, Vec<Scope>) = roots.into_iter().unzip();
+        Self {
+            roots,
+            project: View {
+                entries: scopes.into_iter().enumerate().collect(),
+            },
+        }
+    }
+}
+
 impl FsState {
     /// The run's roots, opened now if they weren't, from the run's data
     /// and authority ([`root_table`]).
-    pub(super) fn roots(&self, data: &HostData, authority: Option<&Authority>) -> Ref<'_, [Root]> {
+    pub(super) fn roots(&self, data: &HostData, authority: Option<&Authority>) -> Ref<'_, Table> {
         if self.roots.borrow().is_none() {
             let table = root_table(data.project.as_deref(), authority);
             *self.roots.borrow_mut() = Some(table);
         }
-        Ref::map(self.roots.borrow(), |roots| roots.as_deref().unwrap_or(&[]))
+        Ref::map(self.roots.borrow(), |roots| {
+            roots.as_ref().unwrap_or(&EMPTY_TABLE)
+        })
     }
 }
 
+/// The table a runtime given no state reads, never one a run makes.
+static EMPTY_TABLE: Table = Table {
+    roots: Vec::new(),
+    project: View {
+        entries: Vec::new(),
+    },
+};
+
 /// Whether `path`, an absolute path, is a root's directory or holds one,
-/// by its text against each root's real path as the run started.
+/// by its text against each root's real path as the run started, whoever's
+/// root it is.
 pub(super) fn holds_a_root(roots: &[Root], path: &str) -> bool {
     roots
         .iter()
@@ -194,56 +307,44 @@ pub(super) enum MoveRefusal {
 
 /// The roots a rename or a remove beneath one handle's directory can
 /// reach, owned, so the op's I/O can check its ends in the directories it
-/// acts in on whatever thread it runs: each root whose real path lies
-/// beneath the directory's, with its scope, and the scope of the deepest
-/// root holding the directory.
+/// acts in on whatever thread it runs: the real path of each root of the
+/// table beneath the directory's, and, for each view, the scope it gives
+/// each of those it holds and the deepest root holding the directory.
 ///
 /// An entry beneath a handle's directory is a root's directory or holds
 /// one only when a root lies beneath that directory, and its deepest root
-/// is either such a root or the directory's own, so a handle's directory
-/// with no root beneath it needs no check at all ([`Held::of`]). An end's
-/// path is its real path, read through the directory the op acts in, and
-/// the roots' are their real paths as the run started: the rule holds
-/// each root's directory where it was, which nothing in the run can move
-/// (`authority.md`'s threat model leaves out a process outside the run
-/// that moves what a flag names). Only a directory can be or hold one, and
-/// an entry at a root's path as the run started is that directory, so the
-/// text alone decides, and nothing is looked up for it. It compares
+/// in a view is either such a root or the directory's own, so a handle's
+/// directory with no root beneath it needs no check at all ([`Held::of`]).
+/// An end's path is its real path, read through the directory the op acts
+/// in, and the roots' are their real paths as the run started: the rule
+/// holds each root's directory where it was, which nothing in the run can
+/// move (`authority.md`'s threat model leaves out a process outside the
+/// run that moves what a flag names). Only a directory can be or hold one,
+/// and an entry at a root's path as the run started is that directory, so
+/// the text alone decides, and nothing is looked up for it. It compares
 /// paths, not directories: a root's directory a bind mount shows at a
 /// second path is no root at that path, and through it the rule neither
 /// keeps the directory nor holds what moves into it.
 #[derive(Debug)]
 pub(super) struct Held {
-    /// The scope of the deepest root holding the handle's directory.
+    /// The real path of each root beneath the handle's directory.
+    beneath: Vec<String>,
+    /// For each view, what it gives there ([`Gains`]).
+    views: Vec<Gains>,
+}
+
+/// What one view gives beneath a handle's directory: the scope of its
+/// deepest root holding the directory, and each of its roots beneath the
+/// directory, by real path, with its scope.
+#[derive(Debug)]
+struct Gains {
     scope: Scope,
-    /// Each root beneath the handle's directory: its real path and scope.
     beneath: Vec<(String, Scope)>,
 }
 
-impl Held {
-    /// The roots beneath `dir`, a handle's directory's absolute path, or
-    /// none when no root lies beneath it.
-    pub(super) fn of(roots: &[Root], dir: &str) -> Option<Self> {
-        let beneath: Vec<(String, Scope)> = roots
-            .iter()
-            .filter_map(|root| Some((root.path()?, root.scope)))
-            .filter(|&(path, _)| path != dir && at_or_beneath(path, dir))
-            .map(|(path, scope)| (path.to_owned(), scope))
-            .collect();
-        if beneath.is_empty() {
-            return None;
-        }
-        let scope = roots
-            .iter()
-            .filter_map(|root| Some((root.path()?, root.scope)))
-            .filter(|&(path, _)| at_or_beneath(dir, path))
-            .max_by_key(|&(path, _)| path.len())
-            .map_or_else(Scope::default, |(_, scope)| scope);
-        Some(Self { scope, beneath })
-    }
-
-    /// The scope of the deepest root holding `path`, a real path beneath
-    /// the handle's directory.
+impl Gains {
+    /// The scope the view gives `path`, a real path beneath the handle's
+    /// directory: its deepest root holding it.
     fn scope_at(&self, path: &str) -> Scope {
         self.beneath
             .iter()
@@ -251,16 +352,50 @@ impl Held {
             .max_by_key(|(root, _)| root.len())
             .map_or(self.scope, |(_, scope)| *scope)
     }
+}
+
+impl Held {
+    /// The roots beneath `dir`, a handle's directory's absolute path, of
+    /// `table` and of each of its views, or none when no root lies beneath
+    /// it.
+    pub(super) fn of(table: &Table, dir: &str) -> Option<Self> {
+        let roots = table.roots();
+        let below = |path: &str| path != dir && at_or_beneath(path, dir);
+        let beneath: Vec<String> = roots
+            .iter()
+            .filter_map(Root::path)
+            .filter(|path| below(path))
+            .map(ToOwned::to_owned)
+            .collect();
+        if beneath.is_empty() {
+            return None;
+        }
+        let views = table
+            .views()
+            .map(|view| {
+                let placed = || {
+                    view.entries()
+                        .filter_map(|(place, scope)| Some((roots.get(place)?.path()?, scope)))
+                };
+                let scope = placed()
+                    .filter(|&(path, _)| at_or_beneath(dir, path))
+                    .max_by_key(|&(path, _)| path.len())
+                    .map_or_else(Scope::default, |(_, scope)| scope);
+                let beneath = placed()
+                    .filter(|&(path, _)| below(path))
+                    .map(|(path, scope)| (path.to_owned(), scope))
+                    .collect();
+                Gains { scope, beneath }
+            })
+            .collect();
+        Some(Self { beneath, views })
+    }
 
     /// That the entry at `path`, a real path beneath the handle's
     /// directory, may be removed, or moved: it's no root's directory and
     /// holds none.
     pub(super) fn removable(&self, path: &str) -> Result<(), HoldsARoot> {
-        if self
-            .beneath
-            .iter()
-            .any(|(root, _)| at_or_beneath(root, path))
-        {
+        if self.beneath.iter().any(|root| at_or_beneath(root, path)) {
             return Err(HoldsARoot);
         }
         Ok(())
@@ -269,18 +404,21 @@ impl Held {
     /// That the entry at `from` may be moved to `to`, both real paths
     /// beneath the handle's directory: neither is a root's directory or
     /// holds one, the destination checked though nothing is there, as a
-    /// rename over an empty directory replaces it; and the deepest root
-    /// holding the destination grants nothing the source's doesn't, as
-    /// Landlock's `REFER` holds a rename, so no write moves a file into a
-    /// root that reads it. A refusal of a root's directory names its end.
+    /// rename over an empty directory replaces it; and in no view does the
+    /// deepest root holding the destination grant what the source's
+    /// doesn't, as Landlock's `REFER` holds a rename, so no write moves a
+    /// file into a root that reads it. A refusal of a root's directory
+    /// names its end.
     pub(super) fn movable(&self, from: &str, to: &str) -> Result<(), MoveRefusal> {
         self.removable(from)
             .map_err(|HoldsARoot| MoveRefusal::HoldsARoot(RenameEnd::From))?;
         self.removable(to)
             .map_err(|HoldsARoot| MoveRefusal::HoldsARoot(RenameEnd::To))?;
-        let (source, destination) = (self.scope_at(from), self.scope_at(to));
-        if (destination.read && !source.read) || (destination.write && !source.write) {
-            return Err(MoveRefusal::GainsScope);
+        for view in &self.views {
+            let (source, destination) = (view.scope_at(from), view.scope_at(to));
+            if (destination.read && !source.read) || (destination.write && !source.write) {
+                return Err(MoveRefusal::GainsScope);
+            }
         }
         Ok(())
     }
@@ -357,10 +495,11 @@ impl<'g> Joined<'g> {
 /// opened once ([`opened`]), and again by the next path granted as it when
 /// the path that opened it was refused. The paths of one real path are one
 /// root, the first's place, its scopes joined and each path it was granted
-/// as kept; then each root's scope joins every root's that holds its
-/// directory ([`holds_beneath`]), by these real paths, the start's, and the
-/// descriptors now.
-fn root_table(project: Option<&Path>, authority: Option<&Authority>) -> Vec<Root> {
+/// as kept; then each root records the roots that hold its directory
+/// ([`holds_beneath`]), by these real paths, the start's, and the
+/// descriptors now, and the project's view, holding every root, joins
+/// each one's scope with theirs ([`View::joined`]).
+fn root_table(project: Option<&Path>, authority: Option<&Authority>) -> Table {
     let mut wanted = vec![Wanted {
         real: project.map(Path::to_path_buf),
         scope: Scope::READ,
@@ -424,16 +563,19 @@ fn root_table(project: Option<&Path>, authority: Option<&Authority>) -> Vec<Root
             },
         );
     }
-    let scopes: Vec<Scope> = table
+    let holders: Vec<Vec<usize>> = table
         .iter()
-        .map(|joined| {
-            table
-                .iter()
-                .filter(|outer| holds_beneath(outer, joined))
-                .fold(joined.scope, |scope, outer| scope.join(outer.scope))
+        .enumerate()
+        .map(|(place, joined)| {
+            (0..table.len())
+                .filter(|&outer| outer != place && holds_beneath(&table[outer], joined))
+                .collect()
         })
         .collect();
-    table.into_iter().zip(scopes).map(root).collect()
+    let granted: Vec<(usize, Scope)> = table.iter().map(|joined| joined.scope).enumerate().collect();
+    let roots: Vec<Root> = table.into_iter().zip(holders).map(root).collect();
+    let project = View::joined(&roots, &granted);
+    Table { roots, project }
 }
 
 /// Whether `outer` holds `inner`'s directory: `inner` itself, or a root
@@ -476,8 +618,8 @@ fn identity(fd: &OwnedFd) -> std::io::Result<FileId> {
         .map(|metadata| FileId::of(&metadata))
 }
 
-/// The root `joined` makes, doing what `scope` says.
-fn root((joined, scope): (Joined<'_>, Scope)) -> Root {
+/// The root `joined` makes, held by the roots at `holders`.
+fn root((joined, holders): (Joined<'_>, Vec<usize>)) -> Root {
     let path = joined
         .real
         .as_deref()
@@ -496,7 +638,7 @@ fn root((joined, scope): (Joined<'_>, Scope)) -> Root {
     Root {
         path,
         granted: names,
-        scope,
+        holders,
         fd: joined.fd.map(|(fd, _)| Arc::new(fd)),
     }
 }
@@ -576,25 +718,44 @@ fn spelled(path: &Path) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        Held, HoldsARoot, MoveRefusal, RenameEnd, Root, Scope, holds_a_root, root_table, spelled,
+        Held, HoldsARoot, MoveRefusal, RenameEnd, Root, Scope, Table, holds_a_root, root_table,
+        spelled,
     };
 
     /// A root of a table as a test shows it: its real path, the other
     /// paths it was granted as, its scope, and why it isn't open.
     type Shown = (Option<String>, Vec<String>, Scope, Option<String>);
 
+    /// Each root of `table` as a test shows it, with the scope the
+    /// project's view gives it.
+    fn show(table: &Table) -> Vec<Shown> {
+        table
+            .roots()
+            .iter()
+            .enumerate()
+            .map(|(place, root)| {
+                (
+                    root.path.clone(),
+                    root.granted.clone(),
+                    table.project().scope_of(place),
+                    root.fd.as_ref().err().cloned(),
+                )
+            })
+            .collect()
+    }
+
     /// The roots of a run granted `--allow-write=/o --allow-read=/o/r
     /// --allow-write=/o/w/inner` with its project at `/p`, each by its real
     /// path and joined scope, one more granted as `/o/alias` and one
     /// refused as replaced, which no real path names.
-    fn rule_roots() -> Vec<Root> {
-        vec![
+    fn rule_roots() -> Table {
+        Table::of([
             Root::unopened("/p", &[], Scope::READ),
             Root::unopened("/o/r", &["/o/alias"], Scope::ALL),
             Root::unopened("/o/w/inner", &[], Scope::WRITE),
             Root::unopened("/o", &[], Scope::WRITE),
             Root::unplaced(&["/o/gone"], Scope::READ),
-        ]
+        ])
     }
 
     /// A path is or holds a root by its text against the roots' real paths
@@ -606,7 +767,7 @@ mod tests {
     fn a_path_is_or_holds_a_root_by_its_text() {
         let roots = rule_roots();
         for path in ["/o/r", "/o", "/o/w", "/o/w/inner", "/p", "/"] {
-            assert!(holds_a_root(&roots, path), "{path}");
+            assert!(holds_a_root(roots.roots(), path), "{path}");
         }
         for path in [
             "/o/x",
@@ -617,7 +778,7 @@ mod tests {
             "/o/gone",
             "/q",
         ] {
-            assert!(!holds_a_root(&roots, path), "{path}");
+            assert!(!holds_a_root(roots.roots(), path), "{path}");
         }
     }
 
@@ -666,10 +827,10 @@ mod tests {
         assert_eq!(in_w.movable("/o/w/f", "/o/w/inner/f"), Ok(()));
         assert_eq!(in_w.removable("/o/w/inner"), Err(HoldsARoot));
         // a write root inside a root that reads only: moving in gains the write
-        let read_only = [
+        let read_only = Table::of([
             Root::unopened("/p", &[], Scope::READ),
             Root::unopened("/p/out", &[], Scope::ALL),
-        ];
+        ]);
         let held = Held::of(&read_only, "/p").unwrap();
         assert_eq!(
             held.movable("/p/f", "/p/out/f"),
@@ -684,13 +845,13 @@ mod tests {
     /// holding it.
     #[test]
     fn the_deepest_root_holding_a_path_decides_its_scope() {
-        let roots = [
+        let roots = Table::of([
             Root::unopened("/o", &[], Scope::WRITE),
             Root::unopened("/o/w", &[], Scope::WRITE),
             Root::unopened("/o/w/r", &[], Scope::ALL),
             Root::unopened("/o/a", &[], Scope::ALL),
             Root::unopened("/o/a/x/r", &[], Scope::ALL),
-        ];
+        ]);
         let held = Held::of(&roots, "/o").unwrap();
         assert_eq!(
             held.movable("/o/f", "/o/w/r/f"),
@@ -700,15 +861,93 @@ mod tests {
         assert_eq!(in_x.movable("/o/a/x/f", "/o/a/x/r/f"), Ok(()));
     }
 
+    /// A view joins each of its roots' scope with the scope of every root
+    /// of the view holding its directory, at any depth, while a view's own
+    /// entries are all it joins: a root it doesn't hold lends it nothing,
+    /// whoever else holds it. The table builder's view of nested granted
+    /// directories is that join.
+    #[test]
+    fn a_view_joins_the_scopes_of_its_own_roots_holding_each() {
+        use super::View;
+        use crate::{Authority, FsGrant, Grants};
+
+        // `/o` holds `/o/w`, which holds `/o/w/r`; `/q` holds none
+        let roots: Vec<Root> = [vec![], vec![0], vec![0, 1], vec![]]
+            .into_iter()
+            .map(|holders| Root {
+                holders,
+                ..Root::unplaced(&[], Scope::ALL).0
+            })
+            .collect();
+        let granted = [
+            (0, Scope::READ),
+            (1, Scope::WRITE),
+            (2, Scope::WRITE),
+            (3, Scope::WRITE),
+        ];
+        let view = View::joined(&roots, &granted);
+        assert_eq!(
+            view.entries().collect::<Vec<_>>(),
+            [
+                (0, Scope::READ),
+                (1, Scope::ALL),
+                (2, Scope::ALL),
+                (3, Scope::WRITE)
+            ]
+        );
+        // a view without `/o`: nothing joins its read
+        let view = View::joined(&roots, &granted[1..3]);
+        assert_eq!(
+            view.entries().collect::<Vec<_>>(),
+            [(1, Scope::WRITE), (2, Scope::WRITE)]
+        );
+        assert_eq!(view.scope_of(0), Scope::default());
+
+        let dir = crate::test_support::TestDir::on_disk("view_join");
+        let at = |name: &str| dir.path().join(name);
+        for name in ["p", "o/w/r", "q"] {
+            std::fs::create_dir_all(at(name)).unwrap();
+        }
+        let authority = Authority::Confined(Grants {
+            fs: Some(FsGrant {
+                read: [checked(&at("o"))].into(),
+                write: [checked(&at("o/w")), checked(&at("o/w/r")), checked(&at("q"))].into(),
+            }),
+            ..Grants::default()
+        });
+        let table = root_table(Some(&at("p")), Some(&authority));
+        let path = |name: &str| at(name).display().to_string();
+        let scopes: Vec<(Option<String>, Scope)> = show(&table)
+            .into_iter()
+            .map(|(path, _, scope, _)| (path, scope))
+            .collect();
+        assert_eq!(
+            scopes,
+            [
+                (Some(path("p")), Scope::READ),
+                (Some(path("o")), Scope::READ),
+                (Some(path("o/w")), Scope::ALL),
+                (Some(path("o/w/r")), Scope::ALL),
+                (Some(path("q")), Scope::WRITE),
+            ]
+        );
+        let holders: Vec<&[usize]> = table
+            .roots()
+            .iter()
+            .map(|root| root.holders.as_slice())
+            .collect();
+        assert_eq!(holders, [&[][..], &[], &[1], &[1, 2], &[]]);
+    }
+
     /// Unconfined, `/` holds everything, read and written, and the
     /// project's root, inside it, can't be removed or moved through a
     /// handle above it; nothing gains a scope.
     #[test]
     fn the_rule_holds_unconfined() {
-        let roots = [
+        let roots = Table::of([
             Root::unopened("/p/proj", &[], Scope::ALL),
             Root::unopened("/", &[], Scope::ALL),
-        ];
+        ]);
         let held = Held::of(&roots, "/p").unwrap();
         assert_eq!(held.removable("/p/proj"), Err(HoldsARoot));
         assert_eq!(held.movable("/p/f", "/p/proj/f"), Ok(()));
@@ -813,17 +1052,7 @@ mod tests {
         });
         let table = root_table(Some(&at("p")), Some(&authority));
         let path = |name: &str| at(name).display().to_string();
-        let shown: Vec<Shown> = table
-            .iter()
-            .map(|root| {
-                (
-                    root.path.clone(),
-                    root.granted.clone(),
-                    root.scope,
-                    root.fd.as_ref().err().cloned(),
-                )
-            })
-            .collect();
+        let shown = show(&table);
         let replaced = |name: &str| {
             Some(format!(
                 "the directory granted as {} was replaced since the run started",
@@ -887,17 +1116,7 @@ mod tests {
         });
         let table = root_table(Some(&at("p")), Some(&authority));
         let path = |name: &str| at(name).display().to_string();
-        let shown: Vec<Shown> = table
-            .iter()
-            .map(|root| {
-                (
-                    root.path.clone(),
-                    root.granted.clone(),
-                    root.scope,
-                    root.fd.as_ref().err().cloned(),
-                )
-            })
-            .collect();
+        let shown = show(&table);
         assert_eq!(
             shown,
             [
@@ -990,17 +1209,7 @@ mod tests {
         std::fs::rename(at("r/out"), at("away/out")).unwrap();
         let table = root_table(Some(&at("p")), Some(&authority));
         let path = |name: &str| at(name).display().to_string();
-        let shown: Vec<Shown> = table
-            .iter()
-            .map(|root| {
-                (
-                    root.path.clone(),
-                    root.granted.clone(),
-                    root.scope,
-                    root.fd.as_ref().err().cloned(),
-                )
-            })
-            .collect();
+        let shown = show(&table);
         let gone = |granted: &str, real: &str| {
             let what = if granted == real {
                 path(granted)
@@ -1069,16 +1278,9 @@ mod tests {
                 &[at("p/out"), at("to_w"), at("w"), at("r/../w"), at("r")],
             )),
         );
-        let shown: Vec<(Option<String>, Vec<String>, Scope, bool)> = table
-            .iter()
-            .map(|root| {
-                (
-                    root.path.clone(),
-                    root.granted.clone(),
-                    root.scope,
-                    root.fd.is_ok(),
-                )
-            })
+        let shown: Vec<(Option<String>, Vec<String>, Scope, bool)> = show(&table)
+            .into_iter()
+            .map(|(path, granted, scope, why)| (path, granted, scope, why.is_none()))
             .collect();
         assert_eq!(
             shown,
@@ -1091,17 +1293,25 @@ mod tests {
             ]
         );
         assert!(
-            table[1]
+            table.roots()[1]
                 .fd
                 .as_ref()
                 .is_err_and(|why| why.contains("is gone")),
             "{:?}",
-            table[1].fd
+            table.roots()[1].fd
         );
         let unconfined = root_table(Some(&at("p")), Some(&Authority::Unconfined));
         let shown: Vec<(Option<&str>, Scope, bool)> = unconfined
+            .roots()
             .iter()
-            .map(|root| (root.path(), root.scope, root.whole()))
+            .enumerate()
+            .map(|(place, root)| {
+                (
+                    root.path(),
+                    unconfined.project().scope_of(place),
+                    root.whole(),
+                )
+            })
             .collect();
         assert_eq!(
             shown,

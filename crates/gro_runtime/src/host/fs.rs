@@ -91,7 +91,7 @@ use super::{HostData, NO_ERROR_CLASSES, name, string, throw_error, throw_type_er
 use crate::loader::RefusalLog;
 use crate::loader::refused::{NOT_GRANTED, NotGranted};
 use crate::{Authority, FsNeed};
-use roots::{Root, holds_a_root};
+use roots::{Root, Table, holds_a_root};
 use walk::scope_needed;
 
 /// The fs namespace's specifier.
@@ -120,11 +120,11 @@ const WRITE: &str = "write";
 /// roots join when the fs namespace is first made.
 #[derive(Debug, Default)]
 pub struct FsState {
-    /// The run's roots, each opened once, by its place in the table, made
-    /// whole when the fs namespace is first made. It's only appended to, so
-    /// a handle's place stays its root's, and a root made later (a
-    /// temporary directory's) joins at the end.
-    roots: RefCell<Option<Vec<Root>>>,
+    /// The run's roots, each opened once, by its place in the table, and
+    /// the project's view of them ([`Table`]), made whole when the fs
+    /// namespace is first made. The table is only appended to, so a
+    /// handle's place stays its root's.
+    roots: RefCell<Option<Table>>,
     /// Whether the kernel was found to serve `openat2`. `gro_sys` holds a
     /// failed check for the process, so this holds the other answer for the
     /// run, sparing every op after the first its probe.
@@ -341,7 +341,7 @@ fn run_state(state: &OpState) -> Result<&FsState, Failure> {
 
 /// The run's roots, opened now if they weren't ([`FsState::roots`]), or a
 /// plain `Error` in a runtime made outside a run's start.
-fn run_roots(state: &OpState) -> Result<Ref<'_, [Root]>, Failure> {
+fn run_roots(state: &OpState) -> Result<Ref<'_, Table>, Failure> {
     let fs = run_state(state)?;
     let data = state
         .try_borrow::<HostData>()
@@ -355,7 +355,7 @@ fn run_roots(state: &OpState) -> Result<Ref<'_, [Root]>, Failure> {
 /// ([`Op::check`]) before anything is looked up.
 struct Op<'r> {
     /// The run's roots.
-    roots: Ref<'r, [Root]>,
+    table: Ref<'r, Table>,
     /// The handle.
     handle: Handle,
     /// The handle's directory's absolute path.
@@ -383,13 +383,14 @@ impl<'r> Op<'r> {
     ) -> Result<Self, Failure> {
         run_state(state)?.ready()?;
         let handle = read_handle(scope, kind, receiver)?;
-        let roots = run_roots(state)?;
-        let root = roots
+        let table = run_roots(state)?;
+        let root = table
+            .roots()
             .get(handle.root)
             .ok_or_else(|| Failure::Plain("an fs handle names no root of the run".to_owned()))?;
         let handle_path = join(root.handle_base(), &handle.beneath);
         Ok(Self {
-            roots,
+            table,
             handle,
             handle_path,
         })
@@ -430,10 +431,11 @@ impl<'r> Op<'r> {
             return Ok(());
         }
         let targets: Vec<&str> = ends.iter().map(|end| end.target.as_str()).collect();
-        let need = if ruled && targets.iter().any(|path| holds_a_root(&self.roots, path)) {
+        let roots = self.table.roots();
+        let need = if ruled && targets.iter().any(|path| holds_a_root(roots, path)) {
             None
         } else {
-            Some(scope_needed(&self.roots, &targets, access))
+            Some(scope_needed(roots, self.table.project(), &targets, access))
         };
         Err(Failure::NotGranted {
             path: ends
@@ -445,7 +447,7 @@ impl<'r> Op<'r> {
 
     /// The handle's root.
     fn root(&self) -> &Root {
-        &self.roots[self.handle.root]
+        &self.table.roots()[self.handle.root]
     }
 
     /// What the op's call on `end` takes, owned: the root's descriptor, the
@@ -841,9 +843,9 @@ fn kind_of(error: &std::io::Error) -> FsErrorKind {
 
 #[cfg(test)]
 mod tests {
-    use std::cell::{Ref, RefCell};
+    use std::cell::RefCell;
 
-    use super::roots::Root;
+    use super::roots::{Root, Table};
     use super::{
         Access, Failure, FsErrorKind, Handle, NOT_GRANTED, Op, Scope, beneath_of, kind_of,
         op_failure, sys, to_lexical,
@@ -866,9 +868,9 @@ mod tests {
     /// handle's own directory.
     #[test]
     fn an_op_on_an_unopened_root_names_its_path() {
-        let roots = RefCell::new(vec![Root::unopened("/r", &[], Scope::ALL)]);
+        let roots = RefCell::new(Table::of([Root::unopened("/r", &[], Scope::ALL)]));
         let op = Op {
-            roots: Ref::map(roots.borrow(), Vec::as_slice),
+            table: roots.borrow(),
             handle: Handle {
                 root: 0,
                 beneath: "h".to_owned(),
@@ -887,9 +889,9 @@ mod tests {
     /// path to name, naming the handle's own directory.
     #[test]
     fn a_check_without_paths_still_refuses_a_scope_the_handle_lacks() {
-        let roots = RefCell::new(vec![Root::unopened("/r", &[], Scope::READ)]);
+        let roots = RefCell::new(Table::of([Root::unopened("/r", &[], Scope::READ)]));
         let op = Op {
-            roots: Ref::map(roots.borrow(), Vec::as_slice),
+            table: roots.borrow(),
             handle: Handle {
                 root: 0,
                 beneath: "h".to_owned(),
