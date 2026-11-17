@@ -243,8 +243,8 @@ fn find_roots<'r>(
 
 #[cfg(test)]
 mod tests {
-    use super::super::tests::shown;
     use super::super::roots::Table;
+    use super::super::tests::shown;
     use super::{Access, Failure, FsErrorKind, Root, Scope, find_roots, scope_needed, sys, walk};
     use crate::FsNeed;
 

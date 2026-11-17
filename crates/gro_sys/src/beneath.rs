@@ -16,7 +16,8 @@
 //! - [`open`] opens a path beneath a descriptor, as a directory to hold and
 //!   to resolve beneath ([`OpenAs::Directory`]), an entry of any kind to
 //!   name ([`OpenAs::Path`]), a regular file to read, or a regular file to
-//!   write, created or replaced ([`OpenAs::Write`]) or only created
+//!   write, created or replaced ([`OpenAs::Write`]), created or kept to
+//!   write over ([`OpenAs::Overwrite`]), or only created
 //!   ([`OpenAs::CreateNew`]); [`Links::Refused`] refuses every symlink on
 //!   the way.
 //! - [`open_read`] opens a regular file to read to its end ([`Reading`]),
@@ -175,6 +176,16 @@ pub enum OpenAs {
         /// The permission bits a created file gets, at most `0o7777`.
         mode: u32,
     },
+    /// A regular file to write over, created with `mode` (less the
+    /// process's umask) when missing and kept as it is when it exists
+    /// (`O_WRONLY | O_CREAT | O_NOCTTY | O_NONBLOCK`), so its caller can
+    /// tell what it opened before changing a byte, as a copy tells its
+    /// source from its destination; refused as [`OpenAs::Write`] refuses
+    /// anything but a regular file.
+    Overwrite {
+        /// The permission bits a created file gets, at most `0o7777`.
+        mode: u32,
+    },
     /// A file to write that the call creates, with `mode` (less the
     /// process's umask) (`O_WRONLY | O_CREAT | O_EXCL | O_NOCTTY |
     /// O_NONBLOCK`). Any entry already there fails with `EEXIST`: a file, a
@@ -280,8 +291,8 @@ pub struct DirEntry {
 /// `RESOLVE_IN_ROOT | RESOLVE_NO_MAGICLINKS` for [`Links::InRoot`].
 ///
 /// An open of a file's contents ([`OpenAs::Read`], [`OpenAs::Write`],
-/// [`OpenAs::CreateNew`]) keeps a regular file only, told by the
-/// descriptor's metadata.
+/// [`OpenAs::Overwrite`], [`OpenAs::CreateNew`]) keeps a regular file
+/// only, told by the descriptor's metadata.
 ///
 /// `path` is relative to `dir`; `.` is `dir` itself, and an empty path
 /// names nothing (`ENOENT`).
@@ -298,9 +309,10 @@ pub fn open(dir: BorrowedFd<'_>, path: &Path, how: OpenAs, links: Links) -> io::
     let fd = open_unchecked(dir, path, how, links)?;
     match how {
         OpenAs::Directory | OpenAs::Path => Ok(fd),
-        OpenAs::Read | OpenAs::Write { .. } | OpenAs::CreateNew { .. } => {
-            only_regular(fd).map(|(fd, _)| fd)
-        }
+        OpenAs::Read
+        | OpenAs::Write { .. }
+        | OpenAs::Overwrite { .. }
+        | OpenAs::CreateNew { .. } => only_regular(fd).map(|(fd, _)| fd),
     }
 }
 
@@ -319,6 +331,7 @@ fn open_unchecked(
             libc::O_WRONLY | libc::O_CREAT | libc::O_TRUNC | NO_WAIT,
             mode,
         ),
+        OpenAs::Overwrite { mode } => (libc::O_WRONLY | libc::O_CREAT | NO_WAIT, mode),
         OpenAs::CreateNew { mode } => (
             libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL | NO_WAIT,
             mode,
@@ -834,10 +847,7 @@ fn to_timespec(time: std::time::Duration) -> io::Result<libc::timespec> {
 /// `call` on the `/proc/self/fd` link of `fd`, which names what `fd` holds
 /// open; a missing link is `/proc` that can't be reached, never a missing
 /// entry, since `fd` holds the entry.
-fn through_proc(
-    fd: BorrowedFd<'_>,
-    call: impl FnOnce(&Path) -> io::Result<()>,
-) -> io::Result<()> {
+fn through_proc(fd: BorrowedFd<'_>, call: impl FnOnce(&Path) -> io::Result<()>) -> io::Result<()> {
     let link = format!("/proc/self/fd/{}", fd.as_raw_fd());
     call(Path::new(&link)).map_err(|error| {
         if error.raw_os_error() == Some(libc::ENOENT) {

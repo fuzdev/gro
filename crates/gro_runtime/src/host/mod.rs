@@ -574,11 +574,11 @@ native_members! {
         fs::writes::rename(state, scope, handle, from, to, errors)
     }
 
-    /// `dir.copy(from, to, options?)`, not built ([`fs::writes::unbuilt`]).
-    async copy(state, _granted: FsGrant; scope, from, to, _options) for "@fuzdev/gro/fs.ts"
+    /// `dir.copy(from, to, options?)` ([`fs::writes::copy`]).
+    async copy(state, _granted: FsGrant; scope, from, to, options) for "@fuzdev/gro/fs.ts"
         on FS_DIR(handle) throws FS_ERROR(errors)
     {
-        fs::writes::unbuilt(state, scope, "copy", handle, Some(from), to, errors)
+        fs::writes::copy(state, scope, handle, from, to, options, errors)
     }
 
     /// `dir.set_times(path, times, options?)` ([`fs::writes::set_times`]).

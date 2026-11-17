@@ -2432,6 +2432,130 @@ fn fs_a_write_s_paths_are_judged_by_the_handle_s_scope() {
     assert!(!project.0.join("l").exists());
 }
 
+/// The script [`fs_a_copy_into_a_root_that_reads_is_refused_its_read`]
+/// runs: a copy through a handle on the directory it's given, caught.
+const FS_COPY_INTO_A_ROOT: &str = "import { fs } from '@fuzdev/gro/fs.ts';
+import { args } from '@fuzdev/gro/args.ts';
+const o = await fs.open_dir(args[0]);
+try {
+\tawait o.copy('secret.txt', 'r/secret.txt');
+\tconsole.log('copied');
+} catch (error) {
+\tconsole.log(error.kind, error.path);
+}
+";
+
+/// The case the rule's scope gain exists for, a write-only root's file put
+/// into a root the run reads, through a copy: a handle on the write root
+/// doesn't read, so the copy is refused its read of `from`, `not_granted`
+/// with the hint a read needs, before anything is written, and the rule
+/// has nothing left to refuse. A copy is a read and a write through one
+/// handle, so it never gains a scope the handle couldn't by a `read` and a
+/// `write`.
+#[test]
+fn fs_a_copy_into_a_root_that_reads_is_refused_its_read() {
+    let project = Scratch::new(
+        "fs_copy_rule",
+        &[
+            (
+                "package.json",
+                "{\"name\": \"fs_copy_rule\", \"type\": \"module\"}\n",
+            ),
+            ("main.js", FS_COPY_INTO_A_ROOT),
+        ],
+    );
+    let o = Scratch::new(
+        "fs_copy_rule_o",
+        &[("secret.txt", "secret"), ("r/f.txt", "")],
+    );
+    let root = o.0.display().to_string();
+    let mut command = fgro_command(&[
+        "run",
+        &format!("--allow-write={root}"),
+        &format!("--allow-read={}", o.path("r")),
+        "main.js",
+        &root,
+    ]);
+    command.env_clear().current_dir(&project.0);
+    let output = spawn(command, b"");
+    assert_eq!(
+        (
+            output.status.code(),
+            String::from_utf8(output.stdout).unwrap(),
+            String::from_utf8(output.stderr).unwrap(),
+        ),
+        (
+            Some(1),
+            format!("not_granted {root}/secret.txt\n"),
+            format!(
+                "error: fs refused a read: not_granted: {root}/secret.txt\n\
+                 error: a refusal fails the run, whether or not the program caught it\n\
+                 {HINT_READ}\n"
+            ),
+        )
+    );
+    assert!(!Path::new(&o.path("r/secret.txt")).exists());
+}
+
+/// The script [`fs_a_copy_drops_the_setuid_setgid_and_sticky_bits`] runs:
+/// a file copied, then a tree, through a handle on the directory it's
+/// given.
+const FS_COPY_MODES: &str = "import { fs } from '@fuzdev/gro/fs.ts';
+import { args } from '@fuzdev/gro/args.ts';
+const o = await fs.open_dir(args[0]);
+await o.copy('s', 'c');
+await o.copy('d', 'd2', { recursive: true });
+";
+
+/// What a copy makes takes its source's permission bits less the setuid,
+/// setgid, and sticky bits, a file's and, in a tree, each directory's and
+/// file's, as no write makes them.
+#[test]
+fn fs_a_copy_drops_the_setuid_setgid_and_sticky_bits() {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    let project = Scratch::new(
+        "fs_copy_modes",
+        &[
+            (
+                "package.json",
+                "{\"name\": \"fs_copy_modes\", \"type\": \"module\"}\n",
+            ),
+            ("main.js", FS_COPY_MODES),
+        ],
+    );
+    let o = Scratch::new("fs_copy_modes_o", &[("s", "s"), ("d/in/f", "f")]);
+    let mode = |path: &str, mode: u32| {
+        std::fs::set_permissions(o.0.join(path), std::fs::Permissions::from_mode(mode)).unwrap();
+    };
+    mode("s", 0o4755);
+    mode("d/in/f", 0o2750);
+    mode("d/in", 0o2755);
+    mode("d", 0o1777);
+    let root = o.0.display().to_string();
+    let mut command = fgro_command(&[
+        "run",
+        &format!("--allow-write={root}"),
+        &format!("--allow-read={root}"),
+        "main.js",
+        &root,
+    ]);
+    command.env_clear().current_dir(&project.0);
+    let output = spawn(command, b"");
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    let modes: Vec<u32> = ["c", "d2", "d2/in", "d2/in/f"]
+        .iter()
+        .map(|path| {
+            std::fs::metadata(o.0.join(path))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o7777
+        })
+        .collect();
+    assert_eq!(modes, [0o755, 0o777, 0o755, 0o750]);
+}
+
 /// The script [`fs_a_refused_move_of_a_root_hints_no_grant`] runs: the call
 /// it names through `fs.project`, which doesn't write, caught.
 const FS_ROOT_HINT: &str = "import { fs } from '@fuzdev/gro/fs.ts';

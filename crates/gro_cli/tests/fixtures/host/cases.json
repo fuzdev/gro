@@ -835,6 +835,93 @@
 		"differs": []
 	},
 	{
+		"name": "fs_copy",
+		"module": "fs",
+		"args": ["copy"],
+		"flags": ["--allow-write=scratch"],
+		"scratch": {
+			"dir": "scratch",
+			"links": {
+				"dangling": "missing.txt",
+				"to_sub": "sub",
+				"to_file": "a.txt",
+				"escape": "../outside.txt",
+				"absolute": "/proc/self/status"
+			}
+		},
+		"differs": [
+			{
+				"at": "/a_link_over_a_link",
+				"fgro": {
+					"tree": [
+						"a.txt: b",
+						"absolute (symlink)",
+						"c.txt: b",
+						"dang (symlink)",
+						"dang2 (symlink)",
+						"dangling (symlink)",
+						"dl: b",
+						"escape (symlink)",
+						"from_link/",
+						"from_link/b.txt: b",
+						"from_link/f: f",
+						"from_link/l (symlink)",
+						"from_link/u/",
+						"from_link/u/g: g",
+						"from_link.txt: b",
+						"lk/",
+						"lk/w/",
+						"lk/w/l (symlink)",
+						"ll/",
+						"ll/w/",
+						"ll/w/l (symlink)",
+						"m.txt: b",
+						"missing/",
+						"missing/x/",
+						"missing/x/f: f",
+						"missing/x/l (symlink)",
+						"missing/x/u/",
+						"missing/x/u/g: g",
+						"missing.txt: b",
+						"new/",
+						"new/r.txt: b",
+						"o/",
+						"o/out (symlink)",
+						"o2/",
+						"o2/out (symlink)",
+						"r.txt: b",
+						"sub/",
+						"sub/b.txt: b",
+						"sub/f: f",
+						"sub/l (symlink)",
+						"sub/u/",
+						"sub/u/g: g",
+						"t/",
+						"t/f: f",
+						"t/l (symlink)",
+						"t/u/",
+						"t/u/g: g",
+						"t2/",
+						"t2/f: f",
+						"t2/l (symlink)",
+						"t2/u/",
+						"t2/u/g: g",
+						"to_file (symlink)",
+						"to_sub (symlink)",
+						"u2/",
+						"u2/g: g"
+					]
+				},
+				"why": "a link copied over a link replaces it, where Node's cp follows the source link, outside the handle too, and fails when it dangles"
+			},
+			{
+				"at": "/a_link_over_a_link_s_target/resolved",
+				"fgro": "b.txt",
+				"why": "a link copied over a link replaces it, where Node's cp follows the source link, outside the handle too, and fails when it dangles"
+			}
+		]
+	},
+	{
 		"name": "fs_write_arguments",
 		"module": "fs",
 		"args": [

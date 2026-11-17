@@ -1,12 +1,12 @@
-//! The ops that write through an `FsDir`: `write`, `mkdir`, `remove`, and
-//! `rename`, and the ones not built on fgro yet. Each checks its paths as
-//! the Node module checks them, then its other arguments, read as data
-//! ([`read_option`]), then that the handle may do it: an op that reads one
-//! of its paths (a copy's `from`) is refused `not_granted` naming that
-//! path when the handle doesn't read, before the write is judged, as the
-//! op would read it first; and one the handle may not write, naming the
-//! first path it writes; each recorded as it's thrown with what would let
-//! it through ([`Op::check`]).
+//! The ops that write through an `FsDir`: `write`, `mkdir`, `remove`,
+//! `rename`, `copy`, `set_times`, `set_mode`, and `symlink`. Each checks its
+//! paths as the Node module checks them, then its other arguments, read as
+//! data ([`read_option`]), then that the handle may do it: `copy`, which
+//! reads its `from`, is refused `not_granted` naming `from` when the handle
+//! doesn't read, before the write is judged, as the op would read it first;
+//! and an op the handle may not write is refused naming the first path it
+//! writes; each recorded as it's thrown with what would let it through
+//! ([`Op::check`]).
 //!
 //! `write` takes a string, written as UTF-8 with each lone surrogate a
 //! U+FFFD, as Node writes one, or a `Uint8Array`, a `TypeError` otherwise;
@@ -20,17 +20,45 @@
 //! emptied as it opens, before the write, so a write that fails can leave
 //! it empty or short, as Node's `writeFile` can.
 //!
+//! `copy` opens both ends the same way, each a final symlink followed
+//! beneath, and copies a regular file only, a FIFO or a device refused
+//! `io_error` where Node's would wait or read one; with `recursive`, a tree
+//! is copied entry by entry, each beneath its own directory's descriptor,
+//! no symlink followed, and a symlink copied as the link ([`sys::copy`]).
+//! What it makes gets its source's permission bits less the setuid,
+//! setgid, and sticky bits, as `write`'s mode does. `set_mode` and
+//! `set_times` act on the entry a final symlink leads to beneath the
+//! handle, opened as a path, never a path the kernel resolves again, and
+//! `set_times` with `follow: false` on the link itself; `symlink` stores
+//! its target as given and never resolves it.
+//!
 //! The handle's own directory can't be removed or renamed, either end of a
 //! rename, an `io_error` as the Node module's; and nor can any root's
 //! directory, or an entry that holds one ([`Held`]): `remove` and `rename`
 //! refuse it `io_error`, before anything is removed or moved, whatever the
 //! run grants, so a refused one needs no grant. A rename that would move
 //! an entry where the deepest root holding it grants what the source's
-//! doesn't, a write-only root's file into a root the run reads, is refused
-//! too. A recursive `remove` empties a directory entry by entry, each
-//! beneath its own directory's descriptor, no symlink followed
-//! ([`gro_sys::beneath::Last::remove_tree`]), and names no entry inside it
-//! in its error.
+//! doesn't, in any view, a write-only root's file into a root the run
+//! reads, is refused too. A copy takes neither half of the rule. It never
+//! removes or replaces a directory, so a root's stays where it is, and
+//! what it writes into one is a write the handle's scope judges. And it's
+//! a read and a write through one handle, which must do both: where the
+//! deepest root holding `from` lends it its scope, that root grants the
+//! handle's whole scope, read and write, so no destination grants more, and
+//! a handle that only writes, the one the rule holds a rename to, is
+//! refused the copy's read. A recursive `remove` empties a directory entry
+//! by entry, each beneath its own directory's descriptor, no symlink
+//! followed ([`gro_sys::beneath::Last::remove_tree`]), and names no entry
+//! inside it in its error, as `copy` names none.
+//!
+//! `set_mode` on a root's own directory, or on a symlink leading to one
+//! beneath the handle, changes that directory's bits and nothing of the
+//! table: the root's descriptor stays the directory, and the rule, which
+//! keeps a directory where it is, has nothing to refuse; a handle reaches
+//! a root's directory only beneath a root holding it, whose write the
+//! handle's is and the inner root's scope joins. A mode that takes the
+//! process's own access away fails later ops beneath it
+//! `permission_denied`, as on Node.
 
 use std::time::Duration;
 
@@ -38,8 +66,8 @@ use deno_core::{OpState, v8};
 
 use super::roots::{Held, MoveRefusal, RenameEnd};
 use super::{
-    Access, End, Failure, FsErrorKind, MODULE, Op, finish, gains_scope_failure,
-    holds_a_root_failure, is_missing, read_flag, read_follow, read_option, sys,
+    Access, End, Failure, FsErrorKind, Op, finish, gains_scope_failure, holds_a_root_failure,
+    is_missing, read_flag, read_follow, read_option, sys,
 };
 use crate::host::error_class::DeclaredFamily;
 use crate::host::handle::FS_DIR;
@@ -321,11 +349,11 @@ pub fn set_times<'s>(
         let op = Op::new(state, scope, &FS_DIR, receiver)?;
         let end = op.path(scope, path)?;
         let mtime = time_of(read_option(scope, times, "mtime_ms")?, "mtime_ms")?;
-        let atime = match read_option(scope, times, "atime_ms")?.filter(|atime| !atime.is_undefined())
-        {
-            Some(atime) => time_of(Some(atime), "atime_ms")?,
-            None => mtime,
-        };
+        let atime =
+            match read_option(scope, times, "atime_ms")?.filter(|atime| !atime.is_undefined()) {
+                Some(atime) => time_of(Some(atime), "atime_ms")?,
+                None => mtime,
+            };
         // a trailing `/` follows a final symlink, as in the kernel
         let follow = read_follow(scope, options)? || end.lexical.dir || end.is_own();
         op.check(Access::Write, &[&end], false)?;
@@ -481,32 +509,50 @@ fn link_target(
         .map_err(|_| Failure::Type("fs symlink targets are well-formed Unicode".to_owned()))
 }
 
-/// The write op `name`, not built on fgro yet, called on `receiver`, an
-/// `FsDir`, with `read`, the path it reads, when it reads one (a copy's
-/// `from`), then `written`, the path it writes, each checked in order as
-/// the op would check it: refused as [`Op::check`] refuses it, the read
-/// before the write, else a plain `Error` saying the op isn't built on
-/// fgro yet.
-pub fn unbuilt<'s>(
+/// `copy(from, to, options?)` called on `receiver`: copies the entry at
+/// `from` to `to`, each a final symlink followed beneath the handle: a
+/// regular file over what's at `to`, the same file left as it is; or, with
+/// `recursive`, a directory and everything in it, its symlinks copied as
+/// links ([`sys::copy`]). It reads `from`, so it's refused `not_granted`
+/// naming `from` when the handle doesn't read, before the write is judged.
+/// A failure names `from` or `to`, never an entry inside, as the Node
+/// module names it.
+pub fn copy<'s>(
     state: &OpState,
     scope: &v8::PinScope<'s, '_>,
-    name: &str,
     receiver: v8::Local<'s, v8::Value>,
-    read: Option<v8::Local<'s, v8::Value>>,
-    written: v8::Local<'s, v8::Value>,
+    from: v8::Local<'s, v8::Value>,
+    to: v8::Local<'s, v8::Value>,
+    options: v8::Local<'s, v8::Value>,
     errors: DeclaredFamily,
 ) -> Option<v8::Local<'s, v8::Value>> {
     let result = (|| {
         let op = Op::new(state, scope, &FS_DIR, receiver)?;
-        let read = read.map(|path| op.path(scope, path)).transpose()?;
-        let written = op.path(scope, written)?;
-        if let Some(read) = &read {
-            op.check(Access::Read, &[read], false)?;
-        }
-        op.check(Access::Write, &[&written], false)?;
-        Err::<v8::Local<'s, v8::Value>, _>(Failure::Plain(format!(
-            "{name} of {MODULE} isn't built on fgro yet"
-        )))
+        let source = op.path(scope, from)?;
+        let destination = op.path(scope, to)?;
+        let recursive = read_flag(scope, options, "recursive")?;
+        op.check(Access::Read, &[&source], false)?;
+        op.check(Access::Write, &[&destination], false)?;
+        let (fd, dir, source_rel) = op.call(&source)?;
+        let copied = sys::copy(
+            fd,
+            op.root().handle_base().to_owned(),
+            dir,
+            source_rel,
+            destination.lexical.rel(),
+            recursive,
+        );
+        copied.map_err(|error| match error {
+            sys::CopyError::Handle(error) => op.failure(&source, sys::OpError::Handle(error)),
+            sys::CopyError::At { end, error } => {
+                let at = match end {
+                    RenameEnd::From => &source,
+                    RenameEnd::To => &destination,
+                };
+                op.failure(at, sys::OpError::Target(error))
+            }
+        })?;
+        Ok(v8::undefined(scope).into())
     })();
     finish(state, scope, Some(errors), result)
 }

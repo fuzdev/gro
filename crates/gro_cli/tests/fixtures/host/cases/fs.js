@@ -976,6 +976,123 @@ const SCENARIOS = {
 			target_then_slash: link('t/', '')
 		});
 	},
+	// `copy` of each kind of path and option, through a handle on `scratch/`: a file, then a
+	// tree with `recursive`, its symlinks copied as links
+	copy: async (ns) => {
+		const dir = await open_scratch(ns);
+		/** @type {(path: string) => () => Promise<unknown>} */
+		const mode_of = (path) => async () => (await dir.stat(path))?.mode;
+		/** @type {(path: string) => () => Promise<unknown>} */
+		const link_of = (path) => async () => dir.read_link(path);
+		return steps(dir, {
+			a_file: () => dir.copy('a.txt', 'c.txt'),
+			over_a_file: () => dir.write('c.txt', 'old').then(() => dir.copy('sub/b.txt', 'c.txt')),
+			the_same: () => dir.copy('a.txt', 'a.txt'),
+			its_mode: () => dir.set_mode('c.txt', 0o750).then(() => dir.copy('c.txt', 'm.txt')),
+			its_mode_read: mode_of('m.txt'),
+			its_mode_over_a_file: () => dir.copy('c.txt', 'a.txt').then(mode_of('a.txt')),
+			a_file_into_a_directory: () => dir.copy('a.txt', 'sub'),
+			a_directory: () => dir.copy('sub', 'd'),
+			missing: () => dir.copy('missing', 'x'),
+			a_missing_destination_parent: () => dir.copy('a.txt', 'missing/x'),
+			both_missing: () => dir.copy('missing', 'missing/x'),
+			through_a_file_from: () => dir.copy('a.txt/x', 'x'),
+			through_a_file_to: () => dir.copy('a.txt', 'a.txt/x'),
+			a_file_slashed_from: () => dir.copy('a.txt/', 'x'),
+			a_file_slashed_to: () => dir.copy('a.txt', 'x/'),
+			its_own_directory_from: () => dir.copy('', 'x'),
+			its_own_directory_to: () => dir.copy('a.txt', '.'),
+			above_from: () => dir.copy('../x', 'y'),
+			above_to: () => dir.copy('a.txt', '../y'),
+			absolute_to: () => dir.copy('a.txt', '/y'),
+			a_link_from: () => dir.copy('to_file', 'from_link.txt'),
+			a_link_to: () => dir.copy('sub/b.txt', 'to_file'),
+			a_dangling_link_from: () => dir.copy('dangling', 'x'),
+			a_dangling_link_to: () => dir.copy('a.txt', 'dangling'),
+			a_link_out_from: () => dir.copy('escape', 'x'),
+			a_link_out_to: () => dir.copy('a.txt', 'escape'),
+			an_absolute_link_from: () => dir.copy('absolute', 'x'),
+			through_a_link_out_to: () => dir.copy('a.txt', 'escape/x'),
+			a_tree: async () => {
+				await dir.mkdir('t/u', { recursive: true });
+				await dir.write('t/f', 'f');
+				await dir.write('t/u/g', 'g');
+				await dir.symlink('t/l', '../a.txt');
+				await dir.set_mode('t/u', 0o750);
+				return dir.copy('t', 't2', { recursive: true });
+			},
+			a_tree_s_mode: mode_of('t2/u'),
+			a_tree_s_link: link_of('t2/l'),
+			// a link out of the handle, copied as the link, never followed
+			a_link_out_in_a_tree: async () => {
+				await dir.mkdir('o');
+				await dir.symlink('o/out', '../../outside.txt');
+				return dir.copy('o', 'o2', { recursive: true });
+			},
+			a_link_out_in_a_tree_s_link: link_of('o2/out'),
+			a_tree_again: () =>
+				dir.write('t2/f', 'changed').then(() => dir.copy('t', 't2', { recursive: true })),
+			a_tree_into_a_directory: () => dir.copy('t', 'sub', { recursive: true }),
+			a_tree_truthy: () => dir.copy('t/u', 'u2', /** @type {any} */ ({ recursive: 1 })),
+			a_tree_falsy: () => dir.copy('t/u', 'u3', /** @type {any} */ ({ recursive: 0 })),
+			a_tree_over_a_file: () => dir.copy('t', 'a.txt', { recursive: true }),
+			a_tree_into_itself: () => dir.copy('t', 't/inner', { recursive: true }),
+			a_tree_onto_itself: () => dir.copy('t', 't', { recursive: true }),
+			a_tree_missing: () => dir.copy('nothing', 'x', { recursive: true }),
+			a_tree_missing_parent: () => dir.copy('t', 'missing/x', { recursive: true }),
+			a_file_recursive: () => dir.copy('a.txt', 'r.txt', { recursive: true }),
+			a_file_over_a_directory_recursive: () => dir.copy('a.txt', 'sub', { recursive: true }),
+			a_link_recursive: () => dir.copy('to_sub', 'from_link', { recursive: true }),
+			a_link_out_recursive: () => dir.copy('escape', 'x', { recursive: true }),
+			a_dangling_link_recursive: () => dir.copy('dangling', 'dl', { recursive: true }),
+			// a final link to nothing, copied as the link
+			a_link_to_nothing_recursive: () =>
+				dir.symlink('dang', 'none').then(() => dir.copy('dang', 'dang2', { recursive: true })),
+			a_link_to_nothing_s_copy: link_of('dang2'),
+			a_file_recursive_into_a_missing_parent: () =>
+				dir.copy('a.txt', 'new/r.txt', { recursive: true }),
+			// one entry in each tree below, so what a failure leaves is in no listing's order
+			a_link_over_a_link: async () => {
+				await dir.mkdir('ll/w', { recursive: true });
+				await dir.symlink('ll/w/l', 'b.txt');
+				await dir.mkdir('lk/w', { recursive: true });
+				await dir.symlink('lk/w/l', 'nowhere');
+				return dir.copy('ll', 'lk', { recursive: true });
+			},
+			a_link_over_a_link_s_target: link_of('lk/w/l'),
+			a_link_over_a_file: async () => {
+				await dir.mkdir('v');
+				await dir.write('v/l', 'a file where the tree has a link');
+				return dir.copy('ll/w', 'v', { recursive: true });
+			},
+			a_link_over_a_directory: async () => {
+				await dir.mkdir('y/l', { recursive: true });
+				return dir.copy('ll/w', 'y', { recursive: true });
+			},
+			a_file_over_a_link: async () => {
+				await dir.mkdir('f1');
+				await dir.write('f1/f', 'f');
+				await dir.mkdir('k');
+				await dir.symlink('k/f', 'nowhere');
+				return dir.copy('f1', 'k', { recursive: true });
+			},
+			a_file_over_a_file: async () => {
+				await dir.mkdir('k2');
+				await dir.write('k2/f', 'old');
+				return dir.copy('f1', 'k2', { recursive: true });
+			},
+			a_file_over_a_directory: async () => {
+				await dir.mkdir('k3/f', { recursive: true });
+				return dir.copy('f1', 'k3', { recursive: true });
+			},
+			a_directory_over_a_file: async () => {
+				await dir.mkdir('d1/u', { recursive: true });
+				await dir.mkdir('z');
+				await dir.write('z/u', 'a file where the tree has a directory');
+				return dir.copy('d1', 'z', { recursive: true });
+			}
+		});
+	},
 	// paths and options that are none for each op that writes, each a `TypeError`
 	write_arguments: async (ns) => {
 		const dir = await open_scratch(ns);

@@ -572,7 +572,11 @@ fn root_table(project: Option<&Path>, authority: Option<&Authority>) -> Table {
                 .collect()
         })
         .collect();
-    let granted: Vec<(usize, Scope)> = table.iter().map(|joined| joined.scope).enumerate().collect();
+    let granted: Vec<(usize, Scope)> = table
+        .iter()
+        .map(|joined| joined.scope)
+        .enumerate()
+        .collect();
     let roots: Vec<Root> = table.into_iter().zip(holders).map(root).collect();
     let project = View::joined(&roots, &granted);
     Table { roots, project }
@@ -911,7 +915,12 @@ mod tests {
         let authority = Authority::Confined(Grants {
             fs: Some(FsGrant {
                 read: [checked(&at("o"))].into(),
-                write: [checked(&at("o/w")), checked(&at("o/w/r")), checked(&at("q"))].into(),
+                write: [
+                    checked(&at("o/w")),
+                    checked(&at("o/w/r")),
+                    checked(&at("q")),
+                ]
+                .into(),
             }),
             ..Grants::default()
         });
