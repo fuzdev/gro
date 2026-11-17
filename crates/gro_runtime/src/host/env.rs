@@ -98,8 +98,8 @@ pub fn get<'s>(
     errors: DeclaredFamily,
 ) -> Option<v8::Local<'s, v8::Value>> {
     let handle = read(scope, receiver)?;
-    let name = check_name(scope, name, "an environment name", true)?;
-    check_granted(state, scope, &handle, name, errors)?;
+    let (name, text) = check_name(scope, name, "an environment name", true)?;
+    check_granted(state, scope, &handle, name, &text, errors)?;
     let vars = handle.vars;
     if vars.has_own_property(scope, name.into())? {
         vars.get(scope, name.into())
@@ -145,8 +145,8 @@ pub fn narrow<'s>(
         let key = string(scope, &index.to_string())?;
         let element = own_data(scope, list.into(), key.into()).ok()?;
         let element = element.unwrap_or_else(|| v8::undefined(scope).into());
-        let name = check_name(scope, element, "a `narrow` name", false)?;
-        check_granted(state, scope, &parent, name, errors)?;
+        let (name, text) = check_name(scope, element, "a `narrow` name", false)?;
+        check_granted(state, scope, &parent, name, &text, errors)?;
         allowed.create_data_property(scope, name.into(), granted)?;
         if parent.vars.has_own_property(scope, name.into())? {
             let value = parent.vars.get(scope, name.into())?;
@@ -219,8 +219,9 @@ fn make<'s>(
 }
 
 /// Throws `not_granted` of `errors`, `EnvError`'s family, for `name` when
-/// `handle`'s set lacks it, and records the refusal in the run's
-/// [`RefusalLog`], which fails the run, or, in a runtime with no record,
+/// `handle`'s set lacks it, and records the refusal of `text`, the name as
+/// [`check_name`] checked it, in the run's [`RefusalLog`], which fails the
+/// run, or, in a runtime with no record,
 /// throws an `Error` saying so; every name is granted when the handle has no
 /// set. `None` with the exception pending when it threw.
 ///
@@ -238,6 +239,7 @@ fn check_granted<'s>(
     scope: &v8::PinScope<'s, '_>,
     handle: &Handle<'s>,
     name: v8::Local<'s, v8::String>,
+    text: &str,
     errors: DeclaredFamily,
 ) -> Option<()> {
     let Some(names) = handle.names else {
@@ -259,11 +261,10 @@ fn check_granted<'s>(
     // read before the throw, as no call into V8 is made with an exception
     // pending
     let root = is_root(state, scope, handle.object);
-    let text = name.to_rust_string_lossy(scope);
     classes.throw(scope, errors, NOT_GRANTED, name, None);
     // recorded as it's thrown, so the run fails whatever the program does
     // with the error; the name, never a value
-    log.record_not_granted(NotGranted::Env { needed: root }, &text);
+    log.record_not_granted(NotGranted::Env { needed: root }, text);
     None
 }
 
@@ -284,43 +285,33 @@ const NO_REFUSAL_STATE: &str = "env refused a name, but this runtime was started
                                 run's record of refusals, so the refusal can't fail the run";
 
 /// `value` as a variable's name, checked as the Node module checks one,
-/// `what` naming it in a refusal's message, a `*` refused unless `glob`.
-/// `None` with a `TypeError` thrown when it's no name: one that holds a
-/// `=` isn't echoed, since what follows it can be a value.
+/// `what` naming it in a refusal's message, a `*` refused unless `glob`:
+/// the name and its text. `None` with a `TypeError` thrown when it's no
+/// name: one that holds a `=` isn't echoed, since what follows it can be a
+/// value.
 fn check_name<'s>(
     scope: &v8::PinScope<'s, '_>,
     value: v8::Local<'s, v8::Value>,
     what: &str,
     glob: bool,
-) -> Option<v8::Local<'s, v8::String>> {
+) -> Option<(v8::Local<'s, v8::String>, String)> {
     let Ok(name) = v8::Local::<v8::String>::try_from(value) else {
         throw_type_error(scope, &format!("{what} must be a string"));
         return None;
     };
     let mut units = vec![0; name.length()];
     name.write_v2(scope, 0, &mut units, v8::WriteFlags::empty());
-    let fault = if units.is_empty() {
-        Some("is empty")
-    } else if units.contains(&0) {
-        Some("holds a NUL byte")
-    } else {
-        None
-    };
-    let text = match (fault, String::from_utf16(&units)) {
-        (Some(fault), _) => {
-            throw_type_error(scope, &format!("{what} {fault}"));
-            return None;
-        }
-        (None, Err(_)) => {
-            throw_type_error(scope, &format!("{what} isn't well-formed Unicode"));
-            return None;
-        }
-        (None, Ok(text)) => text,
-    };
+    // a lone surrogate decodes as U+FFFD, which keeps an empty name empty
+    // and a NUL a NUL, the two faults checked before well-formedness
+    let (text, well_formed) = String::from_utf16(&units).map_or_else(
+        |_| (String::from_utf16_lossy(&units), false),
+        |text| (text, true),
+    );
     let message = match env_name_fault(&text, glob) {
-        None => return Some(name),
         Some(EnvNameFault::Empty) => format!("{what} is empty"),
         Some(EnvNameFault::Nul) => format!("{what} holds a NUL byte"),
+        _ if !well_formed => format!("{what} isn't well-formed Unicode"),
+        None => return Some((name, text)),
         Some(EnvNameFault::Equals) => format!("{what} holds a `=`"),
         Some(EnvNameFault::Glob) => format!("a `narrow` name is exact, never a glob: {text}"),
     };

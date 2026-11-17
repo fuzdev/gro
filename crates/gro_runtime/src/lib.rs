@@ -353,8 +353,9 @@ pub enum EnvNameFault {
 /// Why `name` can't name an environment variable, if it can't.
 ///
 /// Checked in the order the env host module checks: empty, a NUL byte, a
-/// `=`, and, unless `glob` allows it, a `*`. A Rust string is well-formed,
-/// which a JS string the module checks first must be too.
+/// `=`, and, unless `glob` allows it, a `*`. A Rust string is always
+/// well-formed; the module checks a JS string's well-formedness after a NUL
+/// byte and before a `=`.
 pub fn env_name_fault(name: &str, glob: bool) -> Option<EnvNameFault> {
     if name.is_empty() {
         Some(EnvNameFault::Empty)
