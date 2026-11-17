@@ -387,7 +387,7 @@ impl<'r> Op<'r> {
         let root = roots
             .get(handle.root)
             .ok_or_else(|| Failure::Plain("an fs handle names no root of the run".to_owned()))?;
-        let handle_path = join(&root.path, &handle.beneath);
+        let handle_path = join(root.handle_base(), &handle.beneath);
         Ok(Self {
             roots,
             handle,

@@ -221,7 +221,7 @@ pub fn remove<'s>(
         let (fd, dir, rel) = op.call(&end)?;
         let removed = sys::remove(
             fd,
-            op.root().path.clone(),
+            op.root().handle_base().to_owned(),
             dir,
             op.handle_path.clone(),
             rel,
@@ -268,7 +268,7 @@ pub fn rename<'s>(
         let (fd, dir, source_rel) = op.call(&source)?;
         let renamed = sys::rename(
             fd,
-            op.root().path.clone(),
+            op.root().handle_base().to_owned(),
             dir,
             op.handle_path.clone(),
             source_rel,

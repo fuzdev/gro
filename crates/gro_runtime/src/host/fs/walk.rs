@@ -74,25 +74,25 @@ pub(super) fn reach<'r>(
 ) -> Result<(usize, &'r Root, String), Failure> {
     walk(roots, path, what, opened, need, |root, rel, step| {
         let fd = root_fd(root, path)?;
-        let found =
-            sys::open_in_root(fd, root.path.clone(), rel, step, root.whole).map_err(|error| {
-                if sys::is_escape(&error) {
-                    Failure::unreached(path)
-                } else if matches!(step, sys::Opened::Directory)
-                    && error.kind() == std::io::ErrorKind::NotADirectory
-                {
-                    // the Node module names no cause for a path that is no
-                    // directory
-                    Failure::Fs {
-                        kind: FsErrorKind::NotADirectory,
-                        path: path.to_owned(),
-                        cause: None,
-                    }
-                } else {
-                    Failure::of(kind_of(&error), path, &error)
+        let entry = sys::open_in_root(fd, root.handle_base().to_owned(), rel, step, root.whole());
+        let found = entry.map_err(|error| {
+            if sys::is_escape(&error) {
+                Failure::unreached(path)
+            } else if matches!(step, sys::Opened::Directory)
+                && error.kind() == std::io::ErrorKind::NotADirectory
+            {
+                // the Node module names no cause for a path that is no
+                // directory
+                Failure::Fs {
+                    kind: FsErrorKind::NotADirectory,
+                    path: path.to_owned(),
+                    cause: None,
                 }
-            })?;
-        beneath_of(&root.path, found).map_err(|why| Failure::Fs {
+            } else {
+                Failure::of(kind_of(&error), path, &error)
+            }
+        })?;
+        beneath_of(root.handle_base(), found).map_err(|why| Failure::Fs {
             kind: FsErrorKind::IoError,
             path: path.to_owned(),
             cause: Some(why),
@@ -163,7 +163,7 @@ fn walk<'r>(
         // `/..` is `/`, as the kernel reads it
         if !names.is_empty() {
             let (_, root, beneath) = step(&names, false, sys::Opened::Directory)?;
-            names = join(&root.path, &beneath)
+            names = join(root.handle_base(), &beneath)
                 .split('/')
                 .filter(|name| !name.is_empty())
                 .map(ToOwned::to_owned)
@@ -254,7 +254,11 @@ mod tests {
     /// never handed a `..`.
     #[test]
     fn a_path_walks_its_dot_dots_after_the_symlinks_before_them() {
-        let roots = [root("/p"), root("/p/inner"), root("")];
+        let roots = [
+            root("/p"),
+            root("/p/inner"),
+            Root::unplaced(&[], Scope::ALL),
+        ];
         let walked = |path: &str, opened: sys::Opened| {
             let mut opens = Vec::new();
             let result = walk(
@@ -264,11 +268,11 @@ mod tests {
                 opened,
                 Scope::ALL,
                 |root, rel, step| {
-                    opens.push(format!("{}:{rel}", root.path));
+                    opens.push(format!("{}:{rel}", root.handle_base()));
                     let names: Vec<&str> = rel.split('/').filter(|name| !name.is_empty()).collect();
                     assert!(!names.contains(&".."), "{path} handed the kernel {rel}");
                     let mut real: Vec<&str> = root
-                        .path
+                        .handle_base()
                         .split('/')
                         .filter(|name| !name.is_empty())
                         .collect();
@@ -300,7 +304,7 @@ mod tests {
                     }
                     let real = format!("/{}", real.join("/"));
                     let beneath = real
-                        .strip_prefix(root.path.as_str())
+                        .strip_prefix(root.handle_base())
                         .expect("the fake stays beneath its root");
                     Ok(beneath.trim_start_matches('/').to_owned())
                 },
@@ -475,7 +479,7 @@ mod tests {
             scoped("/data/home/u/c", &["/home/u/c"], Scope::READ),
             scoped("/p/out", &[], Scope::WRITE),
             scoped("/p/out/both", &["/link"], Scope::ALL),
-            scoped("", &["/gone"], Scope::READ),
+            Root::unplaced(&["/gone"], Scope::READ),
         ];
         let held = |path: &str, need: Scope| {
             let names: Vec<String> = path
@@ -532,8 +536,8 @@ mod tests {
                 sys::Opened::Entry,
                 Scope::ALL,
                 |root, rel, _| {
-                    opens.push(format!("{}:{rel}", root.path));
-                    match (root.path.as_str(), rel.as_str()) {
+                    opens.push(format!("{}:{rel}", root.handle_base()));
+                    match (root.handle_base(), rel.as_str()) {
                         // `up`, a symlink to `../x`, leaves `/p/in` into
                         // `/p`, and `out` leaves both
                         ("/p/in", "up") | (_, "in/out" | "out") => Err(Failure::unreached(path)),

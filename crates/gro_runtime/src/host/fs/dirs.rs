@@ -30,7 +30,7 @@ pub fn project<'s>(
     // through the handle reports
     let roots = run_roots(state).ok();
     let first = roots.as_ref().and_then(|roots| roots.first());
-    let path = first.map_or_else(String::new, |root| root.path.clone());
+    let path = first.map_or_else(String::new, |root| root.handle_base().to_owned());
     let access = first.map_or_else(Scope::default, |root| root.scope);
     make_dir(scope, &FS_DIR, prototype, 0, &path, "", access).map(Into::into)
 }
@@ -59,7 +59,13 @@ pub fn open_dir<'s>(
         )?;
         let prototype = native::prototype(state, scope, &FS_DIR).ok_or(Failure::Thrown)?;
         make_dir(
-            scope, &FS_DIR, prototype, index, &root.path, &beneath, root.scope,
+            scope,
+            &FS_DIR,
+            prototype,
+            index,
+            root.handle_base(),
+            &beneath,
+            root.scope,
         )
         .map(Into::into)
         .ok_or(Failure::Thrown)
@@ -89,7 +95,7 @@ pub fn real_path<'s>(
             sys::Opened::Entry,
             Scope::READ,
         )?;
-        string(scope, &join(&root.path, &beneath))
+        string(scope, &join(root.handle_base(), &beneath))
             .map(Into::into)
             .ok_or(Failure::Thrown)
     })();
@@ -114,9 +120,9 @@ pub fn dir<'s>(
         let end = op.path(scope, path)?;
         let (fd, dir, rel) = op.call(&end)?;
         let root = op.root();
-        let real = sys::open_dir(fd, root.path.clone(), dir, rel)
+        let real = sys::open_dir(fd, root.handle_base().to_owned(), dir, rel)
             .map_err(|error| op.failure(&end, error))?;
-        let beneath = beneath_of(&root.path, real).map_err(|why| {
+        let beneath = beneath_of(root.handle_base(), real).map_err(|why| {
             Failure::outside(
                 &end.requested,
                 format!("{} beneath {}: {why}", end.requested, op.handle_path),
@@ -133,7 +139,7 @@ pub fn dir<'s>(
             kind,
             prototype,
             op.handle.root,
-            &root.path,
+            root.handle_base(),
             &beneath,
             access,
         )
@@ -158,7 +164,7 @@ pub fn readonly<'s>(
             &FS_READ_DIR,
             prototype,
             op.handle.root,
-            &op.root().path,
+            op.root().handle_base(),
             &op.handle.beneath,
             op.handle.scope.read_only(),
         )

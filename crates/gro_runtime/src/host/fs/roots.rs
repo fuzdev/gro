@@ -73,20 +73,17 @@ const NO_PROJECT: &str = "this runtime was started without a project";
 #[derive(Debug)]
 pub(super) struct Root {
     /// Its absolute real path, which the paths of its handles extend; lossy
-    /// only when its path isn't UTF-8, when it isn't open; empty for a
+    /// only when its path isn't UTF-8, when it isn't open; none for a
     /// granted path refused as replaced, which only the path it was granted
     /// as matches, and for a runtime given no project, which no path
     /// matches.
-    pub(super) path: String,
+    path: Option<String>,
     /// The other absolute paths it was granted as, each by its text with no
     /// `.`, `..`, or empty name, which match a path as its real path does.
     granted: Vec<String>,
     /// What it reads and writes: its grants', joined with each root's that
     /// holds its directory ([`holds_beneath`]).
     pub(super) scope: Scope,
-    /// Whether it's `/`, which resolves an absolute symlink and a `..` as
-    /// the kernel resolves a path (`gro_sys`'s `Links::InRoot`).
-    pub(super) whole: bool,
     /// Its descriptor, a path only, shared with any op under way, or why it
     /// isn't open, which every op through it reports.
     pub(super) fd: Result<Arc<OwnedFd>, String>,
@@ -98,19 +95,47 @@ impl Root {
     #[cfg(test)]
     pub(super) fn unopened(path: &str, granted: &[&str], scope: Scope) -> Self {
         Self {
-            path: path.to_owned(),
+            path: Some(path.to_owned()),
+            ..Self::unplaced(granted, scope)
+        }
+    }
+
+    /// A root with no real path, never opened, granted as `granted`, doing
+    /// what `scope` says.
+    #[cfg(test)]
+    pub(super) fn unplaced(granted: &[&str], scope: Scope) -> Self {
+        Self {
+            path: None,
             granted: granted.iter().map(|&path| path.to_owned()).collect(),
             scope,
-            whole: path == "/",
             fd: Err("not opened".to_owned()),
         }
     }
 
+    /// Its absolute real path, none for a root no path matches as its own.
+    pub(super) fn path(&self) -> Option<&str> {
+        self.path.as_deref()
+    }
+
+    /// The path a path beneath it extends: its real path, or empty with
+    /// none, which only the project's handle in a runtime given no project
+    /// extends, since a root with no real path never opens, and a handle
+    /// on any other root is made through its open descriptor.
+    pub(super) fn handle_base(&self) -> &str {
+        self.path().unwrap_or_default()
+    }
+
+    /// Whether it's `/`, which resolves an absolute symlink and a `..` as
+    /// the kernel resolves a path (`gro_sys`'s `Links::InRoot`).
+    pub(super) fn whole(&self) -> bool {
+        self.path() == Some("/")
+    }
+
     /// Each absolute path it matches as, its real path first, as its names.
     pub(super) fn spellings(&self) -> impl Iterator<Item = Vec<&str>> {
-        std::iter::once(&self.path)
-            .chain(&self.granted)
-            .filter(|path| !path.is_empty())
+        self.path()
+            .into_iter()
+            .chain(self.granted.iter().map(String::as_str))
             .map(|path| path.split('/').filter(|name| !name.is_empty()).collect())
     }
 }
@@ -132,7 +157,7 @@ impl FsState {
 pub(super) fn holds_a_root(roots: &[Root], path: &str) -> bool {
     roots
         .iter()
-        .any(|root| !root.path.is_empty() && at_or_beneath(&root.path, path))
+        .any(|root| root.path().is_some_and(|dir| at_or_beneath(dir, path)))
 }
 
 /// Whether `path` is `dir` or lies beneath it, both absolute, by their
@@ -201,19 +226,19 @@ impl Held {
     pub(super) fn of(roots: &[Root], dir: &str) -> Option<Self> {
         let beneath: Vec<(String, Scope)> = roots
             .iter()
-            .filter(|root| {
-                !root.path.is_empty() && root.path != dir && at_or_beneath(&root.path, dir)
-            })
-            .map(|root| (root.path.clone(), root.scope))
+            .filter_map(|root| Some((root.path()?, root.scope)))
+            .filter(|&(path, _)| path != dir && at_or_beneath(path, dir))
+            .map(|(path, scope)| (path.to_owned(), scope))
             .collect();
         if beneath.is_empty() {
             return None;
         }
         let scope = roots
             .iter()
-            .filter(|root| !root.path.is_empty() && at_or_beneath(dir, &root.path))
-            .max_by_key(|root| root.path.len())
-            .map_or_else(Scope::default, |root| root.scope);
+            .filter_map(|root| Some((root.path()?, root.scope)))
+            .filter(|&(path, _)| at_or_beneath(dir, path))
+            .max_by_key(|&(path, _)| path.len())
+            .map_or_else(Scope::default, |(_, scope)| scope);
         Some(Self { scope, beneath })
     }
 
@@ -456,7 +481,7 @@ fn root((joined, scope): (Joined<'_>, Scope)) -> Root {
     let path = joined
         .real
         .as_deref()
-        .map_or_else(String::new, |real| real.to_string_lossy().into_owned());
+        .map(|real| real.to_string_lossy().into_owned());
     let names: Vec<String> = joined
         .granted
         .iter()
@@ -469,7 +494,6 @@ fn root((joined, scope): (Joined<'_>, Scope)) -> Root {
             names
         });
     Root {
-        whole: path == "/",
         path,
         granted: names,
         scope,
@@ -555,6 +579,10 @@ mod tests {
         Held, HoldsARoot, MoveRefusal, RenameEnd, Root, Scope, holds_a_root, root_table, spelled,
     };
 
+    /// A root of a table as a test shows it: its real path, the other
+    /// paths it was granted as, its scope, and why it isn't open.
+    type Shown = (Option<String>, Vec<String>, Scope, Option<String>);
+
     /// The roots of a run granted `--allow-write=/o --allow-read=/o/r
     /// --allow-write=/o/w/inner` with its project at `/p`, each by its real
     /// path and joined scope, one more granted as `/o/alias` and one
@@ -565,7 +593,7 @@ mod tests {
             Root::unopened("/o/r", &["/o/alias"], Scope::ALL),
             Root::unopened("/o/w/inner", &[], Scope::WRITE),
             Root::unopened("/o", &[], Scope::WRITE),
-            Root::unopened("", &["/o/gone"], Scope::READ),
+            Root::unplaced(&["/o/gone"], Scope::READ),
         ]
     }
 
@@ -785,7 +813,7 @@ mod tests {
         });
         let table = root_table(Some(&at("p")), Some(&authority));
         let path = |name: &str| at(name).display().to_string();
-        let shown: Vec<(String, Vec<String>, Scope, Option<String>)> = table
+        let shown: Vec<Shown> = table
             .iter()
             .map(|root| {
                 (
@@ -805,13 +833,13 @@ mod tests {
         assert_eq!(
             shown,
             [
-                (path("p"), vec![], Scope::ALL, None),
-                (String::new(), vec![path("p")], Scope::READ, replaced("p")),
-                (String::new(), vec![path("r")], Scope::READ, replaced("r")),
-                (path("x"), vec![], Scope::READ, None),
-                (String::new(), vec![path("y")], Scope::READ, replaced("y")),
+                (Some(path("p")), vec![], Scope::ALL, None),
+                (None, vec![path("p")], Scope::READ, replaced("p")),
+                (None, vec![path("r")], Scope::READ, replaced("r")),
+                (Some(path("x")), vec![], Scope::READ, None),
+                (None, vec![path("y")], Scope::READ, replaced("y")),
                 (
-                    path("w"),
+                    Some(path("w")),
                     vec![path("still_w"), path("to_w")],
                     Scope::WRITE,
                     None
@@ -859,7 +887,7 @@ mod tests {
         });
         let table = root_table(Some(&at("p")), Some(&authority));
         let path = |name: &str| at(name).display().to_string();
-        let shown: Vec<(String, Vec<String>, Scope, Option<String>)> = table
+        let shown: Vec<Shown> = table
             .iter()
             .map(|root| {
                 (
@@ -873,9 +901,9 @@ mod tests {
         assert_eq!(
             shown,
             [
-                (path("p"), vec![], Scope::READ, None),
+                (Some(path("p")), vec![], Scope::READ, None),
                 (
-                    String::new(),
+                    None,
                     vec![path("a")],
                     Scope::READ,
                     Some(format!(
@@ -883,7 +911,7 @@ mod tests {
                         path("a")
                     ))
                 ),
-                (path("a"), vec![path("b")], Scope::READ, None),
+                (Some(path("a")), vec![path("b")], Scope::READ, None),
             ]
         );
     }
@@ -962,7 +990,7 @@ mod tests {
         std::fs::rename(at("r/out"), at("away/out")).unwrap();
         let table = root_table(Some(&at("p")), Some(&authority));
         let path = |name: &str| at(name).display().to_string();
-        let shown: Vec<(String, Vec<String>, Scope, Option<String>)> = table
+        let shown: Vec<Shown> = table
             .iter()
             .map(|root| {
                 (
@@ -986,12 +1014,17 @@ mod tests {
         assert_eq!(
             shown,
             [
-                (path("p"), vec![], Scope::READ, None),
-                (path("r"), vec![], Scope::READ, None),
-                (path("r/in"), vec![], Scope::ALL, None),
-                (path("r/out"), vec![], Scope::ALL, gone("r/out", "r/out")),
+                (Some(path("p")), vec![], Scope::READ, None),
+                (Some(path("r")), vec![], Scope::READ, None),
+                (Some(path("r/in")), vec![], Scope::ALL, None),
                 (
-                    path("fake/w"),
+                    Some(path("r/out")),
+                    vec![],
+                    Scope::ALL,
+                    gone("r/out", "r/out")
+                ),
+                (
+                    Some(path("fake/w")),
                     vec![path("wl")],
                     Scope::WRITE,
                     gone("wl", "fake/w")
@@ -1036,7 +1069,7 @@ mod tests {
                 &[at("p/out"), at("to_w"), at("w"), at("r/../w"), at("r")],
             )),
         );
-        let shown: Vec<(String, Vec<String>, Scope, bool)> = table
+        let shown: Vec<(Option<String>, Vec<String>, Scope, bool)> = table
             .iter()
             .map(|root| {
                 (
@@ -1050,11 +1083,11 @@ mod tests {
         assert_eq!(
             shown,
             [
-                (path("p"), vec![], Scope::READ, true),
-                (path("missing"), vec![], Scope::READ, false),
-                (path("p/out"), vec![], Scope::ALL, true),
-                (path("r"), vec![], Scope::ALL, true),
-                (path("w"), vec![path("to_w")], Scope::WRITE, true),
+                (Some(path("p")), vec![], Scope::READ, true),
+                (Some(path("missing")), vec![], Scope::READ, false),
+                (Some(path("p/out")), vec![], Scope::ALL, true),
+                (Some(path("r")), vec![], Scope::ALL, true),
+                (Some(path("w")), vec![path("to_w")], Scope::WRITE, true),
             ]
         );
         assert!(
@@ -1066,15 +1099,15 @@ mod tests {
             table[1].fd
         );
         let unconfined = root_table(Some(&at("p")), Some(&Authority::Unconfined));
-        let shown: Vec<(&str, Scope, bool)> = unconfined
+        let shown: Vec<(Option<&str>, Scope, bool)> = unconfined
             .iter()
-            .map(|root| (root.path.as_str(), root.scope, root.whole))
+            .map(|root| (root.path(), root.scope, root.whole()))
             .collect();
         assert_eq!(
             shown,
             [
-                (path("p").as_str(), Scope::ALL, false),
-                ("/", Scope::ALL, true)
+                (Some(path("p").as_str()), Scope::ALL, false),
+                (Some("/"), Scope::ALL, true)
             ]
         );
     }
