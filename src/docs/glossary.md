@@ -82,11 +82,13 @@ A declaration is a proposal until the [policy file](#policy-file) accepts it.
 
 ## deny overlays
 
-Refusals that hold inside a granted root, short of `-A`:
-reads of `.env*` files except through the host's env reader and of credential files (`~/.ssh`, `.git/config`),
+Refusals that hold inside a granted root, the read-deny overlay for reads and the write-deny overlay for writes.
+Short of `-A`: reads of `.env*` files except through the host's env reader and of credential files (`~/.ssh`, `.git/config`),
 and writes under `.git` and `node_modules`.
-Designed ([authority](authority.md#secure-by-default)); until they land, `fs` on `fgro` reads any file beneath a root that reads,
-the project's `.env` files included ([host modules](host_modules.md#fs-on-fgro)).
+Always on, `-A` included: reads of a process's environment, memory, and command line (`/proc/*/environ`, `/proc/*/mem`, `/proc/*/cmdline`).
+Designed ([authority](authority.md#secure-by-default), [host modules](host_modules.md#native-requirements));
+until they land, `fs` on `fgro` reads any file beneath a root that reads (`.env` included)
+and writes any beneath a root that writes (`.git` and `node_modules` included) ([host modules](host_modules.md#fs-on-fgro)).
 
 ## determinism modes
 
@@ -113,8 +115,14 @@ the value, or an error with its kind, which a caller branches on.
 
 `-A` (Deno's `--allow-all`, which `fgro run` spells only `-A`), which makes a run [unconfined](#unconfined):
 built on `fgro run`, where it grants every builtin module to every module of the run, `env` with every variable, `fs` with every directory.
-It's the one flag that widens everything, never a default; a few grants are as strong (a shell, a child's whole environment) and are shown that way.
+It's the one flag that widens everything but the always-on [deny overlay](#deny-overlays), never a default; a few grants are as strong (a shell, a child's whole environment) and are shown that way.
 Narrower ways to widen sit beside each default, like a blanket net grant and the JIT flag for `gro eval`.
+
+## exec root
+
+A directory a run declares for `spawn.program_in`, beneath which a child may execute what it finds.
+One may also be a [write root](#write-root), as a build's output directory is, so each is declared and reviewed as narrowly.
+Designed ([backstop](backstop.md#the-box-for-runs-and-children)).
 
 ## grant
 
@@ -132,6 +140,8 @@ and each path it went past finding nothing there, so a cache can tell when any c
 
 A capability as a value, like the `net` handle, a directory handle, or a spawn handle for one executable.
 Handles are [narrowed](#narrowing) and passed down like any other argument.
+On `fgro` a directory handle carries a scope, whether it reads and whether it writes, its root's when made and never widened,
+and what an op through it may do is decided by that scope, never by the run's roots ([host modules](host_modules.md#fs-on-fgro)).
 
 ## handing
 
@@ -277,6 +287,12 @@ the project root is the first ([host modules](host_modules.md#fs-on-fgro)).
 Every run is one of three by what it reaches and depends on,
 [hermetic](#hermetic), [confined](#confined), or [unconfined](#unconfined),
 derived from its grants and recorded in the policy file.
+
+## seal
+
+Making the global object non-extensible after bootstrap, so a handed capability can't be stashed there as a new global;
+a package that adds a global needs a policy entry naming it.
+Designed ([authority](authority.md#by-construction-or-by-default)); today the global object is extensible.
 
 ## security gate
 

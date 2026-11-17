@@ -229,20 +229,10 @@ fn report_refused(refused: &Refusals) {
     }
 }
 
-/// A listed refusal's line, naming what refused it, an `import()` or a
-/// host module, and its message, escaped ([`escape_controls`]), since the
-/// program chose the specifier, the name, or the path:
-///
-/// - `error: import() refused: <message>`;
-/// - `error: env refused: <message>`, whose message names the variable,
-///   as the hint naming it does;
-/// - for `fs`, the kind of grant it needed, as the hint of that kind says
-///   ([`grant_hints`]), so a hint pairs with the listed refusals of its
-///   kind, or with none, never with another kind's: `error: fs refused a
-///   read: <message>` for a read, `fs refused a write` for a write, `fs
-///   refused what the run grants` for an op a root already grants, through
-///   a handle of its own, and `fs refused what no grant allows` for one
-///   that needed none.
+/// A listed refusal's line, escaped ([`escape_controls`]): `error:
+/// import() refused: <message>`, `error: env refused: <message>`, or
+/// `error: fs refused <need>: <message>`, the need in its hint's words.
+/// `src/docs/run.md` §Errors and exit codes states the rules.
 fn refusal_line(refusal: &Refusal) -> String {
     let message = escape_controls(&refusal.message);
     match refusal.by {
@@ -263,31 +253,11 @@ fn refusal_line(refusal: &Refusal) -> String {
     }
 }
 
-/// The lines saying what grants the refused calls' needs
-/// (`refused.needed`), made of that data, never of a listed message:
-///
-/// - `hint: add --allow-env=A,B to grant what env refused`, of each name
-///   that's a [`hint_name`], or `... to grant some of what env refused`
-///   when a call needed a name the line doesn't show, past the record's
-///   bound (`more_names`) included, and no line when it shows none;
-/// - `hint: add --allow-read naming the directory to grant what fs
-///   refused`, for a read;
-/// - `hint: add --allow-write naming the directory to grant what fs
-///   refused, then open it with fs.open_dir and write through that
-///   handle`, for a write, since a handle made from another root never
-///   gains the scope (`fs.project` writes nothing, whatever is granted
-///   inside it);
-/// - `hint: the run grants what fs refused: open the directory with
-///   fs.open_dir and use that handle`, for an op through a handle whose
-///   scope lacks it, on a directory a root already grants it in.
-///
-/// Each fs line is printed once, when a refusal needed it, and is fixed
-/// text: the refusal names the path, and a path a program chose, shown
-/// back, can grant another directory than it names, through a symlink,
-/// or run something when pasted.
-///
-/// None for a refusal by rule or by a handle the program narrowed, which
-/// need none, or under `-A`, which refuses no grant.
+/// The hint lines saying what grants the refused calls' needs
+/// (`refused.needed`), made of that data, never of a listed message: one
+/// for `--allow-env=` naming each variable that's a [`hint_name`], then
+/// each fs line once, fixed text naming no path. `src/docs/run.md`
+/// §Errors and exit codes states the rules.
 fn grant_hints(refused: &Refusals) -> Vec<String> {
     let mut names: Vec<&str> = Vec::new();
     let mut some_env = refused.more_names;
@@ -330,11 +300,8 @@ fn grant_hints(refused: &Refusals) -> Vec<String> {
     hints
 }
 
-/// Whether the hint names `name`: ASCII letters, digits, and `_` only, a
-/// word every shell passes as it's printed, so pasting the hint grants the
-/// names it shows and runs nothing. A program chooses the names it asks
-/// for, and a valid name can hold a space, a comma, a quote, `$(…)`, a
-/// control character, or a lookalike letter.
+/// Whether the hint names `name`: ASCII letters, digits, and `_` only
+/// (`src/docs/run.md` §Errors and exit codes has why).
 fn hint_name(name: &str) -> bool {
     !name.is_empty() && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
 }

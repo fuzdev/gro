@@ -2,10 +2,10 @@
 //! or not the program caught it: an `import()` the loader refused
 //! ([`FailureReason::guards_a_boundary`](super::graph::FailureReason::guards_a_boundary)),
 //! and a host function's call refused for a grant its handle doesn't hold (an
-//! environment variable outside an env handle's names, or an `fs` path no
-//! root holds). One record holds both, so both are listed, cut, and counted
-//! alike. A refused call that a
-//! grant of the run would have allowed also records that grant
+//! environment variable outside an env handle's names, an `fs` path outside
+//! every root the call may use, or an `fs` op its handle's scope lacks). One
+//! record holds both, so both are listed, cut, and counted alike. A refused
+//! call that a grant of the run would have allowed also records that grant
 //! ([`NeededGrant`]), as data, never parsed from a message, so a report can
 //! say what to grant. What a program can make it keep outside V8's heap is
 //! bounded: a few messages, each cut at a fixed length, a few grants, and a
@@ -35,11 +35,12 @@ pub const MAX_LISTED_MESSAGE: usize = 2048;
 pub enum RefusedBy {
     /// The loader refused an `import()`, which rejected with a `TypeError`.
     Import,
-    /// A host function of the module `grant` names refused a call for a target
-    /// outside the handle it was called on, throwing `not_granted` of the
-    /// error class named `error` (`EnvError`).
+    /// A host function of the module `grant` names refused a call for a
+    /// target outside what the handle it was called on reaches, or an op its
+    /// scope lacks, throwing `not_granted` of the error class named `error`
+    /// (`EnvError` or `FsError`).
     Grant {
-        /// The host module's grant, which names it: `env`.
+        /// The host module's grant, which names it: `env` or `fs`.
         grant: Capability,
         /// The name of the class of the error the call threw.
         error: &'static str,

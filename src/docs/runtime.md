@@ -365,7 +365,7 @@ where the host modules and grants land with their first consumer.
       the tool that installs it records the binary's hash as a pin,
       which the caller of `gro eval` verifies before every spawn
       (the release workflow is built, and no release is tagged yet;
-      the first waits for host modules on `fgro`, the process modules and `fs` first, so `run` reaches past pure computation)
+      the first waits for `fs` to be whole on `fgro`, so `run` reaches past pure computation)
 - [ ] the security gate, a suite of escape probes run under every grant set,
       with every web global and member classified by the three tests for [authority](glossary.md#authority-globals) as its oracle,
       and handle probes (a narrowed handle can't be widened back, one handle can't reach another,
@@ -395,7 +395,7 @@ where the host modules and grants land with their first consumer.
       the source for pruning the policy file
 - [ ] on the Node Gro, a lint generated from the authority table,
       refusing free authority globals in code meant for the runtime, a portability check
-- [x] the Deno exit: config eval is on `gro eval`, and the stack's other Deno uses moved to Node,
+- [x] the Deno exit: config eval is on `fgro eval`, and the stack's other Deno uses moved to Node,
       `deno task` becoming npm scripts or gro tasks
 - [ ] Gro on Gro, with tasks, gen, and check running on the runtime and enforcing the policy file
       (until then the CLI passes every host module)
@@ -419,7 +419,7 @@ Maybe later or never:
 
 ## Install
 
-No release is tagged yet; the first will be 0.1.0, once host modules land on `fgro`.
+No release is tagged yet; the first will be 0.1.0, once `fs` is whole on `fgro`.
 Each release of `fgro` is a GitHub Release on an `fgro-v<version>` tag,
 with the binary's notes in [crates/CHANGELOG.md](../../crates/CHANGELOG.md).
 Its asset is a bare binary for Linux x86_64, `fgro-linux-x64-gnu`,

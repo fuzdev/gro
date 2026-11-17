@@ -8,7 +8,8 @@
 > On `fgro` the host modules are designed as [builtin modules](glossary.md#builtin-module), resolved by the binary ahead of package lookup,
 > and [the table below](#the-modules) marks the ones built
 > (the others' specifiers are refused there as not on `fgro` yet, in any spelling, never loaded from the npm package; [on `fgro`](#the-process-modules-on-fgro));
-> everything else on this page is the Node implementation's ([runtime](runtime.md) is the hub of the runtime's docs).
+> everything else on this page is the Node implementation's, but the sections "on `fgro`" and [native requirements](#native-requirements), which are the runtime's
+> ([runtime](runtime.md) is the hub of the runtime's docs).
 
 Host modules are Gro's own modules under `@fuzdev/gro/*`.
 Each is an import, so what a module can reach shows in its imports,
@@ -161,70 +162,48 @@ and its roots are the directories the run's flags grant ([run](run.md#usage)).
 Built so far: `fs.project`, `fs.open_dir`, `fs.real_path`, and on a handle `path`, `dir`, `readonly`, `stat`, `exists`, `stat_sync`, `exists_sync`,
 the reads (`read`, `read_text`, `read_if_exists`, `read_text_if_exists`, `read_text_sync`), `read_link`, `list`,
 and the writes `write`, `mkdir`, `remove`, and `rename`.
+`copy`, `set_times`, `set_mode`, `symlink`, and `temp_dir` aren't built yet: each refuses with a plain `Error` saying so.
+How each part is built is in the module docs of `crates/gro_runtime/src/host/fs.rs` and its children.
 
-- The run's roots are the directories it reads or writes, each opened once, as a path only, the first time the run imports `fs`:
+- The run's roots are the directories it reads or writes, opened the first time the run imports `fs`:
   the entry's [project root](glossary.md#project-root), read with no flag, so `fs.project` is that directory, never the working directory;
   each directory `--allow-read=` and `--allow-write=` grant; and under `-A`, `/`, read and written.
-  A flag's directory is checked as the run starts, its real path read then and the directory there identified,
-  and opened by that real path at that first import, held to the directory its path named at the start, never to where its path leads by then:
-  one replaced between (another directory moved to its real path) fails every op through it with `io_error`, as one gone from it by then (moved away, removed) does, its cause saying which,
+- A flag's directory is the one its path named as the run started:
+  one replaced at its real path or gone from it by the first import fails every op through it with `io_error`, its cause saying which,
   and a flag's symlink pointed elsewhere since still names the directory it named.
-  The check compares the device and inode numbers, and the birth time where the filesystem records one:
-  a directory removed and another made at the same path can reuse the inode number, and passes where the filesystem records no birth time or stamps both within one tick of its clock.
-  It holds a root as the root opens, and the root's descriptor holds the directory from then on.
-  The project's own read isn't checked (a flag naming its directory is): the loader finds it by its path and loads every module from that path, so a directory swapped in there is the run's project for the loader too.
-- Each root reads and writes what its flags grant, joined with what every root holding it does,
-  a root holding a directory when the directory's real path at the start lies beneath the root's and, once the roots are open, the directory is the one at that path beneath the root's own, no symlink on the way:
-  the nesting is the start's, each pair of it still in place at the first import.
-  A flag's directory moved beneath a root after the start, its symlink pointed along, is gone from its real path and joins nothing,
-  a directory moved between the opens takes nothing of a root's scope, and a root that couldn't be opened lends its scope to none.
-  Nothing is read again once the roots are open: a directory moved out from beneath a root after that keeps the scope it joined, for every handle on it,
-  and one moved beneath a root takes none of its scope (the root's own handles reach it, as they reach anything in its tree).
-  So a directory written inside the project is read too, a directory only written is read by no read op (though `fs.open_dir`, `dir()`, and a handle's `path` still tell what's there,
+- Each root reads and writes what its flags grant, joined with what every root holding its directory does,
+  so a directory written inside the project is read too, a directory only written is read by no read op (though `fs.open_dir`, `dir()`, and a handle's `path` still tell what's there,
   and, a handle's `path` being its real path, where a directory symlink in it leads),
   and the paths that name one real directory are one root, its grants joined.
 - A handle carries a scope, whether it reads and whether it writes, and what an op may do is never read from the run's roots.
   `fs.open_dir` and `fs.project` give a handle its root's scope, `dir()` keeps its receiver's (an `FsReadDir`'s writing nothing),
   and `readonly()` drops the write; nothing widens a scope, so `fs.project.dir('out')` writes nothing even when `out` is granted:
-  a program writes a granted directory through a handle `fs.open_dir` makes on it, and `fs.open_dir` of `out` is the handle that writes it.
-  The hint after such a refusal says to open the directory with `fs.open_dir`, never to grant a flag that would widen the handle's root ([run](run.md#errors-and-exit-codes)).
+  a program writes a granted directory through a handle `fs.open_dir` makes on it.
   A read op (`stat`, `exists`, the reads, `read_link`, `list`) through a handle that doesn't read is `not_granted`, after its path is checked and before anything is looked up,
   and so is a write op through one that doesn't write, after its paths are checked, and a built one's other arguments.
   A `copy` reads its `from`, so a handle that doesn't read is refused it naming `from`, before the write is judged.
-  A refused `remove` or `rename` of a path that is, or holds, a root's directory by its text hints no grant, since the rule below refuses it whatever the run grants.
   `dir()` and `readonly()` work on any handle, so a handle that only writes still narrows to a subdirectory.
 - `fs.open_dir` and `fs.real_path` take an absolute path inside a root, `fs.real_path` only a root that reads, its `..` resolved as Node's `realpath` resolves it:
-  after the symlink before it, so `link/..` is the parent of `link`'s target, and `missing/..` and `a.txt/..` fail as they do on Node.
-  The names before a `..` are looked up beneath the longest root that holds them, and the `..` takes a name off their real path,
-  so no lookup starts outside a root, and a path that climbs above the root and back in reaches what Node's does.
-  A step that leaves the longest root through a symlink is looked up beneath the next longest that holds it,
-  so a directory granted inside another refuses nothing the other reached.
+  after the symlink before it, so `link/..` is the parent of `link`'s target, and `missing/..` and `a.txt/..` fail as they do on Node,
+  and a path that climbs above a root and back in reaches what Node's does.
   One outside every root is `not_granted`, also when nothing is there, and so is one through an absolute symlink,
   even to a path inside its root, or a relative one whose target climbs above its root, even back into it, both of which Node follows.
+  A directory granted inside another refuses nothing the other reached.
   The symlinks before each `..` are counted apart, so a path with more than Linux's 40 across its `..`s resolves where Node's is a loop (`io_error`).
-  A root is matched by its real path's text and by each path it was granted as (but one holding a `..`),
-  so `--allow-read=$HOME/.claude` holds the paths beneath it under a symlinked home directory, every lookup still beneath the root's descriptor;
-  the project's root is matched by its real path only, unless a flag names it too, which adds the flag's path, so a path that reaches it through a symlink outside it is `not_granted` where Node opens it.
+  A root is matched by its real path and by each path it was granted as (but one holding a `..`),
+  so `--allow-read=$HOME/.claude` holds the paths beneath it under a symlinked home directory;
+  the project's root is matched by its real path only, unless a flag names it too, so a path that reaches it through a symlink outside it is `not_granted` where Node opens it.
   A root at `/`, `-A`'s or a flag's naming `/`, resolves an absolute symlink and a `..` at `/` as the kernel does, so `fs.real_path` and `fs.open_dir` reach what Node's do.
-  A `not_granted` is listed and fails the run, caught or not, as `env`'s does.
+  A `not_granted` is listed and fails the run, caught or not, as `env`'s does ([run](run.md#errors-and-exit-codes) has the hints it prints).
 - `fs.real_path` returns a path inside its root; an entry that left the root while it was opened is `io_error`.
-  The kernel's path for it is checked to be beneath the root by its text before anything is looked up, then looked up beneath the root's descriptor.
-- A handle holds no descriptor, only its root, its real path beneath it, and what it may do.
-  Each op opens the handle's directory beneath the root, refusing a symlink swapped into the handle's own path (`outside_root`),
-  then resolves its path beneath that by `openat2` with `RESOLVE_BENEATH` and `RESOLVE_NO_MAGICLINKS`.
-  So a handle follows its path, as the Node module's does.
 - `stat` works on any entry, a FIFO or a socket among them, and never waits.
-- A read opens its file without waiting for it (`O_NONBLOCK`), then refuses anything but a regular file by what the opened descriptor is:
-  a directory is `is_a_directory`, as on Node, and a FIFO, a socket, or a device is `io_error`, before a byte is read,
+- A read never waits on its file, and refuses anything but a regular file before a byte is read:
+  a directory is `is_a_directory`, as on Node, and a FIFO, a socket, or a device is `io_error`,
   where the Node module waits on a FIFO until a writer closes it, `process.exit` included, and reads a device like `/dev/zero` without end.
   A regular file is read to its end, never trusting the size it reports to end it (a `/proc` file reports 0),
   and one longer than `2 ** 31 - 1` bytes, the most Node's `readFile` reads, or that reports more, is `io_error`,
   a size past it refused before a byte is read, as on Node.
 - `read` and `read_if_exists` resolve with a `Uint8Array` of a buffer of its own, which the program owns.
-  V8 allocates the buffer, of the size the file reports, and the file is read straight into it,
-  so V8's collector counts every read's bytes, as it counts a buffer JS allocates, and frees the ones a program dropped before more pile up.
-  A file whose size was wrong (a `/proc` file, one that grew or shrank since it reported it) is copied once into a buffer of the length it had,
-  so one that grew is held about twice while it's copied.
   A buffer V8 can't allocate, after collecting all it can, ends the process as out of memory, and so does `read_text`'s,
   where the Node module's read rejects with `io_error`, its cause Node's `RangeError` (`ERR_MEMORY_ALLOCATION_FAILED`).
   `read_text` decodes as Node's does: each malformed sequence a U+FFFD, a BOM kept.
@@ -233,8 +212,7 @@ and the writes `write`, `mkdir`, `remove`, and `rename`.
 - `list` returns its listing at once and reads nothing, as the Node module's async generator does:
   the first `next()` checks the receiver and the path, reads the whole directory, and sorts it,
   so a missing directory, a path that's no string, or a borrowed receiver rejects that `next()`, never the call.
-  The directory's descriptor closes before that `next()` settles, so a listing holds no descriptor, only its entries,
-  and one abandoned, returned from, or thrown into leaves nothing to close.
+  A listing holds no open directory, only its entries, so one abandoned, returned from, or thrown into leaves nothing to close.
   A failure ends the listing, as `return` and `throw` do, and every later `next()` is done.
 - A listing is a frozen handle of the host's with `next`, `return`, `throw`, and `[Symbol.asyncIterator]`, TypeScript's `AsyncIterableIterator`,
   not an async generator: its results have a null prototype, as `stat`'s record does, its `next` declares no argument,
@@ -246,38 +224,29 @@ and the writes `write`, `mkdir`, `remove`, and `rename`.
   and a loop of awaited ops runs on microtasks alone, never returning to the event loop, so a timer waits for the whole loop.
 - `stat` resolves with a null-prototype record, where the Node module's is a plain object.
 - An option given through a getter or a proxy is a `TypeError`, since an op runs no code of a caller's.
-- `write` takes a string, written as UTF-8 with each lone surrogate a U+FFFD, or a `Uint8Array`, else a `TypeError`, as on Node,
-  and copies the bytes before it writes, so a write's bytes are in memory twice while it runs.
+- `write` takes a string, written as UTF-8 with each lone surrogate a U+FFFD, or a `Uint8Array`, else a `TypeError`, as on Node.
   It follows a final symlink beneath the handle, as on Node, a dangling one making its target,
-  and opens its target without waiting (`O_NONBLOCK`), refusing anything but a regular file by what the opened descriptor is:
+  and never waits on its target, refusing anything but a regular file:
   a directory is `is_a_directory`, as on Node, and a FIFO or a device is `io_error`, where the Node module waits on a FIFO's reader and writes to a device.
   The file is emptied as it opens, before the write, so a write that fails can leave it empty or short, as Node's `writeFile` can: no write replaces a file atomically.
 - `mkdir` with `recursive` makes each missing directory by its name, passing only a directory, a symlink to one followed,
   so a dangling symlink on the way is `not_a_directory`, where the Node module's confinement makes the path the link names.
-- A recursive `remove` empties a directory entry by entry, each acted on by its name in its own directory's descriptor,
-  opened beneath the one holding it with no symlink allowed, so a symlink inside is removed, never followed,
-  and its error names the path removed, never an entry inside it.
-  Each directory on the way down holds a descriptor until it's emptied, so a tree deeper than the process may open descriptors fails with `io_error`.
+- A recursive `remove` removes a symlink inside the tree, never following it, and its error names the path removed, never an entry inside it; a tree deeper than the process may hold descriptors open fails with `io_error`, where Node's removes it.
   A mount inside the tree is emptied as any directory is.
 - A `remove` or a `rename` never removes or moves a root's directory, the project's included, or a directory holding one,
   whatever the run grants, `-A` included: it's `io_error`, its cause saying so, before anything is removed or moved, where Node does it.
   A rename's destination is held so too, since a rename over an empty directory replaces it.
-  An end's real path, read through the directory the op acts in, is compared with each root's real path as the run started,
-  so no spelling, a symlink on the way among them, reaches around it.
-  It compares paths, though, not directories: a root's directory that a bind mount shows at a second path is no root at that path,
-  so through it the rule neither keeps the directory nor holds what moves into it.
-  So a handle's directory, a root's above all, stays where the run's grants say it is.
-  The rule judges an end by its path before the kernel acts on it, so a `rename` of nothing over a root's directory is this `io_error` too, where Node's is `not_found`.
+  An end is judged by its real path, so no spelling, a symlink on the way among them, reaches around the rule,
+  and before the kernel acts, so a `rename` of nothing over a root's directory is this `io_error` too, where Node's is `not_found`.
 - A `rename` that would move an entry where the deepest root holding the destination grants what the source's doesn't is `io_error` too, where Node moves it:
   with `--allow-write=/o --allow-read=/o/r`, a handle on `/o` writes but doesn't read, and moving `secret.txt` to `r/secret.txt` would let the run read it.
-  A move to where the grants allow less, or the same, is a move. This is Landlock's rule for a rename (`REFER`).
-  It too is judged before the kernel acts, so such a `rename` of nothing is `io_error`, where Node's is `not_found`.
+  A move to where the grants allow less, or the same, is a move, and such a `rename` of nothing is `io_error` too, where Node's is `not_found`.
 - A `rename` the kernel refuses between two directories (`EXDEV`, which two mounts make, and so can a sandbox the process inherited) is `io_error`, its cause the kernel's words, where Node's is the same kind.
   Of a missing entry or a non-directory, which could be either end's, the error names the destination when the source is there and the source when it isn't, as on Node.
-- `copy`, `set_times`, `set_mode`, `symlink`, and `temp_dir` aren't built yet: each refuses with a plain `Error` saying so.
 - A kernel below Linux 5.6, which lacks `openat2`, fails every op alike with a plain `Error`.
-- `fs` lands before the read-deny and write-deny overlays and before `fgro run` has a kernel box,
-  so a program can read the project's `.env` files, and any file inside a granted directory.
+- `fs` lands before the [deny overlays](glossary.md#deny-overlays) and before `fgro run` has a kernel box,
+  so a program can read the project's `.env` files and any file inside a directory the run reads,
+  and write under `.git` and `node_modules` inside a directory it writes.
 
 `fs_search` (`@fuzdev/gro/fs_search.ts`) is library code over a handle,
 finding the files beneath a directory through `list`, recursively.
@@ -1252,34 +1221,37 @@ what can fail for a reason of the run's fails in what the module exports, as `cw
 ### fs
 
 - Make each confinement decision in one op, `openat2` with `RESOLVE_BENEATH` beneath the handle's directory,
-  opened beneath its root's descriptor, never a check followed by an open.
+  opened beneath its root's descriptor, never a check followed by an open (built).
 - Make `fs.project`, and spawn's project root, the entry's project root, never the working directory,
-  so the working directory is a string with no authority.
-- Pass `RESOLVE_NO_MAGICLINKS` explicitly, so a handle on `/proc` refuses its magic links.
-- Copy and remove a tree recursively beneath the handle's directory, each entry opened relative to its parent's.
+  so the working directory is a string with no authority (built for `fs.project`).
+- Pass `RESOLVE_NO_MAGICLINKS` explicitly, so a handle on `/proc` refuses its magic links (built).
+- Copy and remove a tree recursively beneath the handle's directory, each entry opened relative to its parent's
+  (built for `remove`; designed for `copy`).
 - Check `write`'s data is a string or a `Uint8Array`, and mask its `mode` to `0o777`,
-  refusing one that isn't an integer from `0` to `0o7777` with a `TypeError`, as the Node implementation does.
-- Read a link with `readlinkat` on the parent's descriptor, the parent opened beneath the handle.
-- Check `open_dir`'s and `real_path`'s absolute paths against the run's grants.
+  refusing one that isn't an integer from `0` to `0o7777` with a `TypeError`, as the Node implementation does (built).
+- Read a link from its own descriptor, opened as a path only beneath the handle without following it,
+  by `readlinkat` with an empty path, so the link read is the one the open resolved (built).
+- Check `open_dir`'s and `real_path`'s absolute paths against the run's grants (built).
   Landlock doesn't gate resolving a path, which reads only metadata.
-- Create a link with `symlinkat` on the parent's descriptor, never checking the target, which is data.
+- Create a link with `symlinkat` on the parent's descriptor, never checking the target, which is data (designed).
   Landlock's `MAKE_SYM` limits where links are made, the write roots, and Landlock's own walk refuses to follow one
   out of a granted hierarchy for the confined process and its children;
   a link a later unconfined tool follows is the time-shifted case [backstop](backstop.md#the-box-for-runs-and-children) accepts for writes.
 - Set times and mode, following a final symlink, on a descriptor opened beneath the handle,
-  `utimensat(fd, NULL, …)` and `fchmod(fd)`.
+  `utimensat(fd, NULL, …)` and `fchmod(fd)` (designed).
   Landlock gates neither at any ABI, so in the run box they're allowed in these descriptor forms only,
   seccomp pinning `utimensat`'s path to `NULL`, and bounded by what the process can open:
   code that escapes V8 can retime and rechmod any file it can open, every read root included, not only the write roots.
   Bounding them to the write roots would take a broker outside the box.
-- Refuse `set_times` with `follow: false` in the run box with `permission_denied`, unless a broker outside the box does it.
+- Refuse `set_times` with `follow: false` in the run box with `permission_denied`, unless a broker outside the box does it (designed).
   A link's own times take `utimensat` on a name with `AT_SYMLINK_NOFOLLOW`, which the kernel refuses with a `NULL` path,
   and seccomp can't read the name, so nothing pins that form to the handle: allowed, it would retime any file the user owns.
 - Expect `set_mode` to fail with `permission_denied` on a file whose mode denies its owner an open, like `0000`,
-  which the descriptor form can't reach, where the Node implementation's path `chmod` restores it.
-- Return owned buffers from `read`, never a view of memory the runtime reuses.
-- Keep `/proc/*/environ`, `/proc/*/mem`, and `/proc/*/cmdline` in the always-on read-deny overlay, since they're regular files, not magic links.
-- Refuse a read that reaches a denied file through another name (a hard link), by the rule [backstop](backstop.md#open) settles on.
+  which the descriptor form can't reach, where the Node implementation's path `chmod` restores it (designed).
+- Return owned buffers from `read`, never a view of memory the runtime reuses (built).
+- Keep `/proc/*/environ`, `/proc/*/mem`, and `/proc/*/cmdline` in the read-deny overlay, always on, `-A` included,
+  since they're regular files, not magic links (designed; the [deny overlays](glossary.md#deny-overlays)).
+- Refuse a read that reaches a denied file through another name (a hard link), by the rule [backstop](backstop.md#open) settles on (designed).
 
 ### spawn
 

@@ -96,8 +96,9 @@ pub struct HostData {
 /// never converted on the way in: `#[op2]`'s typed arguments convert, and
 /// a conversion can run the caller's code or truncate, so the body reads
 /// the value natively and throws through the scope, an error V8 makes from
-/// the realm's intrinsic ([`throw_type_error`]) rather than an `Err`, which
-/// a JS callback of `deno_core`'s would build. The check still comes
+/// the realm's intrinsic ([`throw_type_error`]) rather than returning an
+/// `Err`, which `deno_core` would turn into an error through a JS callback,
+/// running code the program can patch. The check still comes
 /// first, before the body sees an argument. The body is the op's result, a
 /// value made in the scope, `'s` the scope's lifetime, which the macro
 /// declares; an op that throws returns `undefined` beside the exception,

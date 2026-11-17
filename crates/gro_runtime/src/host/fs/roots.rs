@@ -169,7 +169,10 @@ pub(super) enum Refusal {
 /// (`authority.md`'s threat model leaves out a process outside the run
 /// that moves what a flag names). Only a directory can be or hold one, and
 /// an entry at a root's path as the run started is that directory, so the
-/// text alone decides, and nothing is looked up for it.
+/// text alone decides, and nothing is looked up for it. It compares
+/// paths, not directories: a root's directory a bind mount shows at a
+/// second path is no root at that path, and through it the rule neither
+/// keeps the directory nor holds what moves into it.
 #[derive(Debug)]
 pub(super) struct Held {
     /// The scope of the deepest root holding the handle's directory.

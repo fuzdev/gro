@@ -10,8 +10,8 @@
 > and the directories `--allow-read=` names, with a write scope on those `--allow-write=` names,
 > each scope carried by the handles made under it;
 > the grant-free modules link for every module; `-A` grants every module every one;
-> and a refused `import()`, `env` name, or `fs` path fails the run, caught or not ([run](run.md#errors-and-exit-codes)).
-> Not built for `fgro run`: `fs`'s `copy`, `set_times`, `set_mode`, and `symlink`, which a granted handle has but which throw for now, and `temp_dir` ([host modules](host_modules.md#fs-on-fgro)), `spawn`, `net`, `watch`, the standard streams, the policy file, the seal, and the kernel backstop;
+> and a refused `import()`, `env` name, or `fs` reach fails the run, caught or not ([run](run.md#errors-and-exit-codes)).
+> Not built for `fgro run`: the members of `fs` that [host modules](host_modules.md#fs-on-fgro) lists as not built yet, `spawn`, `net`, `watch`, the standard streams, the policy file, the seal, and the kernel backstop;
 > the [roadmap](runtime.md#roadmap) says when, and [backstop](backstop.md) has the kernel layer under all of it.
 
 These terms carry this doc, and the [glossary](glossary.md) defines them and the others:
@@ -50,6 +50,8 @@ As designed, a run gets:
   and any host module a dependency imports
 - **never short of `-A`:** `.env*` files except through the host's env reader,
   credential files (`~/.ssh`, `.git/config`), and writes under `.git` or `node_modules`
+- **never, `-A` included:** reads of a process's environment, memory, and command line
+  (`/proc/*/environ`, `/proc/*/mem`, `/proc/*/cmdline`), the always-on part of the read-deny overlay
 - **under `gro eval`:** its own module graph, read-only, with no network, writes, env, or spawn,
   and the JIT off unless a flag turns it on
   (with the JIT off V8 has no `WebAssembly` at all, so a config that uses WASM needs the flag)
@@ -122,13 +124,13 @@ and no runtime namespace: the core's own op table is removed from the global obj
 and each host op and native member checks its grant again as its first step (built, held by tests rather than the compiler), so no leaked reference to the core reaches around the loader.
 A WASM module can reach only what its instantiator hands it, and one imported as an ES module declares that statically.
 The rest hold by default, where a policy entry or `-A` widens them and the diff shows it.
-These are the read and write roots, the net hosts, the deny overlays,
-the cleared environment with a small base set for children, the kernel rules, whether a run stays hermetic,
-and native code kept out of the runtime's process.
+These are the read and write roots, the net hosts, the deny overlays (but the always-on one on `/proc/*/environ`, `mem`, and `cmdline`, which nothing widens),
+the cleared environment with a small base set for children, the kernel rules, and whether a run stays hermetic.
+Native code stays out of the runtime's process, `-A` included: FFI loads its library in a confined process of its own.
 A widening of the second kind is a diff accepted in review, and the first kind has nothing to widen.
 
 The exceptions are explicit and labeled.
-`-A` is the one flag that widens everything, never a default; a few grants are as strong (a shell, a child's whole environment) and are shown that way.
+`-A` is the one flag that widens everything but the always-on deny overlay, never a default; a few grants are as strong (a shell, a child's whole environment) and are shown that way.
 As designed, a tool built on the runtime names unconfined phases, like Gro's `publish` and `deploy`,
 which push and use credentials;
 they're shown that way in the policy diff, with credentials passed to the one process that needs them.
@@ -152,7 +154,7 @@ and freezing the intrinsics is a hardening the design hasn't made the default ([
 
 Security-first runtimes earned a reputation for friction,
 with flags on every run, prompts mid-execution, and `-A` as the habit that follows.
-Gro is designed to have none of those (today `fgro run` has no prompts and widens only by its one-run flags, `--allow-env=`, `--allow-read=`, `--allow-write=`, and `-A`; the policy file isn't built).
+Gro is designed to have none of those (today `fgro run` has no prompts and widens only by its one-run flags, which [run](run.md#usage) lists; the policy file isn't built).
 A normal run in a project has no flags, and code that only reads its project's files and writes its declared write roots has nothing to declare,
 and the one moment worth a human's attention, when the graph newly reaches the network,
 a process, or files outside the project, arrives as a diff with a copyable fix, never a prompt;

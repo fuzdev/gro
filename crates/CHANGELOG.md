@@ -33,7 +33,9 @@ beside a `SHA512SUMS` file, each with a provenance attestation.
   - `@fuzdev/gro/fs.ts`: the filesystem, through directory handles.
     A run reads the project's root with no flag, as `fs.project`,
     and `--allow-read=a,/b` grants reading more directories, `--allow-write=a,/b` writing them,
-    each a directory when the run starts and held to the directory its path named then.
+    each a directory when the run starts and held to the directory its path named then;
+    one whose real path isn't its text, a path through a symlink, is noted on stderr before the program runs
+    (`note: --allow-read=<as typed> grants <real path>`, and so for `--allow-write=`).
     Built are `fs.project`, `fs.open_dir`, `fs.real_path`, and on a handle `path`, `dir`, `readonly`, `stat`, `exists`, the reads,
     the sync ops (`stat_sync`, `exists_sync`, `read_text_sync`), `read_link`, `list`, sorted by name,
     and the writes `write`, `mkdir`, `remove`, and `rename`.
@@ -53,6 +55,8 @@ beside a `SHA512SUMS` file, each with a provenance attestation.
   - `fgro run -A <file>` runs unconfined: every builtin module is granted to every module of the run, a package's included,
     each grant at its widest, every variable for `env` and one root at `/` for `fs`,
     while every refusal but a grant's stands (a host module not built yet, a package's import of the project, and the like).
+  - Text `fgro` didn't write that it prints in the run's uncaught error and its frames, a refusal, a usage error, or a note is escaped
+    (control characters, line breaks, and format characters as `\u{…}`), so such text starts no line but a stack frame's.
   - A refusal fails the run, even when the program catches it, turning an exit 0 into 1:
     a `not_granted` from `env` or `fs`, and an `import()` refused by one of gro's rules
     (an ungranted builtin module, a reserved specifier, a refused scheme, and the like).

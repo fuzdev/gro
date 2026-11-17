@@ -127,7 +127,7 @@ The binary embeds the commit, so a dirty tree (a changed file, or an untracked o
   a read refusing anything but a regular file at once; `fs.open_dir` or `fs.real_path` outside them rejects
   with `FsError` `not_granted`, which fails the run caught or not, and so does a read through a handle that doesn't read
   or a write through one that doesn't write, while a handle's reach outside its directory is `outside_root`, which doesn't,
-  and a `copy`, `set_times`, `set_mode`, or `symlink` through a handle that writes throws a plain `Error`, since those aren't built yet ([host modules](host_modules.md#fs-on-fgro)).
+  and a member not built yet throws a plain `Error` saying so, a write op's after its paths and its handle's scope are checked as a built one's are ([host modules](host_modules.md#fs-on-fgro)).
 - `@fuzdev/gro/fs_error.ts`, a builtin module that needs no grant: `FsError`, `is_fs_error`, and `is_own_fs_error`.
 - A builtin module's `.js` spelling (`@fuzdev/gro/args.js`), the host modules not on `fgro` yet (`@fuzdev/gro/spawn.ts`, `stdin`, `stdout`, `net_error`, and the rest, either spelling),
   and `@fuzdev/gro/process.ts` and `process_error.ts`, which Gro has none of (either spelling),
@@ -249,7 +249,8 @@ never a flag, which would widen the handle's root (the whole project, for a writ
 A copy is refused naming the path it writes, its `to`, and judged by it, so a copy into a directory written from outside it hints the handle to open, which writes the copy but can't name its source: the program reads through one handle and writes through the other.
 A walk opens the names before a `..` first, so `fs.real_path('/usr/../etc')` needs `/usr` granted as well as `/etc`.
 An fs refusal's `<need>` is the kind of grant it needed, in its hint's words:
-`a read`, `a write`, `what the run grants` (a handle to open), or `what no grant allows`, for a remove or a rename a root's directory refuses,
+`a read`, `a write`, `what the run grants` (a handle to open), or `what no grant allows`,
+for a `remove` or `rename`, through a handle that doesn't write, of a path that is, or holds, a root's directory by its text, which the rule keeping each root's directory in place refuses whatever the run grants ([host modules](host_modules.md#fs-on-fgro)),
 so a hint pairs with the listed refusals of its kind or with none listed, never with another kind's,
 and two refusals of one path that needed different kinds are two lines.
 The listed refusal names the path; a hint never does, since a path the program chose, shown back, can grant another directory than it names, through a symlink, or run something when pasted.
