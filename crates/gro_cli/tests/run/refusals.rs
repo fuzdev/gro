@@ -910,6 +910,90 @@ fn an_uncaught_refusal_is_the_error_and_a_caught_one_is_listed() {
     );
 }
 
+/// An uncaught `FsError` names no need, so when `fs` refused its path
+/// before with another need, caught, both refusals stay listed, each with
+/// its need, and the caught one isn't lost.
+#[test]
+fn a_caught_fs_refusal_of_the_uncaught_one_s_path_stays_listed() {
+    let source = "import { fs } from '@fuzdev/gro/fs.ts';
+try {
+\tawait fs.project.write('out', 'x');
+} catch {}
+await fs.project.remove('out');
+";
+    let fixtures = temp_fixtures(
+        "fs_refused_by_two_needs",
+        &[("out/kept.txt", ""), ("main.js", source)],
+    );
+    let run = run_with(&fixtures, &["--allow-write=out"], "main.js", &[]);
+    assert_eq!(run.code, 1, "{}", run.stderr);
+    let dir = fixtures.0.display();
+    assert_eq!(
+        run.stderr,
+        format!(
+            "error: Uncaught (in promise) FsError: not_granted: {dir}/out\n    \
+             at file://{dir}/main.js:5:18\n\
+             error: fs refused what the run grants: not_granted: {dir}/out\n\
+             error: fs refused what no grant allows: not_granted: {dir}/out\n\
+             {REFUSALS_FAIL}\
+             hint: the run grants what fs refused: open the directory with fs.open_dir and use \
+             that handle\n"
+        )
+    );
+}
+
+/// When the uncaught refusal is past the listed ones, counted, the listed
+/// refusal of its class and message is another the program caught, so it
+/// stays listed.
+#[test]
+fn a_caught_fs_refusal_stays_listed_when_the_uncaught_one_is_counted() {
+    let source = format!(
+        "import {{ fs }} from '@fuzdev/gro/fs.ts';
+for (let i = 0; i < {}; i++) {{
+\ttry {{
+\t\tawait import('@fuzdev/gro/args.js?' + i);
+\t}} catch {{}}
+}}
+try {{
+\tawait fs.project.write('out', 'x');
+}} catch {{}}
+await fs.project.remove('out');
+",
+        gro_runtime::MAX_LISTED_REFUSALS - 1
+    );
+    let fixtures = temp_fixtures(
+        "fs_refused_past_the_listed",
+        &[("out/kept.txt", ""), ("main.js", &source)],
+    );
+    let run = run_with(&fixtures, &["--allow-write=out"], "main.js", &[]);
+    assert_eq!(run.code, 1, "{}", run.stderr);
+    let dir = fixtures.0.display();
+    let imports = (0..gro_runtime::MAX_LISTED_REFUSALS - 1)
+        .map(|i| {
+            format!(
+                "error: import() refused: cannot resolve '@fuzdev/gro/args.js?{i}' from \
+                 file://{dir}/main.js: it is the .js spelling of the builtin module \
+                 '@fuzdev/gro/args.ts', reserved so it never resolves to a package. Fix: import \
+                 '@fuzdev/gro/args.ts'\n"
+            )
+        })
+        .collect::<Vec<_>>()
+        .concat();
+    assert_eq!(
+        run.stderr,
+        format!(
+            "error: Uncaught (in promise) FsError: not_granted: {dir}/out\n    \
+             at file://{dir}/main.js:10:18\n\
+             {imports}\
+             error: fs refused what the run grants: not_granted: {dir}/out\n\
+             error: 1 more refusal, not listed\n\
+             {REFUSALS_FAIL}\
+             hint: the run grants what fs refused: open the directory with fs.open_dir and use \
+             that handle\n"
+        )
+    );
+}
+
 /// A run killed by a signal after its program caught a refusal by rule
 /// ends by the signal, never exit 0, and prints nothing. A run that
 /// inherits the signal ignored (from a shell's `&` without job control, or

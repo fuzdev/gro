@@ -84,7 +84,9 @@ pub struct RunOutcome {
     /// dependency or a feature is, isn't among them, nor is a host
     /// function's refusal of an argument that is no value it takes (a `TypeError`);
     /// one that is the uncaught error `result`'s report shows isn't listed,
-    /// though past the listed ones it's counted.
+    /// unless another listed one shares its class and message or any was
+    /// counted (`Refusals::unlist`), though past the listed ones it's
+    /// counted.
     pub refused: Refusals,
     /// The exit code the program set with `set_exit_code`, if it did: the
     /// code of a run that ended on its own and didn't fail. A run that
@@ -275,7 +277,9 @@ fn uncaught_failure(error: &CoreError) -> Box<Failed> {
 /// refusal's has, which the result's report prints. That is the refusal's
 /// own error, or one the program made with the same class and text, which
 /// prints the same; `deno_core` hands the host the error as a copy, so its
-/// identity is out of reach.
+/// identity is out of reach, so when more than one listed refusal has
+/// that class and message, or any refusal was counted, not listed, each
+/// stays listed ([`Refusals::unlist`]).
 fn outcome(
     result: Result<(), Box<Failed>>,
     mut refused: Refusals,

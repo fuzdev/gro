@@ -204,13 +204,28 @@ impl Refusals {
         self.needed.push(needed);
     }
 
-    /// Drops the listing of each refusal whose error is of the class named
-    /// `error` and carries `message`, if one is listed: the run's uncaught
-    /// error, which its report shows.
+    /// Drops the listing of the refusal that is the run's uncaught error,
+    /// which its report shows: the one listed refusal whose error is of the
+    /// class named `error` and carries `message`. The error carries no
+    /// need, so `fs`'s refusals of one path that needed different grants
+    /// carry the same class and message; when more than one is listed,
+    /// each stays, the uncaught one beside the others, each naming its
+    /// need, since which one the report shows is out of reach. When any
+    /// refusal was counted, not listed, the uncaught one may be among
+    /// those, so every listed one stays.
     pub(crate) fn unlist(&mut self, error: &str, message: &str) {
+        if self.unlisted > 0 {
+            return;
+        }
         let message = cut(message);
-        self.listed
-            .retain(|listed| listed.by.error() != error || *listed.message != message);
+        let mut matching = self
+            .listed
+            .iter()
+            .enumerate()
+            .filter(|(_, listed)| listed.by.error() == error && *listed.message == message);
+        if let (Some((index, _)), None) = (matching.next(), matching.next()) {
+            self.listed.remove(index);
+        }
     }
 }
 
@@ -299,36 +314,59 @@ mod tests {
     }
 
     /// Unlisting drops the one listing with the message, a long one's by
-    /// its cut text, and leaves the count.
+    /// its cut text, and only by its whole text.
     #[test]
     fn a_refusal_is_unlisted_by_its_message() {
         let mut refused = Refusals::default();
-        let long = "c".repeat(MAX_LISTED_MESSAGE + 1);
         for i in 0..MAX_LISTED_REFUSALS {
             refused.record(RefusedBy::Import, &format!("refused {i}"), None);
         }
-        refused.record(RefusedBy::Import, &long, None);
         refused.unlist("TypeError", "refused 1");
         refused.unlist("TypeError", "refused");
         assert_eq!(refused.messages().len(), MAX_LISTED_REFUSALS - 1);
         assert!(!refused.messages().contains(&"refused 1"));
-        assert_eq!(refused.unlisted, 1);
 
         let mut refused = Refusals::default();
+        let long = "c".repeat(MAX_LISTED_MESSAGE + 1);
         refused.record(RefusedBy::Import, &long, None);
         refused.unlist("TypeError", &long);
         assert!(refused.is_empty());
 
         // with none listed, the counted ones are still refusals
+        let refused = Refusals {
+            unlisted: 1,
+            ..Refusals::default()
+        };
+        assert!(!refused.is_empty());
+    }
+
+    /// Once a refusal was counted, not listed, unlisting drops nothing,
+    /// since the uncaught one may be the counted one, and a listed refusal
+    /// of its class and message another the program caught.
+    #[test]
+    fn nothing_is_unlisted_once_a_refusal_was_counted() {
+        let fs = RefusedBy::Grant {
+            grant: Capability::Fs,
+            error: "FsError",
+        };
         let mut refused = Refusals::default();
-        for i in 0..=MAX_LISTED_REFUSALS {
+        for i in 0..MAX_LISTED_REFUSALS - 1 {
             refused.record(RefusedBy::Import, &format!("refused {i}"), None);
         }
-        for i in 0..MAX_LISTED_REFUSALS {
-            refused.unlist("TypeError", &format!("refused {i}"));
-        }
-        assert!(refused.listed.is_empty());
-        assert!(!refused.is_empty());
+        refused.record(
+            fs,
+            "not_granted: /a",
+            Some(NeededGrant::Fs(FsNeed::OpenDir)),
+        );
+        refused.record(fs, "not_granted: /a", None);
+        assert_eq!(refused.unlisted, 1);
+        refused.unlist("FsError", "not_granted: /a");
+        refused.unlist("TypeError", "refused 0");
+        assert_eq!(refused.listed.len(), MAX_LISTED_REFUSALS);
+        assert_eq!(
+            refused.listed[MAX_LISTED_REFUSALS - 1].fs_need,
+            Some(FsNeed::OpenDir)
+        );
     }
 
     /// An import's refusal and an op's are two listings even when their
@@ -348,16 +386,24 @@ mod tests {
                 .collect::<Vec<_>>(),
             [ENV, RefusedBy::Import]
         );
+        refused.unlist("TypeError", "not_granted: HOME");
+        assert_eq!(
+            refused
+                .listed
+                .iter()
+                .map(|listed| listed.by)
+                .collect::<Vec<_>>(),
+            [ENV]
+        );
+        refused.unlist("EnvError", "not_granted: HOME");
+        assert!(refused.is_empty());
+        refused.record(ENV, "not_granted: HOME", None);
+        refused.record(RefusedBy::Import, "not_granted: HOME", None);
         for i in 0..MAX_LISTED_REFUSALS {
             refused.record(ENV, &format!("not_granted: N{i}"), None);
         }
         assert_eq!(refused.listed.len(), MAX_LISTED_REFUSALS);
         assert_eq!(refused.unlisted, 2);
-        refused.unlist("TypeError", "not_granted: HOME");
-        assert_eq!(refused.listed[0].by, ENV);
-        assert_eq!(refused.listed.len(), MAX_LISTED_REFUSALS - 1);
-        refused.unlist("EnvError", "not_granted: HOME");
-        assert_eq!(refused.messages()[0], "not_granted: N0");
         assert_eq!(ENV.error(), "EnvError");
         assert_eq!(RefusedBy::Import.error(), "TypeError");
     }
@@ -402,6 +448,40 @@ mod tests {
             ]
         );
         assert_eq!(refused.unlisted, 0);
+    }
+
+    /// An uncaught `FsError` whose message more than one listed refusal
+    /// carries, of one path with different needs, unlists none of them,
+    /// and one whose message only one carries unlists that one.
+    #[test]
+    fn an_fs_refusal_shared_by_needs_stays_listed() {
+        let fs = RefusedBy::Grant {
+            grant: Capability::Fs,
+            error: "FsError",
+        };
+        let mut refused = Refusals::default();
+        refused.record(
+            fs,
+            "not_granted: /a",
+            Some(NeededGrant::Fs(FsNeed::OpenDir)),
+        );
+        refused.record(fs, "not_granted: /a", None);
+        refused.record(fs, "not_granted: /b", Some(NeededGrant::Fs(FsNeed::Read)));
+        refused.unlist("FsError", "not_granted: /a");
+        assert_eq!(
+            refused
+                .listed
+                .iter()
+                .map(|listed| (listed.message.as_str(), listed.fs_need))
+                .collect::<Vec<_>>(),
+            [
+                ("not_granted: /a", Some(FsNeed::OpenDir)),
+                ("not_granted: /a", None),
+                ("not_granted: /b", Some(FsNeed::Read)),
+            ]
+        );
+        refused.unlist("FsError", "not_granted: /b");
+        assert_eq!(refused.messages(), ["not_granted: /a", "not_granted: /a"]);
     }
 
     /// The grant a refused call needed, by its name for `env`.

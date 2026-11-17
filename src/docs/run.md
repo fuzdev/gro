@@ -230,7 +230,9 @@ escaped as a usage error's argument is (`\u{1b}`),
 and a message past 2 KiB cut there and marked with its length,
 then counts the rest, a retry of an unlisted one included: `error: N more refusals, not listed`,
 then closes with `error: a refusal fails the run, whether or not the program caught it`.
-One that is the run's uncaught error (a `TypeError`, an `EnvError`, or an `FsError` with its message) prints as that and isn't listed, though past the listed ones it's still counted.
+One that is the run's uncaught error (a `TypeError`, an `EnvError`, or an `FsError` with its message) prints as that and isn't listed, though past the listed ones it's still counted;
+an `FsError` names no need, so when `fs` refused its path more than once, needing different grants, each of those stays listed,
+and once any refusal was counted, the uncaught one may be among the counted, so every listed one stays.
 Last comes one hint, `hint: add --allow-env=A,B to grant what env refused`, naming each variable the run's own grant lacked,
 distinct, in the order each was first refused, the first 8, its uncaught one's and the counted ones' included:
 a name the root `env` refused, which holds what `--allow-env=` gave the project, so the flag lets the call through, whichever module made it.
