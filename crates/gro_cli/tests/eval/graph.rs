@@ -5,7 +5,7 @@ use serde_json::{Value, json};
 
 use crate::limits::HEAP_BACKSTOP;
 use crate::support::Scratch;
-use crate::{eval, fixtures, memory_heavy_turn};
+use crate::{eval, eval_long, fixtures, memory_heavy_turn};
 
 /// The files of a project with a self-reference, a scoped package with
 /// another nested in its own `node_modules`, and a package linked into its
@@ -410,7 +410,7 @@ fn the_graph_dump_of_refused_and_failed_runs() {
 
     let run = {
         let _turn = memory_heavy_turn();
-        eval(&["heap_builtin.js", "--graph"])
+        eval_long(&["heap_builtin.js", "--graph"])
     };
     run.assert_failed("heap", 1);
     assert_eq!(run.message(), HEAP_BACKSTOP);

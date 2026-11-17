@@ -196,6 +196,14 @@ fn eval(args: &[&str]) -> Eval {
     eval_with(args, None, &[])
 }
 
+/// [`eval`] with `--timeout` [`long_timeout`], for a run that fills the heap
+/// or the process's memory, or nears either: slow jitless, slower beside
+/// whatever else loads the machine, it may outlast the default timeout
+/// before its cap stops it, and then fails as `timeout` instead.
+fn eval_long(args: &[&str]) -> Eval {
+    eval(&[args, &["--timeout", &long_timeout()]].concat())
+}
+
 fn driven(module: &str, driver: &str) -> Eval {
     eval_with(&[module, "--driver", "-"], Some(driver), &[])
 }

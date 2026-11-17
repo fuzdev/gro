@@ -7,7 +7,9 @@ use std::time::{Duration, Instant};
 use serde_json::{Value, json};
 
 use crate::support::Scratch;
-use crate::{Eval, eval, fixtures, long_timeout, memory_heavy_turn, parse, spawn, wrapped_command};
+use crate::{
+    Eval, eval, eval_long, fixtures, long_timeout, memory_heavy_turn, parse, spawn, wrapped_command,
+};
 
 /// `size` bytes of a module whose first line is `first`, padded with a
 /// comment.
@@ -93,7 +95,7 @@ fn an_envelope_past_its_byte_cap_fails_as_serialize() {
     // the walk over a 64 MiB string is slow in a debug build
     let eval_repeat = |count: usize| {
         std::fs::write(&module, format!("export default 'x'.repeat({count});\n")).unwrap();
-        eval(&[&module, "--timeout", &long_timeout()])
+        eval_long(&[module.as_str()])
     };
     // the envelope around an empty string, so `count` x's make it that plus `count`
     let empty = eval_repeat(0);
@@ -144,7 +146,7 @@ fn a_failure_past_the_envelope_cap_keeps_its_kind() {
             ("throw.js", "throw new Error('b'.repeat(64 << 20));\n"),
         ],
     );
-    let run = eval(&[&scratch.path("throw.js"), "--timeout", &long_timeout()]);
+    let run = eval_long(&[scratch.path("throw.js").as_str()]);
     run.assert_failed("module_threw", 1);
     assert!(run.stdout.len() < 128 << 10, "{}", run.stdout.len());
     let message = run.message();
@@ -185,7 +187,7 @@ pub const HEAP_BACKSTOP: &str = "the eval's heap reached its cap of 512 MiB with
 )]
 fn the_heap_cap_fails_the_eval_as_heap() {
     let _turn = memory_heavy_turn();
-    let run = eval(&["heap_grow.js"]);
+    let run = eval_long(&["heap_grow.js"]);
     run.assert_failed("heap", 1);
     assert_eq!(run.message(), HEAP_STOPPED);
     assert_eq!(run.envelope["access"], json!({"dynamic": []}));
@@ -194,7 +196,7 @@ fn the_heap_cap_fails_the_eval_as_heap() {
         &["heap_builtin.js"],
         &["heap_builtin.js", "--jit"],
     ] {
-        let run = eval(args);
+        let run = eval_long(args);
         run.assert_failed("heap", 1);
         assert_eq!(run.message(), HEAP_BACKSTOP, "{args:?}");
         assert_eq!(run.envelope["access"], Value::Null, "{args:?}");
@@ -231,7 +233,7 @@ fn a_heap_stop_is_heap_however_the_heap_reads_after() {
     let _turn = memory_heavy_turn();
     let strings = std::iter::repeat_n(&["heap_strings.js"][..], HEAP_STRINGS_RUNS);
     for args in strings.chain([&["heap_map.js", "--jit"][..]]) {
-        let run = eval(args);
+        let run = eval_long(args);
         run.assert_failed("heap", 1);
         assert!(
             [HEAP_STOPPED, HEAP_BACKSTOP].contains(&run.message()),
@@ -251,7 +253,7 @@ fn a_heap_stop_is_heap_however_the_heap_reads_after() {
 )]
 fn array_buffer_memory_sits_outside_the_heap_cap() {
     let _turn = memory_heavy_turn();
-    eval(&["heap_external.js"]).assert_value(&json!(1_073_741_824_u64));
+    eval_long(&["heap_external.js"]).assert_value(&json!(1_073_741_824_u64));
 }
 
 /// The message of a run stopped by an allocation outside the heap, and of
@@ -298,12 +300,12 @@ fn the_memory_cap_fails_the_eval_as_memory() {
         &["memory_external.js"][..],
         &["memory_external.js", "--jit"],
     ] {
-        let run = eval(args);
+        let run = eval_long(args);
         run.assert_failed("memory", 1);
         assert_eq!(run.message(), MEMORY_STOPPED, "{args:?}");
         assert_eq!(run.envelope["access"], json!({"dynamic": []}), "{args:?}");
     }
-    let run = eval(&["memory_then_heap.js"]);
+    let run = eval_long(&["memory_then_heap.js"]);
     run.assert_failed("memory", 1);
     assert_eq!(run.message(), MEMORY_BACKSTOP);
     assert_eq!(run.envelope["access"], Value::Null);
@@ -366,11 +368,15 @@ fn the_room_beside_the_heap_s_cap_holds_the_engine() {
 }
 
 /// An eval of `args` under a data limit (`RLIMIT_DATA`) of `bytes`, soft and
-/// hard, which util-linux's `prlimit` sets before it runs `fgro`.
+/// hard, which util-linux's `prlimit` sets before it runs `fgro`, with
+/// `--timeout` [`long_timeout`], as [`eval_long`] passes it: each fills the
+/// heap or the memory the limit leaves.
 fn eval_under_data_limit(bytes: u64, args: &[&str]) -> Eval {
     let mut prlimit = Command::new("prlimit");
     prlimit.arg(format!("--data={bytes}:{bytes}"));
-    parse(spawn(wrapped_command(prlimit, args), None))
+    let timeout = long_timeout();
+    let args = [args, &["--timeout", &timeout]].concat();
+    parse(spawn(wrapped_command(prlimit, &args), None))
 }
 
 /// A caller's large stack limit doesn't size the engine's threads: glibc
