@@ -163,7 +163,9 @@ const SCENARIOS = {
 			['a NUL', 'GRO\0A'],
 			['a lone surrogate', 'GRO_\uD800'],
 			['a =', 'GRO_A=secret'],
-			['a = first', '=GRO_A']
+			['a = first', '=GRO_A'],
+			['a lone surrogate and a NUL', '\uD800\0'],
+			['a lone surrogate and a =', 'GRO_\uD800=secret']
 		];
 		/** @type {Array<[string, unknown]>} */
 		const lists = [
@@ -177,7 +179,10 @@ const SCENARIOS = {
 			['empty', ['']],
 			['a =', ['GRO_A=secret']],
 			['a NUL', ['GRO\0A']],
-			['a lone surrogate', ['\uDC00']]
+			['a lone surrogate', ['\uDC00']],
+			['a lone surrogate and a NUL', ['\uD800\0']],
+			['a lone surrogate and a =', ['GRO_\uD800=secret']],
+			['a lone surrogate and a glob', ['GRO_\uD800*']]
 		];
 		return {
 			get: names.map(([what, name]) => [what, refusal(() => env.get(/** @type {any} */ (name)))]),

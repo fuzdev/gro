@@ -1332,6 +1332,20 @@
 						"TypeError",
 						"an environment name holds a `=`"
 					]
+				],
+				[
+					"a lone surrogate and a NUL",
+					[
+						"TypeError",
+						"an environment name holds a NUL byte"
+					]
+				],
+				[
+					"a lone surrogate and a =",
+					[
+						"TypeError",
+						"an environment name isn't well-formed Unicode"
+					]
 				]
 			],
 			"narrow": [
@@ -1407,6 +1421,27 @@
 				],
 				[
 					"a lone surrogate",
+					[
+						"TypeError",
+						"a `narrow` name isn't well-formed Unicode"
+					]
+				],
+				[
+					"a lone surrogate and a NUL",
+					[
+						"TypeError",
+						"a `narrow` name holds a NUL byte"
+					]
+				],
+				[
+					"a lone surrogate and a =",
+					[
+						"TypeError",
+						"a `narrow` name isn't well-formed Unicode"
+					]
+				],
+				[
+					"a lone surrogate and a glob",
 					[
 						"TypeError",
 						"a `narrow` name isn't well-formed Unicode"
