@@ -58,7 +58,7 @@
   },
   "peerDependencies": {
     "@fuzdev/blake3-wasm": "^0.2.0",
-    "@fuzdev/fuz_schema": "^0.5.7",
+    "@fuzdev/fuz_schema": ">=0.5.7",
     "@fuzdev/fuz_util": ">=0.81.0",
     "@sveltejs/kit": "^3",
     "svelte": "^5",
