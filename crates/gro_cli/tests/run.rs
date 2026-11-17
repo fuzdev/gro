@@ -1267,7 +1267,9 @@ fn an_uncaught_refusal_is_the_error_and_a_caught_one_is_listed() {
 }
 
 /// A run killed by a signal after its program caught a refusal by rule
-/// ends by the signal, never exit 0, and prints nothing.
+/// ends by the signal, never exit 0, and prints nothing. A run that
+/// inherits the signal ignored (from a shell's `&` without job control, or
+/// `nohup`) keeps it ignored and runs on, so the wait is bounded.
 #[test]
 fn a_run_killed_by_a_signal_after_a_refusal_ends_by_the_signal() {
     use std::os::unix::process::ExitStatusExt as _;
@@ -1295,7 +1297,10 @@ fn a_run_killed_by_a_signal_after_a_refusal_ends_by_the_signal() {
             .status()
             .unwrap();
         assert!(killed.success(), "{name}");
-        let status = child.wait().unwrap();
+        let status = support::wait_bounded(
+            &format!("SIG{name} (a run that inherits it ignored never ends by it)"),
+            &mut child,
+        );
         assert_eq!(status.signal(), Some(signal), "{name}: {status}");
         assert_eq!(status.code(), None, "{name}");
         assert_eq!(

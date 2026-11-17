@@ -10,7 +10,7 @@
 use std::io::{BufRead as _, BufReader, Read, Write as _};
 use std::ops::{Deref, DerefMut};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Output, Stdio};
+use std::process::{Child, Command, ExitStatus, Output, Stdio};
 use std::sync::mpsc::Receiver;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -136,6 +136,23 @@ pub fn spawn_with_pid(mut command: Command, stdin: &[u8]) -> (u32, Output) {
         stderr: stderr.join().unwrap(),
     };
     (child.id(), output)
+}
+
+/// Waits for `child` to exit, no longer than the [`DEADLINE`]: past it the
+/// child is killed and the test fails, naming `what` it was waiting for.
+pub fn wait_bounded(what: &str, child: &mut Child) -> ExitStatus {
+    let start = Instant::now();
+    loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            return status;
+        }
+        if start.elapsed() > DEADLINE {
+            child.kill().unwrap();
+            child.wait().unwrap();
+            panic!("{what}: the child outlived {DEADLINE:?}");
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
 }
 
 /// The most resident memory the process `pid` has reached, in KiB, as
