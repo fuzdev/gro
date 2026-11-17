@@ -63,7 +63,9 @@ jobs:
   # reach it, so it gets its own job. Locally, `cargo xtask check` runs these
   # gates (`check-rust`), the JS/TS step (`check-js`), and `gro check` together.
   rust:
-    runs-on: ubuntu-latest
+    # Pinned: the signal tests start their child under coreutils' `env
+    # --default-signal`, which a later image's `env` (uutils) may lack.
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
 
     steps:
