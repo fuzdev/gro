@@ -119,7 +119,7 @@ any language compiled to it (see [polyglot confinement](#what-the-design-opens-u
   children get the project read-only and only the declared write roots writable ([backstop](backstop.md)).
 - **No prompts.** A grant denial fires at link time, before any confined code has written to your terminal
   (scoped checks inside a grant fail at the call and are reported, failing the run, so a `try/catch` can't hide them:
-  built for `env`, designed for the modules to come),
+  built for `env` and `fs`, designed for the modules to come),
   and the fix is a diff and a fixed command, never a question mid-run.
 - **The bound against a hostile dependency** is the invocation's whole grant set and the kernel box, not the realm:
   one realm shares its prototypes, so attribution catches overreach and the box bounds the deliberate
@@ -378,7 +378,7 @@ where the host modules and grants land with their first consumer.
       (built for the builtin modules, each run on its first import), with no code cache for confined runs
 - [ ] the seal on the global object, with named exceptions, and a free `fetch`'s error naming the import
 - [ ] the host modules (fs, spawn, watch, net, and the process modules), the grants
-      (built so far: the link-time check, `args`, `exit`, `env`, `fs`'s reads, `--allow-env=`, `--allow-read=`, `--allow-write=`, and `-A`),
+      (built so far: the link-time check, the modules [host modules](host_modules.md#the-modules) marks built, and the flags [run](run.md#usage) lists),
       and the policy file, enforced, with the kernel backstop under every run and its children
       ([backstop](backstop.md#the-box-for-runs-and-children)), landing with Gro on Gro
 - [ ] macOS and Windows builds, each with its own sandbox design

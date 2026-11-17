@@ -13,7 +13,7 @@
 ```bash
 fgro run <file> [args...]   # a .js, .mjs, .ts, or .mts module, relative to the working directory or absolute
 fgro run --allow-env=HOME,NO_COLOR <file>   # the env host module, with these two variables
-fgro run --allow-read=../data --allow-write=out <file>   # fs reads ../data and writes out/
+fgro run --allow-read=../data --allow-write=out <file>   # fs reads ../data, and out/ is a write root
 fgro run -A <file>          # unconfined: every grant at its widest
 fgro --version              # the version, the git commit, the V8 version, and whether a startup snapshot is embedded
 ```
@@ -67,7 +67,7 @@ The script reads its arguments as `args`, from `import {args} from '@fuzdev/gro/
 one of the [builtin modules](glossary.md#builtin-module) built so far ([host modules](host_modules.md#the-modules) lists them),
 and ends the run or sets its exit code with `exit` and `set_exit_code`, from `@fuzdev/gro/exit.ts` ([below](#errors-and-exit-codes)).
 User code can't read stdin (there is no `process` global, `Deno`, or `Bun`) and reads the environment only through `@fuzdev/gro/env.ts`, the variables `--allow-env=` or `-A` grants;
-it reads the filesystem only through `@fuzdev/gro/fs.ts`, beneath the project's root and the directories `--allow-read=` names,
+it reads the filesystem only through `@fuzdev/gro/fs.ts`, beneath the project's root and the directories `--allow-read=` names (everything under `-A`),
 and writes nothing yet, since `fs`'s write ops aren't built; no module gives it the network or a process.
 That is the whole of today's confinement: the process itself has no kernel box and no resource limits, the JIT is on,
 and console output reaches the terminal unescaped, so `fgro run` is not yet for code you treat as hostile

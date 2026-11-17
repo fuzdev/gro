@@ -39,7 +39,7 @@ These terms carry this doc, and the [glossary](glossary.md) defines them and the
 Code starts with nothing and gets only what it's granted.
 Confinement is the default, with no flag to turn it on; `-A` (the [escape hatch](glossary.md#escape-hatch), Deno's `--allow-all`, which `fgro` spells only `-A`) turns it off.
 Widening is a visible act, reviewed like a lockfile change.
-A run gets:
+As designed, a run gets:
 
 - **without asking:** what project code reaches through the host modules it imports,
   scoped to reads under the project root, writes to declared write roots,
@@ -90,8 +90,9 @@ and a signed acceptance is designed for when it's needed
 
 ### Run kinds
 
-Every run is one of three kinds, derived from its grants and recorded in the policy file,
-so an entry that stops being hermetic is a reviewed diff.
+As designed, every run is one of three kinds, derived from its grants and recorded in the policy file,
+so an entry that stops being hermetic is a reviewed diff;
+today `fgro eval` is the hermetic one and `fgro run` is confined, or unconfined under `-A`.
 
 | kind       | network and spawn | clock and randomness | reads                         | replays |
 | ---------- | ----------------- | -------------------- | ----------------------------- | ------- |
@@ -104,7 +105,7 @@ A grant is always a grant of something specific, so granting individually,
 even a blanket network grant, keeps a run confined, with a wider reach shown in the diff.
 A net grant names hosts, or is a blanket grant.
 A hermetic run also gets no storage and no by-name channels, since persistence and cross-run channels break replay.
-Only `-A` (Deno's `--allow-all`, which `fgro run` spells only `-A`) and the named unconfined phases below run unconfined.
+Only `-A` and the named unconfined phases below run unconfined.
 Every spawn grant is shown in the diff as bounded by the kernel backstop alone,
 since for most programs the arguments are code (`git -c core.sshCommand=…`, `node -e`) and a handle on the binary bounds the binary, not what it does;
 a shell, or a child given the whole environment, is shown as `-A`.
@@ -188,10 +189,13 @@ Until the Node tools leave the loop, which is the distant end of the roadmap, an
 is confined only as finely as the kernel backstop, by paths and ports rather than the grant set;
 that is the common verb, `gro check`, until then, and the strong claims above describe `gro run` and the dependency's own graph.
 A child process is where a box is weakest, since a program's arguments and its config files are code,
-so children get the project read-only and only the declared write roots writable, at the kernel
+so children are designed to get the project read-only and only the declared write roots writable, at the kernel
 ([backstop](backstop.md#the-box-for-runs-and-children) has the rules and what they close).
 Availability is outside the model: a confined run can spend CPU, memory, and descriptors, and fill its writable roots;
 `fgro eval` caps its own, and `fgro run` has no limits yet ([backstop](backstop.md#resource-limits)).
+A process outside the run that can already rename or replace the project's root or what a grant flag names is outside the model too:
+a flag's directory is held to the real path, identity, and nesting it had as the run started, the project's root to none
+([host modules](host_modules.md#fs-on-fgro)), and nothing more is claimed against such a process.
 The terminal is a channel: confined output can carry escape sequences, so the host is designed to escape a run's own console output
 (a child's inherited terminal stays unescaped, and today `fgro` escapes none, [run](run.md#usage)) and never to print a grant diff inside a run's output
 ([backstop](backstop.md#the-terminal)).
@@ -228,7 +232,7 @@ The net grant is inferred from the graph like a filesystem one, and the hosts it
 Pure globals (`URL`, `TextEncoder`, streams, `console`) are always there,
 and the scoped checks inside a grant (a variable outside a handle's names, a path outside a root, a host not accepted) are the host's, at the call.
 An `import()` refused by rule, an ungranted host module's among them, fails an `fgro run` even when caught, and is listed after it
-([run](run.md#errors-and-exit-codes)), and so does a host function's `not_granted`, built for `env`, listed beside it, so a `try/catch` can't hide either;
+([run](run.md#errors-and-exit-codes)), and so does a host function's `not_granted`, built for `env` and `fs`, listed beside it, so a `try/catch` can't hide either;
 the other scoped checks are designed to do the same as their modules land.
 
 Where the import happens matters: at the [composition root](glossary.md#composition-root),

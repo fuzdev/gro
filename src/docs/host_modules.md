@@ -63,7 +63,8 @@ import {fs} from '@fuzdev/gro/fs.ts';
 
 const src = fs.project.dir('src'); // a handle on `src/`, which must exist
 const text = await src.read_text_if_exists('notes.md'); // `null` when missing
-await fs.project.write('.gro/out.json', JSON.stringify({text}));
+const out = await fs.open_dir(`${fs.project.path}/out`); // on `fgro`, the directory `--allow-write=out` grants
+await out.write('notes.json', JSON.stringify({text}));
 ```
 
 - `fs.project` is the project directory, an `FsDir`
@@ -484,7 +485,7 @@ for await (const chunk of stdin) await stdout.write(chunk); // bytes
 if (args.includes('--fail')) set_exit_code(1);
 ```
 
-The running process is nine modules, one per kind of authority, each exporting a binding of its name:
+The running process is these modules, one per kind of authority, each exporting a binding of its name:
 
 | module               | exports                 | what it carries          | grant on `fgro` |
 | -------------------- | ----------------------- | ------------------------ | --------------- |
@@ -502,7 +503,7 @@ The grants are the design; [the modules](#the-modules) marks which of these are 
 
 Each is its own import, so a module's use of the process shows in its imports, as for `fs` and `spawn`:
 one that writes progress imports `stdout` without holding `stdin` or the environment,
-and on `fgro`, where there's no `process` global, each is its own grant (built for `env`, `args`, and `exit`, designed for the streams),
+and on `fgro`, where there's no `process` global, each is its own grant ([the modules](#the-modules) marks which are built),
 so a package can be accepted for one without the others.
 No module gathers them, since the loader checks a grant per module when the graph links.
 The observations need no grant on `fgro`: each is a value that reaches nothing, and what a package learns from one is little

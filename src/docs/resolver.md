@@ -77,7 +77,7 @@ Whether an importer may import one is the loader's, checked when the graph links
 for a static import and `import()` alike:
 the run must hold the module's grant, when it needs one, and for now only the project's own modules are granted one,
 so a module of an installed or linked package is refused, the message naming the grant and the package,
-while a module that needs none (`cwd.ts`, `pid.ts`, `runtime_version.ts`, `env_error.ts`, `blake3.ts`) is imported by the project's modules and a package's alike
+while a module that needs none (each one [the modules table](host_modules.md#the-modules) marks "no grant") is imported by the project's modules and a package's alike
 (an `import()` in code compiled from a string has no importer of its own and is refused, [run](run.md#what-loads));
 `-A` lifts that for one run, and an acceptance in the policy file is designed to.
 A module of an installed or linked package can't import the project's own modules by name either, so it can't borrow a grant through one
@@ -86,7 +86,7 @@ it's refused naming the package and the module, by a static import, `import()`, 
 The project importing itself, by self-reference or through a link to its own directory, is unaffected, as is a package's self-reference.
 This refuses a workspace sibling or a tool package that imports the app by name;
 an acceptance in the policy file naming the package, or workspace support, is what will admit one.
-`fgro run` grants the project's modules `args` and `exit`, and `env` with the variables `--allow-env=` names ([run](run.md#usage)),
+`fgro run` grants the project's modules `args`, `exit`, and `fs`, and `env` with the variables `--allow-env=` names ([run](run.md#usage)),
 and `fgro eval` imports no builtin module, a grant-free one included,
 refused with a message that names no grant ([eval](eval.md)).
 `import.meta.resolve` returns a builtin module's URL to any importer, granted or not, since it imports nothing.
