@@ -238,6 +238,18 @@ describe('fs_open_path beneath the project', () => {
 		assert.strictEqual(opened.path, 'missing/deeper.ts');
 	});
 
+	test('a path through a file resolves, and the op on it throws `not_a_directory`', async () => {
+		writeFileSync(join(project, 'a.txt'), 'a');
+		const opened = await fs_open_path('a.txt/b.txt');
+		assert.strictEqual(opened.dir, fs.project);
+		assert.strictEqual(opened.path, 'a.txt/b.txt');
+		const opened_dir = await fs_open_dir_path('a.txt/b');
+		assert.ok(opened_dir);
+		assert.strictEqual(opened_dir.dir, fs.project);
+		assert.strictEqual(opened_dir.path, 'a.txt/b');
+		await assert_fs_error_rejects(opened.dir.read_text(opened.path), 'not_a_directory');
+	});
+
 	test('a symlink inside the project that leaves it is followed', async () => {
 		writeFileSync(join(sandbox.root, 'a.txt'), 'a');
 		await with_project_link(sandbox.root, async (link) => {
