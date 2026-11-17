@@ -89,18 +89,21 @@ fn resolve_builtin(
         return Ok(url);
     };
     // `graph.resolve` resolved from it, so the importer is a recorded module
-    let Some(origin) = graph.origin(importer).cloned() else {
+    let Some(origin) = graph.origin(importer) else {
         return Err(Refused::new(
             FailureReason::UnknownImporter,
             format!("cannot import '{specifier}': the importer '{importer}' was never resolved"),
         ));
     };
-    check_grant(authority, builtin, &origin).map_err(|reason| {
-        Refused::new(
-            FailureReason::NotGranted { builtin, origin },
+    if let Err(reason) = check_grant(authority, builtin, origin) {
+        return Err(Refused::new(
+            FailureReason::NotGranted {
+                builtin,
+                origin: origin.clone(),
+            },
             format!("cannot import '{specifier}' from {importer}: {reason}"),
-        )
-    })?;
+        ));
+    }
     graph.admit_builtin(&url, builtin);
     graph.link(importer, specifier, reach, &url);
     Ok(url)
@@ -125,19 +128,15 @@ fn check_grant(
     let Some(capability) = builtin.grant else {
         return Ok(());
     };
-    let needs = format!("it needs the grant '{capability}'");
+    // the message is made only for a refusal, never for a granted import
     match (authority, origin) {
         (Authority::Confined(_), Origin::Package { name, .. }) => Err(format!(
-            "{needs}, which package '{name}' isn't granted: only the project's own modules are \
-             granted host modules"
+            "it needs the grant '{capability}', which package '{name}' isn't granted: only the \
+             project's own modules are granted host modules"
         )),
-        (Authority::Confined(grants), Origin::Project) => {
-            if grants.holds(capability) {
-                Ok(())
-            } else {
-                Err(format!("{needs}, which this run doesn't grant"))
-            }
-        }
-        (Authority::Unconfined, _) => Ok(()),
+        (Authority::Confined(grants), Origin::Project) if !grants.holds(capability) => Err(
+            format!("it needs the grant '{capability}', which this run doesn't grant"),
+        ),
+        (Authority::Confined(_), Origin::Project) | (Authority::Unconfined, _) => Ok(()),
     }
 }
