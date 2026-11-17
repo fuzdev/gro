@@ -190,6 +190,22 @@ fn causes_print_by_name_and_message() {
     );
 }
 
+/// A cause whose name is empty prints its message alone, as its stack
+/// starts.
+#[test]
+fn a_cause_with_an_empty_name_prints_its_message_alone() {
+    let run = run("cause_unnamed.js");
+    assert_eq!(run.code, 1);
+    let url = fixtures_url();
+    assert_eq!(
+        run.stderr,
+        format!(
+            "error: Uncaught (in promise) Error: outer\n    at {url}/cause_unnamed.js:3:7\n\
+             Caused by: unnamed\n    at {url}/cause_unnamed.js:1:15\n"
+        )
+    );
+}
+
 #[test]
 fn a_cyclic_cause_chain_ends_at_the_repeat() {
     let run = run("cause_cycle.js");

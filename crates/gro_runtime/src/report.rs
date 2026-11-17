@@ -116,17 +116,19 @@ pub fn report_js(error: &JsError) -> Report {
     report
 }
 
-/// `Name: message` for an error object, else the thrown value as V8 printed it.
+/// An error object's [`header`], as its stack starts, else, for a thrown
+/// value that isn't one or an error whose `name` or `message` `deno_core`
+/// couldn't read as a string (it then has neither), the value as V8
+/// printed it.
 fn describe(error: &JsError) -> String {
-    match (&error.name, &error.message) {
-        (Some(name), Some(message)) if message.is_empty() => name.clone(),
-        (Some(name), Some(message)) => format!("{name}: {message}"),
-        _ => error
+    match (error.name.as_deref(), error.message.as_deref()) {
+        (None, None) => error
             .exception_message
             .strip_prefix("Uncaught (in promise) ")
             .or_else(|| error.exception_message.strip_prefix("Uncaught "))
             .unwrap_or(&error.exception_message)
             .to_owned(),
+        (name, message) => header(name, message),
     }
 }
 
@@ -206,7 +208,9 @@ fn header(name: Option<&str>, message: Option<&str>) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{Report, header, push_stack};
+    use deno_core::error::JsError;
+
+    use super::{Report, describe, header, push_stack};
 
     /// A message breaks into lines before each frame's `at`, spaces before
     /// it or none, and its other line breaks stay inside its line, a
@@ -286,5 +290,45 @@ mod tests {
         assert_eq!(header(Some("E"), Some("")), "E");
         assert_eq!(header(Some(""), Some("m")), "m");
         assert_eq!(header(Some(""), None), "");
+    }
+
+    /// A cause is described by its header, as its stack starts, an empty
+    /// name printing the message alone; a thrown value that isn't an error
+    /// by what V8 printed of it, without its `Uncaught`.
+    #[test]
+    fn a_cause_is_described_by_its_header() {
+        let error = |name: Option<&str>, message: Option<&str>, exception_message: &str| JsError {
+            name: name.map(str::to_owned),
+            message: message.map(str::to_owned),
+            stack: None,
+            cause: None,
+            exception_message: exception_message.to_owned(),
+            frames: Vec::new(),
+            source_line: None,
+            source_line_frame_index: None,
+            aggregated: None,
+            additional_properties: Vec::new(),
+            stack_is_custom: false,
+        };
+        assert_eq!(describe(&error(Some(""), Some("m"), "Uncaught m")), "m");
+        assert_eq!(
+            describe(&error(
+                Some("TypeError"),
+                Some("m"),
+                "Uncaught TypeError: m"
+            )),
+            "TypeError: m"
+        );
+        assert_eq!(describe(&error(Some("E"), Some(""), "Uncaught E")), "E");
+        assert_eq!(
+            describe(&error(None, Some("m"), "Uncaught Error: m")),
+            "Error: m"
+        );
+        assert_eq!(describe(&error(None, None, "Uncaught 5")), "5");
+        assert_eq!(
+            describe(&error(None, None, "Uncaught (in promise) #<Object>")),
+            "#<Object>"
+        );
+        assert_eq!(describe(&error(None, None, "x")), "x");
     }
 }
