@@ -1396,7 +1396,7 @@ mod tests {
         }
         assert_eq!(found, [""; 0]);
         // the type's own module names it, or `Self`, in its declaration,
-        // its two makers, and the two parameters that take one alone, and
+        // its two makers, and the three parameters that take one alone, and
         // has no child module, macro, or included source: a constructor, a
         // constant, a derive, or a trait's maker elsewhere in it, or out of
         // sight of its lines, is another maker, which no name finds
@@ -1411,6 +1411,7 @@ mod tests {
                 "Self(family)",
                 "pub const fn for_test(family: &'static ErrorFamily) -> Self {",
                 "Self(family)",
+                "family: DeclaredFamily,",
                 "family: DeclaredFamily,",
                 "family: DeclaredFamily,",
             ]

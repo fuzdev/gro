@@ -40,7 +40,7 @@ pub mod native;
 use deno_core::error::ModuleLoaderError as JsErrorBox;
 use deno_core::{OpDecl, OpState, op2, v8};
 
-use error_class::{ENV_ERROR, ErrorClasses, FS_ERROR};
+use error_class::{ENV_ERROR, FS_ERROR};
 use exit::{ExitState, NOT_A_CODE, to_exit_code};
 use grant::require_authority;
 use handle::{BLAKE3_HASHER, ENV_HANDLE, FS_DIR, FS_LISTING, FS_READ_DIR, FS_ROOT};
@@ -58,8 +58,8 @@ const NO_EXIT_STATE: &str = "exit is granted, but this runtime was started witho
 /// What `cwd` throws when the working directory's path isn't UTF-8.
 const CWD_NOT_UTF8: &str = "the working directory's path isn't UTF-8, so Gro can't name it";
 
-/// What the namespace op and `EnvError` throw in a runtime started without
-/// the run's error classes, which only a runtime made outside a run's start
+/// What the host throws where it needs the run's error classes in a runtime
+/// started without them, which only a runtime made outside a run's start
 /// is.
 const NO_ERROR_CLASSES: &str = "this runtime was started without the run's error classes";
 
@@ -281,21 +281,16 @@ native_members! {
     }
 
     /// `EnvError`, the env host module's error class, the host's
-    /// ([`ErrorClasses::class`]), extending the realm's `Error` the
+    /// ([`error_class::exported_class`]), extending the realm's `Error` the
     /// namespace op held.
     value EnvError(state; scope) for "@fuzdev/gro/env_error.ts" class ENV_ERROR(family) {
-        let Some(classes) = state.try_borrow::<ErrorClasses>() else {
-            throw_error(scope, NO_ERROR_CLASSES);
-            return None;
-        };
-        classes.class(scope, family).map(Into::into)
+        error_class::exported_class(state, scope, family)
     }
 
     /// `is_env_error(error, kind?)`, whether `error` is an `EnvError`, of
-    /// `kind` when it's given ([`error_class::is_of_family`]).
+    /// `kind` when it's given ([`error_class::guard`]).
     fn is_env_error(state; scope, error, kind) for "@fuzdev/gro/env_error.ts" {
-        let found = error_class::is_of_family(scope, &ENV_ERROR, error, kind).ok()?;
-        Some(v8::Boolean::new(scope, found).into())
+        error_class::guard(scope, &ENV_ERROR, error, kind)
     }
 
     /// `env`, the root handle, made of the env handles' prototype from the
@@ -370,21 +365,16 @@ native_members! {
     }
 
     /// `FsError`, the fs host module's error class, the host's
-    /// ([`ErrorClasses::class`]), extending the realm's `Error` the
+    /// ([`error_class::exported_class`]), extending the realm's `Error` the
     /// namespace op held.
     value FsError(state; scope) for "@fuzdev/gro/fs_error.ts" class FS_ERROR(family) {
-        let Some(classes) = state.try_borrow::<ErrorClasses>() else {
-            throw_error(scope, NO_ERROR_CLASSES);
-            return None;
-        };
-        classes.class(scope, family).map(Into::into)
+        error_class::exported_class(state, scope, family)
     }
 
     /// `is_fs_error(error, kind?)`, whether `error` is an `FsError`, of
-    /// `kind` when it's given ([`error_class::is_of_family`]).
+    /// `kind` when it's given ([`error_class::guard`]).
     fn is_fs_error(state; scope, error, kind) for "@fuzdev/gro/fs_error.ts" {
-        let found = error_class::is_of_family(scope, &FS_ERROR, error, kind).ok()?;
-        Some(v8::Boolean::new(scope, found).into())
+        error_class::guard(scope, &FS_ERROR, error, kind)
     }
 
     /// `is_own_fs_error(value)`, whether `value` is an `FsError` the host

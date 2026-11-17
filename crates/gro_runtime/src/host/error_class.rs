@@ -71,9 +71,11 @@
 
 use std::cell::RefCell;
 
-use deno_core::v8;
+use deno_core::{OpState, v8};
 
-use super::{Thrown, name, own_data, throw_error, throw_range_error, throw_type_error};
+use super::{
+    NO_ERROR_CLASSES, Thrown, name, own_data, throw_error, throw_range_error, throw_type_error,
+};
 
 /// A family of host-module errors, as its class is named.
 #[derive(Debug, PartialEq, Eq)]
@@ -316,6 +318,22 @@ impl ErrorClasses {
     }
 }
 
+/// What an error row exports as its class (`EnvError`, `FsError`): the
+/// run's class of `family` ([`ErrorClasses::class`]). `None` when making it
+/// threw, the exception pending, an `Error` saying so among them when the
+/// runtime was started without the run's error classes.
+pub(super) fn exported_class<'s>(
+    state: &OpState,
+    scope: &v8::PinScope<'s, '_>,
+    family: DeclaredFamily,
+) -> Option<v8::Local<'s, v8::Value>> {
+    let Some(classes) = state.try_borrow::<ErrorClasses>() else {
+        throw_error(scope, NO_ERROR_CLASSES);
+        return None;
+    };
+    classes.class(scope, family).map(Into::into)
+}
+
 /// The realm's `Error.prototype`, the prototype of an error V8 makes,
 /// never a property a program can have replaced.
 fn error_prototype<'s>(scope: &v8::PinScope<'s, '_>) -> Option<v8::Local<'s, v8::Value>> {
@@ -470,11 +488,25 @@ fn concat<'s>(
     joined
 }
 
+/// What a family's guard (`is_env_error(error, kind?)`, `is_fs_error`)
+/// returns: whether `value` is an error of `family`, of `kind` unless it's
+/// `undefined` ([`is_of_family`]). `None` when a read threw, the exception
+/// pending.
+pub(super) fn guard<'s>(
+    scope: &v8::PinScope<'s, '_>,
+    family: &ErrorFamily,
+    value: v8::Local<'_, v8::Value>,
+    kind: v8::Local<'_, v8::Value>,
+) -> Option<v8::Local<'s, v8::Value>> {
+    let found = is_of_family(scope, family, value, kind).ok()?;
+    Some(v8::Boolean::new(scope, found).into())
+}
+
 /// Whether `value` is an error of `family`, of `kind` unless it's
-/// `undefined`, as its guard answers (`is_env_error(error, kind?)`), by
-/// its prototype chain, reading only data properties: a proxy, or an
-/// accessor on the way, is no match, and none is run.
-pub(super) fn is_of_family(
+/// `undefined`, as its guard answers ([`guard`]), by its prototype chain,
+/// reading only data properties: a proxy, or an accessor on the way, is no
+/// match, and none is run.
+fn is_of_family(
     scope: &v8::PinScope<'_, '_>,
     family: &ErrorFamily,
     value: v8::Local<'_, v8::Value>,
