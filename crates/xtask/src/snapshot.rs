@@ -569,16 +569,23 @@ mod tests {
     }
 
     /// The filter [`verify`] runs `gro_runtime`'s tests by matches the tests
-    /// it means: `runtime.rs` has a `tests` module, and in it the test that
-    /// starts its runtimes from the build's snapshot. A renamed module or
-    /// test would otherwise leave the step running nothing, and passing.
+    /// it means: `runtime.rs` has a `tests` module, `runtime/tests.rs` the
+    /// child test every snapshot probe runs in, and `eval_refusals` the test
+    /// that starts its runtimes from the build's snapshot. A renamed module
+    /// or test would otherwise leave the step running nothing, and passing.
     #[test]
     fn verify_s_runtime_tests_filter_matches_the_tests() {
         assert_eq!(RUNTIME_TESTS, "runtime::tests::");
-        let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../gro_runtime/src/runtime.rs");
-        let source = fs::read_to_string(source).unwrap();
-        let (_, tests) = source.split_once("\nmod tests {\n").unwrap();
-        assert!(tests.contains("\n    fn the_built_snapshot_refuses_the_refused_ops() {\n"));
+        let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("../gro_runtime/src");
+        let read = |file: &str| fs::read_to_string(src.join(file)).unwrap();
+        assert!(read("runtime.rs").contains("\nmod tests;\n"));
+        let tests = read("runtime/tests.rs");
+        assert!(tests.contains("\nmod eval_refusals;\n"));
+        assert!(tests.contains("\nfn snapshot_child() {\n"));
+        assert!(
+            read("runtime/tests/eval_refusals.rs")
+                .contains("\nfn the_built_snapshot_refuses_the_refused_ops() {\n")
+        );
     }
 
     /// The integration tests [`verify`] runs are `gro_cli`'s, every one:
