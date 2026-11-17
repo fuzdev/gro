@@ -117,8 +117,8 @@ The binary embeds the commit, so a dirty tree (a changed file, or an untracked o
   the class and guard the runtime makes ([host modules](host_modules.md#error-classes-on-fgro)).
 - `@fuzdev/gro/blake3.ts`, a builtin module that needs no grant: BLAKE3 over bytes by the native `blake3` crate,
   one-shot and by hashers whose state is the runtime's ([host modules](host_modules.md#blake3)).
-- `@fuzdev/gro/fs.ts`, a builtin module that needs the `fs` grant: `fs.project`, `fs.open_dir`, `fs.real_path`, and a handle's
-  `dir`, `readonly`, `stat`, `exists`, reads, `read_link`, and `list`, beneath the project's root and the directories the flags grant,
+- `@fuzdev/gro/fs.ts`, a builtin module that needs the `fs` grant: the members [host modules](host_modules.md#fs-on-fgro) lists as built,
+  beneath the project's root and the directories the flags grant,
   a read refusing anything but a regular file at once; `fs.open_dir` or `fs.real_path` outside them rejects
   with `FsError` `not_granted`, which fails the run caught or not, and so does a read through a handle that doesn't read
   or a write through one that doesn't write, while a handle's reach outside its directory is `outside_root`, which doesn't,

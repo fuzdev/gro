@@ -13,7 +13,7 @@
 >   ([eval](eval.md))
 >
 > Designed, not built: the host modules (`fs`, `spawn`, `net`, `watch`, and the process modules exist as their Node implementation,
-> and on `fgro` only the ones [host modules](host_modules.md#the-modules) marks built), the grant flags but `--allow-env=`, `--allow-read=`, `--allow-write=`, and `-A`, the policy file,
+> and on `fgro` only the ones [host modules](host_modules.md#the-modules) marks built), the grant flags beyond those listed in [run](run.md#usage), the policy file,
 > the seal on the global object, and the kernel backstop for `run`.
 > Until they land, `fgro run` gives code no API past its own module graph, the console, and those builtin modules,
 > but the process itself isn't confined or limited: against code that exploits V8 it's an ordinary process with your user's authority,
@@ -69,7 +69,7 @@ Node for Gro and the tools it wraps like SvelteKit and Vite,
 and Deno for scripts, tests, and evaluating config it didn't trust under permission flags.
 When [Cloudflare bought Deno](https://deno.com/blog/cloudflare) and put the runtime on bug and security fixes
 until its end of life in October 2027, everything on it had to move.
-The scripts and tests go to Node.
+The scripts and tests went to Node.
 The sandbox was the part worth owning,
 since a security boundary is the last thing to leave on a runtime with a fixed end of life,
 and the first thing to want by default instead of by flag.
@@ -101,7 +101,7 @@ any language compiled to it (see [polyglot confinement](#what-the-design-opens-u
   So a run's reach is inferred from its import graph, and a dependency bump that newly reaches the network
   or a process is a new edge, attributed to the package.
 - **The source proposes, the policy file authorizes.** Inference proposes a run's grants and the committed
-  policy file (currently `gro.policy.json`) records what a person accepted; `gro check` fails on a widening until the diff is accepted,
+  policy file (designed, provisionally named `gro.policy.json`) records what a person accepted; `gro check` fails on a widening until the diff is accepted,
   the same cadence as a lockfile. The loader enforces every edge at link time, literal or computed,
   so the policy holds where a static walk can't see.
 - **Nothing to declare for the common case.** Reads under the project root, writes to declared write roots,
@@ -127,7 +127,7 @@ any language compiled to it (see [polyglot confinement](#what-the-design-opens-u
 
 Of all this, the omissions are built (`fgro` has no runtime namespace, no Node compat, no remote imports, and no authority globals),
 `fgro eval`'s box is built, the builtin modules' link-time grant check is built with the modules [host modules](host_modules.md#the-modules) marks built its only host APIs,
-`--allow-env=`, `--allow-read=`, `--allow-write=`, and `-A` are built, and the rest of the host modules, the other grant flags, the policy file, the seal, and the box for `run` are designed.
+the grant flags [run](run.md#usage) lists are built, and the rest of the host modules, the other grant flags, the policy file, the seal, and the box for `run` are designed.
 
 ## Design
 
@@ -194,7 +194,7 @@ Each bullet marks what's built; anything unmarked past the omissions is designed
   Like Node's stripper it takes erasable syntax only, so anything with runtime semantics
   (an `enum`, a parameter property) is refused with its position and a fix, never transformed.
   [typescript](typescript.md) has the rules, the refused list, and the file types.
-- **No ambient authority** (the link-time check, `--allow-env=`, `--allow-read=`, `--allow-write=`, and `-A` built; the other grant flags and the seal designed). The grant set is a constructor argument of the runtime,
+- **No ambient authority** (the link-time check and the grant flags [run](run.md#usage) lists built; the other grant flags and the seal designed). The grant set is a constructor argument of the runtime,
   empty by default, not process-level flags checked at call time.
   Host modules are imports and the module loader is the boundary,
   so an ungranted module fails at link time, not at the first call.
@@ -338,10 +338,10 @@ As designed, except where marked built:
 
 ## Roadmap
 
-The first target is retiring Deno from the Fuz stack before its end of life
-in October 2027 (see [Why](#why)).
+The first target, retiring Deno from the Fuz stack before its end of life
+in October 2027 (see [Why](#why)), is met.
 Until Node leaves much later, third-party Node tools (Vite, vitest, eslint, svelte-check)
-run as Node subprocesses under the invocation's kernel rules.
+run as Node subprocesses; the design puts them under the invocation's kernel rules.
 The runtime and Gro's workflow on it are two tracks, and they meet at Gro on Gro,
 where the host modules and grants land with their first consumer.
 
@@ -388,14 +388,14 @@ where the host modules and grants land with their first consumer.
 ### Gro's workflow
 
 - [x] on the Node Gro, `gro task <path>` replaces the bare `gro <name>` task search
-      and the loader is strict, so the scripts the Deno exit ports are written once, in the final shape
+      and the loader is strict, so the scripts the Deno exit ported were written once, in the final shape
 - [ ] on the Node Gro, `gro check` infers each task's grants
       and diffs them against the committed policy file, labeled advisory,
       since Node enforces none of it, and reports each grant the graph no longer imports,
       the source for pruning the policy file
 - [ ] on the Node Gro, a lint generated from the authority table,
       refusing free authority globals in code meant for the runtime, a portability check
-- [ ] the Deno exit: config eval is on `gro eval`, and the stack's other Deno uses move to Node,
+- [x] the Deno exit: config eval is on `gro eval`, and the stack's other Deno uses moved to Node,
       `deno task` becoming npm scripts or gro tasks
 - [ ] Gro on Gro, with tasks, gen, and check running on the runtime and enforcing the policy file
       (until then the CLI passes every host module)

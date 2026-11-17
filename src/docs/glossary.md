@@ -10,8 +10,8 @@
 
 The record of what a run actually used (files read, processes spawned, env read, hosts reached),
 taken by the host as each call happens.
-A host op isn't told which module called it, and finding out takes a stack walk per call,
-so how finely a use is attributed (the entry, a package, or a module) is open.
+A host op isn't told which module called it: attributing a use to a package would take an instance of the host module per origin,
+and to a module a stack walk per call, so how finely a use is attributed (the entry, a package, or a module) is open.
 It's evidence of [use](#reach-need-and-use), and it enforces nothing.
 
 ## admission
@@ -79,6 +79,14 @@ against code that escapes the engine. For `fgro run` its link-time grant check i
 A grant a person writes, in a static `grants` literal or a flag, rather than one [inferred](#inference):
 named hosts, a read root outside the project, a spawn allowlist.
 A declaration is a proposal until the [policy file](#policy-file) accepts it.
+
+## deny overlays
+
+Refusals that hold inside a granted root, short of `-A`:
+reads of `.env*` files except through the host's env reader and of credential files (`~/.ssh`, `.git/config`),
+and writes under `.git` and `node_modules`.
+Designed ([authority](authority.md#secure-by-default)); until they land, `fs` on `fgro` reads any file beneath a root that reads,
+the project's `.env` files included ([host modules](host_modules.md#fs-on-fgro)).
 
 ## determinism modes
 
@@ -206,7 +214,7 @@ or enters another root nested in it, and `"exports"` targets and self-references
 
 ## policy file
 
-The committed record of the grants accepted in review, currently `gro.policy.json`.
+The committed record of the grants accepted in review, designed and provisionally named `gro.policy.json`.
 It holds each entry's grants and [run kind](#run-kinds) (for Gro, each task and gen file),
 and the project's check (`gro check`) diffs it like a lockfile, failing on a widening until a person accepts it.
 It names a spawn grant's programs, while each one's pin, a real path that differs per machine, is designed to live in a local file that isn't committed.
@@ -260,7 +268,7 @@ A module's root is the innermost admitted one above its real path,
 and a relative or absolute import resolves only inside its importer's root,
 never into `node_modules` below it or into another root nested in it.
 
-The `fs` host module's roots on `fgro` are another table: the directories a run reads or writes,
+The `fs` host module's roots on `fgro` are another table: the directories a run reads or writes ([read and write roots](#write-root)),
 each opened once and held by a descriptor, which every [handle](#handle) resolves beneath;
 the project root is the first ([host modules](host_modules.md#fs-on-fgro)).
 
@@ -288,6 +296,14 @@ like `dist/esm/package.json`. It sets a directory's module format without boundi
 
 ## unconfined
 
-The [run kind](#run-kinds) under `-A` or a named unconfined phase,
+The [run kind](#run-kinds) under `-A` or a named unconfined phase (designed),
 like Gro's `publish` and `deploy`, which push and use credentials:
 every grant at its widest, with no global added and native code still out of process.
+
+## write root
+
+A directory a run may write.
+As designed, a project's are declared and accepted like any [grant](#grant) (`dist/`, `build/`, `.gro/`),
+and a child process gets only these writable at the kernel ([backstop](backstop.md#the-box-for-runs-and-children));
+on `fgro run` today, a run's write roots are each directory `--allow-write=` names, or `/` under `-A`, though `fs`'s write ops aren't built yet.
+A read root is the same for reads. On `fgro`, each read or write root is one of the `fs` module's [roots](#root).

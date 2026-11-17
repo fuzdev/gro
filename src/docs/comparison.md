@@ -64,7 +64,7 @@ The difference between a guarantee by omission and an opt-out flag is where the 
 In Deno, safety belongs to the invocation,
 so auditing a project means auditing every way it's run and the flags each one passes.
 In Gro it belongs to the repo: it holds for every run,
-so a reviewer reads the code, the policy file, and any invocation that passes `--allow-*` or `-A` for one run.
+so a reviewer reads the code, the policy file once it's built, and any invocation that passes `--allow-*` or `-A` for one run.
 Gro commits to never adding these paths.
 Where it keeps a Node convention, like `exports` resolution through `node_modules`,
 it's because that's the global maximum for Gro across security, speed, and ergonomics,
@@ -73,7 +73,7 @@ with security first, not compatibility for its own sake.
 Most of Gro's permission model follows from the first of these:
 
 - **Who holds a grant.** A Gro grant belongs to the module graph that imports the host module,
-  and a dependency's reach is attributed to the import chain that brought it in,
+  and a dependency's reach is attributed to the package whose module imports the host module, never to the chain that brought it in,
   so the diff names the package whose import newly reaches the network, or any other authority.
   A capability handed down by reference stays attributed to the project or package whose module imported it;
   handing never widens, and what a root hands to a library shows in the root's code, not the diff.
@@ -100,7 +100,7 @@ Most of Gro's permission model follows from the first of these:
   so one policy file and one inference cover both.
 
 In one line, Deno's lockfile pins which code runs, and its config can hold a hand-written permission set for the process,
-while Gro's policy file pins what that code can reach, per import chain, inferred from the graph,
+while Gro's policy file pins what that code can reach, per package, inferred from the graph,
 and is treated like the lockfile, committed, diffed, and reviewed.
 
 Two limits belong beside that claim, and one cost.
@@ -111,8 +111,8 @@ The import boundary holds against code that overreaches, not a dependency built 
 which can patch a shared prototype in the same realm
 (the runtime's [threat model](authority.md#threat-model) says where the bound is then).
 And of all this, the omissions are built (`fgro` has no namespace, no Node compat, and no remote imports),
-the link-time grant check by origin is built for the builtin modules, with `--allow-env=`, `--allow-read=`, `--allow-write=`, and `-A`,
-and inference, attribution by import chain, the other grant flags, and the policy file are designed.
+the link-time grant check by origin is built for the builtin modules, with the grant flags listed in [run](run.md#usage),
+and inference, attribution by package, the other grant flags, and the policy file are designed.
 
 ### What Deno could adopt, and Gro turns on
 
@@ -254,8 +254,8 @@ Gro's cells for a feature start with one of these words:
 | ------------------------------- | -------------------------------------------------- | ------------------------------------------------------------------- | ------- | ------------------------------------------------------------------------------------------- |
 | default                         | everything                                         | nothing; flags grant                                                | everything | designed: confined, the import graph's reach plus the policy file                        |
 | opt-in model                    | `--permission`, stable since 22.13 and 23.5        | `--allow-*` and `--deny-*`, with allowlists                         | none    | designed: none needed in a project, confined is the default; `--allow-*` for one run, `-A` the escape hatch; built: `--allow-env=`, `--allow-read=`, `--allow-write=`, and `-A` |
-| unit of a grant                 | the process, or a worker given its own flags in `execArgv` | the process (every module on a thread holds it)                     | —       | designed: the module graph, attributed to the importing chain, the network included |
-| a dependency's reach is attributable | no                                       | dynamically, by stack trace (`DENO_TRACE_PERMISSIONS`); not statically                                                                  | —       | designed: by the import chain, for every grant                                              |
+| unit of a grant                 | the process, or a worker given its own flags in `execArgv` | the process (every module on a thread holds it)                     | —       | designed: the module graph, attributed to the importing module's origin, the network included |
+| a dependency's reach is attributable | no                                       | dynamically, by stack trace (`DENO_TRACE_PERMISSIONS`); not statically                                                                  | —       | designed: by the importing module's origin, for every grant                                              |
 | how a grant is declared         | flags, or a `node.config.json` read under a flag | flags, or baked into a task                                         | —       | designed: host modules inferred from imports, the network among them; hosts and roots declared; the policy file authorizes; flags for one run |
 | where a denial lands            | at the call, `ERR_ACCESS_DENIED`                   | at the call, `NotCapable`, catchable                                | —       | built: at link time for an ungranted builtin module, and `env`'s and `fs`'s scoped denials reported by the host; designed: the rest of the scoped denials |
 | prompts                         | no                                                 | yes on a terminal, `--no-prompt` off                                | —       | designed: never                                                                             |

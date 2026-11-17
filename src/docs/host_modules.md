@@ -259,6 +259,7 @@ Gro's own sweeps, like `gro format`'s, act on regular files only and skip a syml
 
 ```ts
 import {spawn} from '@fuzdev/gro/spawn.ts';
+import {stdout} from '@fuzdev/gro/stdout.ts';
 
 const git = spawn.program('git', {pass_env: ['GIT_*', 'SSH_AUTH_SOCK']});
 const status = await git.out(['status', '--porcelain']);
@@ -277,7 +278,7 @@ const check = await spawn.program('node_modules/.bin/svelte-check').start([], {
 	stdio: ['inherit', 'pipe', 'pipe'],
 	timeout_ms: 300_000
 });
-for await (const chunk of check.stdout!) process.stdout.write(chunk);
+for await (const chunk of check.stdout!) await stdout.write(chunk);
 const result = await check.closed;
 ```
 
@@ -588,7 +589,7 @@ A builtin module declares no types of its own: its types are the Node module's, 
 A set of cases run under both runtimes holds each builtin module's values to what the Node module's are,
 their shapes, property descriptors, and what throws, but where a case names a difference by design.
 
-`cwd`, `pid`, `runtime_version`, and `env_error` need no grant: any module of a run imports them, a package's included,
+The observations and `env_error` need no grant: any module of a run imports them, a package's included,
 and under `fgro run` each is the real value, with no switch that fixes or refuses one yet.
 
 `runtime_version` carries the commit the binary was built from, as `fgro --version` prints it,

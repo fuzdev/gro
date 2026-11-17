@@ -28,7 +28,7 @@ These terms carry this doc, and the [glossary](glossary.md) defines them and the
 - a **grant** is one accepted reach, like a host module, named hosts, or a read root,
   accepted for an entry and held by an [origin](glossary.md#origin), the project or one package,
   so any module of that origin may import what it's granted, and nothing is scoped per module
-- the **policy file** (currently `gro.policy.json`) is the committed record of the grants accepted in review
+- the **policy file** (designed, provisionally named `gro.policy.json`) is the committed record of the grants accepted in review
 - every run is one of three **kinds** by what it reaches and depends on,
   hermetic (replayable), confined (bounded), or unconfined
 - the **kernel backstop** is a coarsening of the grant set enforced as Linux kernel rules (Landlock, seccomp),
@@ -129,7 +129,7 @@ A widening of the second kind is a diff accepted in review, and the first kind h
 
 The exceptions are explicit and labeled.
 `-A` is the one flag that widens everything, never a default; a few grants are as strong (a shell, a child's whole environment) and are shown that way.
-A tool built on the runtime can name unconfined phases, like Gro's `publish` and `deploy`,
+As designed, a tool built on the runtime names unconfined phases, like Gro's `publish` and `deploy`,
 which push and use credentials;
 they're shown that way in the policy diff, with credentials passed to the one process that needs them.
 

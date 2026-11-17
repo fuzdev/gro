@@ -121,13 +121,13 @@ Reportable upstream: yes, for embedders that set their own callback.
 
 A synthetic module (an extension's `synthetic_esm_modules` facade, which
 `deno_core` builds from its backing script's exports) has no source, and its
-load skipped the check that refuses a source-phase import of a JavaScript
+load skipped the check that refuses a source-phase import of a JS
 module. `import.source` of one then reached the `expect` that reads the
 module's source and panicked, aborting the process.
 
 - `modules/recursive_load.rs`, `RecursiveModuleLoad::register_and_recurse_impl`:
   a source-phase request for a synthetic module is refused with a
-  `ReferenceError`, as one for a JavaScript module is, before the module is
+  `ReferenceError`, as one for a JS module is, before the module is
   built
 
 Reportable upstream: yes, as a panic reachable from JS.
