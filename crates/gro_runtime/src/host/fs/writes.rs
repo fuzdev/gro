@@ -41,14 +41,13 @@ use deno_core::{OpState, v8};
 use super::roots::{Held, Refusal, Root, holds_a_root};
 use super::walk::scope_needed;
 use super::{
-    Failure, Handle, Lexical, MODULE, Scope, finish, handle_root, is_missing, op_failure,
+    Access, Failure, Handle, Lexical, MODULE, finish, handle_root, is_missing, op_failure,
     path_text, read_flag, read_handle, read_option, root_fd, rule_failure, run_roots, run_state,
     sys, to_lexical,
 };
 use crate::host::error_class::DeclaredFamily;
 use crate::host::handle::FS_DIR;
 use crate::host::string;
-use crate::{FsNeed, NeededGrant};
 
 /// The permission bits a file `write` makes gets when its options name
 /// none, less the process's umask, as Node's `writeFile` makes one.
@@ -143,19 +142,14 @@ impl Op<'_> {
     /// refuses, `ruled`, with a path written that is or holds one by its
     /// text, which no grant lets through.
     fn granted(&self, written: usize, ruled: bool) -> Result<(), Failure> {
-        let targets: Vec<String> = self.ends.iter().map(|end| end.target.clone()).collect();
+        let targets: Vec<&str> = self.ends.iter().map(|end| end.target.as_str()).collect();
         let (read, write) = targets.split_at(written.min(targets.len()));
-        if let Some(first) = read.first()
+        if let Some(&first) = read.first()
             && !self.handle.scope.read
         {
             return Err(Failure::NotGranted {
-                path: first.clone(),
-                needed: Some(scope_needed(
-                    &self.roots,
-                    read,
-                    Scope::READ,
-                    NeededGrant::Fs(FsNeed::Read),
-                )),
+                path: first.to_owned(),
+                needed: Some(scope_needed(&self.roots, read, Access::Read)),
             });
         }
         if self.handle.scope.write {
@@ -164,18 +158,12 @@ impl Op<'_> {
         let needed = if ruled && write.iter().any(|path| holds_a_root(&self.roots, path)) {
             None
         } else {
-            Some(scope_needed(
-                &self.roots,
-                write,
-                Scope::WRITE,
-                NeededGrant::Fs(FsNeed::Write),
-            ))
+            Some(scope_needed(&self.roots, write, Access::Write))
         };
         Err(Failure::NotGranted {
             path: write
                 .first()
-                .cloned()
-                .unwrap_or_else(|| self.handle_path.clone()),
+                .map_or_else(|| self.handle_path.clone(), |&path| path.to_owned()),
             needed,
         })
     }

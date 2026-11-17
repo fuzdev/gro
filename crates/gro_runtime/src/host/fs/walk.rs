@@ -28,21 +28,16 @@
 //! symlink, and the refusal itself names the path.
 
 use super::roots::Root;
-use super::{Failure, Scope, beneath_of, join, kind_of, root_fd, sys};
+use super::{Access, Failure, Scope, beneath_of, join, kind_of, root_fd, sys};
 use crate::{FsNeed, NeededGrant};
 
 /// What lets through an op on `targets`, absolute paths, that a handle
-/// refused for want of `need`: a handle `fs.open_dir` makes on a root
-/// doing `need` that holds every target by its text, when one does, since
-/// a grant wouldn't widen the handle that refused it; else `grant`, the
-/// grant of `need`.
-pub(super) fn scope_needed(
-    roots: &[Root],
-    targets: &[String],
-    need: Scope,
-    grant: NeededGrant,
-) -> NeededGrant {
-    // each target's roots doing `need`
+/// refused for want of `access`: a handle `fs.open_dir` makes on a root
+/// doing it that holds every target by its text, when one does, since a
+/// grant wouldn't widen the handle that refused it; else the grant of it.
+pub(super) fn scope_needed(roots: &[Root], targets: &[&str], access: Access) -> NeededGrant {
+    let need = access.scope();
+    // each target's roots doing `access`
     let mut held = targets.iter().map(|target| {
         let names: Vec<String> = target
             .split('/')
@@ -62,7 +57,7 @@ pub(super) fn scope_needed(
     {
         NeededGrant::Fs(FsNeed::OpenDir)
     } else {
-        grant
+        NeededGrant::Fs(access.grant())
     }
 }
 
@@ -236,7 +231,7 @@ fn find_roots<'r>(
 #[cfg(test)]
 mod tests {
     use super::super::tests::shown;
-    use super::{Failure, Root, Scope, find_roots, scope_needed, sys, walk};
+    use super::{Access, Failure, Root, Scope, find_roots, scope_needed, sys, walk};
     use crate::{FsNeed, NeededGrant};
 
     /// A root at `path`, never opened, reading and writing.
@@ -444,13 +439,12 @@ mod tests {
             scoped("/data/w/sub", &[], Scope::ALL),
         ];
         let needed = |targets: &[&str], need: Scope| {
-            let grant = if need.write {
-                NeededGrant::Fs(FsNeed::Write)
+            let access = if need.write {
+                Access::Write
             } else {
-                NeededGrant::Fs(FsNeed::Read)
+                Access::Read
             };
-            let targets: Vec<String> = targets.iter().map(|&target| target.to_owned()).collect();
-            scope_needed(&roots, &targets, need, grant)
+            scope_needed(&roots, targets, access)
         };
         let (open_dir, read, write) = (
             NeededGrant::Fs(FsNeed::OpenDir),

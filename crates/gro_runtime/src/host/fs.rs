@@ -181,6 +181,33 @@ impl Scope {
     }
 }
 
+/// What an op does through a handle, which the handle's scope may lack.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Access {
+    /// It reads.
+    Read,
+    /// It writes.
+    Write,
+}
+
+impl Access {
+    /// The scope that does it.
+    const fn scope(self) -> Scope {
+        match self {
+            Self::Read => Scope::READ,
+            Self::Write => Scope::WRITE,
+        }
+    }
+
+    /// The grant of it.
+    const fn grant(self) -> FsNeed {
+        match self {
+            Self::Read => FsNeed::Read,
+            Self::Write => FsNeed::Write,
+        }
+    }
+}
+
 impl FsState {
     /// That the kernel serves `openat2`, asked once a run while it does,
     /// else a plain `Error` saying what's missing.
@@ -376,12 +403,7 @@ fn beneath(roots: &[Root], handle: Handle, requested: String) -> Result<Beneath,
     let lexical = to_lexical(&requested, &handle_path)?;
     let target = lexical.path_beneath(&handle_path);
     if !handle.scope.read {
-        let needed = scope_needed(
-            roots,
-            std::slice::from_ref(&target),
-            Scope::READ,
-            NeededGrant::Fs(FsNeed::Read),
-        );
+        let needed = scope_needed(roots, &[target.as_str()], Access::Read);
         return Err(Failure::NotGranted {
             path: target,
             needed: Some(needed),
