@@ -4,6 +4,9 @@
 //! terminal's Ctrl-C would, and checks the child died by the interrupt, the
 //! guarded group with it, and the released group lived. A handled signal
 //! never reaches this process, nor libtest's harness, which it would end.
+//! The handler leaves a signal the process inherits ignored as it is, so the
+//! child starts under `env --default-signal=INT`, `SIGINT` at its default
+//! however the test was launched.
 
 #![expect(clippy::unwrap_used, reason = "a test's setup and its failures panic")]
 
@@ -28,7 +31,9 @@ fn main() {
 /// survived.
 fn parent() {
     let exe = std::env::current_exe().unwrap();
-    let mut child = Command::new(&exe)
+    let mut child = Command::new("env")
+        .arg("--default-signal=INT")
+        .arg(&exe)
         .arg("child")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

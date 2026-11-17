@@ -4,7 +4,7 @@
 use std::process::{Command, Stdio};
 
 use crate::support;
-use crate::support::{fgro_command, spawn, wrapped_fgro_command};
+use crate::support::{spawn, wrapped_fgro_command};
 
 use crate::{REFUSALS_FAIL, fixtures_url, run, run_in, run_with, temp_fixtures};
 
@@ -995,9 +995,11 @@ await fs.project.remove('out');
 }
 
 /// A run killed by a signal after its program caught a refusal by rule
-/// ends by the signal, never exit 0, and prints nothing. A run that
-/// inherits the signal ignored (from a shell's `&` without job control, or
-/// `nohup`) keeps it ignored and runs on, so the wait is bounded.
+/// ends by the signal, never exit 0, and prints nothing. `fgro` keeps the
+/// signal dispositions it inherits, and a run that inherits a signal ignored
+/// (from a shell's `&` without job control, or `nohup`) runs on, so the
+/// run starts under `env --default-signal`, both at their defaults however
+/// the test was launched, and the wait is bounded.
 #[test]
 fn a_run_killed_by_a_signal_after_a_refusal_ends_by_the_signal() {
     use std::os::unix::process::ExitStatusExt as _;
@@ -1006,7 +1008,9 @@ fn a_run_killed_by_a_signal_after_a_refusal_ends_by_the_signal() {
                   setInterval(() => {}, 1000);\n";
     let fixtures = temp_fixtures("refused_then_signal", &[("main.js", source)]);
     for (name, signal) in [("TERM", 15), ("INT", 2)] {
-        let mut command = fgro_command(&["run", "main.js"]);
+        let mut env = Command::new("env");
+        env.arg("--default-signal=INT,TERM");
+        let mut command = wrapped_fgro_command(env, &["run", "main.js"]);
         command
             .current_dir(&fixtures.0)
             .stdin(Stdio::null())
