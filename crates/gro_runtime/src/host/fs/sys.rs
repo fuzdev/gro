@@ -13,7 +13,7 @@
 
 use std::ffi::OsString;
 use std::io;
-use std::os::fd::{AsFd as _, BorrowedFd, OwnedFd};
+use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -106,25 +106,38 @@ pub fn dir_metadata(root: &OwnedFd, rel: &Path) -> io::Result<std::fs::Metadata>
     std::fs::File::from(fd).metadata()
 }
 
-/// The handle's directory at `beneath` its root, opened, or none
-/// for the root's own: its path is real, so a symlink on it, one
-/// swapped in since, is refused.
-fn handle_dir(root: &OwnedFd, beneath: &str) -> Result<Option<OwnedFd>, OpError> {
-    open_handle_dir(root, beneath).map_err(OpError::Handle)
+/// The directory an op on a handle acts in: its root's, or the handle's
+/// directory opened beneath it.
+struct HandleDir<'r> {
+    /// The root's descriptor.
+    root: BorrowedFd<'r>,
+    /// The handle's directory, none for the root's own.
+    opened: Option<OwnedFd>,
 }
 
-/// [`handle_dir`], its failure the open's.
-fn open_handle_dir(root: &OwnedFd, beneath: &str) -> io::Result<Option<OwnedFd>> {
-    if beneath.is_empty() {
-        return Ok(None);
+impl<'r> HandleDir<'r> {
+    /// The handle's directory at `beneath` the root `root`, opened, or
+    /// the root's own for none: its path is real, so a symlink on it,
+    /// one swapped in since, is refused.
+    fn open(root: &'r OwnedFd, beneath: &str) -> io::Result<Self> {
+        let root = root.as_fd();
+        let opened = if beneath.is_empty() {
+            None
+        } else {
+            Some(beneath::open(
+                root,
+                Path::new(beneath),
+                OpenAs::Directory,
+                Links::Refused,
+            )?)
+        };
+        Ok(Self { root, opened })
     }
-    beneath::open(
-        root.as_fd(),
-        Path::new(beneath),
-        OpenAs::Directory,
-        Links::Refused,
-    )
-    .map(Some)
+
+    /// Its descriptor, borrowed.
+    fn fd(&self) -> BorrowedFd<'_> {
+        self.opened.as_ref().map_or(self.root, AsFd::as_fd)
+    }
 }
 
 /// The entry at `rel` beneath the handle's directory, at `beneath`
@@ -135,10 +148,8 @@ pub fn stat(
     rel: String,
     follow: bool,
 ) -> Result<Info, OpError> {
-    let held = handle_dir(&root, &beneath)?;
-    let dir = held
-        .as_ref()
-        .map_or_else(|| root.as_fd(), |held| held.as_fd());
+    let handle = HandleDir::open(&root, &beneath).map_err(OpError::Handle)?;
+    let dir = handle.fd();
     let final_link = if follow {
         FinalLink::Follow
     } else {
@@ -173,10 +184,8 @@ const fn kind_name(kind: FileKind) -> &'static str {
 /// and a file that reports more than the most a read takes, is
 /// refused before a byte is read.
 pub fn open_read(root: Arc<OwnedFd>, beneath: String, rel: String) -> Result<Reading, OpError> {
-    let held = handle_dir(&root, &beneath)?;
-    let dir = held
-        .as_ref()
-        .map_or_else(|| root.as_fd(), |held| held.as_fd());
+    let handle = HandleDir::open(&root, &beneath).map_err(OpError::Handle)?;
+    let dir = handle.fd();
     beneath::open_read(dir, Path::new(&rel)).map_err(OpError::Target)
 }
 
@@ -189,10 +198,8 @@ pub fn read_link(
     rel: String,
     follow: bool,
 ) -> Result<OsString, OpError> {
-    let held = handle_dir(&root, &beneath)?;
-    let dir = held
-        .as_ref()
-        .map_or_else(|| root.as_fd(), |held| held.as_fd());
+    let handle = HandleDir::open(&root, &beneath).map_err(OpError::Handle)?;
+    let dir = handle.fd();
     let final_link = if follow {
         FinalLink::Follow
     } else {
@@ -208,10 +215,8 @@ pub fn read_link(
 /// not followed. The directory's descriptor is closed before this
 /// returns, whatever it returns.
 pub fn list(root: Arc<OwnedFd>, beneath: String, rel: String) -> Result<Vec<Listed>, OpError> {
-    let held = handle_dir(&root, &beneath)?;
-    let dir = held
-        .as_ref()
-        .map_or_else(|| root.as_fd(), |held| held.as_fd());
+    let handle = HandleDir::open(&root, &beneath).map_err(OpError::Handle)?;
+    let dir = handle.fd();
     let entries = beneath::read_dir(dir, Path::new(&rel)).map_err(OpError::Target)?;
     let mut listed = Vec::with_capacity(entries.len());
     for entry in entries {
@@ -241,10 +246,8 @@ pub fn open_dir(
     beneath: String,
     rel: String,
 ) -> Result<Option<OsString>, OpError> {
-    let held = handle_dir(&root, &beneath)?;
-    let dir = held
-        .as_ref()
-        .map_or_else(|| root.as_fd(), |held| held.as_fd());
+    let handle = HandleDir::open(&root, &beneath).map_err(OpError::Handle)?;
+    let dir = handle.fd();
     let opened = beneath::open(dir, Path::new(&rel), OpenAs::Directory, Links::Beneath)
         .map_err(OpError::Target)?;
     beneath::path_beneath(root.as_fd(), Path::new(&root_path), opened.as_fd())
@@ -273,10 +276,8 @@ pub fn write(
 ) -> Result<(), OpError> {
     use std::io::Write as _;
 
-    let held = handle_dir(&root, &beneath)?;
-    let dir = held
-        .as_ref()
-        .map_or_else(|| root.as_fd(), |held| held.as_fd());
+    let handle = HandleDir::open(&root, &beneath).map_err(OpError::Handle)?;
+    let dir = handle.fd();
     let how = if create_new {
         OpenAs::CreateNew { mode }
     } else {
@@ -310,10 +311,8 @@ pub fn mkdir(
     recursive: bool,
     exists_ok: bool,
 ) -> Result<(), OpError> {
-    let held = handle_dir(&root, &beneath)?;
-    let dir = held
-        .as_ref()
-        .map_or_else(|| root.as_fd(), |held| held.as_fd());
+    let handle = HandleDir::open(&root, &beneath).map_err(OpError::Handle)?;
+    let dir = handle.fd();
     let name = rel.trim_end_matches('/');
     let made = if name == "." {
         Err(io::Error::from_raw_os_error(libc::EEXIST))
@@ -432,10 +431,8 @@ pub fn remove(
     recursive: bool,
     held: Option<Held>,
 ) -> Result<(), OpError> {
-    let opened = handle_dir(&root, &beneath)?;
-    let dir = opened
-        .as_ref()
-        .map_or_else(|| root.as_fd(), |opened| opened.as_fd());
+    let handle = HandleDir::open(&root, &beneath).map_err(OpError::Handle)?;
+    let dir = handle.fd();
     let last = Last::open(dir, Path::new(&rel)).map_err(OpError::Target)?;
     if let Some(held) = held {
         let real = real_end(&root, &root_path, &handle_path, &last).map_err(OpError::Target)?;
@@ -475,10 +472,8 @@ pub fn rename(
     to: String,
     held: Option<Held>,
 ) -> Result<(), RenameError> {
-    let opened = open_handle_dir(&root, &beneath).map_err(RenameError::Handle)?;
-    let dir = opened
-        .as_ref()
-        .map_or_else(|| root.as_fd(), |opened| opened.as_fd());
+    let handle = HandleDir::open(&root, &beneath).map_err(RenameError::Handle)?;
+    let dir = handle.fd();
     let at = |to: bool| move |error: io::Error| RenameError::At { to, error };
     let source = Last::open(dir, Path::new(&from)).map_err(at(false))?;
     // which end a missing entry or a non-directory is of
