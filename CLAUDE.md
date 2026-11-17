@@ -456,7 +456,11 @@ miss there, and the contracts no one module doc owns:
   `--allow-write=` grant, each resolved against the working directory and
   checked to be a directory as the run starts (`fs_grant`), handed in as
   the `fs` grant's paths, each with its real path then and the identity
-  of the directory there. The host asks the OS for the process's id,
+  of the directory there, and, for a run that grants `fs.temp_dir`, the
+  OS's temporary directory, read from `TMPDIR`, `TMP`, or `TEMP` as
+  Node's `os.tmpdir()` reads it, handed in by its real path then (where
+  it can't be resolved then, its path with `.` and `..` resolved by
+  their text) as `RuntimeOptions::temp_dir`. The host asks the OS for the process's id,
   `pid`, when a run first imports the module. The `phases` and `prices` features (on
   `gro_cli`, enabling `gro_runtime`'s) are off in the binary that ships;
   without them nothing reads the variables.

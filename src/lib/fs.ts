@@ -387,6 +387,7 @@ export interface Fs {
 	 * It names no other directory: a non-string, a `/`, or a NUL byte throws `TypeError`,
 	 * and `..` is only the name's start (`..` then six random characters).
 	 * @throws `TypeError` - for a prefix that isn't a string or holds a `/` or a NUL byte
+	 * @throws `FsError` - `not_granted` on `fgro` for a run started without `--allow-temp` or `-A`
 	 */
 	temp_dir(prefix?: string): Promise<FsDir & AsyncDisposable>;
 }

@@ -14,6 +14,7 @@
 fgro run <file> [args...]   # a .js, .mjs, .ts, or .mts module, relative to the working directory or absolute
 fgro run --allow-env=HOME,NO_COLOR <file>   # the env host module, with these two variables
 fgro run --allow-read=../data --allow-write=out <file>   # fs reads ../data, and out/ is a write root
+fgro run --allow-temp <file>   # fs.temp_dir makes fresh directories under the OS's temporary directory
 fgro run -A <file>          # unconfined: every grant at its widest
 fgro --version              # the version, the git commit, the V8 version, and whether a startup snapshot is embedded
 ```
@@ -60,10 +61,17 @@ A run grants the project's own modules `args`, `exit`, and `fs`, whose root read
   A directory written inside one read is read too, and a handle reads and writes as the directory it was opened on, never more,
   so a program writes a granted directory through a handle `fs.open_dir` makes on it, never through `fs.project` or a handle made from it
   ([host modules](host_modules.md#fs-on-fgro) has how a handle carries its scope).
+- `--allow-temp` grants `@fuzdev/gro/fs.ts`'s `temp_dir` making fresh directories under the OS's temporary directory,
+  each a root the run reads and writes, added as the run goes, and nothing else of the temporary directory, which it neither reads nor writes.
+  It takes no value: `--allow-temp=` with anything after it is a usage error, its value never echoed.
+  `fgro` reads the temporary directory as Node's `os.tmpdir()` names it, the first of `TMPDIR`, `TMP`, and `TEMP` set and not empty, else `/tmp`,
+  once as the run starts and only for a run that grants it, so a run that doesn't learns nothing of where it is,
+  and holds it to its real path then, so a symlink a run makes on its way is refused, never followed
+  ([host modules](host_modules.md#fs-on-fgro) has the directory's lifecycle).
 - `-A` runs unconfined, the one flag that grants beyond what it names: every builtin module to every module of the run, a package's included,
   and every grant at its widest, so `env`'s root handle reads every variable `fgro` started with
   (each whose name is UTF-8 and holds no `=`, each value read as `--allow-env=` reads one).
-  Names and directories given beside it are still checked, and add nothing.
+  Names, directories, and `--allow-temp` given beside it are still checked, and add nothing: it makes temporary directories too.
   It lifts no rule but a grant: a host module not built yet, a reserved specifier, a package's import of the project,
   and an `import()` in code compiled from a string stay refused, and it adds no global.
   `fs` reads and writes every directory under it, one root at `/` that resolves an absolute path as the kernel does.
@@ -71,8 +79,8 @@ The script reads its arguments as `args`, from `import {args} from '@fuzdev/gro/
 one of the [builtin modules](glossary.md#builtin-module) built so far ([host modules](host_modules.md#the-modules) lists them),
 and ends the run or sets its exit code with `exit` and `set_exit_code`, from `@fuzdev/gro/exit.ts` ([below](#errors-and-exit-codes)).
 User code can't read stdin (there is no `process` global, `Deno`, or `Bun`) and reads the environment only through `@fuzdev/gro/env.ts`, the variables `--allow-env=` or `-A` grants;
-it reads the filesystem only through `@fuzdev/gro/fs.ts`, beneath the project's root and the directories `--allow-read=` names (everything under `-A`),
-and writes only beneath the directories `--allow-write=` names; no module gives it the network or a process.
+it reads the filesystem only through `@fuzdev/gro/fs.ts`, beneath the project's root, the directories `--allow-read=` names, and those `fs.temp_dir` makes under `--allow-temp` (everything under `-A`),
+and writes only beneath the directories `--allow-write=` names and those `fs.temp_dir` makes under `--allow-temp`; no module gives it the network or a process.
 That is the whole of today's confinement: the process itself has no kernel box and no resource limits, the JIT is on,
 and console output reaches the terminal unescaped: it's the program's own, and can imitate `fgro`'s lines, an `error:` or a `hint:` among them.
 So `fgro run` is not yet for code you treat as hostile
@@ -122,12 +130,11 @@ The binary embeds the commit, so a dirty tree (a changed file, or an untracked o
   the class and guard the runtime makes ([host modules](host_modules.md#error-classes-on-fgro)).
 - `@fuzdev/gro/blake3.ts`, a builtin module that needs no grant: BLAKE3 over bytes by the native `blake3` crate,
   one-shot and by hashers whose state is the runtime's ([host modules](host_modules.md#blake3)).
-- `@fuzdev/gro/fs.ts`, a builtin module that needs the `fs` grant: the members [host modules](host_modules.md#fs-on-fgro) lists as built,
-  beneath the project's root and the directories the flags grant,
+- `@fuzdev/gro/fs.ts`, a builtin module that needs the `fs` grant: every member of the Node module,
+  beneath the project's root, the directories the flags grant, and those `fs.temp_dir` makes under `--allow-temp`,
   a read refusing anything but a regular file at once; `fs.open_dir` or `fs.real_path` outside them rejects
   with `FsError` `not_granted`, which fails the run caught or not, and so does a read through a handle that doesn't read
-  or a write through one that doesn't write, while a handle's reach outside its directory is `outside_root`, which doesn't,
-  and a member not built yet throws a plain `Error` saying so, a write op's after its paths and its handle's scope are checked as a built one's are ([host modules](host_modules.md#fs-on-fgro)).
+  or a write through one that doesn't write, while a handle's reach outside its directory is `outside_root`, which doesn't ([host modules](host_modules.md#fs-on-fgro)).
 - `@fuzdev/gro/fs_error.ts`, a builtin module that needs no grant: `FsError`, `is_fs_error`, and `is_own_fs_error`.
 - A builtin module's `.js` spelling (`@fuzdev/gro/args.js`), the host modules not on `fgro` yet (`@fuzdev/gro/spawn.ts`, `stdin`, `stdout`, `net_error`, and the rest, either spelling),
   and `@fuzdev/gro/process.ts` and `process_error.ts`, which Gro has none of (either spelling),
@@ -245,11 +252,12 @@ After it come the hints for `fs`, each once when a refusal needed it, in this or
 `hint: add --allow-write naming the directory to grant what fs refused, then open it with fs.open_dir and write through that handle`, for a write through a handle that doesn't write,
 since a handle never gains what its root lacked, so `fs.project` writes nothing, whatever is granted inside it;
 and, when a root already grants what was refused, holding by its text the path a read reads or each path a write writes (a copy's `to`, a rename's `from` and `to`), `hint: the run grants what fs refused: open the directory with fs.open_dir and use that handle`,
-never a flag, which would widen the handle's root (the whole project, for a write through `fs.project`).
+never a flag, which would widen the handle's root (the whole project, for a write through `fs.project`);
+and `hint: add --allow-temp to grant what fs refused`, for an `fs.temp_dir` the run doesn't grant.
 A copy is refused naming the path it writes, its `to`, and judged by it, so a copy into a directory written from outside it hints the handle to open, which writes the copy but can't name its source: the program reads through one handle and writes through the other.
 A walk opens the names before a `..` first, so `fs.real_path('/usr/../etc')` needs `/usr` granted as well as `/etc`.
 An fs refusal's `<need>` is the kind of grant it needed, in its hint's words:
-`a read`, `a write`, `what the run grants` (a handle to open), or `what no grant allows`,
+`a read`, `a write`, `what the run grants` (a handle to open), `a temporary directory`, or `what no grant allows`,
 for a `remove` or `rename`, through a handle that doesn't write, of a path that is, or holds, a root's directory by its text, which the rule keeping each root's directory in place refuses whatever the run grants ([host modules](host_modules.md#fs-on-fgro)),
 so a hint pairs with the listed refusals of its kind or with none listed, never with another kind's,
 and two refusals of one path that needed different kinds are two lines.
@@ -283,7 +291,7 @@ Whether a stream is colored is decided once per process, in order:
 | 0              | the module ran to completion with no code set, or called `exit()` with none set, or `--help` or `--version`                                                  |
 | the program's  | the code given to `exit(code)`, or the one `set_exit_code` set when the module then ran to completion or called `exit()` with none: an integer from 0 to 255 |
 | 1              | the module threw, rejected a promise no one handled, left a top-level `await` unsettled, an import failed to resolve, load, or strip, or the runtime failed to start, whatever code `set_exit_code` set; or an `import()` was refused by one of gro's rules, or a call for a grant its handle lacks, caught or not, in a run that would have exited 0 |
-| 2              | a usage error (no arguments, an unknown subcommand or flag, a flag before `run`'s file other than `--help`, `--allow-env=`, `--allow-read=`, `--allow-write=`, or `-A`, a bare one of these or a name it can't grant, a directory missing, no directory, or one that can't be looked at, no file, an extra argument to `eval`, a non-UTF-8 argument, the script's included, `--version` with a subcommand), or an entry that doesn't resolve (missing, the wrong extension, a `.js` file not under `"type": "module"`) |
+| 2              | a usage error (no arguments, an unknown subcommand or flag, a flag before `run`'s file other than `--help`, `--allow-env=`, `--allow-read=`, `--allow-write=`, `--allow-temp`, or `-A`, a bare one of these or a name it can't grant, `--allow-temp` given a value, a directory missing, no directory, or one that can't be looked at, no file, an extra argument to `eval`, a non-UTF-8 argument, the script's included, `--version` with a subcommand), or an entry that doesn't resolve (missing, the wrong extension, a `.js` file not under `"type": "module"`) |
 
 An entry that fails to resolve on an I/O error or a symlink loop exits 1, not 2.
 A program's code passes as it is, so `1` and `2` are shared between the program and `fgro`'s own failures.

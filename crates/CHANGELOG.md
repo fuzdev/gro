@@ -36,12 +36,14 @@ beside a `SHA512SUMS` file, each with a provenance attestation.
     each a directory when the run starts and held to the directory its path named then;
     one whose real path isn't its text, a path through a symlink, is noted on stderr before the program runs
     (`note: --allow-read=<as typed> grants <real path>`, and so for `--allow-write=`).
-    Built are `fs.project`, `fs.open_dir`, `fs.real_path`, and on a handle `path`, `dir`, `readonly`, `stat`, `exists`, the reads,
+    Every member of the Node module is built: `fs.project`, `fs.open_dir`, `fs.real_path`, `fs.temp_dir`,
+    and on a handle `path`, `dir`, `readonly`, `stat`, `exists`, the reads,
     the sync ops (`stat_sync`, `exists_sync`, `read_text_sync`), `read_link`, `list`, sorted by name,
-    and the writes `write`, `mkdir`, `remove`, and `rename`.
+    and the writes `write`, `mkdir`, `remove`, `rename`, `copy`, `set_times`, `set_mode`, and `symlink`.
     No `remove` or `rename` moves or removes a directory of the run's, or one holding one, and no `rename` moves an entry
     where the run's grants allow more than where it was (a write root's file into a directory it reads), each `io_error`.
-    `copy`, `set_times`, `set_mode`, `symlink`, and `fs.temp_dir` aren't built yet: each throws an `Error` saying so.
+    `--allow-temp` grants `fs.temp_dir`, a fresh directory under the OS's temporary directory, read and written,
+    removed with everything in it when its handle is disposed of (`await using`).
     A handle reads and writes as the directory it was opened on and nothing widens it,
     so a program writes a granted directory through a handle `fs.open_dir` makes on it, never through `fs.project`.
     A reach outside the run's directories, or an op its handle's scope lacks, throws `FsError` `not_granted`.
@@ -53,8 +55,8 @@ beside a `SHA512SUMS` file, each with a provenance attestation.
   - `@fuzdev/gro/env_error.ts` and `@fuzdev/gro/fs_error.ts` need none either: each error class and its guards are made by the runtime, natively,
     the first time a run needs them, and match the Node module's but that a guard runs no code of a caller's.
   - `fgro run -A <file>` runs unconfined: every builtin module is granted to every module of the run, a package's included,
-    each grant at its widest, every variable for `env` and one root at `/` for `fs`,
-    while every refusal but a grant's stands (a host module not built yet, a package's import of the project, and the like).
+    each grant at its widest, every variable for `env`, one root at `/` for `fs`, and `fs.temp_dir`,
+    while every refusal but a grant's stands (a host module not on `fgro` yet, a package's import of the project, and the like).
   - Text `fgro` didn't write that it prints in the run's uncaught error and its frames, a refusal, a usage error, or a note is escaped
     (control characters, line breaks, and format characters as `\u{…}`), so such text starts no line but a stack frame's.
   - A refusal fails the run, even when the program catches it, turning an exit 0 into 1:
@@ -63,7 +65,7 @@ beside a `SHA512SUMS` file, each with a provenance attestation.
     Stderr lists the first distinct refusals after the run's error, escaped and cut to a bound, and counts the rest,
     closes the list with a line saying a refusal fails the run,
     then hints at the flag that would grant what was refused: `--allow-env=` with the names the project's grant lacked,
-    and for `fs` the flag alone or the handle to open, never a path.
+    and for `fs` the flag alone (`--allow-read`, `--allow-write`, or `--allow-temp`) or the handle to open, never a path.
     An `import()` refused because nothing is there, like a missing optional dependency, or because a feature isn't supported, doesn't fail the run.
   - The host modules not on `fgro` yet are refused, never loaded from the npm package:
     `@fuzdev/gro/spawn.ts`, `net.ts`, `watch.ts`, `stdin.ts`, `stdout.ts`, `stderr.ts`, and their error modules.

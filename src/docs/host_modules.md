@@ -22,7 +22,7 @@ This table is the one list of what's on `fgro`: the other runtime docs link here
 
 | module               | what it reaches                         | on `fgro`               |
 | -------------------- | --------------------------------------- | ----------------------- |
-| `fs.ts`              | the filesystem, through handles         | partly, the `fs` grant  |
+| `fs.ts`              | the filesystem, through handles         | built, the `fs` grant   |
 | `spawn.ts`           | programs, as child processes            | not yet                 |
 | `net.ts`             | the network, by host                    | not yet                 |
 | `watch.ts`           | changes under a directory handle        | not yet                 |
@@ -159,15 +159,13 @@ The module's TSDoc has each op's contract.
 On `fgro`, `@fuzdev/gro/fs.ts` is a builtin module with the Node module's members, each of the same `length`, its records and functions frozen.
 It needs the `fs` grant, which `fgro run` gives the project's own modules, `-A` every module,
 and its roots are the directories the run's flags grant ([run](run.md#usage)).
-Built so far: `fs.project`, `fs.open_dir`, `fs.real_path`, and on a handle `path`, `dir`, `readonly`, `stat`, `exists`, `stat_sync`, `exists_sync`,
-the reads (`read`, `read_text`, `read_if_exists`, `read_text_if_exists`, `read_text_sync`), `read_link`, `list`,
-and the writes `write`, `mkdir`, `remove`, and `rename`.
-`copy`, `set_times`, `set_mode`, `symlink`, and `temp_dir` aren't built yet: each refuses with a plain `Error` saying so.
+Every member is built.
 How each part is built is in the module docs of `crates/gro_runtime/src/host/fs.rs` and its children.
 
 - The run's roots are the directories it reads or writes, opened the first time the run imports `fs`:
   the entry's [project root](glossary.md#project-root), read with no flag, so `fs.project` is that directory, never the working directory;
   each directory `--allow-read=` and `--allow-write=` grant; and under `-A`, `/`, read and written.
+  Each directory `fs.temp_dir` makes, with `--allow-temp` or `-A`, joins them as the run goes.
 - A flag's directory is the one its path named as the run started:
   one replaced at its real path or gone from it by the first import fails every op through it with `io_error`, its cause saying which,
   and a flag's symlink pointed elsewhere since still names the directory it named.
@@ -182,6 +180,7 @@ How each part is built is in the module docs of `crates/gro_runtime/src/host/fs.
   A read op (`stat`, `exists`, the reads, `read_link`, `list`) through a handle that doesn't read is `not_granted`, after its path is checked and before anything is looked up,
   and so is a write op through one that doesn't write, after its paths are checked, and a built one's other arguments.
   A `copy` reads its `from`, so a handle that doesn't read is refused it naming `from`, before the write is judged.
+  `set_times`, `set_mode`, and `symlink` each write.
   `dir()` and `readonly()` work on any handle, so a handle that only writes still narrows to a subdirectory.
 - `fs.open_dir` and `fs.real_path` take an absolute path inside a root, `fs.real_path` only a root that reads, its `..` resolved as Node's `realpath` resolves it:
   after the symlink before it, so `link/..` is the parent of `link`'s target, and `missing/..` and `a.txt/..` fail as they do on Node,
@@ -223,7 +222,8 @@ How each part is built is in the module docs of `crates/gro_runtime/src/host/fs.
   So `Promise.all` over many ops gets no parallelism, a slow filesystem blocks timers and other work for the op's length,
   and a loop of awaited ops runs on microtasks alone, never returning to the event loop, so a timer waits for the whole loop.
 - `stat` resolves with a null-prototype record, where the Node module's is a plain object.
-- An option given through a getter or a proxy is a `TypeError`, since an op runs no code of a caller's.
+- An option given through a getter or a proxy is a `TypeError`, since an op runs no code of a caller's,
+  and so is a time of `set_times`' given so; `times` that isn't an object reads no time, a `TypeError` naming `mtime_ms`, where the Node module's message is the engine's.
 - `write` takes a string, written as UTF-8 with each lone surrogate a U+FFFD, or a `Uint8Array`, else a `TypeError`, as on Node.
   It follows a final symlink beneath the handle, as on Node, a dangling one making its target,
   and never waits on its target, refusing anything but a regular file:
@@ -243,6 +243,37 @@ How each part is built is in the module docs of `crates/gro_runtime/src/host/fs.
   A move to where the grants allow less, or the same, is a move, and such a `rename` of nothing is `io_error` too, where Node's is `not_found`.
 - A `rename` the kernel refuses between two directories (`EXDEV`, which two mounts make, and so can a sandbox the process inherited) is `io_error`, its cause the kernel's words, where Node's is the same kind.
   Of a missing entry or a non-directory, which could be either end's, the error names the destination when the source is there and the source when it isn't, as on Node.
+- `copy` opens both ends beneath the handle, each a final symlink followed, and copies a regular file only, never waiting:
+  a FIFO, a socket, or a device at either end, or inside a tree, is `io_error`, where the Node module waits on a FIFO and copies a device.
+  What it makes takes its source's permission bits less the setuid, setgid, and sticky bits, as `write`'s mode does:
+  a plain copy drops them on Node too, and a recursive one keeps them on Node.
+  With `recursive`, a tree is copied as Node's `cp` copies one with `verbatimSymlinks`: a missing parent of `to` made, a directory merged into one there,
+  a symlink copied as the link, an entry over a directory or a directory over a file refused `io_error`, and a tree into itself refused, by real paths.
+  A symlink copied over a symlink replaces it, where Node's `cp` follows the source link, outside the handle too, and fails when it dangles;
+  and a file copied with `recursive` to a dangling symlink makes the link's target, or is `not_found` when the target's parent is missing, where Node's `cp` replaces the link.
+  Its error names `from` or `to`, never an entry inside, as on Node.
+- A `copy` takes neither half of the rule `remove` and `rename` keep.
+  It never removes or replaces a directory, so a root's stays where it is.
+  And it is a read and a write through one handle, which must do both:
+  the case the scope-gain rule exists for, a handle on `/o` that writes but doesn't read copying `secret.txt` to `r/secret.txt`, is refused its read of `from`,
+  and a handle that reads and writes can always copy by a `read` and a `write`.
+- `set_times` and `set_mode` act on the entry a final symlink leads to beneath the handle, opened as a path and changed through it, never by a path the kernel resolves again;
+  `set_times` with `follow: false` acts on the link itself.
+  `set_times` sets a time to the nearest nanosecond, where Node passes seconds as a double its libuv truncates ([`FsTimes`](#fs)).
+  `set_mode` on a root's own directory changes its bits and nothing of the roots, as on Node.
+- `symlink` makes its link by its name in the parent opened beneath the handle, never following it.
+- `fs.temp_dir` needs `--allow-temp` (or `-A`): without it it's `not_granted`, listed, naming the prefix, never the temporary directory, with a hint naming the flag.
+  The temporary directory is `TMPDIR`, `TMP`, or `TEMP`, the first set and not empty, else `/tmp`, as Node's `os.tmpdir()` names it, read as the run starts, and only when the run grants it,
+  a relative one resolved against the working directory, so an error names it absolute, by its real path, where Node's names it as given.
+  It's held to its real path then (where it can't be resolved then, to its path with its `.` and `..` resolved by their text):
+  a symlink on that path, at its last name or before it, as a run that writes there can make one since, is `io_error`, never followed, where Node follows it.
+  Its directory is made beneath a descriptor on the temporary directory, by a name of the prefix and six random letters from the OS's random source, mode `0o700`, as `mkdtemp`'s,
+  and is a root the run reads and writes, which the rule keeps where it is.
+  Disposing of the handle (`await using`, or its `[Symbol.asyncDispose]()`) removes the directory and everything in it beneath the root's own descriptor, then retires the root:
+  every op through a handle on it or beneath it is `io_error` after, where the Node module's finds nothing there (`exists` false, `stat` null, the rest `not_found`),
+  its path is no root, and disposing again does nothing, as Node's forced `rm` does.
+  A disposal that fails rejects with an `FsError`, where the Node module rejects with Node's own error, and keeps the root, so a later one can try again.
+  A directory never disposed of stays after the run, as on Node.
 - A kernel below Linux 5.6, which lacks `openat2`, fails every op alike with a plain `Error`.
 - `fs` lands before the [deny overlays](glossary.md#deny-overlays) and before `fgro run` has a kernel box,
   so a program can read the project's `.env` files and any file inside a directory the run reads,

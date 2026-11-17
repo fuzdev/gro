@@ -280,7 +280,7 @@ never into `node_modules` below it or into another root nested in it.
 
 The `fs` host module's roots on `fgro` are another table: the directories a run reads or writes ([read and write roots](#write-root)),
 each opened once and held by a descriptor, which every [handle](#handle) resolves beneath;
-the project root is the first ([host modules](host_modules.md#fs-on-fgro)).
+the project root is the first, and a temporary directory `fs.temp_dir` makes joins as the run goes ([host modules](host_modules.md#fs-on-fgro)).
 
 ## run kinds
 
@@ -321,5 +321,5 @@ every grant at its widest, with no global added and native code still out of pro
 A directory a run may write.
 As designed, a project's are declared and accepted like any [grant](#grant) (`dist/`, `build/`, `.gro/`),
 and a child process gets only these writable at the kernel ([backstop](backstop.md#the-box-for-runs-and-children));
-on `fgro run` today, a run's write roots are each directory `--allow-write=` names, or `/` under `-A`.
+on `fgro run` today, a run's write roots are each directory `--allow-write=` names, or `/` under `-A`, and each directory `fs.temp_dir` makes under `--allow-temp`, read and written, until it's disposed of.
 A read root is the same for reads. On `fgro`, each read or write root is one of the `fs` module's [roots](#root).
