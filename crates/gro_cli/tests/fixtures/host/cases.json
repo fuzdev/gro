@@ -661,5 +661,158 @@
 		"args": ["special"],
 		"sockets": ["fs/socket"],
 		"differs": []
+	},
+	{
+		"name": "fs_write",
+		"module": "fs",
+		"args": [
+			"write"
+		],
+		"flags": [
+			"--allow-write=scratch"
+		],
+		"scratch": {
+			"dir": "scratch",
+			"links": {
+				"dangling": "missing.txt",
+				"to_sub": "sub",
+				"to_file": "a.txt",
+				"escape": "../outside.txt",
+				"absolute": "/proc/self/status"
+			}
+		},
+		"differs": []
+	},
+	{
+		"name": "fs_mkdir",
+		"module": "fs",
+		"args": [
+			"mkdir"
+		],
+		"flags": [
+			"--allow-write=scratch"
+		],
+		"scratch": {
+			"dir": "scratch",
+			"links": {
+				"dangling": "missing.txt",
+				"to_sub": "sub",
+				"to_file": "a.txt",
+				"escape": "../outside.txt",
+				"absolute": "/proc/self/status",
+				"loop": "loop",
+				"thru": "a.txt/x"
+			}
+		},
+		"differs": [
+			{
+				"at": "/through_a_dangling_link_recursive",
+				"fgro": {
+					"rejected": {
+						"class": "FsError",
+						"message": "not_a_directory: {project}/scratch/dangling/x",
+						"kind": "not_a_directory",
+						"path": "{project}/scratch/dangling/x"
+					},
+					"tree": [
+						"a.txt: a",
+						"absolute (symlink)",
+						"d/",
+						"dangling (symlink)",
+						"escape (symlink)",
+						"loop (symlink)",
+						"n/",
+						"n/o/",
+						"r/",
+						"r/s/",
+						"r/s/t/",
+						"slashed/",
+						"sub/",
+						"sub/b.txt: b",
+						"sub/new/",
+						"sub/x/",
+						"sub/x/y/",
+						"thru (symlink)",
+						"to_file (symlink)",
+						"to_sub (symlink)"
+					]
+				},
+				"why": "a recursive mkdir on fgro makes each directory by its name and passes only a directory, a symlink followed, so a dangling link on the way is not_a_directory, where the Node module's confinement resolves the link to the path it names and makes that"
+			}
+		]
+	},
+	{
+		"name": "fs_remove",
+		"module": "fs",
+		"args": [
+			"remove"
+		],
+		"flags": [
+			"--allow-write=scratch"
+		],
+		"scratch": {
+			"dir": "scratch",
+			"links": {
+				"dangling": "missing.txt",
+				"to_sub": "sub",
+				"to_file": "a.txt",
+				"escape": "../outside.txt",
+				"absolute": "/proc/self/status"
+			}
+		},
+		"differs": []
+	},
+	{
+		"name": "fs_rename",
+		"module": "fs",
+		"args": [
+			"rename"
+		],
+		"flags": [
+			"--allow-write=scratch"
+		],
+		"scratch": {
+			"dir": "scratch",
+			"links": {
+				"dangling": "missing.txt",
+				"to_sub": "sub",
+				"to_file": "a.txt",
+				"escape": "../outside.txt",
+				"absolute": "/proc/self/status"
+			}
+		},
+		"differs": []
+	},
+	{
+		"name": "fs_write_arguments",
+		"module": "fs",
+		"args": [
+			"write_arguments"
+		],
+		"flags": [
+			"--allow-write=scratch"
+		],
+		"scratch": {
+			"dir": "scratch",
+			"links": {
+				"dangling": "missing.txt",
+				"to_sub": "sub",
+				"to_file": "a.txt",
+				"escape": "../outside.txt",
+				"absolute": "/proc/self/status"
+			}
+		},
+		"differs": [
+			{
+				"at": "/getter",
+				"fgro": {
+					"rejected": {
+						"class": "TypeError",
+						"message": "fs options are plain data, read without running code: exists_ok"
+					}
+				},
+				"why": "an op reads its options as data, so a getter is a TypeError where the Node module runs it"
+			}
+		]
 	}
 ]

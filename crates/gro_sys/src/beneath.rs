@@ -33,10 +33,12 @@
 //!   ([`FinalLink`]).
 //! - [`read_dir`] lists a directory's entries ([`DirEntry`]), names as the
 //!   kernel's bytes, `.` and `..` left out, in the kernel's order.
-//! - [`mkdir`], [`remove_file`], [`remove_dir`], and [`rename`] act on a
-//!   path's last component: its parent is opened beneath the descriptor by
-//!   `openat2`, then the call (`mkdirat`, `unlinkat`, `renameat`) acts on
-//!   that one name in that one directory, a final symlink never followed.
+//! - [`Last`] holds a path's last component: its parent is opened beneath
+//!   the descriptor by `openat2`, then each call on it (`mkdirat`,
+//!   `unlinkat`, `renameat`) acts on that one name in that one directory, a
+//!   final symlink never followed; [`Last::remove_tree`] empties a
+//!   directory first, entry by entry, each beneath its own directory's
+//!   descriptor.
 //!
 //! Every open of a file's contents is non-blocking (`O_NONBLOCK`), so no
 //! open waits: not for a FIFO's other end, a device, or a lease's break.
@@ -77,7 +79,8 @@
 //! - `EXDEV`: the path leaves the descriptor's tree, by being absolute, by a
 //!   `..` above it, or by a symlink whose target is absolute or climbs above
 //!   it, even one that lands back inside (`../root/file`). Nothing else these
-//!   calls make returns it raw: a [`rename`] across mounts fails with
+//!   calls make returns it raw: a rename the kernel refuses between two
+//!   directories ([`Last::rename_to`]) fails with
 //!   [`io::ErrorKind::CrossesDevices`] and no OS code. A raw `EXDEV`'s kind
 //!   is [`io::ErrorKind::CrossesDevices`] too, so [`is_escape`] is the test
 //!   for an escape, never the kind. Whether a path leaving its descriptor
@@ -744,10 +747,16 @@ pub fn read_dir(dir: BorrowedFd<'_>, path: &Path) -> io::Result<Vec<DirEntry>> {
         0,
         BENEATH,
     )?;
+    entries(fd.as_fd())
+}
+
+/// The entries of the directory `fd` holds open to read, but `.` and `..`,
+/// in the kernel's order.
+fn entries(fd: BorrowedFd<'_>) -> io::Result<Vec<DirEntry>> {
     let mut buffer = vec![0u8; DIR_BUFFER];
     let mut entries = Vec::new();
     loop {
-        let filled = getdents64(fd.as_fd(), &mut buffer)?;
+        let filled = getdents64(fd, &mut buffer)?;
         if filled == 0 {
             return Ok(entries);
         }
@@ -755,104 +764,244 @@ pub fn read_dir(dir: BorrowedFd<'_>, path: &Path) -> io::Result<Vec<DirEntry>> {
     }
 }
 
-/// Makes the directory `path` names beneath `dir`, with `mode` (less the
-/// process's umask), by `mkdirat` in its parent.
+/// A path's last component, held in the directory it names an entry of.
 ///
-/// # Errors
+/// The directory is the path's parent, opened beneath a descriptor by
+/// `openat2`, symlinks followed beneath, or the descriptor's own directory
+/// for a path without a `/`; the component keeps any slashes after it.
 ///
-/// Returns an error of kind [`io::ErrorKind::InvalidInput`] for a last
-/// component the [module doc](self) refuses, else the kernel's: `EEXIST`
-/// when any entry is there, a symlink included, `ENOENT` for a missing
-/// parent.
-#[expect(
-    unsafe_code,
-    reason = "std makes a directory only by a path from the working directory, and a libc call is `unsafe`"
-)]
-pub fn mkdir(dir: BorrowedFd<'_>, path: &Path, mode: u32) -> io::Result<()> {
-    with_last(dir, path, |parent, name| {
+/// Each call on it acts on that one name in that one directory by its
+/// descriptor (`mkdirat`, `unlinkat`, `renameat`), a final symlink never
+/// followed, so what a caller learns of the parent between the open and
+/// the call (its real path, by [`path_beneath`]) is of the directory the
+/// call acts in.
+#[derive(Debug)]
+pub struct Last<'d> {
+    /// The descriptor the path resolved beneath.
+    dir: BorrowedFd<'d>,
+    /// The parent, `dir` or a directory opened beneath it.
+    parent: Parent,
+    /// The component, any slashes after it kept.
+    name: CString,
+}
+
+impl<'d> Last<'d> {
+    /// The last component of `path` beneath `dir`, its parent opened.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error of kind [`io::ErrorKind::InvalidInput`] for a last
+    /// component the [module doc](self) refuses, else the parent's open's:
+    /// `EXDEV` for a parent that leaves `dir`'s tree, `ENOENT` for a missing
+    /// one, `ENOTDIR` for one that isn't a directory.
+    pub fn open(dir: BorrowedFd<'d>, path: &Path) -> io::Result<Self> {
+        let (parent, name) = split_last(path.as_os_str())?;
+        Ok(Self {
+            dir,
+            parent: open_parent(dir, parent)?,
+            name,
+        })
+    }
+
+    /// The parent opened beneath the descriptor, or none when it's the
+    /// descriptor's own directory.
+    pub fn parent(&self) -> Option<BorrowedFd<'_>> {
+        match &self.parent {
+            Parent::Dir => None,
+            Parent::Opened(fd) => Some(fd.as_fd()),
+        }
+    }
+
+    /// The component, any slashes after it kept.
+    pub fn name(&self) -> &OsStr {
+        OsStr::from_bytes(self.name.as_bytes())
+    }
+
+    /// The directory the component is acted on in.
+    fn held(&self) -> BorrowedFd<'_> {
+        self.parent.borrow(self.dir)
+    }
+
+    /// Reports the entry, as [`stat`] with [`FinalLink::Keep`] does, as
+    /// `lstat` does: a symlink not followed, but for a component a slash
+    /// follows, which the kernel reads as a directory to follow to.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`stat`]'s errors, `ENOENT` when nothing is there.
+    pub fn stat(&self) -> io::Result<Stat> {
+        stat(self.held(), Path::new(self.name()), FinalLink::Keep)
+    }
+
+    /// Makes a directory of the entry, with `mode` (less the process's
+    /// umask), by `mkdirat`.
+    ///
+    /// # Errors
+    ///
+    /// Returns the kernel's error: `EEXIST` when any entry is there, a
+    /// symlink included.
+    #[expect(
+        unsafe_code,
+        reason = "std makes a directory only by a path from the working directory, and a libc call is `unsafe`"
+    )]
+    pub fn mkdir(&self, mode: u32) -> io::Result<()> {
         // SAFETY: `mkdirat` reads only the name, a live NUL-terminated
         // string, and takes the descriptor, borrowed for the call
-        cvt(unsafe { libc::mkdirat(parent.as_raw_fd(), name.as_ptr(), mode) })
-    })
-}
-
-/// Removes the entry `path` names beneath `dir`, which isn't a directory, by
-/// `unlinkat` in its parent; a symlink is removed, never its target.
-///
-/// # Errors
-///
-/// Returns an error of kind [`io::ErrorKind::InvalidInput`] for a last
-/// component the [module doc](self) refuses, else the kernel's: `EISDIR`
-/// for a directory, `ENOENT` when nothing is there.
-pub fn remove_file(dir: BorrowedFd<'_>, path: &Path) -> io::Result<()> {
-    with_last(dir, path, |parent, name| unlinkat(parent, name, 0))
-}
-
-/// Removes the empty directory `path` names beneath `dir`, by `unlinkat`
-/// with `AT_REMOVEDIR` in its parent.
-///
-/// # Errors
-///
-/// Returns an error of kind [`io::ErrorKind::InvalidInput`] for a last
-/// component the [module doc](self) refuses, else the kernel's:
-/// `ENOTEMPTY` for a directory with entries, `ENOTDIR` for anything but a
-/// directory, a symlink to one included.
-pub fn remove_dir(dir: BorrowedFd<'_>, path: &Path) -> io::Result<()> {
-    with_last(dir, path, |parent, name| {
-        unlinkat(parent, name, libc::AT_REMOVEDIR)
-    })
-}
-
-/// Renames the entry `from` names beneath `from_dir` to `to` beneath
-/// `to_dir`, by `renameat` from the one parent to the other, replacing an
-/// entry at `to` as POSIX's `rename` does; a symlink is moved, never its
-/// target.
-///
-/// Each side's parent is opened beneath its own descriptor, so a rename
-/// between two trees leaves neither.
-///
-/// # Errors
-///
-/// Returns an error of kind [`io::ErrorKind::InvalidInput`] for a last
-/// component the [module doc](self) refuses on either side; one of kind
-/// [`io::ErrorKind::CrossesDevices`], with no OS code, when the two are on
-/// different mounts, two filesystems or two mounts of one, so a raw `EXDEV`
-/// means only a path leaving its tree; else the kernel's: `ENOENT` when
-/// nothing is at `from`, `EISDIR` or `ENOTDIR` when `to` is a directory and
-/// `from` isn't or the reverse, `ENOTEMPTY` for a directory with entries at
-/// `to`.
-#[expect(
-    unsafe_code,
-    reason = "std renames only by paths from the working directory, and a libc call is `unsafe`"
-)]
-pub fn rename(
-    from_dir: BorrowedFd<'_>,
-    from: &Path,
-    to_dir: BorrowedFd<'_>,
-    to: &Path,
-) -> io::Result<()> {
-    let (from_parent, from_name) = split_last(from.as_os_str())?;
-    let (to_parent, to_name) = split_last(to.as_os_str())?;
-    let from_parent = open_parent(from_dir, from_parent)?;
-    let to_parent = open_parent(to_dir, to_parent)?;
-    // SAFETY: `renameat` reads only the two names, live NUL-terminated
-    // strings, and takes the two descriptors, each borrowed or owned here
-    // for the call
-    let result = cvt(unsafe {
-        libc::renameat(
-            from_parent.borrow(from_dir).as_raw_fd(),
-            from_name.as_ptr(),
-            to_parent.borrow(to_dir).as_raw_fd(),
-            to_name.as_ptr(),
-        )
-    });
-    match result {
-        Err(error) if error.raw_os_error() == Some(libc::EXDEV) => Err(context(
-            "a rename can't move an entry to another filesystem",
-            &error,
-        )),
-        result => result,
+        cvt(unsafe { libc::mkdirat(self.held().as_raw_fd(), self.name.as_ptr(), mode) })
     }
+
+    /// Removes the entry, which isn't a directory, by `unlinkat`; a symlink
+    /// is removed, never its target.
+    ///
+    /// # Errors
+    ///
+    /// Returns the kernel's error: `EISDIR` for a directory, `ENOENT` when
+    /// nothing is there, `ENOTDIR` for a component a slash follows that
+    /// isn't a directory, a symlink to one included.
+    pub fn remove_file(&self) -> io::Result<()> {
+        unlinkat(self.held(), &self.name, 0)
+    }
+
+    /// Removes the entry, an empty directory, by `unlinkat` with
+    /// `AT_REMOVEDIR`.
+    ///
+    /// # Errors
+    ///
+    /// Returns the kernel's error: `ENOTEMPTY` for a directory with
+    /// entries, `ENOTDIR` for anything but a directory, a symlink to one
+    /// included.
+    pub fn remove_dir(&self) -> io::Result<()> {
+        unlinkat(self.held(), &self.name, libc::AT_REMOVEDIR)
+    }
+
+    /// Removes the entry and, when it's a directory, everything in it
+    /// first, no symlink followed: a symlink is removed, never its target.
+    ///
+    /// A directory is emptied by an explicit stack, never recursion, each
+    /// entry acted on by its name in its own directory's descriptor, opened
+    /// beneath the one holding it with no symlink allowed
+    /// (`RESOLVE_NO_SYMLINKS`), so nothing outside the entry's tree is
+    /// reached by a symlink, and a directory swapped for one after it's
+    /// listed fails rather than leads anywhere. A mount inside the tree is
+    /// inside it, as the [module doc](self) says, and is emptied as any
+    /// directory is. Each directory on the way down holds a descriptor
+    /// until it's emptied, so a tree deeper than the process may open
+    /// descriptors fails (`EMFILE`). An entry gone when it's reached, as
+    /// another process makes, is passed over.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first call's error, the kernel's, naming no entry:
+    /// `ENOENT` when nothing is at the entry, `ENOTDIR` for a component a
+    /// slash follows that isn't a directory, `EACCES` for a directory inside
+    /// it the process may not change, `ELOOP` for one swapped for a symlink.
+    pub fn remove_tree(&self) -> io::Result<()> {
+        match unlinkat(self.held(), &self.name, 0) {
+            Err(error) if error.raw_os_error() == Some(libc::EISDIR) => {}
+            result => return result,
+        }
+        let top = open_listed(self.held(), &self.name)?;
+        // the directories being emptied, the entry's own first, each with
+        // its name in the one before it and the entries it has left
+        let mut stack = vec![top];
+        while let Some(last) = stack.last_mut() {
+            let Some(entry) = last.left.pop() else {
+                let emptied = stack.pop().map(|listed| listed.name);
+                let held = stack
+                    .last()
+                    .map_or_else(|| self.held(), |listed| listed.fd.as_fd());
+                if let Some(name) = emptied {
+                    unlinkat(held, &name, libc::AT_REMOVEDIR)?;
+                }
+                continue;
+            };
+            let name = to_c_bytes(entry.name.as_bytes())?;
+            if entry.kind != Some(FileKind::Directory) {
+                match unlinkat(last.fd.as_fd(), &name, 0) {
+                    // a directory the listing didn't say was one
+                    Err(error) if error.raw_os_error() == Some(libc::EISDIR) => {}
+                    Err(error) if error.raw_os_error() == Some(libc::ENOENT) => continue,
+                    result => {
+                        result?;
+                        continue;
+                    }
+                }
+            }
+            match open_listed(last.fd.as_fd(), &name) {
+                Ok(listed) => stack.push(listed),
+                Err(error) if error.raw_os_error() == Some(libc::ENOENT) => {}
+                Err(error) => return Err(error),
+            }
+        }
+        Ok(())
+    }
+
+    /// Renames the entry to `to`'s, by `renameat` from the one parent to
+    /// the other, replacing an entry at `to` as POSIX's `rename` does; a
+    /// symlink is moved, never its target. Each side's parent was opened
+    /// beneath its own descriptor, so a rename between two trees leaves
+    /// neither.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error of kind [`io::ErrorKind::CrossesDevices`], with no
+    /// OS code, when the kernel refuses to move the entry between the two
+    /// directories (`EXDEV`): two mounts make it, and so does a Landlock
+    /// domain the process inherited, so the error says no more than the
+    /// kernel did, and a raw `EXDEV` still means only a path leaving its
+    /// tree. Else the kernel's: `ENOENT` when nothing is at the entry,
+    /// `EISDIR` or `ENOTDIR` when `to` is a directory and the entry isn't or
+    /// the reverse, `ENOTEMPTY` for a directory with entries at `to`,
+    /// `EINVAL` for a directory moved into itself.
+    #[expect(
+        unsafe_code,
+        reason = "std renames only by paths from the working directory, and a libc call is `unsafe`"
+    )]
+    pub fn rename_to(&self, to: &Last<'_>) -> io::Result<()> {
+        // SAFETY: `renameat` reads only the two names, live NUL-terminated
+        // strings, and takes the two descriptors, each borrowed for the call
+        let result = cvt(unsafe {
+            libc::renameat(
+                self.held().as_raw_fd(),
+                self.name.as_ptr(),
+                to.held().as_raw_fd(),
+                to.name.as_ptr(),
+            )
+        });
+        match result {
+            Err(error) if error.raw_os_error() == Some(libc::EXDEV) => Err(context(
+                "the kernel refused to move the entry between the two directories",
+                &error,
+            )),
+            result => result,
+        }
+    }
+}
+
+/// A directory [`Last::remove_tree`] is emptying: its descriptor, its name
+/// in the directory holding it, and the entries it has left.
+struct Listed {
+    fd: OwnedFd,
+    name: CString,
+    left: Vec<DirEntry>,
+}
+
+/// The directory `name` names in `parent`, opened to list (`O_RDONLY |
+/// O_DIRECTORY`), no symlink allowed, with its entries.
+fn open_listed(parent: BorrowedFd<'_>, name: &CStr) -> io::Result<Listed> {
+    let fd = openat2(
+        parent,
+        name,
+        libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW,
+        0,
+        BENEATH | libc::RESOLVE_NO_SYMLINKS,
+    )?;
+    let left = entries(fd.as_fd())?;
+    Ok(Listed {
+        fd,
+        name: name.to_owned(),
+        left,
+    })
 }
 
 /// The flags of every open of a file's contents, so the open never waits:
@@ -930,8 +1079,10 @@ fn retry_races<T>(mut call: impl FnMut() -> io::Result<T>) -> io::Result<T> {
 }
 
 /// Whether `error`, from any call here, is a path leaving the descriptor's
-/// tree: a raw `EXDEV`, which no call here returns for anything else (a
-/// [`rename`] across mounts has the same kind and no OS code).
+/// tree: a raw `EXDEV`, which no call here returns for anything else.
+///
+/// A rename the kernel refuses between two directories
+/// ([`Last::rename_to`]) has the same kind and no OS code.
 pub fn is_escape(error: &io::Error) -> bool {
     error.raw_os_error() == Some(libc::EXDEV)
 }
@@ -1120,20 +1271,9 @@ fn unlinkat(parent: BorrowedFd<'_>, name: &CStr, flags: libc::c_int) -> io::Resu
     cvt(unsafe { libc::unlinkat(parent.as_raw_fd(), name.as_ptr(), flags) })
 }
 
-/// Runs `call` with the parent of `path`'s last component, opened beneath
-/// `dir` (or `dir` itself for a path without a `/`), and that component.
-fn with_last(
-    dir: BorrowedFd<'_>,
-    path: &Path,
-    call: impl FnOnce(BorrowedFd<'_>, &CStr) -> io::Result<()>,
-) -> io::Result<()> {
-    let (parent, name) = split_last(path.as_os_str())?;
-    let parent = open_parent(dir, parent)?;
-    call(parent.borrow(dir), &name)
-}
-
 /// The parent a last component is acted on in: `dir`, or a directory
 /// opened beneath it.
+#[derive(Debug)]
 enum Parent {
     Dir,
     Opened(OwnedFd),

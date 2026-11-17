@@ -247,13 +247,7 @@ mod tests {
     /// A root at `path`, never opened, granted as `granted` too, doing what
     /// `scope` says.
     fn scoped(path: &str, granted: &[&str], scope: Scope) -> Root {
-        Root {
-            path: path.to_owned(),
-            granted: granted.iter().map(|&path| path.to_owned()).collect(),
-            scope,
-            whole: path == "/",
-            fd: Err("not opened".to_owned()),
-        }
+        Root::unopened(path, granted, scope)
     }
 
     /// An absolute path walks as Node's `realpath` walks it, over a tree of

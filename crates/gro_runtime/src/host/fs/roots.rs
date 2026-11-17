@@ -13,6 +13,14 @@
 //! its descriptor. The table is only ever appended to, so a handle's place
 //! in it stays its root's.
 //!
+//! No `remove` or `rename` removes or moves a root's directory, or a
+//! directory holding one, and no `rename` moves an entry where the deepest
+//! root holding it grants what the source's doesn't ([`Held`]): a rule the
+//! roots keep whatever the run grants, `-A` included, not a grant, and the
+//! one place an op reads the run's roots to decide, only ever to refuse;
+//! beside it, a refusal's hint reads them, to name what would let the op
+//! through ([`super::walk::scope_needed`]).
+//!
 //! A granted directory is the one its path named as the run started
 //! ([`FsGrant`]): the embedder reads its real path then, and the identity
 //! of the directory there, and its root opens by that real path, never by
@@ -72,7 +80,7 @@ pub(super) struct Root {
     pub(super) path: String,
     /// The other absolute paths it was granted as, each by its text with no
     /// `.`, `..`, or empty name, which match a path as its real path does.
-    pub(super) granted: Vec<String>,
+    granted: Vec<String>,
     /// What it reads and writes: its grants', joined with each root's that
     /// holds its directory ([`holds_beneath`]).
     pub(super) scope: Scope,
@@ -85,6 +93,19 @@ pub(super) struct Root {
 }
 
 impl Root {
+    /// A root at `path`, never opened, granted as `granted` too, doing what
+    /// `scope` says.
+    #[cfg(test)]
+    pub(super) fn unopened(path: &str, granted: &[&str], scope: Scope) -> Self {
+        Self {
+            path: path.to_owned(),
+            granted: granted.iter().map(|&path| path.to_owned()).collect(),
+            scope,
+            whole: path == "/",
+            fd: Err("not opened".to_owned()),
+        }
+    }
+
     /// Each absolute path it matches as, its real path first, as its names.
     pub(super) fn spellings(&self) -> impl Iterator<Item = Vec<&str>> {
         std::iter::once(&self.path)
@@ -103,6 +124,121 @@ impl FsState {
             *self.roots.borrow_mut() = Some(table);
         }
         Ref::map(self.roots.borrow(), |roots| roots.as_deref().unwrap_or(&[]))
+    }
+}
+
+/// Whether `path`, an absolute path, is a root's directory or holds one,
+/// by its text against each root's real path as the run started.
+pub(super) fn holds_a_root(roots: &[Root], path: &str) -> bool {
+    roots
+        .iter()
+        .any(|root| !root.path.is_empty() && at_or_beneath(&root.path, path))
+}
+
+/// Whether `path` is `dir` or lies beneath it, both absolute, by their
+/// text.
+fn at_or_beneath(path: &str, dir: &str) -> bool {
+    dir == "/"
+        || path
+            .strip_prefix(dir)
+            .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
+}
+
+/// Why the rule refuses a rename or a remove.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Refusal {
+    /// The entry is a root's directory or holds one.
+    HoldsARoot,
+    /// The destination's deepest root grants what the source's doesn't.
+    GainsScope,
+}
+
+/// The roots a rename or a remove beneath one handle's directory can
+/// reach, owned, so the op's I/O can check its ends in the directories it
+/// acts in on whatever thread it runs: each root whose real path lies
+/// beneath the directory's, with its scope, and the scope of the deepest
+/// root holding the directory.
+///
+/// An entry beneath a handle's directory is a root's directory or holds
+/// one only when a root lies beneath that directory, and its deepest root
+/// is either such a root or the directory's own, so a handle's directory
+/// with no root beneath it needs no check at all ([`Held::of`]). An end's
+/// path is its real path, read through the directory the op acts in, and
+/// the roots' are their real paths as the run started: the rule holds
+/// each root's directory where it was, which nothing in the run can move
+/// (`authority.md`'s threat model leaves out a process outside the run
+/// that moves what a flag names). Only a directory can be or hold one, and
+/// an entry at a root's path as the run started is that directory, so the
+/// text alone decides, and nothing is looked up for it.
+#[derive(Debug)]
+pub(super) struct Held {
+    /// The scope of the deepest root holding the handle's directory.
+    scope: Scope,
+    /// Each root beneath the handle's directory: its real path and scope.
+    beneath: Vec<(String, Scope)>,
+}
+
+impl Held {
+    /// The roots beneath `dir`, a handle's directory's absolute path, or
+    /// none when no root lies beneath it.
+    pub(super) fn of(roots: &[Root], dir: &str) -> Option<Self> {
+        let beneath: Vec<(String, Scope)> = roots
+            .iter()
+            .filter(|root| {
+                !root.path.is_empty() && root.path != dir && at_or_beneath(&root.path, dir)
+            })
+            .map(|root| (root.path.clone(), root.scope))
+            .collect();
+        if beneath.is_empty() {
+            return None;
+        }
+        let scope = roots
+            .iter()
+            .filter(|root| !root.path.is_empty() && at_or_beneath(dir, &root.path))
+            .max_by_key(|root| root.path.len())
+            .map_or_else(Scope::default, |root| root.scope);
+        Some(Self { scope, beneath })
+    }
+
+    /// The scope of the deepest root holding `path`, a real path beneath
+    /// the handle's directory.
+    fn scope_at(&self, path: &str) -> Scope {
+        self.beneath
+            .iter()
+            .filter(|(root, _)| at_or_beneath(path, root))
+            .max_by_key(|(root, _)| root.len())
+            .map_or(self.scope, |(_, scope)| *scope)
+    }
+
+    /// That the entry at `path`, a real path beneath the handle's
+    /// directory, may be removed, or moved: it's no root's directory and
+    /// holds none.
+    pub(super) fn removable(&self, path: &str) -> Result<(), Refusal> {
+        if self
+            .beneath
+            .iter()
+            .any(|(root, _)| at_or_beneath(root, path))
+        {
+            return Err(Refusal::HoldsARoot);
+        }
+        Ok(())
+    }
+
+    /// That the entry at `from` may be moved to `to`, both real paths
+    /// beneath the handle's directory: neither is a root's directory or
+    /// holds one, the destination checked though nothing is there, as a
+    /// rename over an empty directory replaces it; and the deepest root
+    /// holding the destination grants nothing the source's doesn't, as
+    /// Landlock's `REFER` holds a rename, so no write moves a file into a
+    /// root that reads it. A refusal says whether it's of the destination.
+    pub(super) fn movable(&self, from: &str, to: &str) -> Result<(), (bool, Refusal)> {
+        self.removable(from).map_err(|why| (false, why))?;
+        self.removable(to).map_err(|why| (true, why))?;
+        let (source, destination) = (self.scope_at(from), self.scope_at(to));
+        if (destination.read && !source.read) || (destination.write && !source.write) {
+            return Err((false, Refusal::GainsScope));
+        }
+        Ok(())
     }
 }
 
@@ -396,7 +532,140 @@ fn spelled(path: &Path) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Scope, root_table, spelled};
+    use super::{Held, Refusal, Root, Scope, holds_a_root, root_table, spelled};
+
+    /// The roots of a run granted `--allow-write=/o --allow-read=/o/r
+    /// --allow-write=/o/w/inner` with its project at `/p`, each by its real
+    /// path and joined scope, one more granted as `/o/alias` and one
+    /// refused as replaced, which no real path names.
+    fn rule_roots() -> Vec<Root> {
+        vec![
+            Root::unopened("/p", &[], Scope::READ),
+            Root::unopened("/o/r", &["/o/alias"], Scope::ALL),
+            Root::unopened("/o/w/inner", &[], Scope::WRITE),
+            Root::unopened("/o", &[], Scope::WRITE),
+            Root::unopened("", &["/o/gone"], Scope::READ),
+        ]
+    }
+
+    /// A path is or holds a root by its text against the roots' real paths
+    /// alone: a root's own path, any path above one, `/`, but not one
+    /// beside a root, one a name longer than a root's, a path inside one,
+    /// a path a root was only granted as, or one a refused root was
+    /// granted as.
+    #[test]
+    fn a_path_is_or_holds_a_root_by_its_text() {
+        let roots = rule_roots();
+        for path in ["/o/r", "/o", "/o/w", "/o/w/inner", "/p", "/"] {
+            assert!(holds_a_root(&roots, path), "{path}");
+        }
+        for path in [
+            "/o/x",
+            "/o/rr",
+            "/o/r/f",
+            "/o/w/inner2",
+            "/o/alias",
+            "/o/gone",
+            "/q",
+        ] {
+            assert!(!holds_a_root(&roots, path), "{path}");
+        }
+    }
+
+    /// The rule beneath a handle's directory: none when no root lies
+    /// beneath it; else an entry that is or holds a root beneath it can't
+    /// be removed or moved, at either end of a rename, and a rename can't
+    /// move an entry where its deepest root grants what the source's
+    /// doesn't, a read here, but can where it grants less or the same.
+    #[test]
+    fn a_rename_or_a_remove_beneath_a_handle_is_held_to_the_roots() {
+        let roots = rule_roots();
+        assert!(Held::of(&roots, "/o/r").is_none());
+        assert!(Held::of(&roots, "/o/w/inner").is_none());
+        assert!(Held::of(&roots, "/o/x").is_none());
+        assert!(Held::of(&roots, "/q").is_none());
+        let held = Held::of(&roots, "/o").unwrap();
+        for path in ["/o/r", "/o/w", "/o/w/inner"] {
+            assert_eq!(held.removable(path), Err(Refusal::HoldsARoot), "{path}");
+        }
+        for path in [
+            "/o/x",
+            "/o/r/f",
+            "/o/w/inner/f",
+            "/o/w/f",
+            "/o/rr",
+            "/o/alias",
+        ] {
+            assert_eq!(held.removable(path), Ok(()), "{path}");
+        }
+        assert_eq!(
+            held.movable("/o/w", "/o/x"),
+            Err((false, Refusal::HoldsARoot))
+        );
+        assert_eq!(
+            held.movable("/o/x", "/o/r"),
+            Err((true, Refusal::HoldsARoot))
+        );
+        assert_eq!(
+            held.movable("/o/secret", "/o/r/secret"),
+            Err((false, Refusal::GainsScope))
+        );
+        assert_eq!(held.movable("/o/r/f", "/o/f"), Ok(()));
+        assert_eq!(held.movable("/o/f", "/o/w/inner/f"), Ok(()));
+        assert_eq!(held.movable("/o/f", "/o/w/g"), Ok(()));
+        let in_w = Held::of(&roots, "/o/w").unwrap();
+        assert_eq!(in_w.movable("/o/w/f", "/o/w/inner/f"), Ok(()));
+        assert_eq!(in_w.removable("/o/w/inner"), Err(Refusal::HoldsARoot));
+        // a write root inside a root that reads only: moving in gains the write
+        let read_only = [
+            Root::unopened("/p", &[], Scope::READ),
+            Root::unopened("/p/out", &[], Scope::ALL),
+        ];
+        let held = Held::of(&read_only, "/p").unwrap();
+        assert_eq!(
+            held.movable("/p/f", "/p/out/f"),
+            Err((false, Refusal::GainsScope))
+        );
+        assert_eq!(held.movable("/p/out/f", "/p/f"), Ok(()));
+    }
+
+    /// The deepest root decides a scope, an end's and the handle's
+    /// directory's alike: a root inside a root beneath the handle, and a
+    /// handle beneath two nested roots, each granting more than the root
+    /// holding it.
+    #[test]
+    fn the_deepest_root_holding_a_path_decides_its_scope() {
+        let roots = [
+            Root::unopened("/o", &[], Scope::WRITE),
+            Root::unopened("/o/w", &[], Scope::WRITE),
+            Root::unopened("/o/w/r", &[], Scope::ALL),
+            Root::unopened("/o/a", &[], Scope::ALL),
+            Root::unopened("/o/a/x/r", &[], Scope::ALL),
+        ];
+        let held = Held::of(&roots, "/o").unwrap();
+        assert_eq!(
+            held.movable("/o/f", "/o/w/r/f"),
+            Err((false, Refusal::GainsScope))
+        );
+        let in_x = Held::of(&roots, "/o/a/x").unwrap();
+        assert_eq!(in_x.movable("/o/a/x/f", "/o/a/x/r/f"), Ok(()));
+    }
+
+    /// Unconfined, `/` holds everything, read and written, and the
+    /// project's root, inside it, can't be removed or moved through a
+    /// handle above it; nothing gains a scope.
+    #[test]
+    fn the_rule_holds_unconfined() {
+        let roots = [
+            Root::unopened("/p/proj", &[], Scope::ALL),
+            Root::unopened("/", &[], Scope::ALL),
+        ];
+        let held = Held::of(&roots, "/p").unwrap();
+        assert_eq!(held.removable("/p/proj"), Err(Refusal::HoldsARoot));
+        assert_eq!(held.movable("/p/f", "/p/proj/f"), Ok(()));
+        assert!(Held::of(&roots, "/").is_some());
+        assert!(Held::of(&roots, "/q").is_none());
+    }
 
     /// A granted path spells its root by its names, `.` and empty ones
     /// dropped; one holding a `..`, which the kernel resolves after the

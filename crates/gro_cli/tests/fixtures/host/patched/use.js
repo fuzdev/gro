@@ -27,11 +27,20 @@ const env_error = namespace_of('@fuzdev/gro/env_error.ts');
 /** The fs error row's namespace, the same for its errors. */
 const fs_error = namespace_of('@fuzdev/gro/fs_error.ts');
 
-/** The project's path, which the run reads beneath. */
+/** The project's path, which the run reads and writes beneath. */
 const project = namespace_of('@fuzdev/gro/fs.ts').fs.project.path;
 
 /** A path no handle reaches, refused before any grant is checked or any file read. */
 const ABOVE = '..';
+
+/**
+ * A handle on `w`, the directory the run writes in its working directory, made before the
+ * realm is armed: the writes built on fgro are exercised through it as well as `fs.project`,
+ * which doesn't write.
+ */
+const written = await namespace_of('@fuzdev/gro/fs.ts').fs.open_dir(
+	`${namespace_of('@fuzdev/gro/cwd.ts').cwd()}/w`
+);
 
 /**
  * The arguments each function or class a builtin exports or reaches is exercised with, by its
@@ -137,7 +146,26 @@ const EXERCISES = new Map([
 	['@fuzdev/gro/fs.ts fs.project.copy', [[ABOVE, 'x']]],
 	['@fuzdev/gro/fs.ts fs.project.set_times', [[ABOVE, { mtime_ms: 0 }]]],
 	['@fuzdev/gro/fs.ts fs.project.set_mode', [[ABOVE, 0o644]]],
-	['@fuzdev/gro/fs.ts fs.project.symlink', [[ABOVE, 'x']]]
+	['@fuzdev/gro/fs.ts fs.project.symlink', [[ABOVE, 'x']]],
+	// each write built on fgro through `written`, a handle on a directory the run writes, with
+	// data and options, so a hostile one in their place is read: a file written, made new, a
+	// directory made, a file renamed, a missing file and a directory removed
+	[
+		'@fuzdev/gro/fs.ts written.write',
+		[
+			['written.txt', 'data'],
+			['made.txt', new Uint8Array([1]), { create_new: true, mode: 0o600 }]
+		]
+	],
+	['@fuzdev/gro/fs.ts written.mkdir', [['made', { recursive: true, exists_ok: true }]]],
+	[
+		'@fuzdev/gro/fs.ts written.remove',
+		[
+			['missing', { missing_ok: true }],
+			['made', { recursive: true }]
+		]
+	],
+	['@fuzdev/gro/fs.ts written.rename', [['written.txt', 'renamed.txt']]]
 ]);
 
 /** How far into an export's properties and its calls' results the functions are looked for. */
@@ -164,6 +192,13 @@ exerciser.exercise(
 	undefined,
 	DEPTH
 );
+
+// the writes built on fgro, through a handle that writes, each reached as it would be through
+// `fs.project`, and nothing past them
+const written_prototype = Object.getPrototypeOf(written);
+for (const name of ['write', 'mkdir', 'remove', 'rename']) {
+	exerciser.exercise(`@fuzdev/gro/fs.ts written.${name}`, written_prototype[name], written, 1);
+}
 
 const replaced = count_replaced();
 restore_realm();

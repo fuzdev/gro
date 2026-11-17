@@ -68,7 +68,7 @@ one of the [builtin modules](glossary.md#builtin-module) built so far ([host mod
 and ends the run or sets its exit code with `exit` and `set_exit_code`, from `@fuzdev/gro/exit.ts` ([below](#errors-and-exit-codes)).
 User code can't read stdin (there is no `process` global, `Deno`, or `Bun`) and reads the environment only through `@fuzdev/gro/env.ts`, the variables `--allow-env=` or `-A` grants;
 it reads the filesystem only through `@fuzdev/gro/fs.ts`, beneath the project's root and the directories `--allow-read=` names (everything under `-A`),
-and writes nothing yet, since `fs`'s write ops aren't built; no module gives it the network or a process.
+and writes only beneath the directories `--allow-write=` names; no module gives it the network or a process.
 That is the whole of today's confinement: the process itself has no kernel box and no resource limits, the JIT is on,
 and console output reaches the terminal unescaped, so `fgro run` is not yet for code you treat as hostile
 ([authority](authority.md#threat-model) and [backstop](backstop.md) have what's designed).
@@ -122,7 +122,7 @@ The binary embeds the commit, so a dirty tree (a changed file, or an untracked o
   a read refusing anything but a regular file at once; `fs.open_dir` or `fs.real_path` outside them rejects
   with `FsError` `not_granted`, which fails the run caught or not, and so does a read through a handle that doesn't read
   or a write through one that doesn't write, while a handle's reach outside its directory is `outside_root`, which doesn't,
-  and a write through a handle that writes throws a plain `Error`, since the write ops aren't built yet ([host modules](host_modules.md#fs-on-fgro)).
+  and a `copy`, `set_times`, `set_mode`, or `symlink` through a handle that writes throws a plain `Error`, since those aren't built yet ([host modules](host_modules.md#fs-on-fgro)).
 - `@fuzdev/gro/fs_error.ts`, a builtin module that needs no grant: `FsError`, `is_fs_error`, and `is_own_fs_error`.
 - A builtin module's `.js` spelling (`@fuzdev/gro/args.js`), the host modules not on `fgro` yet (`@fuzdev/gro/spawn.ts`, `stdin`, `stdout`, `net_error`, and the rest, either spelling),
   and `@fuzdev/gro/process.ts` and `process_error.ts`, which Gro has none of (either spelling),

@@ -18,7 +18,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-use gro_sys::beneath::{self, DirEntry, FileKind, FinalLink, Links, OpenAs, Stat};
+use gro_sys::beneath::{self, DirEntry, FileKind, FinalLink, Last, Links, OpenAs, Stat};
 
 /// A scratch tree, `root/` and `outside/` beside it, removed when dropped.
 struct Scratch {
@@ -851,6 +851,36 @@ fn read_dir_lists_names_as_bytes() {
     }
 }
 
+/// [`Last::mkdir`] of `path`'s last component beneath `dir`.
+fn mkdir(dir: BorrowedFd<'_>, path: &Path, mode: u32) -> io::Result<()> {
+    Last::open(dir, path)?.mkdir(mode)
+}
+
+/// [`Last::remove_file`] of `path`'s last component beneath `dir`.
+fn remove_file(dir: BorrowedFd<'_>, path: &Path) -> io::Result<()> {
+    Last::open(dir, path)?.remove_file()
+}
+
+/// [`Last::remove_dir`] of `path`'s last component beneath `dir`.
+fn remove_dir(dir: BorrowedFd<'_>, path: &Path) -> io::Result<()> {
+    Last::open(dir, path)?.remove_dir()
+}
+
+/// [`Last::remove_tree`] of `path`'s last component beneath `dir`.
+fn remove_tree(dir: BorrowedFd<'_>, path: &Path) -> io::Result<()> {
+    Last::open(dir, path)?.remove_tree()
+}
+
+/// [`Last::rename_to`] of `from` beneath `from_dir` to `to` beneath `to_dir`.
+fn rename(
+    from_dir: BorrowedFd<'_>,
+    from: &Path,
+    to_dir: BorrowedFd<'_>,
+    to: &Path,
+) -> io::Result<()> {
+    Last::open(from_dir, from)?.rename_to(&Last::open(to_dir, to)?)
+}
+
 /// `mkdir` makes a directory beneath, and fails on any entry there, a
 /// missing or non-directory parent, and a parent that leaves the tree.
 #[test]
@@ -861,8 +891,8 @@ fn mkdir_beneath() {
     symlink("../outside", scratch.root("out")).unwrap();
     let root = scratch.root_fd();
 
-    beneath::mkdir(root.as_fd(), p("d"), 0o755).unwrap();
-    beneath::mkdir(root.as_fd(), p("d/e/"), 0o700).unwrap();
+    mkdir(root.as_fd(), p("d"), 0o755).unwrap();
+    mkdir(root.as_fd(), p("d/e/"), 0o700).unwrap();
     assert!(scratch.root("d/e").is_dir());
     let mode = fs::metadata(scratch.root("d/e")).unwrap().mode() & 0o777;
     assert_eq!(mode, 0o700);
@@ -878,7 +908,7 @@ fn mkdir_beneath() {
         ("/d", libc::EXDEV),
     ] {
         assert_eq!(
-            code(beneath::mkdir(root.as_fd(), p(path), 0o755)),
+            code(mkdir(root.as_fd(), p(path), 0o755)),
             expected,
             "{path}"
         );
@@ -895,7 +925,7 @@ fn mkdir_without_permission() {
     fs::create_dir(scratch.root("locked")).unwrap();
     fs::set_permissions(scratch.root("locked"), fs::Permissions::from_mode(0o500)).unwrap();
     let root = scratch.root_fd();
-    match beneath::mkdir(root.as_fd(), p("locked/d"), 0o755) {
+    match mkdir(root.as_fd(), p("locked/d"), 0o755) {
         // a process with `CAP_DAC_OVERRIDE` writes past the mode
         Ok(()) => eprintln!("mkdir_without_permission: privileged, nothing to check"),
         Err(error) => assert_eq!(error.raw_os_error(), Some(libc::EACCES)),
@@ -916,12 +946,12 @@ fn remove_file_beneath() {
     symlink("../outside/f", scratch.root("to_out")).unwrap();
     let root = scratch.root_fd();
 
-    beneath::remove_file(root.as_fd(), p("d/f")).unwrap();
+    remove_file(root.as_fd(), p("d/f")).unwrap();
     assert!(!scratch.root("d/f").exists());
-    beneath::remove_file(root.as_fd(), p("to_f")).unwrap();
+    remove_file(root.as_fd(), p("to_f")).unwrap();
     assert!(scratch.root("f").is_file());
     // a link pointing out is removed itself, its target untouched
-    beneath::remove_file(root.as_fd(), p("to_out")).unwrap();
+    remove_file(root.as_fd(), p("to_out")).unwrap();
     assert!(scratch.outside("f").is_file());
 
     for (path, expected) in [
@@ -931,11 +961,7 @@ fn remove_file_beneath() {
         ("out/f", libc::EXDEV),
         ("../outside/f", libc::EXDEV),
     ] {
-        assert_eq!(
-            code(beneath::remove_file(root.as_fd(), p(path))),
-            expected,
-            "{path}"
-        );
+        assert_eq!(code(remove_file(root.as_fd(), p(path))), expected, "{path}");
     }
     assert!(scratch.outside("f").is_file());
 }
@@ -955,9 +981,9 @@ fn remove_dir_beneath() {
     symlink("../outside", scratch.root("out")).unwrap();
     let root = scratch.root_fd();
 
-    beneath::remove_dir(root.as_fd(), p("empty/")).unwrap();
+    remove_dir(root.as_fd(), p("empty/")).unwrap();
     assert!(!scratch.root("empty").exists());
-    beneath::remove_dir(root.as_fd(), p("full/sub")).unwrap();
+    remove_dir(root.as_fd(), p("full/sub")).unwrap();
 
     fs::create_dir(scratch.root("full/sub")).unwrap();
     for (path, expected) in [
@@ -968,14 +994,93 @@ fn remove_dir_beneath() {
         ("missing", libc::ENOENT),
         ("out/empty", libc::EXDEV),
     ] {
-        assert_eq!(
-            code(beneath::remove_dir(root.as_fd(), p(path))),
-            expected,
-            "{path}"
-        );
+        assert_eq!(code(remove_dir(root.as_fd(), p(path))), expected, "{path}");
     }
     assert!(scratch.root("target").is_dir());
     assert!(scratch.outside("empty").is_dir());
+}
+
+/// `remove_tree` removes a file, a symlink, never its target, and a
+/// directory with everything in it, a symlink inside to a directory or
+/// out of the tree removed as a link, and fails on a missing entry, a
+/// symlink named with a trailing `/`, a parent that leaves the tree, and a
+/// directory inside it the process may not change, which it leaves with
+/// what it couldn't remove.
+#[test]
+fn remove_tree_beneath() {
+    let scratch = Scratch::new("remove_tree");
+    for dir in ["t/sub/deep", "t/empty", "kept/locked/in"] {
+        fs::create_dir_all(scratch.root(dir)).unwrap();
+    }
+    for file in ["t/f", "t/sub/g", "t/sub/deep/h", "f", "kept/locked/in/x"] {
+        fs::write(scratch.root(file), "").unwrap();
+    }
+    symlink("../../outside", scratch.root("t/out")).unwrap();
+    symlink("f", scratch.root("t/to_f")).unwrap();
+    symlink("../f", scratch.root("t/sub/up")).unwrap();
+    symlink("t", scratch.root("l")).unwrap();
+    symlink("../outside", scratch.root("out")).unwrap();
+    let root = scratch.root_fd();
+
+    remove_tree(root.as_fd(), p("l")).unwrap();
+    assert!(scratch.root("t/sub/deep/h").is_file());
+    symlink("t", scratch.root("l")).unwrap();
+    assert_eq!(code(remove_tree(root.as_fd(), p("l/"))), libc::ENOTDIR);
+    remove_tree(root.as_fd(), p("t/")).unwrap();
+    assert!(!scratch.root("t").exists());
+    assert!(scratch.root("f").is_file());
+    assert!(scratch.outside("f").is_file());
+    remove_tree(root.as_fd(), p("f")).unwrap();
+    assert!(!scratch.root("f").exists());
+    for (path, expected) in [
+        ("missing", libc::ENOENT),
+        ("out/f", libc::EXDEV),
+        ("../outside", libc::EXDEV),
+    ] {
+        assert_eq!(code(remove_tree(root.as_fd(), p(path))), expected, "{path}");
+    }
+    assert!(scratch.outside("f").is_file());
+
+    fs::set_permissions(
+        scratch.root("kept/locked"),
+        fs::Permissions::from_mode(0o500),
+    )
+    .unwrap();
+    let result = remove_tree(root.as_fd(), p("kept"));
+    fs::set_permissions(
+        scratch.root("kept/locked"),
+        fs::Permissions::from_mode(0o755),
+    )
+    .unwrap();
+    match result {
+        // a process with `CAP_DAC_OVERRIDE` removes past the mode
+        Ok(()) => eprintln!("remove_tree_beneath: privileged, nothing to check"),
+        Err(error) => {
+            assert_eq!(error.raw_os_error(), Some(libc::EACCES));
+            // `in` was emptied, but `locked` can't lose it
+            assert!(scratch.root("kept/locked/in").is_dir());
+            assert!(!scratch.root("kept/locked/in/x").exists());
+        }
+    }
+}
+
+/// A `Last` names its component as given, slashes after it kept, and its
+/// parent when it opened one; its `stat` is `lstat`'s: a symlink not
+/// followed, but for one a slash follows.
+#[test]
+fn a_last_component_is_held_in_its_parent() {
+    let scratch = Scratch::new("last");
+    fs::create_dir_all(scratch.root("d/e")).unwrap();
+    symlink("d", scratch.root("l")).unwrap();
+    let root = scratch.root_fd();
+    let held = Last::open(root.as_fd(), p("d/e/")).unwrap();
+    assert_eq!(held.name(), OsStr::new("e/"));
+    assert!(is_entry(held.parent().unwrap(), &scratch.root("d")));
+    let own = Last::open(root.as_fd(), p("l")).unwrap();
+    assert!(own.parent().is_none());
+    assert_eq!(own.stat().unwrap().kind, FileKind::Symlink);
+    let followed = Last::open(root.as_fd(), p("l/")).unwrap();
+    assert_eq!(followed.stat().unwrap().kind, FileKind::Directory);
 }
 
 /// `rename` moves an entry within a tree and between two, replacing a file
@@ -997,13 +1102,13 @@ fn rename_beneath() {
     let a = File::open(scratch.root("a")).unwrap();
     let b = File::open(scratch.root("b")).unwrap();
 
-    beneath::rename(root.as_fd(), p("a/f"), root.as_fd(), p("a/f2")).unwrap();
+    rename(root.as_fd(), p("a/f"), root.as_fd(), p("a/f2")).unwrap();
     assert_eq!(fs::read_to_string(scratch.root("a/f2")).unwrap(), "f");
     // between two descriptors, replacing the file there
-    beneath::rename(a.as_fd(), p("f2"), b.as_fd(), p("g")).unwrap();
+    rename(a.as_fd(), p("f2"), b.as_fd(), p("g")).unwrap();
     assert_eq!(fs::read_to_string(scratch.root("b/g")).unwrap(), "f");
     assert!(!scratch.root("a/f2").exists());
-    beneath::rename(root.as_fd(), p("to_out"), root.as_fd(), p("a/moved")).unwrap();
+    rename(root.as_fd(), p("to_out"), root.as_fd(), p("a/moved")).unwrap();
     assert!(
         fs::symlink_metadata(scratch.root("a/moved"))
             .unwrap()
@@ -1022,7 +1127,7 @@ fn rename_beneath() {
         ("f", "out/f", libc::EXDEV),
         ("f", "../outside/f", libc::EXDEV),
     ] {
-        let result = beneath::rename(root.as_fd(), p(from), root.as_fd(), p(to));
+        let result = rename(root.as_fd(), p(from), root.as_fd(), p(to));
         assert_eq!(code(result), expected, "{from} {to}");
     }
     assert!(scratch.root("f").is_file());
@@ -1045,7 +1150,7 @@ fn rename_across_mounts_is_no_escape() {
     fs::write(scratch.root("f"), "").unwrap();
     let root = scratch.root_fd();
     let shm_fd = File::open(&shm).unwrap();
-    let result = beneath::rename(root.as_fd(), p("f"), shm_fd.as_fd(), p("f"));
+    let result = rename(root.as_fd(), p("f"), shm_fd.as_fd(), p("f"));
     let _ = fs::remove_file(shm.join("f"));
     fs::remove_dir(&shm).unwrap();
     if !other_device {
@@ -1072,19 +1177,16 @@ fn a_bad_last_component_is_refused_before_any_call() {
     fs::create_dir(scratch.root("a")).unwrap();
     fs::write(scratch.root("a/f"), "").unwrap();
     let root = scratch.root_fd();
-    let calls: [(&str, &Call); 5] = [
-        ("mkdir", &|path| beneath::mkdir(root.as_fd(), path, 0o755)),
-        ("remove_file", &|path| {
-            beneath::remove_file(root.as_fd(), path)
-        }),
-        ("remove_dir", &|path| {
-            beneath::remove_dir(root.as_fd(), path)
-        }),
+    let calls: [(&str, &Call); 6] = [
+        ("mkdir", &|path| mkdir(root.as_fd(), path, 0o755)),
+        ("remove_file", &|path| remove_file(root.as_fd(), path)),
+        ("remove_dir", &|path| remove_dir(root.as_fd(), path)),
+        ("remove_tree", &|path| remove_tree(root.as_fd(), path)),
         ("rename from", &|path| {
-            beneath::rename(root.as_fd(), path, root.as_fd(), p("x"))
+            rename(root.as_fd(), path, root.as_fd(), p("x"))
         }),
         ("rename to", &|path| {
-            beneath::rename(root.as_fd(), p("a/f"), root.as_fd(), path)
+            rename(root.as_fd(), p("a/f"), root.as_fd(), path)
         }),
     ];
     for (name, call) in calls {

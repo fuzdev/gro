@@ -305,5 +305,5 @@ every grant at its widest, with no global added and native code still out of pro
 A directory a run may write.
 As designed, a project's are declared and accepted like any [grant](#grant) (`dist/`, `build/`, `.gro/`),
 and a child process gets only these writable at the kernel ([backstop](backstop.md#the-box-for-runs-and-children));
-on `fgro run` today, a run's write roots are each directory `--allow-write=` names, or `/` under `-A`, though `fs`'s write ops aren't built yet.
+on `fgro run` today, a run's write roots are each directory `--allow-write=` names, or `/` under `-A`.
 A read root is the same for reads. On `fgro`, each read or write root is one of the `fs` module's [roots](#root).

@@ -35,8 +35,11 @@ beside a `SHA512SUMS` file, each with a provenance attestation.
     and `--allow-read=a,/b` grants reading more directories, `--allow-write=a,/b` writing them,
     each a directory when the run starts and held to the directory its path named then.
     Built are `fs.project`, `fs.open_dir`, `fs.real_path`, and on a handle `path`, `dir`, `readonly`, `stat`, `exists`, the reads,
-    the sync ops (`stat_sync`, `exists_sync`, `read_text_sync`), `read_link`, and `list`, sorted by name.
-    The write ops and `fs.temp_dir` aren't built yet: `fs.temp_dir`, or a write op through a handle that writes, throws an `Error` saying so.
+    the sync ops (`stat_sync`, `exists_sync`, `read_text_sync`), `read_link`, `list`, sorted by name,
+    and the writes `write`, `mkdir`, `remove`, and `rename`.
+    No `remove` or `rename` moves or removes a directory of the run's, or one holding one, and no `rename` moves an entry
+    where the run's grants allow more than where it was (a write root's file into a directory it reads), each `io_error`.
+    `copy`, `set_times`, `set_mode`, `symlink`, and `fs.temp_dir` aren't built yet: each throws an `Error` saying so.
     A handle reads and writes as the directory it was opened on and nothing widens it,
     so a program writes a granted directory through a handle `fs.open_dir` makes on it, never through `fs.project`.
     A reach outside the run's directories, or an op its handle's scope lacks, throws `FsError` `not_granted`.

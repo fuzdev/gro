@@ -7,11 +7,11 @@
 > the omissions (no runtime namespace, no Node compat, no remote imports, no authority globals),
 > and for `fgro run` the link-time grant check by origin over the builtin modules built so far:
 > the project's modules get `args`, `exit`, `env` with the variables `--allow-env=` names, and `fs`, reading the project's tree
-> and the directories `--allow-read=` names, with a write scope on those `--allow-write=` names (writes aren't built yet),
+> and the directories `--allow-read=` names, with a write scope on those `--allow-write=` names,
 > each scope carried by the handles made under it;
 > the grant-free modules link for every module; `-A` grants every module every one;
 > and a refused `import()`, `env` name, or `fs` path fails the run, caught or not ([run](run.md#errors-and-exit-codes)).
-> Not built for `fgro run`: `fs`'s write ops, which a granted handle has but which throw for now, and `temp_dir` ([host modules](host_modules.md#fs-on-fgro)), `spawn`, `net`, `watch`, the standard streams, the policy file, the seal, and the kernel backstop;
+> Not built for `fgro run`: `fs`'s `copy`, `set_times`, `set_mode`, and `symlink`, which a granted handle has but which throw for now, and `temp_dir` ([host modules](host_modules.md#fs-on-fgro)), `spawn`, `net`, `watch`, the standard streams, the policy file, the seal, and the kernel backstop;
 > the [roadmap](runtime.md#roadmap) says when, and [backstop](backstop.md) has the kernel layer under all of it.
 
 These terms carry this doc, and the [glossary](glossary.md) defines them and the others:

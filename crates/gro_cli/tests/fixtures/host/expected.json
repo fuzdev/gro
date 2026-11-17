@@ -8355,5 +8355,3167 @@
 				}
 			}
 		}
+	},
+	"fs_write": {
+		"code": 0,
+		"output": {
+			"new": {
+				"tree": [
+					"a.txt: a",
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"new.txt: new",
+					"sub/",
+					"sub/b.txt: b",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"replaces": {
+				"tree": [
+					"a.txt: replaced",
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"new.txt: new",
+					"sub/",
+					"sub/b.txt: b",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"create_new": {
+				"resolved": "created",
+				"tree": [
+					"a.txt: replaced",
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"made.txt: made",
+					"new.txt: new",
+					"sub/",
+					"sub/b.txt: b",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"create_new_again": {
+				"resolved": "exists",
+				"tree": [
+					"a.txt: replaced",
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"made.txt: made",
+					"new.txt: new",
+					"sub/",
+					"sub/b.txt: b",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"create_new_truthy": {
+				"resolved": "exists",
+				"tree": [
+					"a.txt: replaced",
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"made.txt: made",
+					"new.txt: new",
+					"sub/",
+					"sub/b.txt: b",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"create_new_falsy": {
+				"tree": [
+					"a.txt: replaced",
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"made.txt: falsy",
+					"new.txt: new",
+					"sub/",
+					"sub/b.txt: b",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"create_new_on_a_directory": {
+				"resolved": "exists",
+				"tree": [
+					"a.txt: replaced",
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"made.txt: falsy",
+					"new.txt: new",
+					"sub/",
+					"sub/b.txt: b",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"create_new_on_its_own_directory": {
+				"resolved": "exists",
+				"tree": [
+					"a.txt: replaced",
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"made.txt: falsy",
+					"new.txt: new",
+					"sub/",
+					"sub/b.txt: b",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"create_new_on_a_dangling_link": {
+				"resolved": "exists",
+				"tree": [
+					"a.txt: replaced",
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"made.txt: falsy",
+					"new.txt: new",
+					"sub/",
+					"sub/b.txt: b",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"a_directory": {
+				"rejected": {
+					"class": "FsError",
+					"message": "is_a_directory: {project}/scratch/sub",
+					"kind": "is_a_directory",
+					"path": "{project}/scratch/sub"
+				},
+				"tree": [
+					"a.txt: replaced",
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"made.txt: falsy",
+					"new.txt: new",
+					"sub/",
+					"sub/b.txt: b",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"a_directory_slashed": {
+				"rejected": {
+					"class": "FsError",
+					"message": "is_a_directory: {project}/scratch/sub",
+					"kind": "is_a_directory",
+					"path": "{project}/scratch/sub"
+				},
+				"tree": [
+					"a.txt: replaced",
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"made.txt: falsy",
+					"new.txt: new",
+					"sub/",
+					"sub/b.txt: b",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"its_own_directory": {
+				"rejected": {
+					"class": "FsError",
+					"message": "is_a_directory: {project}/scratch",
+					"kind": "is_a_directory",
+					"path": "{project}/scratch"
+				},
+				"tree": [
+					"a.txt: replaced",
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"made.txt: falsy",
+					"new.txt: new",
+					"sub/",
+					"sub/b.txt: b",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"dot": {
+				"rejected": {
+					"class": "FsError",
+					"message": "is_a_directory: {project}/scratch",
+					"kind": "is_a_directory",
+					"path": "{project}/scratch"
+				},
+				"tree": [
+					"a.txt: replaced",
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"made.txt: falsy",
+					"new.txt: new",
+					"sub/",
+					"sub/b.txt: b",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"a_trailing_slash": {
+				"rejected": {
+					"class": "FsError",
+					"message": "is_a_directory: {project}/scratch/slashed.txt",
+					"kind": "is_a_directory",
+					"path": "{project}/scratch/slashed.txt"
+				},
+				"tree": [
+					"a.txt: replaced",
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"made.txt: falsy",
+					"new.txt: new",
+					"sub/",
+					"sub/b.txt: b",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"a_missing_parent": {
+				"rejected": {
+					"class": "FsError",
+					"message": "not_found: {project}/scratch/missing/x.txt",
+					"kind": "not_found",
+					"path": "{project}/scratch/missing/x.txt"
+				},
+				"tree": [
+					"a.txt: replaced",
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"made.txt: falsy",
+					"new.txt: new",
+					"sub/",
+					"sub/b.txt: b",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"through_a_file": {
+				"rejected": {
+					"class": "FsError",
+					"message": "not_a_directory: {project}/scratch/a.txt/x",
+					"kind": "not_a_directory",
+					"path": "{project}/scratch/a.txt/x"
+				},
+				"tree": [
+					"a.txt: replaced",
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"made.txt: falsy",
+					"new.txt: new",
+					"sub/",
+					"sub/b.txt: b",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"through_a_link_to_a_file": {
+				"tree": [
+					"a.txt: linked",
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"made.txt: falsy",
+					"new.txt: new",
+					"sub/",
+					"sub/b.txt: b",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"through_a_link_to_a_directory": {
+				"tree": [
+					"a.txt: linked",
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"made.txt: falsy",
+					"new.txt: new",
+					"sub/",
+					"sub/b.txt: b",
+					"sub/c.txt: c",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"up_and_back": {
+				"tree": [
+					"a.txt: linked",
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"made.txt: falsy",
+					"new.txt: new",
+					"sub/",
+					"sub/b.txt: b",
+					"sub/c.txt: c",
+					"to_file (symlink)",
+					"to_sub (symlink)",
+					"up.txt: up"
+				]
+			},
+			"a_link_out": {
+				"rejected": {
+					"class": "FsError",
+					"message": "outside_root: escape",
+					"kind": "outside_root",
+					"path": "escape"
+				},
+				"tree": [
+					"a.txt: linked",
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"made.txt: falsy",
+					"new.txt: new",
+					"sub/",
+					"sub/b.txt: b",
+					"sub/c.txt: c",
+					"to_file (symlink)",
+					"to_sub (symlink)",
+					"up.txt: up"
+				]
+			},
+			"an_absolute_link": {
+				"rejected": {
+					"class": "FsError",
+					"message": "outside_root: absolute",
+					"kind": "outside_root",
+					"path": "absolute"
+				},
+				"tree": [
+					"a.txt: linked",
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"made.txt: falsy",
+					"new.txt: new",
+					"sub/",
+					"sub/b.txt: b",
+					"sub/c.txt: c",
+					"to_file (symlink)",
+					"to_sub (symlink)",
+					"up.txt: up"
+				]
+			},
+			"above": {
+				"rejected": {
+					"class": "FsError",
+					"message": "outside_root: ../x.txt",
+					"kind": "outside_root",
+					"path": "../x.txt"
+				},
+				"tree": [
+					"a.txt: linked",
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"made.txt: falsy",
+					"new.txt: new",
+					"sub/",
+					"sub/b.txt: b",
+					"sub/c.txt: c",
+					"to_file (symlink)",
+					"to_sub (symlink)",
+					"up.txt: up"
+				]
+			},
+			"absolute": {
+				"rejected": {
+					"class": "FsError",
+					"message": "outside_root: /x.txt",
+					"kind": "outside_root",
+					"path": "/x.txt"
+				},
+				"tree": [
+					"a.txt: linked",
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"made.txt: falsy",
+					"new.txt: new",
+					"sub/",
+					"sub/b.txt: b",
+					"sub/c.txt: c",
+					"to_file (symlink)",
+					"to_sub (symlink)",
+					"up.txt: up"
+				]
+			},
+			"bytes": {
+				"tree": [
+					"a.txt: linked",
+					"absolute (symlink)",
+					"bytes.bin: hi",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"made.txt: falsy",
+					"new.txt: new",
+					"sub/",
+					"sub/b.txt: b",
+					"sub/c.txt: c",
+					"to_file (symlink)",
+					"to_sub (symlink)",
+					"up.txt: up"
+				]
+			},
+			"part_of_a_buffer": {
+				"tree": [
+					"a.txt: linked",
+					"absolute (symlink)",
+					"bytes.bin: hi",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"made.txt: falsy",
+					"new.txt: new",
+					"part.bin: hi",
+					"sub/",
+					"sub/b.txt: b",
+					"sub/c.txt: c",
+					"to_file (symlink)",
+					"to_sub (symlink)",
+					"up.txt: up"
+				]
+			},
+			"empty": {
+				"tree": [
+					"a.txt: linked",
+					"absolute (symlink)",
+					"bytes.bin: hi",
+					"dangling (symlink)",
+					"empty.txt: ",
+					"escape (symlink)",
+					"made.txt: falsy",
+					"new.txt: new",
+					"part.bin: hi",
+					"sub/",
+					"sub/b.txt: b",
+					"sub/c.txt: c",
+					"to_file (symlink)",
+					"to_sub (symlink)",
+					"up.txt: up"
+				]
+			},
+			"lone_surrogate": {
+				"resolved": "97 239 191 189 98",
+				"tree": [
+					"a.txt: linked",
+					"absolute (symlink)",
+					"bytes.bin: hi",
+					"dangling (symlink)",
+					"empty.txt: ",
+					"escape (symlink)",
+					"made.txt: falsy",
+					"new.txt: new",
+					"part.bin: hi",
+					"sub/",
+					"sub/b.txt: b",
+					"sub/c.txt: c",
+					"surrogate.txt: a�b",
+					"to_file (symlink)",
+					"to_sub (symlink)",
+					"up.txt: up"
+				]
+			},
+			"mode": {
+				"resolved": 416,
+				"tree": [
+					"a.txt: linked",
+					"absolute (symlink)",
+					"bytes.bin: hi",
+					"dangling (symlink)",
+					"empty.txt: ",
+					"escape (symlink)",
+					"made.txt: falsy",
+					"mode.txt: x",
+					"new.txt: new",
+					"part.bin: hi",
+					"sub/",
+					"sub/b.txt: b",
+					"sub/c.txt: c",
+					"surrogate.txt: a�b",
+					"to_file (symlink)",
+					"to_sub (symlink)",
+					"up.txt: up"
+				]
+			},
+			"mode_masked": {
+				"resolved": 416,
+				"tree": [
+					"a.txt: linked",
+					"absolute (symlink)",
+					"bytes.bin: hi",
+					"dangling (symlink)",
+					"empty.txt: ",
+					"escape (symlink)",
+					"made.txt: falsy",
+					"masked.txt: x",
+					"mode.txt: x",
+					"new.txt: new",
+					"part.bin: hi",
+					"sub/",
+					"sub/b.txt: b",
+					"sub/c.txt: c",
+					"surrogate.txt: a�b",
+					"to_file (symlink)",
+					"to_sub (symlink)",
+					"up.txt: up"
+				]
+			},
+			"mode_undefined": {
+				"tree": [
+					"a.txt: linked",
+					"absolute (symlink)",
+					"bytes.bin: hi",
+					"dangling (symlink)",
+					"empty.txt: ",
+					"escape (symlink)",
+					"made.txt: falsy",
+					"masked.txt: x",
+					"mode.txt: x",
+					"new.txt: new",
+					"part.bin: hi",
+					"sub/",
+					"sub/b.txt: b",
+					"sub/c.txt: c",
+					"surrogate.txt: a�b",
+					"to_file (symlink)",
+					"to_sub (symlink)",
+					"undefined_mode.txt: x",
+					"up.txt: up"
+				]
+			},
+			"a_dangling_link": {
+				"tree": [
+					"a.txt: linked",
+					"absolute (symlink)",
+					"bytes.bin: hi",
+					"dangling (symlink)",
+					"empty.txt: ",
+					"escape (symlink)",
+					"made.txt: falsy",
+					"masked.txt: x",
+					"missing.txt: through the link",
+					"mode.txt: x",
+					"new.txt: new",
+					"part.bin: hi",
+					"sub/",
+					"sub/b.txt: b",
+					"sub/c.txt: c",
+					"surrogate.txt: a�b",
+					"to_file (symlink)",
+					"to_sub (symlink)",
+					"undefined_mode.txt: x",
+					"up.txt: up"
+				]
+			},
+			"data a number": {
+				"rejected": {
+					"class": "TypeError",
+					"message": "fs write data is a string or a Uint8Array"
+				},
+				"tree": [
+					"a.txt: linked",
+					"absolute (symlink)",
+					"bytes.bin: hi",
+					"dangling (symlink)",
+					"empty.txt: ",
+					"escape (symlink)",
+					"made.txt: falsy",
+					"masked.txt: x",
+					"missing.txt: through the link",
+					"mode.txt: x",
+					"new.txt: new",
+					"part.bin: hi",
+					"sub/",
+					"sub/b.txt: b",
+					"sub/c.txt: c",
+					"surrogate.txt: a�b",
+					"to_file (symlink)",
+					"to_sub (symlink)",
+					"undefined_mode.txt: x",
+					"up.txt: up"
+				]
+			},
+			"data null": {
+				"rejected": {
+					"class": "TypeError",
+					"message": "fs write data is a string or a Uint8Array"
+				},
+				"tree": [
+					"a.txt: linked",
+					"absolute (symlink)",
+					"bytes.bin: hi",
+					"dangling (symlink)",
+					"empty.txt: ",
+					"escape (symlink)",
+					"made.txt: falsy",
+					"masked.txt: x",
+					"missing.txt: through the link",
+					"mode.txt: x",
+					"new.txt: new",
+					"part.bin: hi",
+					"sub/",
+					"sub/b.txt: b",
+					"sub/c.txt: c",
+					"surrogate.txt: a�b",
+					"to_file (symlink)",
+					"to_sub (symlink)",
+					"undefined_mode.txt: x",
+					"up.txt: up"
+				]
+			},
+			"data an array": {
+				"rejected": {
+					"class": "TypeError",
+					"message": "fs write data is a string or a Uint8Array"
+				},
+				"tree": [
+					"a.txt: linked",
+					"absolute (symlink)",
+					"bytes.bin: hi",
+					"dangling (symlink)",
+					"empty.txt: ",
+					"escape (symlink)",
+					"made.txt: falsy",
+					"masked.txt: x",
+					"missing.txt: through the link",
+					"mode.txt: x",
+					"new.txt: new",
+					"part.bin: hi",
+					"sub/",
+					"sub/b.txt: b",
+					"sub/c.txt: c",
+					"surrogate.txt: a�b",
+					"to_file (symlink)",
+					"to_sub (symlink)",
+					"undefined_mode.txt: x",
+					"up.txt: up"
+				]
+			},
+			"data a Uint16Array": {
+				"rejected": {
+					"class": "TypeError",
+					"message": "fs write data is a string or a Uint8Array"
+				},
+				"tree": [
+					"a.txt: linked",
+					"absolute (symlink)",
+					"bytes.bin: hi",
+					"dangling (symlink)",
+					"empty.txt: ",
+					"escape (symlink)",
+					"made.txt: falsy",
+					"masked.txt: x",
+					"missing.txt: through the link",
+					"mode.txt: x",
+					"new.txt: new",
+					"part.bin: hi",
+					"sub/",
+					"sub/b.txt: b",
+					"sub/c.txt: c",
+					"surrogate.txt: a�b",
+					"to_file (symlink)",
+					"to_sub (symlink)",
+					"undefined_mode.txt: x",
+					"up.txt: up"
+				]
+			},
+			"data a DataView": {
+				"rejected": {
+					"class": "TypeError",
+					"message": "fs write data is a string or a Uint8Array"
+				},
+				"tree": [
+					"a.txt: linked",
+					"absolute (symlink)",
+					"bytes.bin: hi",
+					"dangling (symlink)",
+					"empty.txt: ",
+					"escape (symlink)",
+					"made.txt: falsy",
+					"masked.txt: x",
+					"missing.txt: through the link",
+					"mode.txt: x",
+					"new.txt: new",
+					"part.bin: hi",
+					"sub/",
+					"sub/b.txt: b",
+					"sub/c.txt: c",
+					"surrogate.txt: a�b",
+					"to_file (symlink)",
+					"to_sub (symlink)",
+					"undefined_mode.txt: x",
+					"up.txt: up"
+				]
+			},
+			"data an ArrayBuffer": {
+				"rejected": {
+					"class": "TypeError",
+					"message": "fs write data is a string or a Uint8Array"
+				},
+				"tree": [
+					"a.txt: linked",
+					"absolute (symlink)",
+					"bytes.bin: hi",
+					"dangling (symlink)",
+					"empty.txt: ",
+					"escape (symlink)",
+					"made.txt: falsy",
+					"masked.txt: x",
+					"missing.txt: through the link",
+					"mode.txt: x",
+					"new.txt: new",
+					"part.bin: hi",
+					"sub/",
+					"sub/b.txt: b",
+					"sub/c.txt: c",
+					"surrogate.txt: a�b",
+					"to_file (symlink)",
+					"to_sub (symlink)",
+					"undefined_mode.txt: x",
+					"up.txt: up"
+				]
+			},
+			"data a boxed string": {
+				"rejected": {
+					"class": "TypeError",
+					"message": "fs write data is a string or a Uint8Array"
+				},
+				"tree": [
+					"a.txt: linked",
+					"absolute (symlink)",
+					"bytes.bin: hi",
+					"dangling (symlink)",
+					"empty.txt: ",
+					"escape (symlink)",
+					"made.txt: falsy",
+					"masked.txt: x",
+					"missing.txt: through the link",
+					"mode.txt: x",
+					"new.txt: new",
+					"part.bin: hi",
+					"sub/",
+					"sub/b.txt: b",
+					"sub/c.txt: c",
+					"surrogate.txt: a�b",
+					"to_file (symlink)",
+					"to_sub (symlink)",
+					"undefined_mode.txt: x",
+					"up.txt: up"
+				]
+			},
+			"mode a string": {
+				"rejected": {
+					"class": "TypeError",
+					"message": "fs write modes are integers from 0 to 0o7777"
+				},
+				"tree": [
+					"a.txt: linked",
+					"absolute (symlink)",
+					"bytes.bin: hi",
+					"dangling (symlink)",
+					"empty.txt: ",
+					"escape (symlink)",
+					"made.txt: falsy",
+					"masked.txt: x",
+					"missing.txt: through the link",
+					"mode.txt: x",
+					"new.txt: new",
+					"part.bin: hi",
+					"sub/",
+					"sub/b.txt: b",
+					"sub/c.txt: c",
+					"surrogate.txt: a�b",
+					"to_file (symlink)",
+					"to_sub (symlink)",
+					"undefined_mode.txt: x",
+					"up.txt: up"
+				]
+			},
+			"mode a fraction": {
+				"rejected": {
+					"class": "TypeError",
+					"message": "fs write modes are integers from 0 to 0o7777"
+				},
+				"tree": [
+					"a.txt: linked",
+					"absolute (symlink)",
+					"bytes.bin: hi",
+					"dangling (symlink)",
+					"empty.txt: ",
+					"escape (symlink)",
+					"made.txt: falsy",
+					"masked.txt: x",
+					"missing.txt: through the link",
+					"mode.txt: x",
+					"new.txt: new",
+					"part.bin: hi",
+					"sub/",
+					"sub/b.txt: b",
+					"sub/c.txt: c",
+					"surrogate.txt: a�b",
+					"to_file (symlink)",
+					"to_sub (symlink)",
+					"undefined_mode.txt: x",
+					"up.txt: up"
+				]
+			},
+			"mode negative": {
+				"rejected": {
+					"class": "TypeError",
+					"message": "fs write modes are integers from 0 to 0o7777"
+				},
+				"tree": [
+					"a.txt: linked",
+					"absolute (symlink)",
+					"bytes.bin: hi",
+					"dangling (symlink)",
+					"empty.txt: ",
+					"escape (symlink)",
+					"made.txt: falsy",
+					"masked.txt: x",
+					"missing.txt: through the link",
+					"mode.txt: x",
+					"new.txt: new",
+					"part.bin: hi",
+					"sub/",
+					"sub/b.txt: b",
+					"sub/c.txt: c",
+					"surrogate.txt: a�b",
+					"to_file (symlink)",
+					"to_sub (symlink)",
+					"undefined_mode.txt: x",
+					"up.txt: up"
+				]
+			},
+			"mode too large": {
+				"rejected": {
+					"class": "TypeError",
+					"message": "fs write modes are integers from 0 to 0o7777"
+				},
+				"tree": [
+					"a.txt: linked",
+					"absolute (symlink)",
+					"bytes.bin: hi",
+					"dangling (symlink)",
+					"empty.txt: ",
+					"escape (symlink)",
+					"made.txt: falsy",
+					"masked.txt: x",
+					"missing.txt: through the link",
+					"mode.txt: x",
+					"new.txt: new",
+					"part.bin: hi",
+					"sub/",
+					"sub/b.txt: b",
+					"sub/c.txt: c",
+					"surrogate.txt: a�b",
+					"to_file (symlink)",
+					"to_sub (symlink)",
+					"undefined_mode.txt: x",
+					"up.txt: up"
+				]
+			},
+			"mode NaN": {
+				"rejected": {
+					"class": "TypeError",
+					"message": "fs write modes are integers from 0 to 0o7777"
+				},
+				"tree": [
+					"a.txt: linked",
+					"absolute (symlink)",
+					"bytes.bin: hi",
+					"dangling (symlink)",
+					"empty.txt: ",
+					"escape (symlink)",
+					"made.txt: falsy",
+					"masked.txt: x",
+					"missing.txt: through the link",
+					"mode.txt: x",
+					"new.txt: new",
+					"part.bin: hi",
+					"sub/",
+					"sub/b.txt: b",
+					"sub/c.txt: c",
+					"surrogate.txt: a�b",
+					"to_file (symlink)",
+					"to_sub (symlink)",
+					"undefined_mode.txt: x",
+					"up.txt: up"
+				]
+			},
+			"mode null": {
+				"rejected": {
+					"class": "TypeError",
+					"message": "fs write modes are integers from 0 to 0o7777"
+				},
+				"tree": [
+					"a.txt: linked",
+					"absolute (symlink)",
+					"bytes.bin: hi",
+					"dangling (symlink)",
+					"empty.txt: ",
+					"escape (symlink)",
+					"made.txt: falsy",
+					"masked.txt: x",
+					"missing.txt: through the link",
+					"mode.txt: x",
+					"new.txt: new",
+					"part.bin: hi",
+					"sub/",
+					"sub/b.txt: b",
+					"sub/c.txt: c",
+					"surrogate.txt: a�b",
+					"to_file (symlink)",
+					"to_sub (symlink)",
+					"undefined_mode.txt: x",
+					"up.txt: up"
+				]
+			}
+		}
+	},
+	"fs_mkdir": {
+		"code": 0,
+		"output": {
+			"new": {
+				"tree": [
+					"a.txt: a",
+					"absolute (symlink)",
+					"d/",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"loop (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"thru (symlink)",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"again": {
+				"rejected": {
+					"class": "FsError",
+					"message": "already_exists: {project}/scratch/d",
+					"kind": "already_exists",
+					"path": "{project}/scratch/d"
+				},
+				"tree": [
+					"a.txt: a",
+					"absolute (symlink)",
+					"d/",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"loop (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"thru (symlink)",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"exists_ok": {
+				"tree": [
+					"a.txt: a",
+					"absolute (symlink)",
+					"d/",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"loop (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"thru (symlink)",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"recursive_existing": {
+				"tree": [
+					"a.txt: a",
+					"absolute (symlink)",
+					"d/",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"loop (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"thru (symlink)",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"recursive": {
+				"tree": [
+					"a.txt: a",
+					"absolute (symlink)",
+					"d/",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"loop (symlink)",
+					"r/",
+					"r/s/",
+					"r/s/t/",
+					"sub/",
+					"sub/b.txt: b",
+					"thru (symlink)",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"recursive_again": {
+				"tree": [
+					"a.txt: a",
+					"absolute (symlink)",
+					"d/",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"loop (symlink)",
+					"r/",
+					"r/s/",
+					"r/s/t/",
+					"sub/",
+					"sub/b.txt: b",
+					"thru (symlink)",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"recursive_truthy": {
+				"tree": [
+					"a.txt: a",
+					"absolute (symlink)",
+					"d/",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"loop (symlink)",
+					"n/",
+					"n/o/",
+					"r/",
+					"r/s/",
+					"r/s/t/",
+					"sub/",
+					"sub/b.txt: b",
+					"thru (symlink)",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"recursive_falsy": {
+				"rejected": {
+					"class": "FsError",
+					"message": "not_found: {project}/scratch/m/o",
+					"kind": "not_found",
+					"path": "{project}/scratch/m/o"
+				},
+				"tree": [
+					"a.txt: a",
+					"absolute (symlink)",
+					"d/",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"loop (symlink)",
+					"n/",
+					"n/o/",
+					"r/",
+					"r/s/",
+					"r/s/t/",
+					"sub/",
+					"sub/b.txt: b",
+					"thru (symlink)",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"slashed": {
+				"tree": [
+					"a.txt: a",
+					"absolute (symlink)",
+					"d/",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"loop (symlink)",
+					"n/",
+					"n/o/",
+					"r/",
+					"r/s/",
+					"r/s/t/",
+					"slashed/",
+					"sub/",
+					"sub/b.txt: b",
+					"thru (symlink)",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"a_missing_parent": {
+				"rejected": {
+					"class": "FsError",
+					"message": "not_found: {project}/scratch/missing/x",
+					"kind": "not_found",
+					"path": "{project}/scratch/missing/x"
+				},
+				"tree": [
+					"a.txt: a",
+					"absolute (symlink)",
+					"d/",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"loop (symlink)",
+					"n/",
+					"n/o/",
+					"r/",
+					"r/s/",
+					"r/s/t/",
+					"slashed/",
+					"sub/",
+					"sub/b.txt: b",
+					"thru (symlink)",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"a_file": {
+				"rejected": {
+					"class": "FsError",
+					"message": "already_exists: {project}/scratch/a.txt",
+					"kind": "already_exists",
+					"path": "{project}/scratch/a.txt"
+				},
+				"tree": [
+					"a.txt: a",
+					"absolute (symlink)",
+					"d/",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"loop (symlink)",
+					"n/",
+					"n/o/",
+					"r/",
+					"r/s/",
+					"r/s/t/",
+					"slashed/",
+					"sub/",
+					"sub/b.txt: b",
+					"thru (symlink)",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"a_file_exists_ok": {
+				"rejected": {
+					"class": "FsError",
+					"message": "already_exists: {project}/scratch/a.txt",
+					"kind": "already_exists",
+					"path": "{project}/scratch/a.txt"
+				},
+				"tree": [
+					"a.txt: a",
+					"absolute (symlink)",
+					"d/",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"loop (symlink)",
+					"n/",
+					"n/o/",
+					"r/",
+					"r/s/",
+					"r/s/t/",
+					"slashed/",
+					"sub/",
+					"sub/b.txt: b",
+					"thru (symlink)",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"a_file_recursive": {
+				"rejected": {
+					"class": "FsError",
+					"message": "already_exists: {project}/scratch/a.txt",
+					"kind": "already_exists",
+					"path": "{project}/scratch/a.txt"
+				},
+				"tree": [
+					"a.txt: a",
+					"absolute (symlink)",
+					"d/",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"loop (symlink)",
+					"n/",
+					"n/o/",
+					"r/",
+					"r/s/",
+					"r/s/t/",
+					"slashed/",
+					"sub/",
+					"sub/b.txt: b",
+					"thru (symlink)",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"through_a_file": {
+				"rejected": {
+					"class": "FsError",
+					"message": "not_a_directory: {project}/scratch/a.txt/x",
+					"kind": "not_a_directory",
+					"path": "{project}/scratch/a.txt/x"
+				},
+				"tree": [
+					"a.txt: a",
+					"absolute (symlink)",
+					"d/",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"loop (symlink)",
+					"n/",
+					"n/o/",
+					"r/",
+					"r/s/",
+					"r/s/t/",
+					"slashed/",
+					"sub/",
+					"sub/b.txt: b",
+					"thru (symlink)",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"through_a_file_recursive": {
+				"rejected": {
+					"class": "FsError",
+					"message": "not_a_directory: {project}/scratch/a.txt/x/y",
+					"kind": "not_a_directory",
+					"path": "{project}/scratch/a.txt/x/y"
+				},
+				"tree": [
+					"a.txt: a",
+					"absolute (symlink)",
+					"d/",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"loop (symlink)",
+					"n/",
+					"n/o/",
+					"r/",
+					"r/s/",
+					"r/s/t/",
+					"slashed/",
+					"sub/",
+					"sub/b.txt: b",
+					"thru (symlink)",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"its_own_directory": {
+				"rejected": {
+					"class": "FsError",
+					"message": "already_exists: {project}/scratch",
+					"kind": "already_exists",
+					"path": "{project}/scratch"
+				},
+				"tree": [
+					"a.txt: a",
+					"absolute (symlink)",
+					"d/",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"loop (symlink)",
+					"n/",
+					"n/o/",
+					"r/",
+					"r/s/",
+					"r/s/t/",
+					"slashed/",
+					"sub/",
+					"sub/b.txt: b",
+					"thru (symlink)",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"its_own_directory_exists_ok": {
+				"tree": [
+					"a.txt: a",
+					"absolute (symlink)",
+					"d/",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"loop (symlink)",
+					"n/",
+					"n/o/",
+					"r/",
+					"r/s/",
+					"r/s/t/",
+					"slashed/",
+					"sub/",
+					"sub/b.txt: b",
+					"thru (symlink)",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"its_own_directory_recursive": {
+				"tree": [
+					"a.txt: a",
+					"absolute (symlink)",
+					"d/",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"loop (symlink)",
+					"n/",
+					"n/o/",
+					"r/",
+					"r/s/",
+					"r/s/t/",
+					"slashed/",
+					"sub/",
+					"sub/b.txt: b",
+					"thru (symlink)",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"a_dangling_link": {
+				"rejected": {
+					"class": "FsError",
+					"message": "already_exists: {project}/scratch/dangling",
+					"kind": "already_exists",
+					"path": "{project}/scratch/dangling"
+				},
+				"tree": [
+					"a.txt: a",
+					"absolute (symlink)",
+					"d/",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"loop (symlink)",
+					"n/",
+					"n/o/",
+					"r/",
+					"r/s/",
+					"r/s/t/",
+					"slashed/",
+					"sub/",
+					"sub/b.txt: b",
+					"thru (symlink)",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"a_dangling_link_exists_ok": {
+				"rejected": {
+					"class": "FsError",
+					"message": "already_exists: {project}/scratch/dangling",
+					"kind": "already_exists",
+					"path": "{project}/scratch/dangling"
+				},
+				"tree": [
+					"a.txt: a",
+					"absolute (symlink)",
+					"d/",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"loop (symlink)",
+					"n/",
+					"n/o/",
+					"r/",
+					"r/s/",
+					"r/s/t/",
+					"slashed/",
+					"sub/",
+					"sub/b.txt: b",
+					"thru (symlink)",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"a_link_to_a_directory": {
+				"rejected": {
+					"class": "FsError",
+					"message": "already_exists: {project}/scratch/to_sub",
+					"kind": "already_exists",
+					"path": "{project}/scratch/to_sub"
+				},
+				"tree": [
+					"a.txt: a",
+					"absolute (symlink)",
+					"d/",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"loop (symlink)",
+					"n/",
+					"n/o/",
+					"r/",
+					"r/s/",
+					"r/s/t/",
+					"slashed/",
+					"sub/",
+					"sub/b.txt: b",
+					"thru (symlink)",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"a_link_to_a_directory_exists_ok": {
+				"tree": [
+					"a.txt: a",
+					"absolute (symlink)",
+					"d/",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"loop (symlink)",
+					"n/",
+					"n/o/",
+					"r/",
+					"r/s/",
+					"r/s/t/",
+					"slashed/",
+					"sub/",
+					"sub/b.txt: b",
+					"thru (symlink)",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"a_link_to_a_directory_recursive": {
+				"tree": [
+					"a.txt: a",
+					"absolute (symlink)",
+					"d/",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"loop (symlink)",
+					"n/",
+					"n/o/",
+					"r/",
+					"r/s/",
+					"r/s/t/",
+					"slashed/",
+					"sub/",
+					"sub/b.txt: b",
+					"thru (symlink)",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"a_link_to_a_file_exists_ok": {
+				"rejected": {
+					"class": "FsError",
+					"message": "already_exists: {project}/scratch/to_file",
+					"kind": "already_exists",
+					"path": "{project}/scratch/to_file"
+				},
+				"tree": [
+					"a.txt: a",
+					"absolute (symlink)",
+					"d/",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"loop (symlink)",
+					"n/",
+					"n/o/",
+					"r/",
+					"r/s/",
+					"r/s/t/",
+					"slashed/",
+					"sub/",
+					"sub/b.txt: b",
+					"thru (symlink)",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"a_dangling_link_recursive": {
+				"rejected": {
+					"class": "FsError",
+					"message": "not_found: {project}/scratch/dangling",
+					"kind": "not_found",
+					"path": "{project}/scratch/dangling"
+				},
+				"tree": [
+					"a.txt: a",
+					"absolute (symlink)",
+					"d/",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"loop (symlink)",
+					"n/",
+					"n/o/",
+					"r/",
+					"r/s/",
+					"r/s/t/",
+					"slashed/",
+					"sub/",
+					"sub/b.txt: b",
+					"thru (symlink)",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"a_file_slashed_exists_ok": {
+				"rejected": {
+					"class": "FsError",
+					"message": "not_a_directory: {project}/scratch/a.txt",
+					"kind": "not_a_directory",
+					"path": "{project}/scratch/a.txt"
+				},
+				"tree": [
+					"a.txt: a",
+					"absolute (symlink)",
+					"d/",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"loop (symlink)",
+					"n/",
+					"n/o/",
+					"r/",
+					"r/s/",
+					"r/s/t/",
+					"slashed/",
+					"sub/",
+					"sub/b.txt: b",
+					"thru (symlink)",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"a_file_slashed_dot_exists_ok": {
+				"rejected": {
+					"class": "FsError",
+					"message": "not_a_directory: {project}/scratch/a.txt",
+					"kind": "not_a_directory",
+					"path": "{project}/scratch/a.txt"
+				},
+				"tree": [
+					"a.txt: a",
+					"absolute (symlink)",
+					"d/",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"loop (symlink)",
+					"n/",
+					"n/o/",
+					"r/",
+					"r/s/",
+					"r/s/t/",
+					"slashed/",
+					"sub/",
+					"sub/b.txt: b",
+					"thru (symlink)",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"a_link_to_a_file_slashed_exists_ok": {
+				"rejected": {
+					"class": "FsError",
+					"message": "not_a_directory: {project}/scratch/to_file",
+					"kind": "not_a_directory",
+					"path": "{project}/scratch/to_file"
+				},
+				"tree": [
+					"a.txt: a",
+					"absolute (symlink)",
+					"d/",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"loop (symlink)",
+					"n/",
+					"n/o/",
+					"r/",
+					"r/s/",
+					"r/s/t/",
+					"slashed/",
+					"sub/",
+					"sub/b.txt: b",
+					"thru (symlink)",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"a_dangling_link_slashed_exists_ok": {
+				"rejected": {
+					"class": "FsError",
+					"message": "already_exists: {project}/scratch/dangling",
+					"kind": "already_exists",
+					"path": "{project}/scratch/dangling"
+				},
+				"tree": [
+					"a.txt: a",
+					"absolute (symlink)",
+					"d/",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"loop (symlink)",
+					"n/",
+					"n/o/",
+					"r/",
+					"r/s/",
+					"r/s/t/",
+					"slashed/",
+					"sub/",
+					"sub/b.txt: b",
+					"thru (symlink)",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"a_file_slashed_recursive_exists_ok": {
+				"rejected": {
+					"class": "FsError",
+					"message": "not_a_directory: {project}/scratch/a.txt",
+					"kind": "not_a_directory",
+					"path": "{project}/scratch/a.txt"
+				},
+				"tree": [
+					"a.txt: a",
+					"absolute (symlink)",
+					"d/",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"loop (symlink)",
+					"n/",
+					"n/o/",
+					"r/",
+					"r/s/",
+					"r/s/t/",
+					"slashed/",
+					"sub/",
+					"sub/b.txt: b",
+					"thru (symlink)",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"a_file_slashed_recursive": {
+				"rejected": {
+					"class": "FsError",
+					"message": "already_exists: {project}/scratch/a.txt",
+					"kind": "already_exists",
+					"path": "{project}/scratch/a.txt"
+				},
+				"tree": [
+					"a.txt: a",
+					"absolute (symlink)",
+					"d/",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"loop (symlink)",
+					"n/",
+					"n/o/",
+					"r/",
+					"r/s/",
+					"r/s/t/",
+					"slashed/",
+					"sub/",
+					"sub/b.txt: b",
+					"thru (symlink)",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"a_looping_link": {
+				"rejected": {
+					"class": "FsError",
+					"message": "io_error: {project}/scratch/loop",
+					"kind": "io_error",
+					"path": "{project}/scratch/loop"
+				},
+				"tree": [
+					"a.txt: a",
+					"absolute (symlink)",
+					"d/",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"loop (symlink)",
+					"n/",
+					"n/o/",
+					"r/",
+					"r/s/",
+					"r/s/t/",
+					"slashed/",
+					"sub/",
+					"sub/b.txt: b",
+					"thru (symlink)",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"a_link_through_a_file": {
+				"rejected": {
+					"class": "FsError",
+					"message": "not_a_directory: {project}/scratch/thru",
+					"kind": "not_a_directory",
+					"path": "{project}/scratch/thru"
+				},
+				"tree": [
+					"a.txt: a",
+					"absolute (symlink)",
+					"d/",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"loop (symlink)",
+					"n/",
+					"n/o/",
+					"r/",
+					"r/s/",
+					"r/s/t/",
+					"slashed/",
+					"sub/",
+					"sub/b.txt: b",
+					"thru (symlink)",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"through_a_link": {
+				"tree": [
+					"a.txt: a",
+					"absolute (symlink)",
+					"d/",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"loop (symlink)",
+					"n/",
+					"n/o/",
+					"r/",
+					"r/s/",
+					"r/s/t/",
+					"slashed/",
+					"sub/",
+					"sub/b.txt: b",
+					"sub/new/",
+					"thru (symlink)",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"through_a_link_recursive": {
+				"tree": [
+					"a.txt: a",
+					"absolute (symlink)",
+					"d/",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"loop (symlink)",
+					"n/",
+					"n/o/",
+					"r/",
+					"r/s/",
+					"r/s/t/",
+					"slashed/",
+					"sub/",
+					"sub/b.txt: b",
+					"sub/new/",
+					"sub/x/",
+					"sub/x/y/",
+					"thru (symlink)",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"a_link_out": {
+				"rejected": {
+					"class": "FsError",
+					"message": "outside_root: escape",
+					"kind": "outside_root",
+					"path": "escape"
+				},
+				"tree": [
+					"a.txt: a",
+					"absolute (symlink)",
+					"d/",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"loop (symlink)",
+					"n/",
+					"n/o/",
+					"r/",
+					"r/s/",
+					"r/s/t/",
+					"slashed/",
+					"sub/",
+					"sub/b.txt: b",
+					"sub/new/",
+					"sub/x/",
+					"sub/x/y/",
+					"thru (symlink)",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"a_link_out_exists_ok": {
+				"rejected": {
+					"class": "FsError",
+					"message": "outside_root: escape",
+					"kind": "outside_root",
+					"path": "escape"
+				},
+				"tree": [
+					"a.txt: a",
+					"absolute (symlink)",
+					"d/",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"loop (symlink)",
+					"n/",
+					"n/o/",
+					"r/",
+					"r/s/",
+					"r/s/t/",
+					"slashed/",
+					"sub/",
+					"sub/b.txt: b",
+					"sub/new/",
+					"sub/x/",
+					"sub/x/y/",
+					"thru (symlink)",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"an_absolute_link_exists_ok": {
+				"rejected": {
+					"class": "FsError",
+					"message": "outside_root: absolute",
+					"kind": "outside_root",
+					"path": "absolute"
+				},
+				"tree": [
+					"a.txt: a",
+					"absolute (symlink)",
+					"d/",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"loop (symlink)",
+					"n/",
+					"n/o/",
+					"r/",
+					"r/s/",
+					"r/s/t/",
+					"slashed/",
+					"sub/",
+					"sub/b.txt: b",
+					"sub/new/",
+					"sub/x/",
+					"sub/x/y/",
+					"thru (symlink)",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"through_a_link_out": {
+				"rejected": {
+					"class": "FsError",
+					"message": "outside_root: escape/x",
+					"kind": "outside_root",
+					"path": "escape/x"
+				},
+				"tree": [
+					"a.txt: a",
+					"absolute (symlink)",
+					"d/",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"loop (symlink)",
+					"n/",
+					"n/o/",
+					"r/",
+					"r/s/",
+					"r/s/t/",
+					"slashed/",
+					"sub/",
+					"sub/b.txt: b",
+					"sub/new/",
+					"sub/x/",
+					"sub/x/y/",
+					"thru (symlink)",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"above": {
+				"rejected": {
+					"class": "FsError",
+					"message": "outside_root: ../x",
+					"kind": "outside_root",
+					"path": "../x"
+				},
+				"tree": [
+					"a.txt: a",
+					"absolute (symlink)",
+					"d/",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"loop (symlink)",
+					"n/",
+					"n/o/",
+					"r/",
+					"r/s/",
+					"r/s/t/",
+					"slashed/",
+					"sub/",
+					"sub/b.txt: b",
+					"sub/new/",
+					"sub/x/",
+					"sub/x/y/",
+					"thru (symlink)",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"above_recursive": {
+				"rejected": {
+					"class": "FsError",
+					"message": "outside_root: sub/../../x",
+					"kind": "outside_root",
+					"path": "sub/../../x"
+				},
+				"tree": [
+					"a.txt: a",
+					"absolute (symlink)",
+					"d/",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"loop (symlink)",
+					"n/",
+					"n/o/",
+					"r/",
+					"r/s/",
+					"r/s/t/",
+					"slashed/",
+					"sub/",
+					"sub/b.txt: b",
+					"sub/new/",
+					"sub/x/",
+					"sub/x/y/",
+					"thru (symlink)",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"through_a_dangling_link": {
+				"rejected": {
+					"class": "FsError",
+					"message": "not_found: {project}/scratch/dangling/x",
+					"kind": "not_found",
+					"path": "{project}/scratch/dangling/x"
+				},
+				"tree": [
+					"a.txt: a",
+					"absolute (symlink)",
+					"d/",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"loop (symlink)",
+					"n/",
+					"n/o/",
+					"r/",
+					"r/s/",
+					"r/s/t/",
+					"slashed/",
+					"sub/",
+					"sub/b.txt: b",
+					"sub/new/",
+					"sub/x/",
+					"sub/x/y/",
+					"thru (symlink)",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"through_a_dangling_link_recursive": {
+				"tree": [
+					"a.txt: a",
+					"absolute (symlink)",
+					"d/",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"loop (symlink)",
+					"missing.txt/",
+					"missing.txt/x/",
+					"n/",
+					"n/o/",
+					"r/",
+					"r/s/",
+					"r/s/t/",
+					"slashed/",
+					"sub/",
+					"sub/b.txt: b",
+					"sub/new/",
+					"sub/x/",
+					"sub/x/y/",
+					"thru (symlink)",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			}
+		}
+	},
+	"fs_remove": {
+		"code": 0,
+		"output": {
+			"a_file": {
+				"tree": [
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"missing": {
+				"rejected": {
+					"class": "FsError",
+					"message": "not_found: {project}/scratch/a.txt",
+					"kind": "not_found",
+					"path": "{project}/scratch/a.txt"
+				},
+				"tree": [
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"missing_ok": {
+				"tree": [
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"missing_ok_truthy": {
+				"tree": [
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"a_missing_parent_missing_ok": {
+				"tree": [
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"a_full_directory": {
+				"rejected": {
+					"class": "FsError",
+					"message": "not_empty: {project}/scratch/sub",
+					"kind": "not_empty",
+					"path": "{project}/scratch/sub"
+				},
+				"tree": [
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"through_a_file": {
+				"rejected": {
+					"class": "FsError",
+					"message": "not_a_directory: {project}/scratch/f/x",
+					"kind": "not_a_directory",
+					"path": "{project}/scratch/f/x"
+				},
+				"tree": [
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"f: f",
+					"sub/",
+					"sub/b.txt: b",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"through_a_file_missing_ok": {
+				"rejected": {
+					"class": "FsError",
+					"message": "not_a_directory: {project}/scratch/f/x",
+					"kind": "not_a_directory",
+					"path": "{project}/scratch/f/x"
+				},
+				"tree": [
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"f: f",
+					"sub/",
+					"sub/b.txt: b",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"a_file_slashed": {
+				"rejected": {
+					"class": "FsError",
+					"message": "not_a_directory: {project}/scratch/f",
+					"kind": "not_a_directory",
+					"path": "{project}/scratch/f"
+				},
+				"tree": [
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"f: f",
+					"sub/",
+					"sub/b.txt: b",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"a_file_slashed_missing_ok": {
+				"rejected": {
+					"class": "FsError",
+					"message": "not_a_directory: {project}/scratch/f",
+					"kind": "not_a_directory",
+					"path": "{project}/scratch/f"
+				},
+				"tree": [
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"f: f",
+					"sub/",
+					"sub/b.txt: b",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"a_file_recursive": {
+				"tree": [
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"an_empty_directory": {
+				"tree": [
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"an_empty_directory_slashed": {
+				"tree": [
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"its_own_directory": {
+				"rejected": {
+					"class": "FsError",
+					"message": "io_error: {project}/scratch",
+					"kind": "io_error",
+					"path": "{project}/scratch"
+				},
+				"tree": [
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"its_own_directory_dotted": {
+				"rejected": {
+					"class": "FsError",
+					"message": "io_error: {project}/scratch",
+					"kind": "io_error",
+					"path": "{project}/scratch"
+				},
+				"tree": [
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"its_own_directory_missing_ok": {
+				"rejected": {
+					"class": "FsError",
+					"message": "io_error: {project}/scratch",
+					"kind": "io_error",
+					"path": "{project}/scratch"
+				},
+				"tree": [
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"above": {
+				"rejected": {
+					"class": "FsError",
+					"message": "outside_root: ../x",
+					"kind": "outside_root",
+					"path": "../x"
+				},
+				"tree": [
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"absolute": {
+				"rejected": {
+					"class": "FsError",
+					"message": "outside_root: /x",
+					"kind": "outside_root",
+					"path": "/x"
+				},
+				"tree": [
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"missing_recursive": {
+				"rejected": {
+					"class": "FsError",
+					"message": "not_found: {project}/scratch/nothing",
+					"kind": "not_found",
+					"path": "{project}/scratch/nothing"
+				},
+				"tree": [
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"missing_recursive_missing_ok": {
+				"tree": [
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"a_link_to_a_directory_slashed": {
+				"rejected": {
+					"class": "FsError",
+					"message": "not_a_directory: {project}/scratch/to_sub",
+					"kind": "not_a_directory",
+					"path": "{project}/scratch/to_sub"
+				},
+				"tree": [
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"a_link_to_a_directory_slashed_recursive": {
+				"rejected": {
+					"class": "FsError",
+					"message": "not_a_directory: {project}/scratch/to_sub",
+					"kind": "not_a_directory",
+					"path": "{project}/scratch/to_sub"
+				},
+				"tree": [
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"through_a_link": {
+				"tree": [
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"sub/",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"a_tree": {
+				"tree": [
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"sub/",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"a_tree_truthy": {
+				"tree": [
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"sub/",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"a_link_to_a_directory": {
+				"tree": [
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"sub/",
+					"to_file (symlink)"
+				]
+			},
+			"a_link_to_a_file": {
+				"tree": [
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"sub/"
+				]
+			},
+			"a_dangling_link": {
+				"tree": [
+					"absolute (symlink)",
+					"escape (symlink)",
+					"sub/"
+				]
+			},
+			"a_link_out": {
+				"tree": [
+					"absolute (symlink)",
+					"sub/"
+				]
+			},
+			"an_absolute_link": {
+				"tree": [
+					"sub/"
+				]
+			}
+		}
+	},
+	"fs_rename": {
+		"code": 0,
+		"output": {
+			"a_file": {
+				"tree": [
+					"absolute (symlink)",
+					"b.txt: a",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"over_a_file": {
+				"tree": [
+					"absolute (symlink)",
+					"c.txt: a",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"into_a_directory": {
+				"tree": [
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"sub/c.txt: a",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"back_up": {
+				"tree": [
+					"absolute (symlink)",
+					"c.txt: a",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"missing": {
+				"rejected": {
+					"class": "FsError",
+					"message": "not_found: {project}/scratch/missing",
+					"kind": "not_found",
+					"path": "{project}/scratch/missing"
+				},
+				"tree": [
+					"absolute (symlink)",
+					"c.txt: a",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"a_missing_destination_parent": {
+				"rejected": {
+					"class": "FsError",
+					"message": "not_found: {project}/scratch/missing/x",
+					"kind": "not_found",
+					"path": "{project}/scratch/missing/x"
+				},
+				"tree": [
+					"absolute (symlink)",
+					"c.txt: a",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"both_missing": {
+				"rejected": {
+					"class": "FsError",
+					"message": "not_found: {project}/scratch/missing",
+					"kind": "not_found",
+					"path": "{project}/scratch/missing"
+				},
+				"tree": [
+					"absolute (symlink)",
+					"c.txt: a",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"through_a_file_from": {
+				"rejected": {
+					"class": "FsError",
+					"message": "not_a_directory: {project}/scratch/c.txt/x",
+					"kind": "not_a_directory",
+					"path": "{project}/scratch/c.txt/x"
+				},
+				"tree": [
+					"absolute (symlink)",
+					"c.txt: a",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"through_a_file_to": {
+				"rejected": {
+					"class": "FsError",
+					"message": "not_a_directory: {project}/scratch/c.txt/x",
+					"kind": "not_a_directory",
+					"path": "{project}/scratch/c.txt/x"
+				},
+				"tree": [
+					"absolute (symlink)",
+					"c.txt: a",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"missing_through_a_file_to": {
+				"rejected": {
+					"class": "FsError",
+					"message": "not_a_directory: {project}/scratch/missing",
+					"kind": "not_a_directory",
+					"path": "{project}/scratch/missing"
+				},
+				"tree": [
+					"absolute (symlink)",
+					"c.txt: a",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"a_file_slashed": {
+				"rejected": {
+					"class": "FsError",
+					"message": "not_a_directory: {project}/scratch/c.txt",
+					"kind": "not_a_directory",
+					"path": "{project}/scratch/c.txt"
+				},
+				"tree": [
+					"absolute (symlink)",
+					"c.txt: a",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"a_file_over_a_directory": {
+				"rejected": {
+					"class": "FsError",
+					"message": "is_a_directory: {project}/scratch/c.txt",
+					"kind": "is_a_directory",
+					"path": "{project}/scratch/c.txt"
+				},
+				"tree": [
+					"absolute (symlink)",
+					"c.txt: a",
+					"dangling (symlink)",
+					"e/",
+					"escape (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"a_directory_over_a_file": {
+				"rejected": {
+					"class": "FsError",
+					"message": "not_a_directory: {project}/scratch/c.txt",
+					"kind": "not_a_directory",
+					"path": "{project}/scratch/c.txt"
+				},
+				"tree": [
+					"absolute (symlink)",
+					"c.txt: a",
+					"dangling (symlink)",
+					"e/",
+					"escape (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"a_directory_over_a_full_one": {
+				"rejected": {
+					"class": "FsError",
+					"message": "not_empty: {project}/scratch/e",
+					"kind": "not_empty",
+					"path": "{project}/scratch/e"
+				},
+				"tree": [
+					"absolute (symlink)",
+					"c.txt: a",
+					"dangling (symlink)",
+					"e/",
+					"escape (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"a_directory_over_an_empty_one": {
+				"tree": [
+					"absolute (symlink)",
+					"c.txt: a",
+					"dangling (symlink)",
+					"e2/",
+					"escape (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"a_directory_into_itself": {
+				"rejected": {
+					"class": "FsError",
+					"message": "io_error: {project}/scratch/sub",
+					"kind": "io_error",
+					"path": "{project}/scratch/sub"
+				},
+				"tree": [
+					"absolute (symlink)",
+					"c.txt: a",
+					"dangling (symlink)",
+					"e2/",
+					"escape (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"a_directory_slashed": {
+				"tree": [
+					"absolute (symlink)",
+					"c.txt: a",
+					"dangling (symlink)",
+					"e3/",
+					"escape (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"its_own_directory_from": {
+				"rejected": {
+					"class": "FsError",
+					"message": "io_error: {project}/scratch",
+					"kind": "io_error",
+					"path": "{project}/scratch"
+				},
+				"tree": [
+					"absolute (symlink)",
+					"c.txt: a",
+					"dangling (symlink)",
+					"e3/",
+					"escape (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"its_own_directory_to": {
+				"rejected": {
+					"class": "FsError",
+					"message": "io_error: {project}/scratch",
+					"kind": "io_error",
+					"path": "{project}/scratch"
+				},
+				"tree": [
+					"absolute (symlink)",
+					"c.txt: a",
+					"dangling (symlink)",
+					"e3/",
+					"escape (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"its_own_directory_dotted": {
+				"rejected": {
+					"class": "FsError",
+					"message": "io_error: {project}/scratch",
+					"kind": "io_error",
+					"path": "{project}/scratch"
+				},
+				"tree": [
+					"absolute (symlink)",
+					"c.txt: a",
+					"dangling (symlink)",
+					"e3/",
+					"escape (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"above_from": {
+				"rejected": {
+					"class": "FsError",
+					"message": "outside_root: ../x",
+					"kind": "outside_root",
+					"path": "../x"
+				},
+				"tree": [
+					"absolute (symlink)",
+					"c.txt: a",
+					"dangling (symlink)",
+					"e3/",
+					"escape (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"above_to": {
+				"rejected": {
+					"class": "FsError",
+					"message": "outside_root: ../y",
+					"kind": "outside_root",
+					"path": "../y"
+				},
+				"tree": [
+					"absolute (symlink)",
+					"c.txt: a",
+					"dangling (symlink)",
+					"e3/",
+					"escape (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"absolute_to": {
+				"rejected": {
+					"class": "FsError",
+					"message": "outside_root: /y",
+					"kind": "outside_root",
+					"path": "/y"
+				},
+				"tree": [
+					"absolute (symlink)",
+					"c.txt: a",
+					"dangling (symlink)",
+					"e3/",
+					"escape (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"through_a_link_out_from": {
+				"rejected": {
+					"class": "FsError",
+					"message": "outside_root: escape/x",
+					"kind": "outside_root",
+					"path": "escape/x"
+				},
+				"tree": [
+					"absolute (symlink)",
+					"c.txt: a",
+					"dangling (symlink)",
+					"e3/",
+					"escape (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"through_a_link_out_to": {
+				"rejected": {
+					"class": "FsError",
+					"message": "outside_root: escape/x",
+					"kind": "outside_root",
+					"path": "escape/x"
+				},
+				"tree": [
+					"absolute (symlink)",
+					"c.txt: a",
+					"dangling (symlink)",
+					"e3/",
+					"escape (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"the_same": {
+				"tree": [
+					"absolute (symlink)",
+					"c.txt: a",
+					"dangling (symlink)",
+					"e3/",
+					"escape (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"a_link_slashed": {
+				"rejected": {
+					"class": "FsError",
+					"message": "not_a_directory: {project}/scratch/moved",
+					"kind": "not_a_directory",
+					"path": "{project}/scratch/moved"
+				},
+				"tree": [
+					"absolute (symlink)",
+					"c.txt: a",
+					"dangling (symlink)",
+					"e3/",
+					"escape (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"through_a_link": {
+				"tree": [
+					"absolute (symlink)",
+					"b.txt: b",
+					"c.txt: a",
+					"dangling (symlink)",
+					"e3/",
+					"escape (symlink)",
+					"sub/",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"a_link_to_a_directory": {
+				"tree": [
+					"absolute (symlink)",
+					"b.txt: b",
+					"c.txt: a",
+					"dangling (symlink)",
+					"e3/",
+					"escape (symlink)",
+					"moved_to_sub (symlink)",
+					"sub/",
+					"to_file (symlink)"
+				]
+			},
+			"a_dangling_link": {
+				"tree": [
+					"absolute (symlink)",
+					"b.txt: b",
+					"c.txt: a",
+					"e3/",
+					"escape (symlink)",
+					"moved_dangling (symlink)",
+					"moved_to_sub (symlink)",
+					"sub/",
+					"to_file (symlink)"
+				]
+			},
+			"a_link_out": {
+				"tree": [
+					"absolute (symlink)",
+					"b.txt: b",
+					"c.txt: a",
+					"e3/",
+					"moved_dangling (symlink)",
+					"moved_escape (symlink)",
+					"moved_to_sub (symlink)",
+					"sub/",
+					"to_file (symlink)"
+				]
+			},
+			"an_absolute_link": {
+				"tree": [
+					"b.txt: b",
+					"c.txt: a",
+					"e3/",
+					"moved_dangling (symlink)",
+					"moved_escape (symlink)",
+					"moved_to_sub (symlink)",
+					"sub/",
+					"sub/moved_absolute (symlink)",
+					"to_file (symlink)"
+				]
+			}
+		}
+	},
+	"fs_write_arguments": {
+		"code": 0,
+		"output": {
+			"a number": {
+				"write": {
+					"rejected": {
+						"class": "TypeError",
+						"message": "fs paths are strings"
+					}
+				},
+				"mkdir": {
+					"rejected": {
+						"class": "TypeError",
+						"message": "fs paths are strings"
+					}
+				},
+				"remove": {
+					"rejected": {
+						"class": "TypeError",
+						"message": "fs paths are strings"
+					}
+				},
+				"rename_from": {
+					"rejected": {
+						"class": "TypeError",
+						"message": "fs paths are strings"
+					}
+				},
+				"rename_to": {
+					"rejected": {
+						"class": "TypeError",
+						"message": "fs paths are strings"
+					}
+				}
+			},
+			"undefined": {
+				"write": {
+					"rejected": {
+						"class": "TypeError",
+						"message": "fs paths are strings"
+					}
+				},
+				"mkdir": {
+					"rejected": {
+						"class": "TypeError",
+						"message": "fs paths are strings"
+					}
+				},
+				"remove": {
+					"rejected": {
+						"class": "TypeError",
+						"message": "fs paths are strings"
+					}
+				},
+				"rename_from": {
+					"rejected": {
+						"class": "TypeError",
+						"message": "fs paths are strings"
+					}
+				},
+				"rename_to": {
+					"rejected": {
+						"class": "TypeError",
+						"message": "fs paths are strings"
+					}
+				}
+			},
+			"a boxed string": {
+				"write": {
+					"rejected": {
+						"class": "TypeError",
+						"message": "fs paths are strings"
+					}
+				},
+				"mkdir": {
+					"rejected": {
+						"class": "TypeError",
+						"message": "fs paths are strings"
+					}
+				},
+				"remove": {
+					"rejected": {
+						"class": "TypeError",
+						"message": "fs paths are strings"
+					}
+				},
+				"rename_from": {
+					"rejected": {
+						"class": "TypeError",
+						"message": "fs paths are strings"
+					}
+				},
+				"rename_to": {
+					"rejected": {
+						"class": "TypeError",
+						"message": "fs paths are strings"
+					}
+				}
+			},
+			"a NUL": {
+				"write": {
+					"rejected": {
+						"class": "TypeError",
+						"message": "fs paths hold no NUL byte"
+					}
+				},
+				"mkdir": {
+					"rejected": {
+						"class": "TypeError",
+						"message": "fs paths hold no NUL byte"
+					}
+				},
+				"remove": {
+					"rejected": {
+						"class": "TypeError",
+						"message": "fs paths hold no NUL byte"
+					}
+				},
+				"rename_from": {
+					"rejected": {
+						"class": "TypeError",
+						"message": "fs paths hold no NUL byte"
+					}
+				},
+				"rename_to": {
+					"rejected": {
+						"class": "TypeError",
+						"message": "fs paths hold no NUL byte"
+					}
+				}
+			},
+			"a lone surrogate": {
+				"write": {
+					"rejected": {
+						"class": "TypeError",
+						"message": "fs paths are well-formed Unicode"
+					}
+				},
+				"mkdir": {
+					"rejected": {
+						"class": "TypeError",
+						"message": "fs paths are well-formed Unicode"
+					}
+				},
+				"remove": {
+					"rejected": {
+						"class": "TypeError",
+						"message": "fs paths are well-formed Unicode"
+					}
+				},
+				"rename_from": {
+					"rejected": {
+						"class": "TypeError",
+						"message": "fs paths are well-formed Unicode"
+					}
+				},
+				"rename_to": {
+					"rejected": {
+						"class": "TypeError",
+						"message": "fs paths are well-formed Unicode"
+					}
+				}
+			},
+			"order": {
+				"path_then_data": {
+					"rejected": {
+						"class": "TypeError",
+						"message": "fs paths are strings"
+					}
+				},
+				"data_then_mode": {
+					"rejected": {
+						"class": "TypeError",
+						"message": "fs write data is a string or a Uint8Array"
+					}
+				},
+				"from_then_to": {
+					"rejected": {
+						"class": "FsError",
+						"message": "outside_root: ../x",
+						"kind": "outside_root",
+						"path": "../x"
+					}
+				},
+				"own_then_options": {
+					"rejected": {
+						"class": "FsError",
+						"message": "io_error: {project}/scratch",
+						"kind": "io_error",
+						"path": "{project}/scratch"
+					}
+				}
+			},
+			"mode_object": {
+				"rejected": {
+					"class": "TypeError",
+					"message": "fs write modes are integers from 0 to 0o7777"
+				}
+			},
+			"mode_converted": false,
+			"getter": {},
+			"tree": [
+				"a.txt: a",
+				"absolute (symlink)",
+				"dangling (symlink)",
+				"escape (symlink)",
+				"sub/",
+				"sub/b.txt: b",
+				"to_file (symlink)",
+				"to_sub (symlink)"
+			]
+		}
 	}
 }

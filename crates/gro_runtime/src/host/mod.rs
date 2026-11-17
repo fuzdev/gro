@@ -555,60 +555,60 @@ native_members! {
         fs::dirs::readonly(state, scope, handle)
     }
 
-    /// `dir.write(path, data, options?)` ([`fs::writes::write_op`]).
-    async write(state, _granted: FsGrant; scope, path, _data, _options) for "@fuzdev/gro/fs.ts"
+    /// `dir.write(path, data, options?)` ([`fs::writes::write`]).
+    async write(state, _granted: FsGrant; scope, path, data, options) for "@fuzdev/gro/fs.ts"
         on FS_DIR(handle) throws FS_ERROR(errors)
     {
-        fs::writes::write_op(state, scope, "write", handle, &[path], 0, errors)
+        fs::writes::write(state, scope, handle, path, data, options, errors)
     }
 
-    /// `dir.mkdir(path, options?)` ([`fs::writes::write_op`]).
-    async mkdir(state, _granted: FsGrant; scope, path, _options) for "@fuzdev/gro/fs.ts"
+    /// `dir.mkdir(path, options?)` ([`fs::writes::mkdir`]).
+    async mkdir(state, _granted: FsGrant; scope, path, options) for "@fuzdev/gro/fs.ts"
         on FS_DIR(handle) throws FS_ERROR(errors)
     {
-        fs::writes::write_op(state, scope, "mkdir", handle, &[path], 0, errors)
+        fs::writes::mkdir(state, scope, handle, path, options, errors)
     }
 
-    /// `dir.remove(path, options?)` ([`fs::writes::write_op`]).
-    async remove(state, _granted: FsGrant; scope, path, _options) for "@fuzdev/gro/fs.ts"
+    /// `dir.remove(path, options?)` ([`fs::writes::remove`]).
+    async remove(state, _granted: FsGrant; scope, path, options) for "@fuzdev/gro/fs.ts"
         on FS_DIR(handle) throws FS_ERROR(errors)
     {
-        fs::writes::write_op(state, scope, "remove", handle, &[path], 0, errors)
+        fs::writes::remove(state, scope, handle, path, options, errors)
     }
 
-    /// `dir.rename(from, to)` ([`fs::writes::write_op`]).
+    /// `dir.rename(from, to)` ([`fs::writes::rename`]).
     async rename(state, _granted: FsGrant; scope, from, to) for "@fuzdev/gro/fs.ts"
         on FS_DIR(handle) throws FS_ERROR(errors)
     {
-        fs::writes::write_op(state, scope, "rename", handle, &[from, to], 0, errors)
+        fs::writes::rename(state, scope, handle, from, to, errors)
     }
 
-    /// `dir.copy(from, to, options?)` ([`fs::writes::write_op`]).
+    /// `dir.copy(from, to, options?)`, not built ([`fs::writes::unbuilt`]).
     async copy(state, _granted: FsGrant; scope, from, to, _options) for "@fuzdev/gro/fs.ts"
         on FS_DIR(handle) throws FS_ERROR(errors)
     {
-        fs::writes::write_op(state, scope, "copy", handle, &[from, to], 1, errors)
+        fs::writes::unbuilt(state, scope, "copy", handle, &[from, to], 1, errors)
     }
 
-    /// `dir.set_times(path, times, options?)`, refused
-    /// ([`fs::writes::write_op`]).
+    /// `dir.set_times(path, times, options?)`, not built
+    /// ([`fs::writes::unbuilt`]).
     async set_times(state, _granted: FsGrant; scope, path, _times, _options)
         for "@fuzdev/gro/fs.ts" on FS_DIR(handle) throws FS_ERROR(errors)
     {
-        fs::writes::write_op(state, scope, "set_times", handle, &[path], 0, errors)
+        fs::writes::unbuilt(state, scope, "set_times", handle, &[path], 0, errors)
     }
 
-    /// `dir.set_mode(path, mode)` ([`fs::writes::write_op`]).
+    /// `dir.set_mode(path, mode)`, not built ([`fs::writes::unbuilt`]).
     async set_mode(state, _granted: FsGrant; scope, path, _mode) for "@fuzdev/gro/fs.ts"
         on FS_DIR(handle) throws FS_ERROR(errors)
     {
-        fs::writes::write_op(state, scope, "set_mode", handle, &[path], 0, errors)
+        fs::writes::unbuilt(state, scope, "set_mode", handle, &[path], 0, errors)
     }
 
-    /// `dir.symlink(path, target)` ([`fs::writes::write_op`]).
+    /// `dir.symlink(path, target)`, not built ([`fs::writes::unbuilt`]).
     async symlink(state, _granted: FsGrant; scope, path, _target) for "@fuzdev/gro/fs.ts"
         on FS_DIR(handle) throws FS_ERROR(errors)
     {
-        fs::writes::write_op(state, scope, "symlink", handle, &[path], 0, errors)
+        fs::writes::unbuilt(state, scope, "symlink", handle, &[path], 0, errors)
     }
 }

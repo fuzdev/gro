@@ -12,17 +12,28 @@
 // the grants it runs with, and its `refused` the lines `fgro` prints for what its rules refuse,
 // neither of which Node has. Its `sockets` are paths, relative to this directory, where a unix
 // socket listens while it runs, made by its runner here and by `fgro`'s tests alike, since git
-// holds no socket.
+// holds no socket. Its `scratch` is a directory, relative to this one, that its runner here and
+// `fgro`'s tests alike make empty before it runs, but for the symlinks its `links` name, by name
+// with their targets, and remove after, so a case that writes starts from the same tree on both.
 
 import { spawnSync } from 'node:child_process';
-import { lstatSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import {
+	lstatSync,
+	mkdirSync,
+	readFileSync,
+	realpathSync,
+	rmSync,
+	symlinkSync,
+	writeFileSync
+} from 'node:fs';
 import { createServer } from 'node:net';
 import { join } from 'node:path';
 
 const dir = realpathSync(import.meta.dirname);
 const expected_path = join(dir, 'expected.json');
 
-/** @typedef {{name: string, module: string, args: Array<string>, env?: Record<string, string>, sockets?: Array<string>}} Case */
+/** @typedef {{name: string, module: string, args: Array<string>, env?: Record<string, string>, sockets?: Array<string>, scratch?: Scratch}} Case */
+/** @typedef {{dir: string, links: Record<string, string>}} Scratch */
 
 /** @type {Array<Case>} */
 const cases = JSON.parse(readFileSync(join(dir, 'cases.json'), 'utf8'));
@@ -59,17 +70,32 @@ const listen = async (paths) => {
 };
 
 /**
+ * Makes `scratch`'s directory empty but for its links, or, without `make`, removes it.
+ * @param {Scratch} scratch
+ * @param {boolean} make
+ */
+const reset_scratch = (scratch, make) => {
+	const at = join(dir, scratch.dir);
+	rmSync(at, { recursive: true, force: true });
+	if (!make) return;
+	mkdirSync(at);
+	for (const [name, target] of Object.entries(scratch.links)) symlinkSync(target, join(at, name));
+};
+
+/**
  * Runs `test_case` under Node, returning its exit code and what it printed, parsed.
  * @param {Case} test_case
  */
 const run = async (test_case) => {
 	const close = await listen(test_case.sockets ?? []);
+	if (test_case.scratch) reset_scratch(test_case.scratch, true);
 	const args = test_case.args.map((arg) => (arg === '{cwd}' ? dir : arg));
 	const result = spawnSync(process.execPath, ['on_node.js', test_case.module, ...args], {
 		cwd: dir,
 		env: { ...test_case.env },
 		encoding: 'utf8'
 	});
+	if (test_case.scratch) reset_scratch(test_case.scratch, false);
 	await close();
 	if (result.error || result.signal !== null || result.stderr !== '') {
 		throw new Error(

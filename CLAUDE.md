@@ -348,13 +348,16 @@ miss there, and the contracts no one module doc owns:
   - An `fs` handle's state is plain data, and only a root holds a descriptor
     (`host/fs.rs`'s module doc maps its children and owns the `openat2`
     lookups beneath a handle; `host/fs/roots.rs`'s owns the roots, their
-    scopes and nesting, `host/fs/walk.rs`'s the walk of an absolute path
-    from them, and `host/fs/reads.rs`'s and `host/fs/listing.rs`'s the
-    reads and listings): no handle's op checks the run's roots, and no
-    lookup leaves a root. An op's I/O takes owned arguments, so it can
-    move off the thread, but for a read's fill of the buffer V8 allocated
-    (`gro_v8::PendingArrayBuffer`, not `Send`), which stays on the isolate's
-    thread.
+    scopes and nesting, and the rule that keeps a root's directory where
+    it is, `host/fs/walk.rs`'s the walk of an absolute path from them,
+    `host/fs/reads.rs`'s and `host/fs/listing.rs`'s the reads and
+    listings, and `host/fs/writes.rs`'s the writes): what a handle's op may
+    do is the handle's scope, never the run's roots, which only that rule
+    reads, to refuse, and a refusal's hint, to name what would let it
+    through; and no lookup leaves a root. An op's I/O takes owned
+    arguments, so it can move off the thread, but for a read's fill of the
+    buffer V8 allocated (`gro_v8::PendingArrayBuffer`, not `Send`), which
+    stays on the isolate's thread.
   - The resolver returns a table hit ahead of any package lookup; the loader
     checks it against the run's `Authority` at link time, for a static import
     and `import()` alike (`loader/resolve.rs`): with none (eval's) nothing is

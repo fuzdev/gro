@@ -31,10 +31,11 @@
 //! And `fs`'s confinement, which no Node case can hold: every way out of a
 //! handle and out of the run's roots refused, a special file stat'd without
 //! waiting, a forged or borrowed handle refused, a polluted `then` adopted
-//! by no record or handle a member settles with, and each refused reach failing the run, listed; and what no
-//! committed tree or Node run can show: a FIFO's read refused at once, where
-//! Node's waits, a name that isn't UTF-8, and listings holding no
-//! descriptor.
+//! by no record or handle a member settles with, and each refused reach failing the run, listed; the
+//! rule that no remove or rename moves a root's directory or gains a
+//! scope, and a copy's read judged by the handle's; and what no committed
+//! tree or Node run can show: a FIFO's read refused at once, where Node's
+//! waits, a name that isn't UTF-8, and listings holding no descriptor.
 
 // clippy's test allowance covers `#[test]` functions, not their helpers
 #![expect(
@@ -74,9 +75,10 @@ fn read_json(file: &str) -> Value {
 /// A case of the table: its name, its host module, the arguments it's run
 /// with, `fgro run`'s flags before the entry, the environment it's run in,
 /// which holds nothing else, the unix sockets that listen while it runs, by
-/// path relative to the fixtures, which git can't hold, the values that
-/// differ by design on `fgro`, and the lines `fgro` prints for what its
-/// rules refused, which fail the run there, where Node has no such rule.
+/// path relative to the fixtures, which git can't hold, the directory it
+/// writes in, the values that differ by design on `fgro`, and the lines
+/// `fgro` prints for what its rules refused, which fail the run there,
+/// where Node has no such rule.
 struct Case {
     name: String,
     module: String,
@@ -84,8 +86,38 @@ struct Case {
     flags: Vec<String>,
     env: Vec<(String, String)>,
     sockets: Vec<String>,
+    scratch: Option<ScratchDir>,
     differs: Vec<Difference>,
     refused: Vec<String>,
+}
+
+/// A directory of the fixtures a case writes in, made empty but for its
+/// symlinks before the case runs and removed after, as the oracle makes
+/// it: its path relative to the fixtures, and each symlink's name and
+/// target.
+struct ScratchDir {
+    dir: String,
+    links: Vec<(String, String)>,
+}
+
+impl ScratchDir {
+    /// Makes the directory, beneath `fixtures`, empty but for its links.
+    fn make(&self, fixtures: &Path) {
+        let at = fixtures.join(&self.dir);
+        self.remove(fixtures);
+        std::fs::create_dir(&at).unwrap();
+        for (name, target) in &self.links {
+            std::os::unix::fs::symlink(target, at.join(name)).unwrap();
+        }
+    }
+
+    /// Removes the directory, beneath `fixtures`, and everything in it.
+    fn remove(&self, fixtures: &Path) {
+        let at = fixtures.join(&self.dir);
+        if std::fs::symlink_metadata(&at).is_ok() {
+            std::fs::remove_dir_all(&at).unwrap();
+        }
+    }
 }
 
 /// A value of a case's output that differs by design.
@@ -134,6 +166,15 @@ fn cases() -> Vec<Case> {
                 .as_array()
                 .map(|paths| paths.iter().map(text).collect())
                 .unwrap_or_default(),
+            scratch: case["scratch"].as_object().map(|scratch| ScratchDir {
+                dir: text(&scratch["dir"]),
+                links: scratch["links"]
+                    .as_object()
+                    .expect("an object of links")
+                    .iter()
+                    .map(|(name, target)| (name.clone(), text(target)))
+                    .collect(),
+            }),
             differs: case["differs"]
                 .as_array()
                 .expect("an array of differences")
@@ -238,7 +279,8 @@ impl Drop for Sockets {
 }
 
 /// Each case under `fgro run` with its flags, in an environment holding
-/// the case's and nothing else, with its sockets listening, exits with the
+/// the case's and nothing else, with its sockets listening and its scratch
+/// directory made, exits with the
 /// code Node's did, prints nothing on stderr, and prints what Node's did but
 /// for the case's named differences; a case whose calls `fgro`'s rules
 /// refuse prints the refusals it names on stderr instead, and turns Node's 0
@@ -264,7 +306,13 @@ fn each_case_matches_the_node_implementation_but_for_its_named_differences() {
             .envs(case.env.iter().map(|(name, value)| (name, value)))
             .current_dir(&started_in);
         let sockets = Sockets::listen(&started_in, &case.sockets);
+        if let Some(scratch) = &case.scratch {
+            scratch.make(&started_in);
+        }
         let output = spawn(command, b"");
+        if let Some(scratch) = &case.scratch {
+            scratch.remove(&started_in);
+        }
         drop(sockets);
         let stderr = String::from_utf8(output.stderr).unwrap();
         let stdout = String::from_utf8(output.stdout).unwrap();
@@ -493,11 +541,12 @@ const PATCHED_FILES: [&str; 7] = [
     "ended.js",
 ];
 
-/// A project of the patched realm's fixtures with the modules the test
-/// writes: from the builtin table, `modules.js`, importing every row's
-/// namespace with its exports, each marked when its value is the process's
-/// own, and `names.js`, the names to trap; and `skips.js`, the calls to
-/// skip, none ([`write_skips`]).
+/// A project of the patched realm's fixtures, with `w`, a directory a run
+/// writes ([`GRANT_WRITE`]), and the modules the test writes: from the
+/// builtin table, `modules.js`, importing every row's namespace with its
+/// exports, each marked when its value is the process's own, and
+/// `names.js`, the names to trap; and `skips.js`, the calls to skip, none
+/// ([`write_skips`]).
 fn patched_project(name: &str) -> Scratch {
     let fixtures = fixtures().join("patched");
     let fixture = |file: &str| std::fs::read_to_string(fixtures.join(file)).unwrap();
@@ -532,6 +581,7 @@ fn patched_project(name: &str) -> Scratch {
     let skips = skips_module(&[]);
     let mut files = vec![
         ("package.json", "{\"type\": \"module\"}\n"),
+        ("w/.keep", ""),
         ("modules.js", modules.as_str()),
         ("names.js", names.as_str()),
         ("skips.js", skips.as_str()),
@@ -658,11 +708,16 @@ fn assert_reviewed_traps(traps: &[String], every: bool) {
 /// array's one name is.
 const GRANT_ENV: &str = "--allow-env=GRO_PATCHED_SET,GRO_PATCHED_UNSET,hostile";
 
-/// `fgro run` of `entry` in `project`, granted [`GRANT_ENV`], given two
-/// arguments, in an environment holding only `GRO_PATCHED_SET`: its exit
-/// code, what it reported, and its stderr.
+/// The grant to write `w` in the project [`patched_project`] makes, so a
+/// handle on it writes and its writes get past their grant to the data and
+/// options they read.
+const GRANT_WRITE: &str = "--allow-write=w";
+
+/// `fgro run` of `entry` in `project`, granted [`GRANT_ENV`] and
+/// [`GRANT_WRITE`], given two arguments, in an environment holding only
+/// `GRO_PATCHED_SET`: its exit code, what it reported, and its stderr.
 fn run_entry(project: &Scratch, entry: &str) -> (Option<i32>, Reports, String) {
-    let mut command = fgro_command(&["run", GRANT_ENV, entry, "a", "b c"]);
+    let mut command = fgro_command(&["run", GRANT_ENV, GRANT_WRITE, entry, "a", "b c"]);
     command
         .env_clear()
         .env("GRO_PATCHED_SET", "set")
@@ -1051,6 +1106,7 @@ fn forced_project(name: &str) -> Scratch {
     let sources = FORCED_FILES.map(read);
     let mut files = vec![
         ("package.json", "{\"type\": \"module\"}\n"),
+        ("w/.keep", ""),
         ("modules.js", modules.as_str()),
     ];
     files.extend(
@@ -1436,10 +1492,10 @@ console.log(JSON.stringify(ended));
 /// The roots `--allow-read=` and `--allow-write=` grant, beside the
 /// project's: a read root by a path through a symlink, which matches by
 /// that path and its real one alike, the handle named by its real path; a
-/// root only written, whose handles write (a plain `Error` until the ops
-/// that write are built) and narrow, but read nothing, `fs.real_path`
-/// included; a relative write root inside the project, read as the project
-/// is, and reaching the project through a symlink out of it; and
+/// root only written, whose handles write and narrow, each write landing
+/// where it names, but read nothing, `fs.real_path` included; a relative
+/// write root inside the project, read as the project is, and reaching
+/// the project through a symlink out of it; and
 /// `fs.project`, whose handles never write, whatever root inside it is
 /// written. Every refusal is listed and fails the run, and the hints name
 /// each flag a refusal needed and, for a write a root already grants, a
@@ -1492,11 +1548,16 @@ fn fs_roots_by_flag_scope_their_handles() {
     let output = spawn(command, b"");
     let stdout = String::from_utf8(output.stdout).unwrap();
     let stderr = String::from_utf8(output.stderr).unwrap();
+    let written = (
+        std::fs::read_to_string(Path::new(&w).join("x.txt")).ok(),
+        Path::new(&w).join("sub/x").is_dir(),
+        project.0.join("out/f.txt").exists(),
+    );
     for dir in [&r, &w] {
         let _ = std::fs::remove_dir_all(dir);
     }
     let _ = std::fs::remove_file(&l);
-    let unbuilt = |op: &str| format!("{op} of @fuzdev/gro/fs.ts isn't built on fgro yet");
+    assert_eq!(written, (Some("x".to_owned()), true, false));
     let ended: Value = serde_json::from_str(&stdout).unwrap_or_else(|_| panic!("{stderr}"));
     assert_eq!(
         ended,
@@ -1509,13 +1570,13 @@ fn fs_roots_by_flag_scope_their_handles() {
             "write_only_reads": ["FsError", "not_granted"],
             "write_only_stats": ["FsError", "not_granted"],
             "write_only_lists": ["FsError", "not_granted"],
-            "write_only_writes": ["Error", unbuilt("write")],
-            "write_only_sub_writes": ["Error", unbuilt("mkdir")],
+            "write_only_writes": ["ok", null],
+            "write_only_sub_writes": ["ok", null],
             "write_only_sub_reads": ["FsError", "not_granted"],
             "write_only_readonly": ["FsError", "not_granted"],
             "write_only_real_path": ["FsError", "not_granted"],
             "inner_write_reads": ["ok", "inner"],
-            "inner_write_writes": ["Error", unbuilt("remove")],
+            "inner_write_writes": ["ok", null],
             "inner_write_climbs": ["ok", true],
             "project_dir_writes": ["FsError", "not_granted"],
             "project_writes": ["FsError", "not_granted"],
@@ -1896,11 +1957,199 @@ fn fs_unconfined_reads_and_writes_everything() {
             "root": ["ok", "/"],
             "through_absolute_link": ["ok", true],
             "climbs_from_the_top": ["ok", true],
-            "project_writes": ["Error", "write of @fuzdev/gro/fs.ts isn't built on fgro yet"],
+            "project_writes": ["ok", null],
             "readonly_writes": ["TypeError", "fs's methods are called on an fs handle of their kind, not another object"],
             "handle_still_beneath": ["FsError", "outside_root"],
         })
     );
+}
+
+/// The script [`fs_a_root_s_directory_is_neither_moved_nor_removed`] runs:
+/// each remove and rename the rule refuses or allows, through a handle on
+/// the directory given, as a JSON line.
+const FS_RULE: &str = "import { fs } from '@fuzdev/gro/fs.ts';
+import { args } from '@fuzdev/gro/args.ts';
+const [o_path] = args;
+const o = await fs.open_dir(o_path);
+const how = async (call) => {
+\ttry {
+\t\treturn ['ok', (await call()) ?? null];
+\t} catch (error) {
+\t\treturn [error.constructor.name, error.kind ?? error.message];
+\t}
+};
+console.log(JSON.stringify({
+\tremove_a_root: await how(() => o.remove('r')),
+\tremove_a_root_recursive: await how(() => o.remove('r', { recursive: true })),
+\tremove_an_empty_root: await how(() => o.remove('e')),
+\tremove_an_empty_root_slashed: await how(() => o.remove('e/')),
+\tremove_a_holder_recursive: await how(() => o.remove('w', { recursive: true })),
+\tremove_a_holder_through_a_handle: await how(() => o.dir('w').remove('inner', { recursive: true })),
+\tremove_a_root_by_an_alias: await how(() => o.remove('lo/r', { recursive: true })),
+\tremove_a_root_through_a_link: await how(() => o.remove('to_w/inner', { recursive: true })),
+\trename_a_root_through_a_link: await how(() => o.rename('to_w/inner', 'inner')),
+\trename_a_root: await how(() => o.rename('r', 'r2')),
+\tremove_a_root_slashed: await how(() => o.remove('r/', { recursive: true })),
+\trename_a_root_slashed: await how(() => o.rename('r/', 'r3')),
+\trename_a_holder: await how(() => o.rename('w', 'w2')),
+\trename_by_an_alias: await how(() => o.rename('lo/w', 'w2')),
+\trename_over_an_empty_root: await how(() => o.rename('d', 'e')),
+\trename_over_an_empty_root_slashed: await how(() => o.rename('d/', 'e/')),
+\trename_into_a_root_it_reads: await how(() => o.rename('secret.txt', 'r/secret.txt')),
+\trename_into_a_root_by_an_alias: await how(() => o.rename('lo/secret.txt', 'lo/r/secret.txt')),
+\trename_a_directory_into_a_root_it_reads: await how(() => o.rename('d', 'r/d')),
+\trename_into_a_root_it_writes: await how(() => o.rename('secret.txt', 'w/inner/secret.txt')),
+\trename_out_of_a_root_it_reads: await how(() => o.rename('r/f.txt', 'f.txt')),
+\trename_beside: await how(() => o.rename('w/a.txt', 'w/b.txt')),
+\tremove_beside: await how(() => o.remove('w/b.txt')),
+\tremove_inside_a_root: await how(() => o.remove('w/inner/keep.txt')),
+}));
+";
+
+/// A root's directory, and any directory holding one, is neither removed
+/// nor renamed through a handle that writes around it, whatever the run
+/// grants: `io_error`, before anything is removed, for the root itself, an
+/// empty one among them, a directory holding one, recursively or through a
+/// handle on a directory beneath, by a path through a symlink to the
+/// directory itself or to its parent, and a
+/// rename over an empty root's directory, which would replace it, each
+/// with a trailing `/` too. A rename
+/// into a root that reads what the source's doesn't is refused too, a
+/// directory's as a file's, and one into a root that grants nothing more,
+/// or out of one, isn't; an entry beside a root or inside one moves and
+/// goes. Nothing the rule refuses is a grant's refusal: none is listed,
+/// and the run ends `0`.
+#[test]
+fn fs_a_root_s_directory_is_neither_moved_nor_removed() {
+    let project = Scratch::new(
+        "fs_rule",
+        &[
+            (
+                "package.json",
+                "{\"name\": \"fs_rule\", \"type\": \"module\"}\n",
+            ),
+            ("main.js", FS_RULE),
+        ],
+    );
+    let o = Scratch::new(
+        "fs_rule_o",
+        &[
+            ("secret.txt", "secret"),
+            ("r/f.txt", "read"),
+            ("w/a.txt", "a"),
+            ("w/inner/keep.txt", "keep"),
+        ],
+    );
+    for dir in ["e", "d"] {
+        std::fs::create_dir(o.path(dir)).unwrap();
+    }
+    std::os::unix::fs::symlink(".", o.path("lo")).unwrap();
+    std::os::unix::fs::symlink("w", o.path("to_w")).unwrap();
+    let root = o.0.display().to_string();
+    let mut command = fgro_command(&[
+        "run",
+        &format!("--allow-write={root},{},{}", o.path("e"), o.path("w/inner")),
+        &format!("--allow-read={}", o.path("r")),
+        "main.js",
+        &root,
+    ]);
+    command.env_clear().current_dir(&project.0);
+    let output = spawn(command, b"");
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert_eq!(String::from_utf8(output.stderr).unwrap(), "", "{stdout}");
+    assert_eq!(output.status.code(), Some(0));
+    let ended: Value = serde_json::from_str(&stdout).unwrap();
+    let refused = serde_json::json!(["FsError", "io_error"]);
+    let ok = serde_json::json!(["ok", null]);
+    assert_eq!(
+        ended,
+        serde_json::json!({
+            "remove_a_root": refused,
+            "remove_a_root_recursive": refused,
+            "remove_an_empty_root": refused,
+            "remove_an_empty_root_slashed": refused,
+            "remove_a_holder_recursive": refused,
+            "remove_a_holder_through_a_handle": refused,
+            "remove_a_root_by_an_alias": refused,
+            "remove_a_root_through_a_link": refused,
+            "rename_a_root_through_a_link": refused,
+            "rename_a_root": refused,
+            "remove_a_root_slashed": refused,
+            "rename_a_root_slashed": refused,
+            "rename_a_holder": refused,
+            "rename_by_an_alias": refused,
+            "rename_over_an_empty_root": refused,
+            "rename_over_an_empty_root_slashed": refused,
+            "rename_into_a_root_it_reads": refused,
+            "rename_into_a_root_by_an_alias": refused,
+            "rename_a_directory_into_a_root_it_reads": refused,
+            "rename_into_a_root_it_writes": ok,
+            "rename_out_of_a_root_it_reads": ok,
+            "rename_beside": ok,
+            "remove_beside": ok,
+            "remove_inside_a_root": ok,
+        })
+    );
+    let kept = |name: &str| Path::new(&o.path(name)).exists();
+    assert!(kept("r") && kept("e") && kept("d") && kept("w/inner"));
+    assert!(kept("w/inner/secret.txt") && kept("f.txt"));
+    assert!(!kept("r/secret.txt") && !kept("r/d") && !kept("w/b.txt"));
+    assert!(
+        !kept("w/inner/keep.txt") && !kept("r2") && !kept("r3") && !kept("w2") && !kept("inner")
+    );
+}
+
+/// The script [`fs_a_root_s_directory_is_kept_under_a_run_granted_everything`]
+/// runs: a remove and a rename of the directory holding the project's.
+const FS_RULE_UNCONFINED: &str = "import { fs } from '@fuzdev/gro/fs.ts';
+const above = await fs.open_dir(`${fs.project.path}/..`);
+const how = async (call) => {
+\ttry {
+\t\treturn ['ok', (await call()) ?? null];
+\t} catch (error) {
+\t\treturn [error.constructor.name, error.kind ?? error.message];
+\t}
+};
+console.log(JSON.stringify({
+\tremove: await how(() => above.remove('proj', { recursive: true })),
+\trename: await how(() => above.rename('proj', 'moved')),
+\tremove_beside: await how(() => above.remove('beside.txt')),
+}));
+";
+
+/// Under `-A`, which grants every path, the rule still holds the
+/// project's root: the directory holding it is neither removed nor
+/// renamed, and an entry beside it is removed.
+#[test]
+fn fs_a_root_s_directory_is_kept_under_a_run_granted_everything() {
+    let scratch = Scratch::new(
+        "fs_rule_unconfined",
+        &[
+            (
+                "proj/package.json",
+                "{\"name\": \"fs_rule_unconfined\", \"type\": \"module\"}\n",
+            ),
+            ("proj/main.js", FS_RULE_UNCONFINED),
+            ("beside.txt", ""),
+        ],
+    );
+    let mut command = fgro_command(&["run", "-A", "main.js"]);
+    command.env_clear().current_dir(scratch.path("proj"));
+    let output = spawn(command, b"");
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert_eq!(String::from_utf8(output.stderr).unwrap(), "", "{stdout}");
+    assert_eq!(output.status.code(), Some(0));
+    let ended: Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(
+        ended,
+        serde_json::json!({
+            "remove": ["FsError", "io_error"],
+            "rename": ["FsError", "io_error"],
+            "remove_beside": ["ok", null],
+        })
+    );
+    assert!(Path::new(&scratch.path("proj/main.js")).exists());
+    assert!(!Path::new(&scratch.path("beside.txt")).exists());
 }
 
 /// The script [`fs_a_copy_s_read_is_judged_by_the_handle_s_read`] runs: the
@@ -1988,6 +2237,87 @@ fn fs_a_copy_s_read_is_judged_by_the_handle_s_read() {
         assert_eq!(
             run(name),
             (Some(0), "FsError outside_root\n".to_owned(), String::new()),
+            "{name}"
+        );
+    }
+}
+
+/// The script [`fs_a_refused_move_of_a_root_hints_no_grant`] runs: the call
+/// it names through `fs.project`, which doesn't write, caught.
+const FS_ROOT_HINT: &str = "import { fs } from '@fuzdev/gro/fs.ts';
+import { args } from '@fuzdev/gro/args.ts';
+const calls = {
+\tremove_root: () => fs.project.remove('out'),
+\tremove_holder: () => fs.project.remove('a', { recursive: true }),
+\trename_root: () => fs.project.rename('out', 'x'),
+\trename_over_root: () => fs.project.rename('x', 'out'),
+\tremove_inside: () => fs.project.remove('out/f.txt'),
+\tremove_own: () => fs.project.remove(''),
+\trename_own: () => fs.project.rename('out', '.'),
+};
+try {
+\tawait calls[args[0]]();
+} catch (error) {
+\tconsole.log(error.kind);
+}
+";
+
+/// A remove or a rename through a handle that doesn't write, of a path
+/// that is a root's directory or holds one by its text, is refused
+/// `not_granted` and fails the run with no hint, since the rule refuses it
+/// whatever is granted; a path inside a root still hints the handle to
+/// open. The handle's own directory at an end is refused `io_error` before
+/// the grant is judged, whatever the handle may do, so it's no refusal of
+/// a grant.
+#[test]
+fn fs_a_refused_move_of_a_root_hints_no_grant() {
+    let project = Scratch::new(
+        "fs_root_hint",
+        &[
+            (
+                "package.json",
+                "{\"name\": \"fs_root_hint\", \"type\": \"module\"}\n",
+            ),
+            ("main.js", FS_ROOT_HINT),
+            ("out/f.txt", ""),
+            ("a/b/f.txt", ""),
+        ],
+    );
+    let p = project.0.display();
+    let run = |name: &str| {
+        let mut command = fgro_command(&["run", "--allow-write=out,a/b", "main.js", name]);
+        command.env_clear().current_dir(&project.0);
+        let output = spawn(command, b"");
+        assert_eq!(output.status.code(), Some(1), "{name}");
+        assert_eq!(String::from_utf8(output.stdout).unwrap(), "not_granted\n");
+        String::from_utf8(output.stderr).unwrap()
+    };
+    let refused = |path: &str, hint: Option<&str>| {
+        format!(
+            "error: fs refused: not_granted: {p}/{path}\n\
+             error: a refusal fails the run, whether or not the program caught it\n{}",
+            hint.map_or_else(String::new, |hint| format!("{hint}\n"))
+        )
+    };
+    assert_eq!(run("remove_root"), refused("out", None));
+    assert_eq!(run("remove_holder"), refused("a", None));
+    assert_eq!(run("rename_root"), refused("out", None));
+    assert_eq!(run("rename_over_root"), refused("x", None));
+    assert_eq!(
+        run("remove_inside"),
+        refused("out/f.txt", Some(HINT_OPEN_DIR))
+    );
+    for name in ["remove_own", "rename_own"] {
+        let mut command = fgro_command(&["run", "--allow-write=out,a/b", "main.js", name]);
+        command.env_clear().current_dir(&project.0);
+        let output = spawn(command, b"");
+        assert_eq!(
+            (
+                output.status.code(),
+                String::from_utf8(output.stdout).unwrap(),
+                String::from_utf8(output.stderr).unwrap()
+            ),
+            (Some(0), "io_error\n".to_owned(), String::new()),
             "{name}"
         );
     }

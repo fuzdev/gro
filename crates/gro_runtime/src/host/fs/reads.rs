@@ -16,7 +16,10 @@ use std::os::unix::ffi::OsStringExt as _;
 use deno_core::{OpState, v8};
 use gro_v8::PendingArrayBuffer;
 
-use super::{Failure, beneath, finish, path_text, read_handle, run_roots, run_state, sys};
+use super::{
+    Failure, beneath, finish, is_missing, path_text, read_handle, read_option, run_roots,
+    run_state, sys,
+};
 use crate::host::error_class::DeclaredFamily;
 use crate::host::handle::FS_READ_DIR;
 use crate::host::{name, string};
@@ -77,8 +80,10 @@ fn find<'s>(
     run_state(state)?.ready()?;
     let handle = read_handle(scope, &FS_READ_DIR, receiver)?;
     let requested = path_text(scope, path)?;
+    // `options?.follow ?? true`
     let follow = match options {
-        Some(options) => follow_option(scope, options)?,
+        Some(options) => read_option(scope, options, "follow")?
+            .is_none_or(|follow| follow.is_null_or_undefined() || follow.boolean_value(scope)),
         None => true,
     };
     let op = beneath(&run_roots(state)?, handle, requested)?;
@@ -90,13 +95,6 @@ fn find<'s>(
         Err(error) if is_missing(&error) => Ok(Found::Missing),
         Err(error) => Err(op.failure(error)),
     }
-}
-
-/// Whether an op's `error` is nothing at its path, the handle's directory
-/// or the target.
-fn is_missing(error: &sys::OpError) -> bool {
-    matches!(error, sys::OpError::Handle(error) | sys::OpError::Target(error)
-        if error.kind() == std::io::ErrorKind::NotFound)
 }
 
 /// What a whole-file read returns.
@@ -272,51 +270,6 @@ fn escaped(bytes: &[u8]) -> String {
         }
     }
     text
-}
-
-/// The `follow` of `options`, as the Node module reads `options?.follow ??
-/// true`: `true` for none, a missing or nullish `follow`, or a primitive's,
-/// else the value's truth; a proxy or an accessor on the way is a
-/// `TypeError`, since an op runs no code of a caller's.
-fn follow_option(
-    scope: &v8::PinScope<'_, '_>,
-    options: v8::Local<'_, v8::Value>,
-) -> Result<bool, Failure> {
-    let Ok(mut object) = v8::Local::<v8::Object>::try_from(options) else {
-        return Ok(true);
-    };
-    let plain =
-        || Failure::Type("fs options are plain data, read without running code: follow".to_owned());
-    let key = name(scope, "follow").ok_or(Failure::Thrown)?;
-    let value_key = name(scope, "value").ok_or(Failure::Thrown)?;
-    loop {
-        if object.is_proxy() {
-            return Err(plain());
-        }
-        let descriptor = object
-            .get_own_property_descriptor(scope, key)
-            .ok_or(Failure::Thrown)?;
-        if let Ok(descriptor) = v8::Local::<v8::Object>::try_from(descriptor) {
-            // a descriptor V8 made is an ordinary object of its fields
-            if !descriptor
-                .has_own_property(scope, value_key)
-                .ok_or(Failure::Thrown)?
-            {
-                return Err(plain());
-            }
-            let value = descriptor
-                .get(scope, value_key.into())
-                .ok_or(Failure::Thrown)?;
-            return Ok(value.is_null_or_undefined() || value.boolean_value(scope));
-        }
-        match object
-            .get_prototype(scope)
-            .and_then(|prototype| v8::Local::<v8::Object>::try_from(prototype).ok())
-        {
-            Some(prototype) => object = prototype,
-            None => return Ok(true),
-        }
-    }
 }
 
 /// `info` as `stat` returns it: a null-prototype record of the entry's

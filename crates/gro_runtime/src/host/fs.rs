@@ -2,7 +2,8 @@
 //! directories its handles name beneath them, and every check of a call.
 //!
 //! Its children's docs own their parts: the run's roots, their scopes and
-//! nesting, and the directory each grant names ([`roots`]); the walk of an
+//! nesting, the directory each grant names, and the rule that no `remove`
+//! or `rename` moves a root's directory ([`roots`]); the walk of an
 //! absolute path from the roots, which `fs.open_dir` and `fs.real_path`
 //! take, and the grant a refusal needs ([`walk`]); the members that make a
 //! handle ([`dirs`]), read beneath one ([`reads`]), list a directory
@@ -18,9 +19,10 @@
 //! whether it may read and whether it may write, which is its root's when
 //! `fs.open_dir` or `fs.project` makes it, and narrows: `dir()` keeps its
 //! receiver's, an `FsReadDir`'s dropping the write, and `readonly()` drops
-//! the write; nothing widens it, and no op checks the run's roots. An op a
-//! handle's scope lacks is `not_granted`, a write op on a handle that may
-//! write a plain `Error` until the ops that write are built. Its
+//! the write; nothing widens it, and what an op may do is never read from
+//! the run's roots, which a `remove` or a `rename` reads only to refuse a
+//! root's directory ([`roots::Held`]). An op a handle's scope lacks is
+//! `not_granted`. Its
 //! directory's absolute path is its own `path`. So no handle owns a
 //! descriptor, none needs closing, and a handle follows its path as the
 //! Node module's does: a directory moved away isn't followed, and one moved
@@ -49,17 +51,18 @@
 //! `cause`: a value the namespace holds is made without throwing.
 //!
 //! An argument is read as the value it is, as `env`'s are: a path is a
-//! string, never converted, and an options record's `follow` is its data,
-//! so a getter or a proxy is a `TypeError` where the Node module would run
-//! it. A failure's error is an `FsError` whose `kind` and `path` are what
+//! string, never converted, and an options record's fields are its data
+//! ([`read_option`]), so a getter or a proxy is a `TypeError` where the
+//! Node module would run it. A failure's error is an `FsError` whose `kind` and `path` are what
 //! the Node module's would be, its `message` exactly `kind: path`, and its
 //! `cause`, when the OS said something, an `Error` whose message is what
 //! the OS said, which no case compares.
 //!
 //! Each op makes its calls inline and returns, for an `async` member, a
 //! promise the host already settled. Its I/O ([`sys`]) takes owned
-//! arguments, a root's descriptor shared by count and the paths as Rust
-//! text, and borrows nothing of V8's, so it can move to a blocking pool
+//! arguments, a root's descriptor shared by count, the paths as Rust text,
+//! a write's bytes copied, and the roots a `remove` or a `rename` is held
+//! to, and borrows nothing of V8's, so it can move to a blocking pool
 //! with no change to what it's given. A read's fill of its buffer is the
 //! exception: the buffer is V8's, so its collector counts it, and isn't
 //! `Send` (`gro_v8::PendingArrayBuffer`): the open, whose `Reading` is
@@ -528,6 +531,73 @@ fn path_text(
         .map_err(|_| Failure::Type("fs paths are well-formed Unicode".to_owned()))
 }
 
+/// The value of `options`' `key`, as the Node module reads `options?.[key]`:
+/// none for no options, a primitive, or a key on none of its prototype
+/// chain's objects, else the value of the first own property of that key
+/// on the chain; a proxy or an accessor on the way is a `TypeError`, since
+/// an op runs no code of a caller's.
+fn read_option<'s>(
+    scope: &v8::PinScope<'s, '_>,
+    options: v8::Local<'s, v8::Value>,
+    key: &str,
+) -> Result<Option<v8::Local<'s, v8::Value>>, Failure> {
+    let Ok(mut object) = v8::Local::<v8::Object>::try_from(options) else {
+        return Ok(None);
+    };
+    let plain = || {
+        Failure::Type(format!(
+            "fs options are plain data, read without running code: {key}"
+        ))
+    };
+    let name_key = name(scope, key).ok_or(Failure::Thrown)?;
+    let value_key = name(scope, "value").ok_or(Failure::Thrown)?;
+    loop {
+        if object.is_proxy() {
+            return Err(plain());
+        }
+        let descriptor = object
+            .get_own_property_descriptor(scope, name_key)
+            .ok_or(Failure::Thrown)?;
+        if let Ok(descriptor) = v8::Local::<v8::Object>::try_from(descriptor) {
+            // a descriptor V8 made is an ordinary object of its fields
+            if !descriptor
+                .has_own_property(scope, value_key)
+                .ok_or(Failure::Thrown)?
+            {
+                return Err(plain());
+            }
+            return descriptor
+                .get(scope, value_key.into())
+                .map(Some)
+                .ok_or(Failure::Thrown);
+        }
+        match object
+            .get_prototype(scope)
+            .and_then(|prototype| v8::Local::<v8::Object>::try_from(prototype).ok())
+        {
+            Some(prototype) => object = prototype,
+            None => return Ok(None),
+        }
+    }
+}
+
+/// Whether `options`' `key` is truthy, as the Node module reads a flag
+/// ([`read_option`]).
+fn read_flag(
+    scope: &v8::PinScope<'_, '_>,
+    options: v8::Local<'_, v8::Value>,
+    key: &str,
+) -> Result<bool, Failure> {
+    Ok(read_option(scope, options, key)?.is_some_and(|value| value.boolean_value(scope)))
+}
+
+/// Whether an op's `error` is nothing at its path, the handle's directory
+/// or the target.
+fn is_missing(error: &sys::OpError) -> bool {
+    matches!(error, sys::OpError::Handle(error) | sys::OpError::Target(error)
+        if error.kind() == std::io::ErrorKind::NotFound)
+}
+
 /// A path requested beneath a handle, its `..` resolved by its text.
 struct Lexical {
     /// The names beneath the handle, none of them `.` or `..`.
@@ -610,6 +680,25 @@ fn op_failure(error: sys::OpError, requested: &str, handle_path: &str, target: &
         sys::OpError::Handle(error) | sys::OpError::Target(error) => {
             Failure::of(kind_of(&error), target, &error)
         }
+        sys::OpError::Refused(why) => rule_failure(why, target, None),
+    }
+}
+
+/// `io_error` about `target`, which the rule for a root's directory refused
+/// as `why` says ([`roots::Held`]), `to` the rename's destination when
+/// there's one.
+fn rule_failure(why: roots::Refusal, target: &str, to: Option<&str>) -> Failure {
+    let cause = match why {
+        roots::Refusal::HoldsARoot => format!("{target} is or holds a root of the run"),
+        roots::Refusal::GainsScope => format!(
+            "{target} -> {} would move it where the run's grants allow more than where it is",
+            to.unwrap_or_default()
+        ),
+    };
+    Failure::Fs {
+        kind: "io_error",
+        path: target.to_owned(),
+        cause: Some(cause),
     }
 }
 

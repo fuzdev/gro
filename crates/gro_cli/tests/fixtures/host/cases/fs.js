@@ -40,12 +40,13 @@ const units_of = (/** @type {string} */ text) => Array.from(text, (_, i) => text
 
 /** What an op returned or settled to, as data. */
 const show_value = (/** @type {any} */ value) => {
-	if (typeof value === 'string' && value.length > 100) {
-		return { text: value.length, sum: sum_of(units_of(value)), start: value.slice(0, 11) };
+	if (typeof value === 'string') {
+		// the project's path swapped out first, so how a value shows doesn't depend on its length
+		const text = relative(value);
+		if (text.length <= 100) return text;
+		return { text: text.length, sum: sum_of(units_of(text)), start: text.slice(0, 11) };
 	}
-	if (value === null || typeof value !== 'object') {
-		return typeof value === 'string' ? relative(value) : value;
-	}
+	if (value === null || typeof value !== 'object') return value;
 	if (value instanceof Uint8Array) {
 		return {
 			bytes: value.length,
@@ -178,6 +179,59 @@ const PATHS = [
 	'order',
 	'order/link'
 ];
+
+/** The symlinks the case's runner makes in `scratch/`, which no op here can make on fgro. */
+const LINKS = ['dangling', 'to_sub', 'to_file', 'escape', 'absolute'];
+
+/**
+ * A handle on `scratch/`, which the case's runner made empty but for its symlinks and the run
+ * may write, holding `a.txt` and `sub/b.txt`, made through the handle.
+ * @param {typeof import('../../../../../../src/lib/fs.ts')} ns
+ */
+const open_scratch = async (ns) => {
+	const dir = await ns.fs.open_dir(`${project}/scratch`);
+	await dir.mkdir('sub');
+	await dir.write('a.txt', 'a');
+	await dir.write('sub/b.txt', 'b');
+	return dir;
+};
+
+/**
+ * The tree beneath `dir`, each entry's path, kind, and a file's text, a symlink not followed,
+ * so what an op left is shown with how it ended.
+ * @param {import('../../../../../../src/lib/fs.ts').FsDir} dir
+ * @param {string} [at]
+ * @returns {Promise<Array<string>>}
+ */
+const tree = async (dir, at = '') => {
+	/** @type {Array<string>} */
+	const shown = [];
+	for await (const entry of dir.list(at)) {
+		const path = at === '' ? entry.name : `${at}/${entry.name}`;
+		if (entry.kind === 'directory') {
+			shown.push(`${path}/`, ...(await tree(dir, path)));
+		} else if (entry.kind === 'file') {
+			shown.push(`${path}: ${await dir.read_text(path)}`);
+		} else {
+			shown.push(`${path} (${entry.kind})`);
+		}
+	}
+	return shown;
+};
+
+/**
+ * Each of `calls` through `dir`, by its label, in order, as it ended, and the tree after it.
+ * @param {import('../../../../../../src/lib/fs.ts').FsDir} dir
+ * @param {Record<string, () => unknown>} calls
+ */
+const steps = async (dir, calls) => {
+	/** @type {Record<string, unknown>} */
+	const ended = {};
+	for (const [label, call] of Object.entries(calls)) {
+		ended[label] = { ...(await outcome(call)), tree: await tree(dir) };
+	}
+	return ended;
+};
 
 /**
  * The scenarios of the fs module, by name, each run in the project the fixtures are, whose
@@ -560,6 +614,280 @@ const SCENARIOS = {
 		// the root's functions take no receiver
 		const { open_dir } = fs;
 		ended.detached = await outcome(() => open_dir(dir.path));
+		return ended;
+	},
+	// `write` of each kind of path, data, and option, through a handle on `scratch/`
+	write: async (ns) => {
+		const dir = await open_scratch(ns);
+		return steps(dir, {
+			new: () => dir.write('new.txt', 'new'),
+			replaces: () => dir.write('a.txt', 'replaced'),
+			create_new: () => dir.write('made.txt', 'made', { create_new: true }),
+			create_new_again: () => dir.write('made.txt', 'again', { create_new: true }),
+			create_new_truthy: () =>
+				dir.write('made.txt', 'again', /** @type {any} */ ({ create_new: 1 })),
+			create_new_falsy: () =>
+				dir.write('made.txt', 'falsy', /** @type {any} */ ({ create_new: 0 })),
+			create_new_on_a_directory: () => dir.write('sub', 'x', { create_new: true }),
+			create_new_on_its_own_directory: () => dir.write('', 'x', { create_new: true }),
+			create_new_on_a_dangling_link: () => dir.write('dangling', 'x', { create_new: true }),
+			a_directory: () => dir.write('sub', 'x'),
+			a_directory_slashed: () => dir.write('sub/', 'x'),
+			its_own_directory: () => dir.write('', 'x'),
+			dot: () => dir.write('.', 'x'),
+			a_trailing_slash: () => dir.write('slashed.txt/', 'x'),
+			a_missing_parent: () => dir.write('missing/x.txt', 'x'),
+			through_a_file: () => dir.write('a.txt/x', 'x'),
+			through_a_link_to_a_file: () => dir.write('to_file', 'linked'),
+			through_a_link_to_a_directory: () => dir.write('to_sub/c.txt', 'c'),
+			up_and_back: () => dir.write('sub/../up.txt', 'up'),
+			a_link_out: () => dir.write('escape', 'x'),
+			an_absolute_link: () => dir.write('absolute', 'x'),
+			above: () => dir.write('../x.txt', 'x'),
+			absolute: () => dir.write('/x.txt', 'x'),
+			bytes: () => dir.write('bytes.bin', new Uint8Array([104, 105])),
+			part_of_a_buffer: () =>
+				dir.write('part.bin', new Uint8Array([0, 104, 105, 0]).subarray(1, 3)),
+			empty: () => dir.write('empty.txt', ''),
+			lone_surrogate: async () => {
+				await dir.write('surrogate.txt', 'a\uD800b');
+				return Array.from(await dir.read('surrogate.txt')).join(' ');
+			},
+			mode: async () => {
+				await dir.write('mode.txt', 'x', { mode: 0o640 });
+				return (await dir.stat('mode.txt'))?.mode;
+			},
+			// the sticky bit, which a write leaves, where it clears a setuid or setgid bit itself
+			mode_masked: async () => {
+				await dir.write('masked.txt', 'x', { mode: 0o1640 });
+				return (await dir.stat('masked.txt'))?.mode;
+			},
+			mode_undefined: () => dir.write('undefined_mode.txt', 'x', { mode: undefined }),
+			// the dangling link's target, made beneath the handle
+			a_dangling_link: () => dir.write('dangling', 'through the link'),
+			...Object.fromEntries(
+				/** @type {Array<[string, unknown]>} */ ([
+					['a number', 1],
+					['null', null],
+					['an array', [104]],
+					['a Uint16Array', new Uint16Array([104])],
+					['a DataView', new DataView(new ArrayBuffer(1))],
+					['an ArrayBuffer', new ArrayBuffer(1)],
+					['a boxed string', new String('x')]
+				]).map(([what, data]) => [
+					`data ${what}`,
+					() => dir.write('data.txt', /** @type {any} */ (data))
+				])
+			),
+			...Object.fromEntries(
+				/** @type {Array<[string, unknown]>} */ ([
+					['a string', '755'],
+					['a fraction', 1.5],
+					['negative', -1],
+					['too large', 0o10000],
+					['NaN', NaN],
+					['null', null]
+				]).map(([what, mode]) => [
+					`mode ${what}`,
+					() => dir.write('mode_refused.txt', 'x', /** @type {any} */ ({ mode }))
+				])
+			)
+		});
+	},
+	// `mkdir` of each kind of path and option, through a handle on `scratch/`
+	mkdir: async (ns) => {
+		const dir = await open_scratch(ns);
+		return steps(dir, {
+			new: () => dir.mkdir('d'),
+			again: () => dir.mkdir('d'),
+			exists_ok: () => dir.mkdir('d', { exists_ok: true }),
+			recursive_existing: () => dir.mkdir('d', { recursive: true }),
+			recursive: () => dir.mkdir('r/s/t', { recursive: true }),
+			recursive_again: () => dir.mkdir('r/s/t', { recursive: true }),
+			recursive_truthy: () => dir.mkdir('n/o', /** @type {any} */ ({ recursive: 1 })),
+			recursive_falsy: () => dir.mkdir('m/o', /** @type {any} */ ({ recursive: 0 })),
+			slashed: () => dir.mkdir('slashed/'),
+			a_missing_parent: () => dir.mkdir('missing/x'),
+			a_file: () => dir.mkdir('a.txt'),
+			a_file_exists_ok: () => dir.mkdir('a.txt', { exists_ok: true }),
+			a_file_recursive: () => dir.mkdir('a.txt', { recursive: true }),
+			through_a_file: () => dir.mkdir('a.txt/x'),
+			through_a_file_recursive: () => dir.mkdir('a.txt/x/y', { recursive: true }),
+			its_own_directory: () => dir.mkdir(''),
+			its_own_directory_exists_ok: () => dir.mkdir('', { exists_ok: true }),
+			its_own_directory_recursive: () => dir.mkdir('.', { recursive: true }),
+			a_dangling_link: () => dir.mkdir('dangling'),
+			a_dangling_link_exists_ok: () => dir.mkdir('dangling', { exists_ok: true }),
+			a_link_to_a_directory: () => dir.mkdir('to_sub'),
+			a_link_to_a_directory_exists_ok: () => dir.mkdir('to_sub', { exists_ok: true }),
+			a_link_to_a_directory_recursive: () => dir.mkdir('to_sub', { recursive: true }),
+			a_link_to_a_file_exists_ok: () => dir.mkdir('to_file', { exists_ok: true }),
+			// Node's recursive `mkdir` fails with what its `stat` of the path finds
+			a_dangling_link_recursive: () => dir.mkdir('dangling', { recursive: true }),
+			// the Node module's `exists_ok` check stats the path as given, its `/` kept
+			a_file_slashed_exists_ok: () => dir.mkdir('a.txt/', { exists_ok: true }),
+			a_file_slashed_dot_exists_ok: () => dir.mkdir('a.txt/.', { exists_ok: true }),
+			a_link_to_a_file_slashed_exists_ok: () => dir.mkdir('to_file/', { exists_ok: true }),
+			a_dangling_link_slashed_exists_ok: () => dir.mkdir('dangling/', { exists_ok: true }),
+			a_file_slashed_recursive_exists_ok: () =>
+				dir.mkdir('a.txt/', { recursive: true, exists_ok: true }),
+			// Node's recursive `mkdir` makes the path without its `/`, an entry there no directory
+			a_file_slashed_recursive: () => dir.mkdir('a.txt/', { recursive: true }),
+			// the Node module's confinement follows a final symlink first, failing as it does
+			a_looping_link: () => dir.mkdir('loop'),
+			a_link_through_a_file: () => dir.mkdir('thru'),
+			through_a_link: () => dir.mkdir('to_sub/new'),
+			through_a_link_recursive: () => dir.mkdir('to_sub/x/y', { recursive: true }),
+			a_link_out: () => dir.mkdir('escape'),
+			a_link_out_exists_ok: () => dir.mkdir('escape', { exists_ok: true }),
+			an_absolute_link_exists_ok: () => dir.mkdir('absolute', { exists_ok: true }),
+			through_a_link_out: () => dir.mkdir('escape/x', { recursive: true }),
+			above: () => dir.mkdir('../x'),
+			above_recursive: () => dir.mkdir('sub/../../x', { recursive: true }),
+			through_a_dangling_link: () => dir.mkdir('dangling/x'),
+			// the Node module's confinement resolves the link to the path it names, and makes that
+			through_a_dangling_link_recursive: () => dir.mkdir('dangling/x', { recursive: true })
+		});
+	},
+	// `remove` of each kind of path and option, through a handle on `scratch/`, the links last
+	remove: async (ns) => {
+		const dir = await open_scratch(ns);
+		return steps(dir, {
+			a_file: () => dir.remove('a.txt'),
+			missing: () => dir.remove('a.txt'),
+			missing_ok: () => dir.remove('a.txt', { missing_ok: true }),
+			missing_ok_truthy: () => dir.remove('a.txt', /** @type {any} */ ({ missing_ok: 1 })),
+			a_missing_parent_missing_ok: () => dir.remove('missing/x', { missing_ok: true }),
+			a_full_directory: () => dir.remove('sub'),
+			through_a_file: () => dir.write('f', 'f').then(() => dir.remove('f/x')),
+			through_a_file_missing_ok: () => dir.remove('f/x', { missing_ok: true }),
+			a_file_slashed: () => dir.remove('f/'),
+			a_file_slashed_missing_ok: () => dir.remove('f/', { missing_ok: true }),
+			a_file_recursive: () => dir.remove('f', { recursive: true }),
+			an_empty_directory: () => dir.mkdir('e').then(() => dir.remove('e')),
+			an_empty_directory_slashed: () => dir.mkdir('e').then(() => dir.remove('e/')),
+			its_own_directory: () => dir.remove(''),
+			its_own_directory_dotted: () => dir.remove('sub/..'),
+			its_own_directory_missing_ok: () => dir.remove('.', { missing_ok: true }),
+			above: () => dir.remove('../x'),
+			absolute: () => dir.remove('/x'),
+			missing_recursive: () => dir.remove('nothing', { recursive: true }),
+			missing_recursive_missing_ok: () =>
+				dir.remove('nothing', { recursive: true, missing_ok: true }),
+			a_link_to_a_directory_slashed: () => dir.remove('to_sub/'),
+			a_link_to_a_directory_slashed_recursive: () => dir.remove('to_sub/', { recursive: true }),
+			through_a_link: () => dir.remove('to_sub/b.txt'),
+			a_tree: async () => {
+				await dir.mkdir('t/u/v', { recursive: true });
+				await dir.write('t/f', 'f');
+				await dir.write('t/u/v/g', 'g');
+				return dir.remove('t/', { recursive: true });
+			},
+			a_tree_truthy: async () => {
+				await dir.mkdir('t/u', { recursive: true });
+				return dir.remove('t', /** @type {any} */ ({ recursive: 'yes' }));
+			},
+			// each link removed, never its target
+			a_link_to_a_directory: () => dir.remove('to_sub'),
+			a_link_to_a_file: () => dir.remove('to_file', { recursive: true }),
+			a_dangling_link: () => dir.remove('dangling'),
+			a_link_out: () => dir.remove('escape'),
+			an_absolute_link: () => dir.remove('absolute')
+		});
+	},
+	// `rename` of each kind of path, through a handle on `scratch/`, the links last
+	rename: async (ns) => {
+		const dir = await open_scratch(ns);
+		return steps(dir, {
+			a_file: () => dir.rename('a.txt', 'b.txt'),
+			over_a_file: () => dir.write('c.txt', 'c').then(() => dir.rename('b.txt', 'c.txt')),
+			into_a_directory: () => dir.rename('c.txt', 'sub/c.txt'),
+			back_up: () => dir.rename('sub/c.txt', 'sub/../c.txt'),
+			missing: () => dir.rename('missing', 'x'),
+			a_missing_destination_parent: () => dir.rename('c.txt', 'missing/x'),
+			both_missing: () => dir.rename('missing', 'missing/x'),
+			through_a_file_from: () => dir.rename('c.txt/x', 'x'),
+			through_a_file_to: () => dir.rename('sub', 'c.txt/x'),
+			missing_through_a_file_to: () => dir.rename('missing', 'c.txt/x'),
+			a_file_slashed: () => dir.rename('c.txt/', 'x'),
+			a_file_over_a_directory: () => dir.mkdir('e').then(() => dir.rename('c.txt', 'e')),
+			a_directory_over_a_file: () => dir.rename('e', 'c.txt'),
+			a_directory_over_a_full_one: () => dir.rename('e', 'sub'),
+			a_directory_over_an_empty_one: () => dir.mkdir('e2').then(() => dir.rename('e', 'e2')),
+			a_directory_into_itself: () => dir.rename('sub', 'sub/inner'),
+			a_directory_slashed: () => dir.rename('e2/', 'e3'),
+			its_own_directory_from: () => dir.rename('', 'x'),
+			its_own_directory_to: () => dir.rename('c.txt', '.'),
+			its_own_directory_dotted: () => dir.rename('sub/..', 'x'),
+			above_from: () => dir.rename('../x', 'y'),
+			above_to: () => dir.rename('c.txt', '../y'),
+			absolute_to: () => dir.rename('c.txt', '/y'),
+			through_a_link_out_from: () => dir.rename('escape/x', 'y'),
+			through_a_link_out_to: () => dir.rename('c.txt', 'escape/x'),
+			the_same: () => dir.rename('c.txt', 'c.txt'),
+			// a symlink named with a trailing `/`: the kernel refuses it, naming its destination
+			// since `lstat` with the slash finds the directory it leads to
+			a_link_slashed: () => dir.rename('to_sub/', 'moved'),
+			through_a_link: () => dir.rename('to_sub/b.txt', 'b.txt'),
+			// each link moved, never its target
+			a_link_to_a_directory: () => dir.rename('to_sub', 'moved_to_sub'),
+			a_dangling_link: () => dir.rename('dangling', 'moved_dangling'),
+			a_link_out: () => dir.rename('escape', 'moved_escape'),
+			an_absolute_link: () => dir.rename('absolute', 'sub/moved_absolute')
+		});
+	},
+	// paths and options that are none for each op that writes, each a `TypeError`
+	write_arguments: async (ns) => {
+		const dir = await open_scratch(ns);
+		/** @type {Array<[string, unknown]>} */
+		const paths = [
+			['a number', 1],
+			['undefined', undefined],
+			['a boxed string', new String('a.txt')],
+			['a NUL', 'a\0.txt'],
+			['a lone surrogate', 'a\uD800.txt']
+		];
+		/** @type {Record<string, unknown>} */
+		const ended = {};
+		for (const [what, path] of paths) {
+			const given = /** @type {any} */ (path);
+			ended[what] = await outcomes({
+				write: () => dir.write(given, 'x'),
+				mkdir: () => dir.mkdir(given),
+				remove: () => dir.remove(given),
+				rename_from: () => dir.rename(given, 'x'),
+				rename_to: () => dir.rename('a.txt', given)
+			});
+		}
+		// a path checked before the data, and the data before the options
+		ended.order = await outcomes({
+			path_then_data: () => dir.write(/** @type {any} */ (1), /** @type {any} */ (1)),
+			data_then_mode: () =>
+				dir.write('x', /** @type {any} */ (1), /** @type {any} */ ({ mode: 'x' })),
+			from_then_to: () => dir.rename('../x', /** @type {any} */ (1)),
+			own_then_options: () => dir.remove('', { recursive: true })
+		});
+		// a mode that isn't a number is refused by its type, its conversions never run
+		let converted = false;
+		ended.mode_object = await outcome(() =>
+			dir.write('x', 'x', {
+				mode: /** @type {any} */ ({
+					valueOf() {
+						converted = true;
+						return 0o600;
+					}
+				})
+			})
+		);
+		ended.mode_converted = converted;
+		ended.getter = await outcome(() =>
+			dir.mkdir('sub', {
+				get exists_ok() {
+					return true;
+				}
+			})
+		);
+		ended.tree = await tree(dir);
 		return ended;
 	},
 	// what an op runs no code of: options given through a getter or a proxy

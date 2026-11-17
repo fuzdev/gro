@@ -1,10 +1,14 @@
 //! The calls each op makes, over owned arguments: a root's descriptor,
-//! shared by count, and the paths as Rust text, so none borrows V8's heap
-//! and any can move to another thread. A read's open does too, and the
-//! [`Reading`] it returns can move; the read into the buffer V8 allocated,
-//! which isn't `Send`, is made on the isolate's thread.
+//! shared by count, the paths as Rust text, a write's bytes copied out of
+//! V8's heap, and the roots a rename or a remove checks its ends against
+//! ([`Held`]), so none borrows V8's heap and any can move to another
+//! thread. A read's open does too, and the [`Reading`] it returns can move;
+//! the read into the buffer V8 allocated, which isn't `Send`, is made on
+//! the isolate's thread.
 
 use std::io;
+
+use super::roots::{Held, Refusal};
 
 /// What `stat` reported of an entry.
 pub struct Info {
@@ -28,13 +32,28 @@ pub struct Listed {
     pub kind: &'static str,
 }
 
-/// An op's failure: opening the handle's directory beneath its root, or
-/// resolving the target beneath that.
+/// An op's failure: opening the handle's directory beneath its root,
+/// resolving the target beneath that or acting on it, or the rule for a
+/// root's directory refusing it.
 pub enum OpError {
     /// The handle's directory's open failed.
     Handle(io::Error),
-    /// The target's resolution failed.
+    /// The target's resolution, or the call on it, failed.
     Target(io::Error),
+    /// The target is a root's directory or holds one ([`Held`]).
+    Refused(Refusal),
+}
+
+/// A rename's failure, by the end it's of.
+pub enum RenameError {
+    /// The handle's directory's open failed.
+    Handle(io::Error),
+    /// An end's parent's open, its real path's read, or the rename failed,
+    /// of the destination when `to` says, as the Node module names it.
+    At { to: bool, error: io::Error },
+    /// The rule for a root's directory refused it ([`Held::movable`]), of
+    /// the destination when `to` says.
+    Refused { to: bool, why: Refusal },
 }
 
 /// What [`open_in_root`] opens a path as.
@@ -57,14 +76,14 @@ pub use linux::*;
 mod linux {
     use std::ffi::OsString;
     use std::io;
-    use std::os::fd::{AsFd as _, OwnedFd};
+    use std::os::fd::{AsFd as _, BorrowedFd, OwnedFd};
     use std::path::Path;
     use std::sync::Arc;
 
     pub use gro_sys::beneath::Reading;
-    use gro_sys::beneath::{self, FileKind, FinalLink, Links, OpenAs};
+    use gro_sys::beneath::{self, FileKind, FinalLink, Last, Links, OpenAs};
 
-    use super::{Info, Listed, OpError, Opened};
+    use super::{Held, Info, Listed, OpError, Opened, RenameError};
 
     /// That the kernel serves `openat2`.
     pub fn check() -> io::Result<()> {
@@ -99,6 +118,11 @@ mod linux {
     /// for the root's own: its path is real, so a symlink on it, one
     /// swapped in since, is refused.
     fn handle_dir(root: &OwnedFd, beneath: &str) -> Result<Option<OwnedFd>, OpError> {
+        open_handle_dir(root, beneath).map_err(OpError::Handle)
+    }
+
+    /// [`handle_dir`], its failure the open's.
+    fn open_handle_dir(root: &OwnedFd, beneath: &str) -> io::Result<Option<OwnedFd>> {
         if beneath.is_empty() {
             return Ok(None);
         }
@@ -109,7 +133,6 @@ mod linux {
             Links::Refused,
         )
         .map(Some)
-        .map_err(OpError::Handle)
     }
 
     /// The entry at `rel` beneath the handle's directory, at `beneath`
@@ -236,6 +259,265 @@ mod linux {
             .map_err(OpError::Target)
     }
 
+    /// The permission bits a directory is made with, less the
+    /// process's umask, as Node's `mkdir` makes one.
+    const DIR_MODE: u32 = 0o777;
+
+    /// Writes `bytes` to the regular file at `rel` beneath the handle's
+    /// directory, at `beneath` the root, a final symlink followed
+    /// beneath: replacing what it held, or made with `mode` (less the
+    /// process's umask) when missing; with `create_new`, only made, any
+    /// entry there failing with `EEXIST`. Anything but a regular file is
+    /// refused before a byte is written ([`OpenAs::Write`]), though a
+    /// file's contents are emptied as it opens, before the write, as
+    /// Node's `writeFile` empties them.
+    pub fn write(
+        root: Arc<OwnedFd>,
+        beneath: String,
+        rel: String,
+        bytes: Vec<u8>,
+        create_new: bool,
+        mode: u32,
+    ) -> Result<(), OpError> {
+        use std::io::Write as _;
+
+        let held = handle_dir(&root, &beneath)?;
+        let dir = held
+            .as_ref()
+            .map_or_else(|| root.as_fd(), |held| held.as_fd());
+        let how = if create_new {
+            OpenAs::CreateNew { mode }
+        } else {
+            OpenAs::Write { mode }
+        };
+        let fd =
+            beneath::open(dir, Path::new(&rel), how, Links::Beneath).map_err(OpError::Target)?;
+        std::fs::File::from(fd)
+            .write_all(&bytes)
+            .map_err(OpError::Target)
+    }
+
+    /// Makes the directory at `rel` beneath the handle's directory, at
+    /// `beneath` the root, `rel` as the lexical path spells it (`.` for the
+    /// handle's own, which is there, and a trailing `/` kept): with
+    /// `recursive`, each directory missing on the way too. An entry already
+    /// there is judged as through the Node module: a final symlink is
+    /// followed beneath the handle, as the Node module's confinement follows
+    /// it, so a `stat` of the entry that fails for anything but nothing there
+    /// is the failure (one that leaves the handle as leaving it, a loop, a
+    /// target through a file); with `recursive`, as Node's recursive `mkdir`
+    /// judges it, a directory passes, and a `stat` that finds nothing is the
+    /// failure too (`ENOENT` for a dangling symlink); with `exists_ok`, as
+    /// the Node module's check judges it, a `stat` of the path as given, its
+    /// trailing `/` kept, passes on a directory, and is the failure when it
+    /// fails for anything but nothing there (`ENOTDIR` for a file named with
+    /// a `/`); anything else fails with `EEXIST`.
+    pub fn mkdir(
+        root: Arc<OwnedFd>,
+        beneath: String,
+        rel: String,
+        recursive: bool,
+        exists_ok: bool,
+    ) -> Result<(), OpError> {
+        let held = handle_dir(&root, &beneath)?;
+        let dir = held
+            .as_ref()
+            .map_or_else(|| root.as_fd(), |held| held.as_fd());
+        let name = rel.trim_end_matches('/');
+        let made = if name == "." {
+            Err(io::Error::from_raw_os_error(libc::EEXIST))
+        } else if recursive {
+            mkdir_all(dir, name)
+        } else {
+            Last::open(dir, Path::new(name)).and_then(|last| last.mkdir(DIR_MODE))
+        };
+        let error = match made {
+            Err(error) if error.raw_os_error() == Some(libc::EEXIST) => error,
+            made => return made.map_err(OpError::Target),
+        };
+        match beneath::stat(dir, Path::new(name), FinalLink::Follow) {
+            Err(found) if recursive || found.kind() != io::ErrorKind::NotFound => {
+                return Err(OpError::Target(found));
+            }
+            Ok(stat) if recursive && stat.kind == FileKind::Directory => return Ok(()),
+            _ => {}
+        }
+        if exists_ok {
+            match beneath::stat(dir, Path::new(&rel), FinalLink::Follow) {
+                Ok(stat) if stat.kind == FileKind::Directory => return Ok(()),
+                Err(found) if found.kind() != io::ErrorKind::NotFound => {
+                    return Err(OpError::Target(found));
+                }
+                _ => {}
+            }
+        }
+        Err(OpError::Target(error))
+    }
+
+    /// Makes the directory at `rel`, names joined by `/`, beneath `dir`,
+    /// and each directory missing on the way, as Node's recursive
+    /// `mkdir` does: the whole path first, then, while a parent is
+    /// missing, the path a name shorter, until one is made or found,
+    /// then each after it. A directory found on the way, a final symlink
+    /// followed beneath, is passed; anything else there is `ENOTDIR`,
+    /// and at the end, `EEXIST`.
+    fn mkdir_all(dir: BorrowedFd<'_>, rel: &str) -> io::Result<()> {
+        let names: Vec<&str> = rel.split('/').collect();
+        let make = |count: usize| {
+            let path = names[..count].join("/");
+            Last::open(dir, Path::new(&path)).and_then(|last| last.mkdir(DIR_MODE))
+        };
+        // what's there at a prefix the path runs through
+        let through = |count: usize, error: io::Error| {
+            let path = names[..count].join("/");
+            match beneath::stat(dir, Path::new(&path), FinalLink::Follow) {
+                Ok(stat) if stat.kind == FileKind::Directory => Ok(()),
+                Err(found) if beneath::is_escape(&found) => Err(found),
+                _ if count == names.len() => Err(error),
+                _ => Err(io::Error::from_raw_os_error(libc::ENOTDIR)),
+            }
+        };
+        let mut made = names.len();
+        loop {
+            match make(made) {
+                Ok(()) => break,
+                Err(error) if error.raw_os_error() == Some(libc::ENOENT) && made > 1 => {
+                    made -= 1;
+                }
+                Err(error) if error.raw_os_error() == Some(libc::EEXIST) && made < names.len() => {
+                    through(made, error)?;
+                    break;
+                }
+                Err(error) => return Err(error),
+            }
+        }
+        for count in made + 1..=names.len() {
+            match make(count) {
+                Err(error) if error.raw_os_error() == Some(libc::EEXIST) => {
+                    through(count, error)?;
+                }
+                made => made?,
+            }
+        }
+        Ok(())
+    }
+
+    /// The real path of `last`'s entry, as text: its parent's real path,
+    /// the handle's directory's, `handle_path`, for one in it, else read
+    /// beneath the root at `root_path` ([`beneath::path_beneath`]), joined
+    /// with its name, slashes after it dropped.
+    fn real_end(
+        root: &OwnedFd,
+        root_path: &str,
+        handle_path: &str,
+        last: &Last<'_>,
+    ) -> io::Result<String> {
+        let parent = match last.parent() {
+            None => handle_path.to_owned(),
+            Some(parent) => {
+                let found = beneath::path_beneath(root.as_fd(), Path::new(root_path), parent)?;
+                let beneath =
+                    super::super::beneath_of(root_path, found).map_err(io::Error::other)?;
+                super::super::join(root_path, &beneath)
+            }
+        };
+        let name = last.name().to_string_lossy();
+        Ok(super::super::join(&parent, name.trim_end_matches('/')))
+    }
+
+    /// Removes the entry at `rel` beneath the handle's directory, at
+    /// `beneath` the root, whose real path is `root_path`, the handle's
+    /// directory's `handle_path`: a final symlink removed, never its
+    /// target; a directory when it's empty, or with `recursive`, with
+    /// everything in it ([`Last::remove_tree`]). When `held` names roots
+    /// beneath the handle's directory, the entry's real path is read
+    /// through the directory the remove acts in, and one that is or
+    /// holds a root's directory is refused, before anything is removed.
+    pub fn remove(
+        root: Arc<OwnedFd>,
+        root_path: String,
+        beneath: String,
+        handle_path: String,
+        rel: String,
+        recursive: bool,
+        held: Option<Held>,
+    ) -> Result<(), OpError> {
+        let opened = handle_dir(&root, &beneath)?;
+        let dir = opened
+            .as_ref()
+            .map_or_else(|| root.as_fd(), |opened| opened.as_fd());
+        let last = Last::open(dir, Path::new(&rel)).map_err(OpError::Target)?;
+        if let Some(held) = held {
+            let real = real_end(&root, &root_path, &handle_path, &last).map_err(OpError::Target)?;
+            held.removable(&real).map_err(OpError::Refused)?;
+        }
+        let removed = if recursive {
+            last.remove_tree()
+        } else {
+            match last.remove_file() {
+                // Linux's `unlink` refuses a directory with `EISDIR`
+                Err(error) if error.raw_os_error() == Some(libc::EISDIR) => last.remove_dir(),
+                removed => removed,
+            }
+        };
+        removed.map_err(OpError::Target)
+    }
+
+    /// Renames the entry at `from` beneath the handle's directory, at
+    /// `beneath` the root, whose real path is `root_path`, the handle's
+    /// directory's `handle_path`, to `to` beneath it, replacing what's
+    /// there as the kernel does; a symlink is moved, never its target.
+    /// When `held` names roots beneath the handle's directory, each
+    /// end's real path is read through the directory the rename acts in,
+    /// and [`Held::movable`] decides, before the rename.
+    ///
+    /// A failure names an end as the Node module's does: a missing
+    /// entry or a non-directory on the way, which could be either end's,
+    /// the destination when the source is there (`lstat`, a slash after
+    /// it kept), else the source; any other failure of the destination's
+    /// parent's open, the destination, and any other, the source.
+    pub fn rename(
+        root: Arc<OwnedFd>,
+        root_path: String,
+        beneath: String,
+        handle_path: String,
+        from: String,
+        to: String,
+        held: Option<Held>,
+    ) -> Result<(), RenameError> {
+        let opened = open_handle_dir(&root, &beneath).map_err(RenameError::Handle)?;
+        let dir = opened
+            .as_ref()
+            .map_or_else(|| root.as_fd(), |opened| opened.as_fd());
+        let at = |to: bool| move |error: io::Error| RenameError::At { to, error };
+        let source = Last::open(dir, Path::new(&from)).map_err(at(false))?;
+        // which end a missing entry or a non-directory is of
+        let named = |error: io::Error| {
+            let either = matches!(error.raw_os_error(), Some(libc::ENOENT | libc::ENOTDIR));
+            RenameError::At {
+                to: either && source.stat().is_ok(),
+                error,
+            }
+        };
+        // a missing parent, or one that's no directory, could be either
+        // end's, as the Node module confines the destination's no further;
+        // anything else is the destination's
+        let destination = Last::open(dir, Path::new(&to)).map_err(|error| {
+            if matches!(error.raw_os_error(), Some(libc::ENOENT | libc::ENOTDIR)) {
+                named(error)
+            } else {
+                RenameError::At { to: true, error }
+            }
+        })?;
+        if let Some(held) = held {
+            let from = real_end(&root, &root_path, &handle_path, &source).map_err(at(false))?;
+            let to = real_end(&root, &root_path, &handle_path, &destination).map_err(at(true))?;
+            held.movable(&from, &to)
+                .map_err(|(to, why)| RenameError::Refused { to, why })?;
+        }
+        source.rename_to(&destination).map_err(named)
+    }
+
     /// The real path beneath `root`, whose real path is `root_path`,
     /// of what `rel` names beneath it, opened as `opened` says: as the
     /// kernel resolves a path, from `root`, when `whole` says the root
@@ -271,7 +553,7 @@ mod other {
     use std::path::Path;
     use std::sync::Arc;
 
-    use super::{Info, Listed, OpError, Opened};
+    use super::{Held, Info, Listed, OpError, Opened, RenameError};
 
     fn unsupported() -> io::Error {
         io::Error::new(io::ErrorKind::Unsupported, "fs on fgro takes Linux")
@@ -369,5 +651,50 @@ mod other {
         _whole: bool,
     ) -> io::Result<Option<OsString>> {
         Err(unsupported())
+    }
+
+    pub fn write(
+        _root: Arc<OwnedFd>,
+        _beneath: String,
+        _rel: String,
+        _bytes: Vec<u8>,
+        _create_new: bool,
+        _mode: u32,
+    ) -> Result<(), OpError> {
+        Err(OpError::Target(unsupported()))
+    }
+
+    pub fn mkdir(
+        _root: Arc<OwnedFd>,
+        _beneath: String,
+        _rel: String,
+        _recursive: bool,
+        _exists_ok: bool,
+    ) -> Result<(), OpError> {
+        Err(OpError::Target(unsupported()))
+    }
+
+    pub fn remove(
+        _root: Arc<OwnedFd>,
+        _root_path: String,
+        _beneath: String,
+        _handle_path: String,
+        _rel: String,
+        _recursive: bool,
+        _held: Option<Held>,
+    ) -> Result<(), OpError> {
+        Err(OpError::Target(unsupported()))
+    }
+
+    pub fn rename(
+        _root: Arc<OwnedFd>,
+        _root_path: String,
+        _beneath: String,
+        _handle_path: String,
+        _from: String,
+        _to: String,
+        _held: Option<Held>,
+    ) -> Result<(), RenameError> {
+        Err(RenameError::Handle(unsupported()))
     }
 }
