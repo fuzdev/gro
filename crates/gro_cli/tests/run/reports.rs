@@ -75,14 +75,51 @@ fn a_cause_s_message_breaks_before_a_frame() {
     let run = run("cause_strip.js");
     assert_eq!(run.code, 1);
     let url = fixtures_url();
-    assert!(
-        run.stderr.contains(&format!(
-            "\nCaused by: TypeError: cannot strip an enum. Fix: use a union of literal types, \
+    assert_eq!(
+        run.stderr,
+        format!(
+            "error: Uncaught (in promise) Error: wrapped\n    at {url}/cause_strip.js:5:8\n\
+             Caused by: TypeError: cannot strip an enum. Fix: use a union of literal types, \
              or an object with 'as const' (TypeScript's erasableSyntaxOnly option reports \
-             these)\n    at {url}/enum.ts:2:1\n"
-        )),
-        "{}",
-        run.stderr
+             these)\n    at {url}/enum.ts:2:1\n    at async {url}/cause_strip.js:3:2\n"
+        )
+    );
+}
+
+/// An uncaught `import()` of a module that fails its strip prints the
+/// position its message names once, then the `import()`'s frame: the
+/// stack's header, which repeats the message, gives no frame.
+#[test]
+fn an_uncaught_import_of_a_module_failing_its_strip_names_its_position_once() {
+    let run = run("import_strip_uncaught.js");
+    assert_eq!(run.code, 1);
+    let url = fixtures_url();
+    assert_eq!(
+        run.stderr,
+        format!(
+            "error: Uncaught (in promise) TypeError: cannot strip an enum. Fix: use a union of \
+             literal types, or an object with 'as const' (TypeScript's erasableSyntaxOnly option \
+             reports these)\n    at {url}/enum.ts:2:1\n    \
+             at async {url}/import_strip_uncaught.js:2:1\n"
+        )
+    );
+}
+
+/// A frame is one line up to the next, so a module whose file name holds
+/// a line break prints its frame whole, the break escaped, naming its
+/// line and column.
+#[test]
+fn a_frame_whose_path_holds_a_line_break_prints_whole() {
+    let name = "odd\nhint: x.js";
+    let fixtures = temp_fixtures("frame_line_break", &[(name, "throw new Error('odd');\n")]);
+    let run = run_in(&fixtures, name);
+    assert_eq!(run.code, 1, "{}", run.stderr);
+    assert_eq!(
+        run.stderr,
+        format!(
+            "error: Uncaught (in promise) Error: odd\n    at file://{}/odd\\u{{a}}hint: x.js:1:7\n",
+            fixtures.0.display()
+        )
     );
 }
 

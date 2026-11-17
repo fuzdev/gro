@@ -202,7 +202,9 @@ then each `cause` as `Caused by:` with its frames.
 Each line is escaped as a usage error's argument is ([above](#usage)), line breaks included,
 and a message breaks into lines only before a frame's `at` (a module that failed to strip names its position so),
 so the program's text, a message, a thrown value, or a stack it set, starts no line but a frame's.
-A frame's path prints percent-decoded, so a directory with a space reads as it does on disk.
+A frame's path prints percent-decoded, so a directory with a space reads as it does on disk,
+and a frame is one line up to the next, so a line break in a module's file name is escaped in it,
+unless what follows it reads as a frame's start (four spaces and `at `), as in a stack V8 formats.
 fgro applies no source maps, as Node doesn't by default, so a position always names the code that ran,
 in a stack, a report, and a failed import's position alike (its vendored `deno_core` is patched to apply none).
 TypeScript needs none, since the type strip blanks types to whitespace,

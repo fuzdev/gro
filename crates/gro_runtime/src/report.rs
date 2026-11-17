@@ -15,9 +15,13 @@ use crate::RunError;
 /// next, a `cause` and the frames before it, and, inside a message, before
 /// a frame's `at` (a module that failed to strip names its position so),
 /// so the only line a program's text can start is a frame's, as its stack
-/// can. An embedder that shows the report to a person escapes each line
-/// whole, its breaks included, and breaks only between lines. Displayed,
-/// the lines join with `\n`, unescaped.
+/// can. A frame is a line up to the next frame's, so a break in its own
+/// text (a module's file name holding one) stays inside it, unless what
+/// follows it reads as a frame's start (four spaces and `at `), as in a
+/// stack V8 formats. An embedder
+/// that shows the report to a person escapes each line whole, its breaks
+/// included, and breaks only between lines. Displayed, the lines join with
+/// `\n`, unescaped.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Report {
     lines: Vec<String>,
@@ -126,21 +130,17 @@ fn describe(error: &JsError) -> String {
     }
 }
 
-/// Appends the error's frames: V8's `at` lines from its stack, or when it has
-/// none (a syntax error's stack is its message alone), the location V8
-/// reported for it.
+/// Appends the error's frames: those of its stack ([`push_stack`]), or when
+/// it has none (a syntax error's stack is its message alone), the location
+/// V8 reported for it.
 fn push_frames(report: &mut Report, error: &JsError) {
-    let mut pushed = false;
-    if let Some(stack) = &error.stack {
-        // the stack's first lines repeat the message
-        for frame in stack
-            .lines()
-            .filter(|line| line.trim_start().starts_with("at "))
-        {
-            report.push(frame);
-            pushed = true;
-        }
-    }
+    let pushed = error.stack.as_deref().is_some_and(|stack| {
+        push_stack(
+            report,
+            stack,
+            &header(error.name.as_deref(), error.message.as_deref()),
+        )
+    });
     if !pushed
         && let Some(location) = error
             .frames
@@ -151,9 +151,62 @@ fn push_frames(report: &mut Report, error: &JsError) {
     }
 }
 
+/// What starts each frame of a stack V8 formatted, after the line before.
+const FRAME_BREAK: &str = "\n    at ";
+
+/// Appends the frames of `stack`, an error's, whose header V8 would format
+/// as `header`, returning whether it appended any.
+///
+/// A stack V8 formatted (`stack.rs`) is its header, then each frame after
+/// [`FRAME_BREAK`]. The header repeats the message, which the report has
+/// shown, a frame it names (a strip's position) included, so it's skipped;
+/// and each frame runs to the next, so a line break in its text stays in
+/// its line. A stack that doesn't start with the header (a program's own
+/// `.stack` or `Error.prepareStackTrace` text can start otherwise) gives
+/// its lines starting with `at`, and none of the rest.
+fn push_stack(report: &mut Report, stack: &str, header: &str) -> bool {
+    let mut pushed = false;
+    match stack
+        .strip_prefix(header)
+        .filter(|rest| rest.is_empty() || rest.starts_with('\n'))
+    {
+        Some(frames) => {
+            for frame in frames.split(FRAME_BREAK).skip(1) {
+                report.push(format!("    at {frame}"));
+                pushed = true;
+            }
+        }
+        None => {
+            for frame in stack
+                .lines()
+                .filter(|line| line.trim_start().starts_with("at "))
+            {
+                report.push(frame);
+                pushed = true;
+            }
+        }
+    }
+    pushed
+}
+
+/// The header V8 formats of an error's stack, by its `name` and `message`,
+/// as `stack.rs` makes it: `name: message`, `name` or `message` alone when
+/// the other is empty, and `Error` for a missing `name`.
+fn header(name: Option<&str>, message: Option<&str>) -> String {
+    let name = name.unwrap_or("Error");
+    let message = message.unwrap_or_default();
+    if name.is_empty() {
+        message.to_owned()
+    } else if message.is_empty() {
+        name.to_owned()
+    } else {
+        format!("{name}: {message}")
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::Report;
+    use super::{Report, header, push_stack};
 
     /// A message breaks into lines before each frame's `at`, spaces before
     /// it or none, and its other line breaks stay inside its line, a
@@ -178,5 +231,60 @@ mod tests {
         assert_eq!(report.lines(), ["m", "    at f", "    at g"]);
         assert_eq!(report.to_string(), "m\n    at f\n    at g");
         assert_eq!(String::from(report), "m\n    at f\n    at g");
+    }
+
+    /// A stack that starts with its header gives each frame up to the
+    /// next, a line break in one kept in its line, and skips the header,
+    /// frames its message names included; any other stack gives its lines
+    /// starting with `at`, and no other text of it.
+    #[test]
+    fn a_stack_gives_its_frames_after_its_header() {
+        let frames = |stack: &str, header: &str| {
+            let mut report = Report { lines: Vec::new() };
+            let pushed = push_stack(&mut report, stack, header);
+            assert_eq!(pushed, !report.lines.is_empty(), "{stack}");
+            report.lines
+        };
+        let header = "TypeError: m\n    at file:///a.ts:1:2";
+        assert_eq!(
+            frames(&format!("{header}\n    at async file:///b.js:1:1"), header),
+            ["    at async file:///b.js:1:1"]
+        );
+        assert!(frames(header, header).is_empty());
+        assert_eq!(
+            frames(
+                "Error: m\n    at file:///odd\nhint: x.js:1:7\n    at f (file:///b.js:2:3)",
+                "Error: m"
+            ),
+            [
+                "    at file:///odd\nhint: x.js:1:7",
+                "    at f (file:///b.js:2:3)"
+            ]
+        );
+        assert_eq!(
+            frames("Error: m\nnot a frame\n    at x", "Error: m"),
+            ["    at x"]
+        );
+        assert_eq!(
+            frames("Error: mm\n    at x\nnot a frame", "Error: m"),
+            ["    at x"]
+        );
+        assert_eq!(
+            frames("set\n    at x\nhint: not a frame\n  at y", "Error: m"),
+            ["    at x", "  at y"]
+        );
+        assert!(frames("Error: other", "Error: m").is_empty());
+    }
+
+    /// A header is `name: message`, either alone when the other is empty,
+    /// `Error` for a missing name, and nothing when both are empty.
+    #[test]
+    fn a_header_is_formatted_as_v8_s_stack_starts() {
+        assert_eq!(header(Some("TypeError"), Some("m")), "TypeError: m");
+        assert_eq!(header(None, Some("m")), "Error: m");
+        assert_eq!(header(None, None), "Error");
+        assert_eq!(header(Some("E"), Some("")), "E");
+        assert_eq!(header(Some(""), Some("m")), "m");
+        assert_eq!(header(Some(""), None), "");
     }
 }
