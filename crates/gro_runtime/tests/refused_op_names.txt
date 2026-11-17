@@ -7,6 +7,7 @@ op_eval_context
 op_compile_function
 op_import_sync
 op_import_sync_with_source
+op_print
 op_blob_create_part
 op_blob_slice_part
 op_blob_read_part

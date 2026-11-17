@@ -64,6 +64,69 @@ fn event_loop_drains_timers() {
     );
 }
 
+/// A console write whose reader has left (`EPIPE`, a run piped to `head`)
+/// is dropped, and the run goes on to its own exit code, writing to the
+/// other stream, stdout's or stderr's; a write that fails otherwise, to a
+/// full disk, throws an `Error` naming the stream.
+#[test]
+fn a_console_write_is_dropped_when_its_reader_left_and_throws_otherwise() {
+    let fixtures = temp_fixtures(
+        "closed_stream",
+        &[(
+            "main.js",
+            "import {set_exit_code} from '@fuzdev/gro/exit.ts';\n\
+             for (let i = 0; i < 3; i++) console.log('out', i);\n\
+             console.error('err');\nconsole.log('out', 3);\nconsole.error('err', 2);\n\
+             set_exit_code(3);\n",
+        )],
+    );
+    let closed = |stderr: bool| {
+        let (reader, writer) = std::io::pipe().unwrap();
+        drop(reader);
+        let mut command = fgro_command(&["run", "main.js"]);
+        command.current_dir(&fixtures.0).stdin(Stdio::null());
+        if stderr {
+            command.stdout(Stdio::piped()).stderr(writer);
+        } else {
+            command.stdout(writer).stderr(Stdio::piped());
+        }
+        let output = command.output().unwrap();
+        let other = if stderr { output.stdout } else { output.stderr };
+        (output.status.code(), String::from_utf8(other).unwrap())
+    };
+    assert_eq!(closed(false), (Some(3), "err\nerr 2\n".to_owned()));
+    assert_eq!(
+        closed(true),
+        (Some(3), "out 0\nout 1\nout 2\nout 3\n".to_owned())
+    );
+
+    let mut command = fgro_command(&["run", "main.js"]);
+    command
+        .current_dir(&fixtures.0)
+        .stdin(Stdio::null())
+        .stdout(
+            std::fs::OpenOptions::new()
+                .write(true)
+                .open("/dev/full")
+                .unwrap(),
+        );
+    let output = command.output().unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    let dir = format!("file://{}", fixtures.0.display());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(
+        stderr.starts_with(
+            "error: Uncaught (in promise) Error: failed to write to stdout: No space left on \
+             device (os error 28)\n    at "
+        ),
+        "{stderr}"
+    );
+    assert!(
+        stderr.ends_with(&format!("\n    at {dir}/main.js:2:37\n")),
+        "{stderr}"
+    );
+}
+
 /// What a run printed is whole when stdout is a file, as when it's a
 /// pipe: the process exits without tearing its runtime down, and each of
 /// the console's writes was made when it was called, none left for the

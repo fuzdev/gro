@@ -237,7 +237,7 @@ fn a_priced_build_turns_off_what_it_names() {
 fn the_op_refusals_stand_behind_deny() {
     const REFUSED: &str = "a host operation eval refuses was called: eval has no timers, no \
                            clock or machine reads, no blobs, no code generation from strings, \
-                           and no import past its loader";
+                           no write to stdout, and no import past its loader";
     assert_eq!(
         value(&fgro(&["eval", "refused_ops.js"], Some("deny"))),
         serde_json::json!({ "now": REFUSED, "blob": REFUSED, "timer": REFUSED })

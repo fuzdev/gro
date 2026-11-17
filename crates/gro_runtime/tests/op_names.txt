@@ -172,6 +172,7 @@ op_console_get_string_width
 op_console_strip_vt
 op_gro_color
 op_gro_console_stderr
+op_gro_print
 op_gro_deny
 op_gro_refused
 op_gro_namespace

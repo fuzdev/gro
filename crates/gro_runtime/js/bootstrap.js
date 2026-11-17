@@ -15,7 +15,7 @@
 // This file must stay 7-bit ASCII: the build fails otherwise.
 
 import { core } from 'ext:core/mod.js';
-import { op_gro_color, op_gro_console_stderr, op_gro_deny } from 'ext:core/ops';
+import { op_gro_color, op_gro_console_stderr, op_gro_deny, op_gro_print } from 'ext:core/ops';
 
 const load = core.loadExtScript;
 
@@ -51,9 +51,10 @@ console_ns.setNoColorFns(
 /** @type {Record<string, unknown>} */
 const globals = {
 	console: new console_ns.Console((/** @type {string} */ message, /** @type {number} */ level) =>
-		// `warn`, `error`, and `trace` (levels 2 and up) go to stderr, and every
-		// level does when the run says so
-		core.print(message, all_to_stderr || level > 1)
+		// `warn`, `error`, and `trace` (levels 2 and up) go to stderr, and the
+		// host sends every level there when the run says so; a reader that has
+		// left loses the message, and any other failure throws
+		op_gro_print(message, level > 1)
 	),
 
 	URL: url_ns.URL,

@@ -267,6 +267,8 @@ A module whose file was replaced between resolving and loading isn't loaded
 the entry's included, which exits 1.
 
 `console.log` and `console.info` write to stdout, `console.warn` and `console.error` to stderr.
+A write whose reader has left, a run piped to `head`, is dropped, and the run goes on to its own exit code, so a run that never ends on its own runs until signalled;
+any other failed write, like one to a full disk, throws an `Error` naming the stream, where Node's console drops it.
 Whether a stream is colored is decided once per process, in order:
 
 - `FORCE_COLOR` set, even empty: colored for `''`, `1`, `2`, `3`, or `true`, as in Node, and uncolored for any other value

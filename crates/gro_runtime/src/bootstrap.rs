@@ -105,8 +105,11 @@
 //! The console's choices are the run's, never the snapshot's: which stream
 //! each level writes to and whether each stream is colored come from the
 //! run's [`ConsoleOptions`], which the embedder puts in the runtime's
-//! `OpState` and the bootstrap's start reads once. This module reads no
-//! environment and asks no stream whether it's a terminal.
+//! `OpState`: the bootstrap's start reads the colors once, and the console
+//! writes through [`op_gro_print`], which reads the routing at each write
+//! and drops a message whose reader has left, so a run piped to `head`
+//! goes on to its own exit code. This module reads no environment and asks
+//! no stream whether it's a terminal.
 //!
 //! So does eval's [`Determinism`]: denied, the start installs
 //! `determinism: deny` (the bootstrap's `deny`, which refuses the clock, randomness, and the
@@ -118,9 +121,11 @@
 //! bootstrap's refusals still finds none of them.
 
 use std::borrow::Cow;
+use std::io::{self, Write};
 use std::sync::OnceLock;
 
 use deno_core::error::JsError;
+use deno_core::error::ModuleLoaderError as JsErrorBox;
 use deno_core::{
     Extension, ExtensionFileSource, JsRuntime, OpDecl, OpState, ascii_str, ascii_str_include, op2,
     v8,
@@ -218,6 +223,68 @@ fn op_gro_console_stderr(state: &OpState) -> bool {
     state.borrow::<ConsoleOptions>().routing == ConsoleRouting::Stderr
 }
 
+/// Writes a console message to stderr when `stderr` is true (`warn`,
+/// `error`, and `trace`) or the run's [`ConsoleOptions`] send every level
+/// there, as eval's do, and to stdout otherwise: the host decides, so no
+/// script's argument puts a message on eval's stdout.
+///
+/// A reader that has left (`EPIPE`, a run piped to `head`) loses the
+/// message and the run goes on, to end with its own exit code, as Gro's
+/// own writes to a closed stream do; any other failure, a full disk among
+/// them, throws an `Error` naming the stream and the system's error.
+#[op2(fast)]
+fn op_gro_print(state: &OpState, #[string] message: &str, stderr: bool) -> Result<(), JsErrorBox> {
+    let stderr = stderr || state.borrow::<ConsoleOptions>().routing == ConsoleRouting::Stderr;
+    let written = if stderr {
+        write_message(&mut io::stderr().lock(), message.as_bytes())
+    } else {
+        write_message(&mut io::stdout().lock(), message.as_bytes())
+    };
+    match written {
+        Err(error) if error.kind() != io::ErrorKind::BrokenPipe => {
+            let stream = if stderr { "stderr" } else { "stdout" };
+            Err(JsErrorBox::generic(format!(
+                "failed to write to {stream}: {error}"
+            )))
+        }
+        _ => Ok(()),
+    }
+}
+
+/// Writes `message` whole and flushes it, retrying a write or flush that
+/// would block (a process sharing the descriptor can make it non-blocking,
+/// as Node does its own stdio) or that a signal interrupted.
+fn write_message(out: &mut impl Write, mut message: &[u8]) -> io::Result<()> {
+    while !message.is_empty() {
+        match out.write(message) {
+            Ok(0) => return Err(io::ErrorKind::WriteZero.into()),
+            Ok(written) => message = message.get(written..).unwrap_or_default(),
+            Err(error) if retried(&error) => {}
+            Err(error) => return Err(error),
+        }
+    }
+    loop {
+        match out.flush() {
+            Err(error) if retried(&error) => {}
+            flushed => return flushed,
+        }
+    }
+}
+
+/// Whether a write or flush that failed with `error` is tried again: one
+/// that would block, after yielding the thread, or that a signal
+/// interrupted.
+fn retried(error: &io::Error) -> bool {
+    match error.kind() {
+        io::ErrorKind::WouldBlock => {
+            std::thread::yield_now();
+            true
+        }
+        io::ErrorKind::Interrupted => true,
+        _ => false,
+    }
+}
+
 /// Whether the run may read the clock, randomness, and the machine's facts,
 /// and set timers: put in the runtime's `OpState` before the bootstrap's
 /// start reads it.
@@ -236,15 +303,16 @@ fn op_gro_deny(state: &OpState) -> bool {
     *state.borrow::<Determinism>() == Determinism::Denied
 }
 
-/// The ops of gro's extension that make no check: the console's and
-/// eval's, which read only the run's own settings or refuse. Every other op
-/// the extension registers, whatever its name, is a host op, declared
-/// through the choke point (`crate::host`); a test fails on one that is
-/// neither.
+/// The ops of gro's extension that make no check: the console's, which
+/// read only the run's own settings or write its output, and eval's, which
+/// refuse. Every other op the extension registers, whatever its name, is a
+/// host op, declared through the choke point (`crate::host`); a test fails
+/// on one that is neither.
 #[cfg(test)]
-pub const UNGATED_OPS: [&str; 4] = [
+pub const UNGATED_OPS: [&str; 5] = [
     "op_gro_color",
     "op_gro_console_stderr",
+    "op_gro_print",
     "op_gro_deny",
     "op_gro_refused",
 ];
@@ -252,7 +320,7 @@ pub const UNGATED_OPS: [&str; 4] = [
 /// What [`op_gro_refused`] throws.
 pub const REFUSED: &str = "a host operation eval refuses was called: eval has no timers, no \
                           clock or machine reads, no blobs, no code generation from strings, \
-                          and no import past its loader";
+                          no write to stdout, and no import past its loader";
 
 /// The implementation [`refuse_ops`] puts in place of each op in
 /// [`REFUSED_OPS`]: it throws an `Error` saying so, whatever it's passed.
@@ -270,14 +338,15 @@ fn op_gro_refused(scope: &v8::PinScope<'_, '_>) {
 /// the timers (`setTimeout`'s and `AbortSignal.timeout`'s path), the
 /// clock and memory reads, the ops that compile code past the
 /// code-generation flag (`op_eval_context`, `op_compile_function`) or load
-/// a module past the loader (`op_import_sync*`), and the blob ops, which
-/// only `Blob`, `File`, and the object URLs call (eval deletes all of them;
-/// a blob part's id is random). None is reachable from user code, which
+/// a module past the loader (`op_import_sync*`), `op_print`, which writes
+/// past the console to stdout, the envelope's channel, and the blob ops,
+/// which only `Blob`, `File`, and the object URLs call (eval deletes all of
+/// them; a blob part's id is random). None is reachable from user code, which
 /// sees no op; this is defence in depth. `op_time_origin` stays: the start
 /// calls it, before any user code. A snapshot is made only of a runtime
 /// where each one's function is at an address the snapshot can tell from
 /// those of the ops eval keeps (`crate::snapshot`).
-pub const REFUSED_OPS: [&str; 17] = [
+pub const REFUSED_OPS: [&str; 18] = [
     "op_timer_schedule",
     "op_timer_track",
     "op_timer_now",
@@ -287,6 +356,7 @@ pub const REFUSED_OPS: [&str; 17] = [
     "op_compile_function",
     "op_import_sync",
     "op_import_sync_with_source",
+    "op_print",
     "op_blob_create_part",
     "op_blob_slice_part",
     "op_blob_read_part",
@@ -388,6 +458,7 @@ deno_core::extension!(
     ops = [
         op_gro_color,
         op_gro_console_stderr,
+        op_gro_print,
         op_gro_deny,
         op_gro_refused
     ],
@@ -636,5 +707,93 @@ mod tests {
                 .collect();
             assert_eq!(classes, WEB_CLASSES);
         }
+    }
+
+    /// A writer that answers each `write` with the next of its `writes`, an
+    /// `Ok` taking up to that many bytes, and each `flush` with the next of
+    /// its `flushes`, and records what it took and whether a flush succeeded.
+    struct Scripted {
+        writes: Vec<io::Result<usize>>,
+        flushes: Vec<io::Result<()>>,
+        taken: Vec<u8>,
+        flushed: bool,
+    }
+
+    impl Write for Scripted {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            let written = self.writes.remove(0)?.min(buf.len());
+            self.taken.extend_from_slice(&buf[..written]);
+            Ok(written)
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            self.flushes.remove(0)?;
+            self.flushed = true;
+            Ok(())
+        }
+    }
+
+    /// A message is written whole and flushed, across short writes, and a
+    /// write or a flush that would block or that a signal interrupted; a
+    /// write of nothing, or any other failure of a write or the flush, ends
+    /// it with that error, unflushed.
+    #[test]
+    fn a_console_message_is_written_whole_or_fails() {
+        let write = |writes: Vec<io::Result<usize>>, flushes: Vec<io::Result<()>>| {
+            let mut out = Scripted {
+                writes,
+                flushes,
+                taken: Vec::new(),
+                flushed: false,
+            };
+            let written = write_message(&mut out, b"abcdef").map_err(|error| error.kind());
+            (written, String::from_utf8(out.taken).unwrap(), out.flushed)
+        };
+        let whole = (Ok(()), "abcdef".to_owned(), true);
+        assert_eq!(
+            write(
+                vec![
+                    Ok(2),
+                    Err(io::ErrorKind::WouldBlock.into()),
+                    Err(io::ErrorKind::Interrupted.into()),
+                    Ok(9),
+                ],
+                vec![Ok(())]
+            ),
+            whole
+        );
+        assert_eq!(
+            write(
+                vec![Ok(6)],
+                vec![Err(io::ErrorKind::WouldBlock.into()), Ok(())]
+            ),
+            whole
+        );
+        assert_eq!(
+            write(
+                vec![Ok(6)],
+                vec![Err(io::ErrorKind::Interrupted.into()), Ok(())]
+            ),
+            whole
+        );
+        assert_eq!(
+            write(vec![Ok(6)], vec![Err(io::ErrorKind::StorageFull.into())]),
+            (Err(io::ErrorKind::StorageFull), "abcdef".to_owned(), false)
+        );
+        assert_eq!(
+            write(
+                vec![Ok(1), Err(io::ErrorKind::BrokenPipe.into())],
+                Vec::new()
+            ),
+            (Err(io::ErrorKind::BrokenPipe), "a".to_owned(), false)
+        );
+        assert_eq!(
+            write(vec![Ok(0)], Vec::new()),
+            (Err(io::ErrorKind::WriteZero), String::new(), false)
+        );
+        assert_eq!(
+            write(vec![Err(io::ErrorKind::StorageFull.into())], Vec::new()),
+            (Err(io::ErrorKind::StorageFull), String::new(), false)
+        );
     }
 }
