@@ -77,7 +77,6 @@ pub fn materialize(
             fs::create_dir_all(parent).map_err(write_error(parent))?;
         }
         fs::write(&path, bytes).map_err(write_error(&path))?;
-        #[cfg(unix)]
         if file.executable {
             use std::os::unix::fs::PermissionsExt;
             fs::set_permissions(&path, fs::Permissions::from_mode(0o755))
@@ -294,7 +293,6 @@ mod tests {
                 ("other/x.ts", b"export {};\n"),
             ],
         );
-        #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
             let script = root.join("collections/c/run.sh");
@@ -318,7 +316,6 @@ mod tests {
             read("src/lib/deep/b.ts"),
             read("package.json"),
         );
-        #[cfg(unix)]
         let mode = {
             use std::os::unix::fs::PermissionsExt;
             fs::metadata(dest.join("run.sh"))
@@ -335,7 +332,6 @@ mod tests {
         assert_eq!(a, raw);
         assert!(deep.is_empty());
         assert_eq!(package, b"{\"type\": \"module\"}\n");
-        #[cfg(unix)]
         assert_eq!(mode, 0o755);
         let relative = |paths: &BTreeSet<PathBuf>| -> Vec<String> {
             paths
@@ -407,7 +403,6 @@ mod tests {
         );
     }
 
-    #[cfg(unix)]
     #[test]
     fn materialize_refuses_a_name_that_isnt_utf8() {
         use std::os::unix::ffi::OsStrExt;

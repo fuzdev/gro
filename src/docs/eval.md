@@ -263,7 +263,7 @@ rather than let V8 seed itself from the clock.
 Eval refuses to run, as `environment`, on a kernel without Landlock, with it switched off,
 or with it below ABI 6, which the signal and abstract unix socket walls need, naming the kernel's ABI;
 on an architecture the seccomp filters aren't built for (they are for x86_64 and aarch64)
-or a kernel that refuses them; and on a platform other than Linux.
+or a kernel that refuses them.
 A build with no embedded startup snapshot is refused as `internal`:
 started from source, the runtime would read its extensions' JS from the build tree, outside the box.
 There's no flag to run with a weaker box or none.
@@ -412,7 +412,7 @@ a failure past the cap keeps its kind, its `access` and `graph` dropped and its 
 | `heap`           | the heap can grow no more under a data limit with room for its cap ([the engine](#the-engine)): the run was stopped, or the process ran out of memory |
 | `memory`         | the process reached its memory cap outside the heap's cap: an array buffer's allocation failed and the run was stopped, the heap stopped growing under a caller's data limit with no room for its cap (the message names both), the heap's pages ran out before V8 stopped it near its cap, or V8 ran out of memory outside its heap |
 | `timeout`        | the run passed its timeout and was stopped                                                                             |
-| `environment`    | the process's time zone isn't UTC, the descriptors it inherited can't be closed, its environment cleared, or its memory capped, or the host can't hold the box: no Landlock, Landlock below ABI 6, an architecture or kernel the seccomp filters don't hold on, or a platform other than Linux |
+| `environment`    | the process's time zone isn't UTC, the descriptors it inherited can't be closed, its environment cleared, or its memory capped, or the host can't hold the box: no Landlock, Landlock below ABI 6, or an architecture or kernel the seccomp filters don't hold on |
 | `internal`       | the host failed: a module replaced on disk between resolving and loading, a read failed, a symlink loop, a read outside the box's roots was refused, the build has no snapshot, the graph names a `package.json` with no read of it kept, or a host invariant broke |
 
 ## The graph

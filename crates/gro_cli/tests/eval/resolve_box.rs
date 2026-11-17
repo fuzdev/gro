@@ -2,27 +2,25 @@
 //! outside, the confinement of the process and its descriptors, and a stdout the
 //! envelope can't be written to.
 
-#[cfg(all(feature = "snapshot", target_os = "linux"))]
+#[cfg(feature = "snapshot")]
 use std::path::PathBuf;
-#[cfg(all(feature = "snapshot", target_os = "linux"))]
+#[cfg(feature = "snapshot")]
 use std::process::Command;
-#[cfg(target_os = "linux")]
 use std::process::Stdio;
 
 use serde_json::json;
 
-#[cfg(target_os = "linux")]
 use crate::command;
 use crate::eval;
-#[cfg(all(feature = "snapshot", target_os = "linux"))]
+#[cfg(feature = "snapshot")]
 use crate::support::KillOnDrop;
 use crate::support::Scratch;
-#[cfg(all(feature = "snapshot", target_os = "linux"))]
+#[cfg(feature = "snapshot")]
 use crate::{fixtures, long_timeout, wrapped_command};
 
 /// Waits for the driver's `ready` on `child`'s stderr, failing the test
 /// when it doesn't come by the deadline.
-#[cfg(all(feature = "snapshot", target_os = "linux"))]
+#[cfg(feature = "snapshot")]
 fn wait_ready(child: &mut std::process::Child) {
     let line = crate::support::lines(child.stderr.take().unwrap())
         .recv_timeout(crate::support::DEADLINE)
@@ -42,7 +40,6 @@ fn an_entry_that_does_not_resolve_is_a_resolve_exiting_2() {
 /// A failure writing the envelope outranks the eval's outcome: stdout on
 /// `/dev/full` fails the write, so a `resolve` that would exit 2 exits 1,
 /// the error on stderr, with no panic.
-#[cfg(target_os = "linux")]
 #[test]
 fn a_full_stdout_fails_the_envelope_write_exiting_1() {
     let full = std::fs::File::options()
@@ -122,7 +119,7 @@ fn a_build_with_no_snapshot_refuses_to_evaluate() {
 /// Every task of a confined eval's process, its main thread, the thread
 /// that evaluates, V8's workers, and the watchdog, has `no_new_privs` and
 /// seccomp's filter mode, read from outside while the driver runs.
-#[cfg(all(feature = "snapshot", target_os = "linux"))]
+#[cfg(feature = "snapshot")]
 #[test]
 fn every_task_of_a_confined_eval_is_boxed() {
     use std::io::Write as _;
@@ -170,7 +167,7 @@ fn every_task_of_a_confined_eval_is_boxed() {
 /// A descriptor the eval inherits above stderr, a file outside the box
 /// opened by the shell that starts it, is closed before the box goes up, so
 /// the process no longer holds it while the driver runs; the eval still runs.
-#[cfg(all(feature = "snapshot", target_os = "linux"))]
+#[cfg(feature = "snapshot")]
 #[test]
 fn an_inherited_descriptor_is_closed() {
     use std::io::Write as _;

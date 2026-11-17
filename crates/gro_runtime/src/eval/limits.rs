@@ -457,10 +457,7 @@ extern "C" fn oom_backstop(_location: *const std::ffi::c_char, details: &v8::Oom
         let _ = out.flush();
     }
     // no teardown: V8's workers are live and V8 is in its out-of-memory path
-    #[cfg(target_os = "linux")]
     gro_sys::exit_now(1);
-    #[cfg(not(target_os = "linux"))]
-    std::process::exit(1);
 }
 
 /// The timeout's watchdog: a thread that terminates the isolate's

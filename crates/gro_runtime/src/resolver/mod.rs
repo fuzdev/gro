@@ -44,8 +44,8 @@
 //! - **Also refused**, each with its reason: a bare Node built-in name
 //!   (`fs`), looked up as a package and not found; a `%2F`, `%5C`, or `%00`
 //!   in a resolved path; a `package.json` over [`MAX_PACKAGE_JSON_SIZE`];
-//!   and the empty specifier. A symlink loop, named as one where the OS's
-//!   `ELOOP` is known, and a read failing [`SourceTree::read`]'s identity
+//!   and the empty specifier. A symlink loop, named as one by the OS's
+//!   `ELOOP`, and a read failing [`SourceTree::read`]'s identity
 //!   check fail too, but aren't refusals in
 //!   [`ResolveErrorKind::is_refusal`]'s sense: no change to the import fixes
 //!   them.

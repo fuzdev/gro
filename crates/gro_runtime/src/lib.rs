@@ -87,6 +87,16 @@
 //! in each run, never in a snapshot (the time origin, the console's
 //! [`ConsoleOptions`], removing the internals from the global object), run
 //! once the runtime has started.
+//!
+//! Linux-only, as are `gro_cli` and `gro_sys`: the box is Landlock and
+//! seccomp, the host's filesystem calls are `openat2`'s, and the V8 archive
+//! the build links is Linux's. Built for another OS the crate fails to
+//! compile.
+
+#[cfg(not(target_os = "linux"))]
+compile_error!(
+    "gro_runtime is Linux-only: its box, its filesystem calls, and its V8 build are Linux's"
+);
 
 mod bootstrap;
 pub mod confine;

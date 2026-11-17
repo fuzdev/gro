@@ -253,7 +253,10 @@ args and exposing internals. TypeScript everywhere (tasks, config, genfiles).
 Beside the npm package, `crates/` holds a Cargo workspace for Gro's own JS
 runtime, a Rust binary embedding V8. The crates are unpublished and outside the
 npm package's `files`. During development the binary is `fgro`, so it never
-collides with the Node `gro` on `PATH`.
+collides with the Node `gro` on `PATH`. `gro_runtime`, `gro_cli`, `gro_sys`,
+and `gro_bench` are Linux-only: each crate root holds a `compile_error!` for
+any other OS, and none has a non-Linux arm (a `cfg` on the architecture or the
+C library is fine).
 
 [src/docs/runtime.md](src/docs/runtime.md) is the hub; its index lists the
 runtime docs. A new runtime doc joins the index, and a new term joins
@@ -275,7 +278,7 @@ Crates:
   environment, `RLIMIT_DATA`, the default thread stack, a thread's stack
   start, `wait4`, process groups, `_exit`, and the filesystem calls confined
   beneath a directory descriptor by `openat2`, in `beneath`), each behind a
-  safe API; Linux only
+  safe API
 - `gro_v8` - the V8 boundary: the calls rusty_v8 exposes only as `unsafe`,
   behind a safe API (eval's recording `ArrayBuffer` allocator,
   `record_array_buffers`, and `PendingArrayBuffer`, an `ArrayBuffer`'s bytes

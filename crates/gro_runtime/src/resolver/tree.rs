@@ -20,15 +20,6 @@ pub const MAX_MODULE_SIZE: u64 = MAX_PACKAGE_JSON_SIZE;
 // gro_cli's tests state it as a literal, which keeps V8 out of their binaries
 const _: () = assert!(MAX_MODULE_SIZE == 16 << 20);
 
-/// `ELOOP`, the OS error a path through a symlink loop fails with, where
-/// it's known (Unix); elsewhere a symlink loop reports as the plain I/O error.
-// TODO: `io::ErrorKind::FilesystemLoop` once it's stable
-#[cfg(unix)]
-pub(super) const ELOOP: Option<i32> = Some(libc::ELOOP);
-/// `ELOOP`, unknown off Unix.
-#[cfg(not(unix))]
-pub(super) const ELOOP: Option<i32> = None;
-
 /// A read a [`SourceTree`] refused on purpose, rather than failed to make.
 ///
 /// A tree returns it as the source of an `io::Error` (by `From`), so a
@@ -87,9 +78,7 @@ pub trait SourceTree {
     ///
     /// Returns any other failure to read the tree, such as a permission
     /// error, and for [`DiskTree`], an error when the real path turns out to
-    /// be a symlink (it changed while it was looked up), and off Unix, an
-    /// error of kind [`io::ErrorKind::Unsupported`] for a file (no file
-    /// identity to read), so resolution fails closed.
+    /// be a symlink (it changed while it was looked up).
     fn lookup(&self, path: &Path) -> io::Result<Option<Entry>>;
 
     /// Reads the file at `path`, a real path [`SourceTree::lookup`] found a
@@ -112,9 +101,7 @@ pub trait SourceTree {
     ///
     /// # Errors
     ///
-    /// Returns any failure to read the directory's metadata, and, for
-    /// [`DiskTree`] off Unix, an error of kind [`io::ErrorKind::Unsupported`]
-    /// (no mode bits to read), so resolution fails closed.
+    /// Returns any failure to read the directory's metadata.
     fn is_world_writable(&self, dir: &Path) -> io::Result<bool>;
 
     /// Told of each path a resolution looked up and went on past, finding
@@ -183,7 +170,7 @@ impl SourceTree for DiskTree {
         // swapped for one since `canonicalize` reads as one and is refused
         let metadata = std::fs::symlink_metadata(&real_path)?;
         Ok(Some(if metadata.is_file() {
-            let id = FileId::of(&metadata)?;
+            let id = FileId::of(&metadata);
             Entry::File {
                 path: real_path,
                 id,
@@ -207,22 +194,9 @@ impl SourceTree for DiskTree {
     }
 
     fn is_world_writable(&self, dir: &Path) -> io::Result<bool> {
+        use std::os::unix::fs::PermissionsExt as _;
         let metadata = std::fs::metadata(dir)?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt as _;
-            Ok(metadata.permissions().mode() & 0o002 != 0)
-        }
-        // TODO: no mode bits to read; an ACL check if gro ever runs off Unix,
-        // failing closed until then
-        #[cfg(not(unix))]
-        {
-            let _ = metadata;
-            Err(io::Error::new(
-                io::ErrorKind::Unsupported,
-                "telling a world-writable directory needs Unix mode bits",
-            ))
-        }
+        Ok(metadata.permissions().mode() & 0o002 != 0)
     }
 }
 
@@ -232,7 +206,7 @@ impl SourceTree for DiskTree {
 /// it, so a symlink put in its place opens its target, which has another
 /// identity.
 ///
-/// On Unix the open doesn't block (`O_NONBLOCK`), so a FIFO put in the
+/// The open doesn't block (`O_NONBLOCK`), so a FIFO put in the
 /// file's place is refused by its identity rather than waiting for a writer;
 /// the flag changes nothing about reading a regular file.
 ///
@@ -242,20 +216,17 @@ impl SourceTree for DiskTree {
 /// file has another identity: the file, or a directory on the way to it, was
 /// replaced since it was looked up. Otherwise returns any failure to open,
 /// inspect, or read the file, an error of kind
-/// [`io::ErrorKind::FileTooLarge`] when it holds more than `max` bytes, one of
-/// kind [`io::ErrorKind::OutOfMemory`] when its size can't be reserved, and
-/// off Unix, an error of kind [`io::ErrorKind::Unsupported`] ([`FileId::of`]).
+/// [`io::ErrorKind::FileTooLarge`] when it holds more than `max` bytes, and one
+/// of kind [`io::ErrorKind::OutOfMemory`] when its size can't be reserved.
 pub fn read_checked(path: &Path, id: FileId, max: Option<u64>) -> io::Result<Vec<u8>> {
     use std::io::Read as _;
-    #[cfg(unix)]
     use std::os::unix::fs::OpenOptionsExt as _;
     let mut options = std::fs::OpenOptions::new();
     options.read(true);
-    #[cfg(unix)]
     options.custom_flags(libc::O_NONBLOCK);
     let file = options.open(path)?;
     let metadata = file.metadata()?;
-    if FileId::of(&metadata)? != id {
+    if FileId::of(&metadata) != id {
         return Err(ReadRefusal::ReplacedSinceLookup.into());
     }
     let size = metadata.len();

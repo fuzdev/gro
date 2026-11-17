@@ -4,6 +4,10 @@
 //! It is independent of the runtime crates, so it measures other runtimes
 //! (Node, Deno, Bun) as readily as gro's own.
 //!
+//! Linux-only, as the `fgro` it measures is: it reads each sample's peak
+//! memory as it's reaped and kills a hung runtime's process group through
+//! `gro_sys`. Built for another OS the crate fails to compile.
+//!
 //! - [`suite`]: the declarative input, runtimes × workloads, read from JSON
 //! - [`collection`]: a fresh copy of one corpora collection at its pinned
 //!   tree, for workloads that run inside the collection's own root
@@ -62,6 +66,9 @@
 //!   into the copy at run time (a project's `generate`), evaluated by
 //!   `fgro eval` jitless and with `--jit`, Deno beside; run it under a memory
 //!   limit (`systemd-run --user --scope -p MemoryMax=3G -p MemorySwapMax=0`).
+
+#[cfg(not(target_os = "linux"))]
+compile_error!("gro_bench is Linux-only: its process calls are gro_sys's, which are Linux's");
 
 pub mod budget;
 pub mod check;

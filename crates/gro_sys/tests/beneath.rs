@@ -3,7 +3,6 @@
 //! allows, each call's success and the errors a caller maps, and a rename
 //! racing the opens.
 
-#![cfg(target_os = "linux")]
 #![expect(clippy::unwrap_used, reason = "a test's setup and its failures panic")]
 #![expect(clippy::panic, reason = "a test fails by panicking")]
 

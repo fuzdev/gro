@@ -25,7 +25,7 @@ use std::cell::OnceCell;
 /// (`V8_DEFAULT_STACK_SIZE_KB`, 984), which gro doesn't change (no flag the
 /// engine sets names it). V8 holds JS to this far below the thread's stack
 /// start.
-#[cfg(all(target_os = "linux", target_env = "gnu"))]
+#[cfg(target_env = "gnu")]
 const V8_STACK_SIZE: usize = 984 * 1024;
 
 /// The stack, in bytes, the first `import()` of a builtin needs left above
@@ -94,14 +94,14 @@ impl Headroom {
 
 /// V8's limit on the calling thread's stack: the stack start as V8 reads it,
 /// less [`V8_STACK_SIZE`].
-#[cfg(all(target_os = "linux", target_env = "gnu"))]
+#[cfg(target_env = "gnu")]
 fn read_limit() -> Option<usize> {
     gro_sys::stack_start().checked_sub(V8_STACK_SIZE)
 }
 
-/// Off glibc on Linux the stack start isn't read, and every module is built
+/// Off glibc the stack start isn't read, and every module is built
 /// where it's first imported.
-#[cfg(not(all(target_os = "linux", target_env = "gnu")))]
+#[cfg(not(target_env = "gnu"))]
 fn read_limit() -> Option<usize> {
     None
 }

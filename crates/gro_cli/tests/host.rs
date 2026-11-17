@@ -3012,7 +3012,6 @@ fn fs_reads_dropped_stay_within_a_data_cap() {
 /// costs no disk, and its zeros are copied into the buffer all the same.
 /// The peak is the kernel's `ru_maxrss` from the reaping, which takes this
 /// test process's own if it's larger, as it isn't.
-#[cfg(target_os = "linux")]
 #[test]
 fn fs_a_read_of_its_size_is_in_memory_once() {
     let project = Scratch::new(

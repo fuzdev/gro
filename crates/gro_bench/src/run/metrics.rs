@@ -32,19 +32,15 @@ pub(super) fn row_records(
                     .collect::<Option<Vec<u64>>>()
                     .map(metric),
                 phases: phase_metrics(row, samples)?,
-                peak_rss_kib: if wall { rss_metric(samples) } else { None },
+                peak_rss_kib: wall.then(|| rss_metric(samples)),
             })
         })
         .collect()
 }
 
-/// The peak memory of every sample, when each has one.
-fn rss_metric(samples: &[Sample]) -> Option<Metric> {
-    samples
-        .iter()
-        .map(|sample| sample.max_rss_kib)
-        .collect::<Option<Vec<u64>>>()
-        .map(metric)
+/// The peak memory of every sample.
+fn rss_metric(samples: &[Sample]) -> Metric {
+    metric(samples.iter().map(|sample| sample.max_rss_kib).collect())
 }
 
 fn wall_metric(samples: &[Sample]) -> Metric {

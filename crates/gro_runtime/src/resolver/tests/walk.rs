@@ -838,7 +838,6 @@ fn a_mode_failure_on_the_walk_for_the_bound_fails() {
 
 /// World-writable is the other-write bit alone: group-write doesn't
 /// count, and the sticky bit changes nothing.
-#[cfg(unix)]
 #[test]
 fn world_writable_is_the_other_write_bit() {
     use std::os::unix::fs::PermissionsExt as _;

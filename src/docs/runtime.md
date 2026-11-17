@@ -4,7 +4,7 @@
 > why it exists, the model in a page, the design, and the roadmap
 
 > **status**: experimental, with the direction settled and the design in progress.
-> Built today, on x86_64 Linux, as `fgro` (renamed `gro` when ready):
+> Built today, for x86_64 Linux alone (its crates refuse to compile for another OS), as `fgro` (renamed `gro` when ready):
 >
 > - `fgro run <file>` runs a JS or TypeScript module from disk on V8, using Deno's libraries,
 >   with strict resolution and origin containment ([run](run.md))

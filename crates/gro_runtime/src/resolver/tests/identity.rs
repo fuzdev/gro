@@ -166,7 +166,7 @@ fn disk_reads_are_bounded() {
     // sparse, so nothing is written; refused before any allocation of
     // its size, which would abort the process
     file.set_len(1 << 40).unwrap();
-    let id = FileId::of(&file.metadata().unwrap()).unwrap();
+    let id = FileId::of(&file.metadata().unwrap());
     let huge = DiskTree.read(&path, id).unwrap_err().kind();
     file.set_len(MAX_PACKAGE_JSON_SIZE + 1).unwrap();
     let too_large = DiskTree.read(&path, id).unwrap_err().kind();

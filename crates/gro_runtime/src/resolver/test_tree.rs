@@ -5,7 +5,6 @@ use std::io;
 use std::path::{Component, Path, PathBuf};
 
 use crate::file_id::FileId;
-use crate::resolver::tree::ELOOP;
 use crate::resolver::{Entry, MAX_PACKAGE_JSON_SIZE, ReadRefusal, SourceTree};
 
 /// An in-memory tree: files by path with their contents, symlinks as a
@@ -99,9 +98,7 @@ impl MemoryTree {
     /// trailing `/`, or a trailing `/.` after it. Fails with `ELOOP` on a
     /// listed loop or past [`MAX_SYMLINKS`].
     fn real_path(&self, path: &Path) -> io::Result<Option<PathBuf>> {
-        let eloop = || {
-            io::Error::from_raw_os_error(ELOOP.expect("the loop tests need this platform's ELOOP"))
-        };
+        let eloop = || io::Error::from_raw_os_error(libc::ELOOP);
         let mut real = PathBuf::from("/");
         // the components still to walk, the next last
         let mut rest: Vec<Component<'_>> = path.components().rev().collect();

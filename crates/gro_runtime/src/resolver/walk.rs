@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use serde_json::Value;
 
 use super::error::ResolveErrorKind;
-use super::tree::{ELOOP, Entry, MAX_PACKAGE_JSON_SIZE, ReadRefusal, SourceTree};
+use super::tree::{Entry, MAX_PACKAGE_JSON_SIZE, ReadRefusal, SourceTree};
 
 /// A metadata file resolution read.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -93,7 +93,8 @@ pub(super) fn lookup(
     path: &Path,
 ) -> Result<Option<Entry>, ResolveErrorKind> {
     tree.lookup(path).map_err(|error| {
-        if ELOOP.is_some() && error.raw_os_error() == ELOOP {
+        // TODO: io::ErrorKind::FilesystemLoop once it's stable
+        if error.raw_os_error() == Some(libc::ELOOP) {
             ResolveErrorKind::SymlinkLoop(path.to_owned())
         } else {
             read_error(path, &error)

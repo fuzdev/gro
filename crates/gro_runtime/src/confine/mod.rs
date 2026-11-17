@@ -21,7 +21,7 @@
 //! otherwise, and every thread the engine starts comes after it, spawned from
 //! the thread that installed it.
 //!
-//! The box, on Linux, installed by [`Prepared::confine`] in this order on the
+//! The box, installed by [`Prepared::confine`] in this order on the
 //! calling thread, after the thread count is checked:
 //!
 //! 1. **`no_new_privs`**: nothing the process executes can gain privileges.
@@ -75,8 +75,6 @@
 //! quietly; V8's entropy comes from the `getrandom` call, not a file
 //! (`engine`).
 //!
-//! Off Linux there is no box, and [`Prepared::confine`] refuses.
-//!
 //! The link closure is the box's directory structure, read with no parsing:
 //! starting from the project, every entry of a root's `node_modules` (each
 //! `<name>`, and each `<name>` under an `@<scope>` directory, the dot-named
@@ -90,33 +88,22 @@
 //! to `/`, or to a directory that isn't a package (`/etc`, `~/.ssh`) adds
 //! nothing.
 //!
-//! On Linux each root is opened as it is found (`O_PATH`, with
+//! Each root is opened as it is found (`O_PATH`, with
 //! `O_DIRECTORY` and `O_NOFOLLOW`), and kept only when the kernel names the
 //! handle by the root's real path, so a directory swapped in after the
 //! closure read it isn't what the box admits.
 
 use std::io;
+use std::os::fd::OwnedFd;
 use std::path::{Path, PathBuf};
 
 mod closure;
-#[cfg(target_os = "linux")]
 mod landlock;
-#[cfg(target_os = "linux")]
 mod seccomp;
 #[cfg(test)]
 mod tests;
 
 use closure::{link_closure, pin};
-
-/// A root, opened before anything is confined: on Linux, an `O_PATH` handle
-/// to the directory ([`pin`]).
-#[cfg(target_os = "linux")]
-type Pin = std::os::fd::OwnedFd;
-
-/// A root, opened before anything is confined: off Linux, where there is no
-/// box, nothing.
-#[cfg(not(target_os = "linux"))]
-type Pin = ();
 
 /// The directories a confined run may read: the project's real directory
 /// first, then each link closure root, every one a real path.
@@ -147,12 +134,10 @@ impl BoxRoots {
 pub struct Prepared {
     /// What the box admits.
     roots: BoxRoots,
-    /// Each root, opened, in the roots' order: what Landlock's rules name.
-    #[cfg_attr(
-        not(target_os = "linux"),
-        expect(dead_code, reason = "off Linux there is no box to install")
-    )]
-    pins: Vec<Pin>,
+    /// Each root, opened before anything is confined, in the roots' order:
+    /// an `O_PATH` handle to its directory ([`pin`]), what Landlock's rules
+    /// name.
+    pins: Vec<OwnedFd>,
 }
 
 impl Prepared {
@@ -190,11 +175,10 @@ impl Prepared {
     ///
     /// Returns [`ConfineError::Threads`] when the process has another thread,
     /// or [`ConfineError::ThreadsUnread`] when its thread count can't be
-    /// read, before anything is installed; on Linux, an error naming the wall
-    /// the kernel can't hold (checked before any is installed) or that failed
-    /// to install, after which the process may hold part of the box and must
-    /// run nothing it was to confine; and [`ConfineError::Unsupported`] off
-    /// Linux.
+    /// read, before anything is installed; or an error naming the wall the
+    /// kernel can't hold (checked before any is installed) or that failed to
+    /// install, after which the process may hold part of the box and must run
+    /// nothing it was to confine.
     pub fn confine(self, jit: Jit) -> Result<Confined, ConfineError> {
         alone()?;
         install(&self, jit)?;
@@ -298,7 +282,6 @@ pub enum ConfineError {
         abi: u32,
     },
     /// The Landlock rules couldn't be made or installed.
-    #[cfg(target_os = "linux")]
     #[error("failed to make or install the box's Landlock rules: {0}")]
     Landlock(#[source] ::landlock::RulesetError),
     /// The kernel installed only part of the Landlock rules.
@@ -314,46 +297,39 @@ pub enum ConfineError {
         arch: &'static str,
     },
     /// The seccomp filters couldn't be compiled.
-    #[cfg(target_os = "linux")]
     #[error("failed to compile the box's seccomp filters: {0}")]
     SeccompFilter(#[source] seccompiler::BackendError),
     /// The kernel refused the seccomp filters.
-    #[cfg(target_os = "linux")]
     #[error("failed to install the box's seccomp filters: {0}")]
     Seccomp(#[source] seccompiler::Error),
-    /// The platform has no box: confinement is Linux's.
-    #[error("confinement is built for Linux only, and this platform has no box")]
-    Unsupported,
 }
 
 impl ConfineError {
     /// Whether the host can't hold the box (no Landlock, an older one, an
     /// architecture the seccomp filters aren't built for, a kernel refusing
-    /// them, another platform), as opposed to the process breaking the order
+    /// them), as opposed to the process breaking the order
     /// the box needs or failing to build it.
     pub const fn is_host_unsupported(&self) -> bool {
         match self {
             Self::NoLandlock { .. }
             | Self::LandlockAbi { .. }
             | Self::SeccompArch { .. }
-            | Self::Unsupported => true,
-            #[cfg(target_os = "linux")]
-            Self::Seccomp(_) => true,
-            #[cfg(target_os = "linux")]
-            Self::Landlock(_) | Self::SeccompFilter(_) => false,
-            Self::Threads { .. } | Self::ThreadsUnread(_) | Self::LandlockPartial => false,
+            | Self::Seccomp(_) => true,
+            Self::Landlock(_)
+            | Self::SeccompFilter(_)
+            | Self::Threads { .. }
+            | Self::ThreadsUnread(_)
+            | Self::LandlockPartial => false,
         }
     }
 }
 
 /// The Landlock ABI the box requires, for its scope walls:
-/// [`LANDLOCK_ABI`](landlock::LANDLOCK_ABI)'s number, for the messages,
-/// which every platform builds.
-const REQUIRED_LANDLOCK_ABI: u32 = 6;
+/// [`LANDLOCK_ABI`](landlock::LANDLOCK_ABI)'s number, for the messages.
+const REQUIRED_LANDLOCK_ABI: u32 = landlock::LANDLOCK_ABI as u32;
 
 /// Installs the box `prepared`, for an engine whose JIT is `jit`, on the
 /// calling thread, the process's only one.
-#[cfg(target_os = "linux")]
 fn install(prepared: &Prepared, jit: Jit) -> Result<(), ConfineError> {
     use crate::prices::{self, EvalDefault};
     // a priced build can leave either wall out, to time it (`prices`)
@@ -377,20 +353,13 @@ fn install(prepared: &Prepared, jit: Jit) -> Result<(), ConfineError> {
     Ok(())
 }
 
-#[cfg(not(target_os = "linux"))]
-const fn install(_prepared: &Prepared, _jit: Jit) -> Result<(), ConfineError> {
-    Err(ConfineError::Unsupported)
-}
-
 /// How many times [`alone`] reads the thread count before it refuses: a
 /// thread whose join has returned can stay counted for a moment longer, while
 /// the kernel finishes its exit (the joiner wakes when the thread's id is
 /// cleared, before the thread is removed from its group).
-#[cfg(target_os = "linux")]
 const THREAD_COUNT_READS: usize = 1000;
 
 /// Checks that the process has one thread, the caller.
-#[cfg(target_os = "linux")]
 fn alone() -> Result<(), ConfineError> {
     let mut count = 0;
     for _ in 0..THREAD_COUNT_READS {
@@ -401,9 +370,4 @@ fn alone() -> Result<(), ConfineError> {
         std::thread::yield_now();
     }
     Err(ConfineError::Threads { count })
-}
-
-#[cfg(not(target_os = "linux"))]
-const fn alone() -> Result<(), ConfineError> {
-    Err(ConfineError::Unsupported)
 }

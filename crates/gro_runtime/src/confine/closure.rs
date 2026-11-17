@@ -2,9 +2,9 @@
 //! confined, and the handle opened on each.
 
 use std::io;
+use std::os::fd::OwnedFd;
 use std::path::{Path, PathBuf};
 
-use super::Pin;
 use crate::resolver::{DiskTree, SourceTree};
 
 /// The link closure of the project at `project`, opened as `pinned`: it
@@ -20,7 +20,7 @@ use crate::resolver::{DiskTree, SourceTree};
 /// from the disk, comes first: every package installed under a root is
 /// skipped with no path resolved, and only a link, or an entry whose holder
 /// is real outside the roots, is read further.
-pub(super) fn link_closure(project: PathBuf, pinned: Pin) -> (Vec<PathBuf>, Vec<Pin>) {
+pub(super) fn link_closure(project: PathBuf, pinned: OwnedFd) -> (Vec<PathBuf>, Vec<OwnedFd>) {
     let mut roots = vec![project];
     let mut pins = vec![pinned];
     let mut next = 0;
@@ -72,8 +72,7 @@ fn is_package(target: &Path) -> bool {
 ///
 /// Returns the error of the open or of reading the handle's path, or one of
 /// kind [`io::ErrorKind::Other`] when the handle names another path.
-#[cfg(target_os = "linux")]
-pub(super) fn pin(dir: &Path) -> io::Result<Pin> {
+pub(super) fn pin(dir: &Path) -> io::Result<OwnedFd> {
     use std::os::fd::AsRawFd as _;
     use std::os::unix::fs::OpenOptionsExt as _;
     let file = std::fs::OpenOptions::new()
@@ -95,15 +94,6 @@ pub(super) fn pin(dir: &Path) -> io::Result<Pin> {
         )));
     }
     Ok(file.into())
-}
-
-#[cfg(not(target_os = "linux"))]
-#[expect(
-    clippy::unnecessary_wraps,
-    reason = "the same signature as Linux's, which can fail"
-)]
-pub(super) const fn pin(_dir: &Path) -> io::Result<Pin> {
-    Ok(())
 }
 
 /// Whether the package linked at `entry` in `listing`'s `node_modules`,

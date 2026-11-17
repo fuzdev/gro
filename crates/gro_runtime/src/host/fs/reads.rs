@@ -306,7 +306,6 @@ mod tests {
     /// size it reported, one grown or shrunk since its open, an empty one,
     /// and a `/proc` file, which reports 0; each a `Uint8Array` of its
     /// whole buffer.
-    #[cfg(target_os = "linux")]
     #[test]
     fn a_read_s_bytes_are_v8_s_and_end_where_the_file_ends() {
         use std::io::Write as _;

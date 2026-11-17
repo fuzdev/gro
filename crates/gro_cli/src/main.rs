@@ -38,6 +38,12 @@
 //!   (`gro_runtime::prices`), for the bench's prices suite
 //!
 //! Without its feature, no such variable is read.
+//!
+//! Linux-only, as `gro_runtime` and `gro_sys` are: built for another OS the
+//! crate fails to compile.
+
+#[cfg(not(target_os = "linux"))]
+compile_error!("fgro is Linux-only, as the gro_runtime it embeds is");
 
 mod cli;
 mod color;
@@ -306,7 +312,6 @@ mod tests {
 
     /// An argument that isn't UTF-8 is refused wherever it comes, a script's
     /// after the file included, and the rest pass as they are.
-    #[cfg(unix)]
     #[test]
     fn a_non_utf8_argument_is_refused() {
         use std::ffi::OsStr;

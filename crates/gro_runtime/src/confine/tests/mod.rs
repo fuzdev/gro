@@ -9,9 +9,7 @@ use super::{BoxRoots, ConfineError, Jit, Prepared};
 use crate::test_support::TestDir;
 
 mod closure;
-#[cfg(target_os = "linux")]
 mod landlock;
-#[cfg(target_os = "linux")]
 mod seccomp;
 
 /// A fresh directory under the system's temporary directory (see
@@ -66,7 +64,6 @@ fn box_roots_hold_by_component() {
 
 /// A test runs beside the harness's own threads, so confining from it is
 /// refused with the count, before anything is installed.
-#[cfg(target_os = "linux")]
 #[test]
 fn confining_with_another_thread_alive_is_refused() {
     let (stop, wait) = std::sync::mpsc::channel::<()>();

@@ -197,7 +197,6 @@ fn entries_held_by_a_linked_directory_are_read_at_their_real_paths() {
 
 /// Each root is opened as the directory found: the kernel names every
 /// handle by its root's real path.
-#[cfg(target_os = "linux")]
 #[test]
 fn each_root_is_opened_as_the_directory_found() {
     use std::os::fd::AsRawFd as _;
@@ -221,7 +220,6 @@ fn each_root_is_opened_as_the_directory_found() {
 /// A project path that isn't its real directory isn't opened: a
 /// symlink, a path through a symlinked directory, which the kernel names
 /// by another path once opened, or no directory.
-#[cfg(target_os = "linux")]
 #[test]
 fn a_project_that_is_not_its_real_directory_is_refused() {
     let scratch = Scratch::new("unpinned");

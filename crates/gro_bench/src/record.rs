@@ -105,8 +105,8 @@ pub struct RunRecord {
     pub noise: NoiseRecord,
     /// The peak, in KiB, that a sample's `peak_rss_kib` reads at least,
     /// whatever it runs: the largest of a trivial program's (`true`) run as
-    /// the samples are, after them, in a wall run. Absent before version 7,
-    /// in other modes, and where the harness reads no peak.
+    /// the samples are, after them, in a wall run. Absent before version 7
+    /// and in other modes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rss_floor_kib: Option<u64>,
     /// The size in bytes of the startup snapshot the run's `fgro` embeds,
@@ -260,8 +260,7 @@ pub struct RowRecord {
     pub phases: Vec<PhaseMetric>,
     /// Peak resident set size per process, in KiB, its `ru_maxrss`, which
     /// reads at least the run's `rss_floor_kib`, in a wall run. Absent
-    /// before version 7, in other modes, and where the harness reads no
-    /// peak.
+    /// before version 7 and in other modes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub peak_rss_kib: Option<Metric>,
 }
@@ -388,7 +387,7 @@ impl Machine {
     }
 }
 
-/// The CPU model from `/proc/cpuinfo`, on Linux on x86.
+/// The CPU model from `/proc/cpuinfo`, on x86.
 fn cpu_model() -> Option<String> {
     let cpuinfo = fs::read_to_string("/proc/cpuinfo").ok()?;
     cpuinfo.lines().find_map(|line| {

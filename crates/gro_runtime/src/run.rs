@@ -136,7 +136,7 @@ impl RunOutcome {
 /// build and 16 MiB in a debug one. Call this on a thread reserving
 /// [`STACK_SIZE`](crate::STACK_SIZE), as `fgro` does
 /// (`std::thread::Builder::stack_size`), not on the main thread, whose stack
-/// is the platform's (commonly 8 MiB on Linux, 1 MiB on Windows): below
+/// the kernel sizes by `RLIMIT_STACK` (commonly 8 MiB): below
 /// tsv's contract, a module within the limits can still overflow the stack,
 /// which aborts the process. V8's own limit for JS sits below wherever the
 /// runtime starts on that thread, so the size doesn't change how deep JS can

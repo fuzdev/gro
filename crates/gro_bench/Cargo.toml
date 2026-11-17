@@ -9,16 +9,14 @@ description = "gro's measurement harness for comparing JS runtimes"
 
 [dependencies]
 blake3.workspace = true
+# each sample's peak memory, read as it's reaped (`wait4`), and the watchdog's
+# process-group kills and signal handler
+gro_sys = { path = "../gro_sys" }
 serde.workspace = true
 # `unbounded_depth`: a stdout value as deep as eval's serializer writes,
 # past serde_json's default depth of 128, parsed on a sized stack
 serde_json = { workspace = true, features = ["unbounded_depth"] }
 thiserror.workspace = true
-
-# each sample's peak memory, read as it's reaped (`wait4`), and the watchdog's
-# process-group kills and signal handler
-[target.'cfg(target_os = "linux")'.dependencies]
-gro_sys = { path = "../gro_sys" }
 
 [lints]
 workspace = true

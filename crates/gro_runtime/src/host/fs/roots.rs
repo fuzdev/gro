@@ -414,7 +414,7 @@ fn holds_beneath(outer: &Joined<'_>, inner: &Joined<'_>) -> bool {
     }
     match (&outer.fd, &inner.fd) {
         (Ok((outer_fd, _)), Ok((inner_fd, id))) => {
-            let found = sys::dir_metadata(outer_fd, rel).and_then(|metadata| FileId::of(&metadata));
+            let found = sys::dir_metadata(outer_fd, rel).map(|metadata| FileId::of(&metadata));
             // the identity read as it opened, else read now from its
             // descriptor, which holds the directory either way
             let inner = id.map_or_else(|| identity(inner_fd), Ok);
@@ -429,7 +429,7 @@ fn holds_beneath(outer: &Joined<'_>, inner: &Joined<'_>) -> bool {
 fn identity(fd: &OwnedFd) -> std::io::Result<FileId> {
     std::fs::File::from(fd.try_clone()?)
         .metadata()
-        .and_then(|metadata| FileId::of(&metadata))
+        .map(|metadata| FileId::of(&metadata))
 }
 
 /// The root `joined` makes, doing what `scope` says.
@@ -501,7 +501,7 @@ fn opened(
     let file = std::fs::File::from(fd);
     let id = file
         .metadata()
-        .and_then(|metadata| FileId::of(&metadata))
+        .map(|metadata| FileId::of(&metadata))
         .map_err(|error| format!("{what} can't be identified: {error}"))?;
     Ok((OwnedFd::from(file), Some(id)))
 }
@@ -691,7 +691,6 @@ mod tests {
     /// `path` as an embedder grants it: with its real path now and the
     /// identity of the directory there, or, when nothing is there, the path
     /// itself and an identity no directory has.
-    #[cfg(target_os = "linux")]
     fn checked(path: &std::path::Path) -> (std::path::PathBuf, crate::GrantedDir) {
         let real = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
         let id = std::fs::metadata(&real).map_or(
@@ -700,7 +699,7 @@ mod tests {
                 ino: u64::MAX,
                 born: None,
             },
-            |metadata| crate::file_id::FileId::of(&metadata).unwrap(),
+            |metadata| crate::file_id::FileId::of(&metadata),
         );
         (path.to_path_buf(), crate::GrantedDir { real, id })
     }
@@ -715,7 +714,6 @@ mod tests {
     /// a symlink, or the project's, is its root, and so is one through a
     /// symlink pointed since at another granted directory, which keeps its
     /// own grants alone: the root is the real path read at the grant.
-    #[cfg(target_os = "linux")]
     #[test]
     fn a_root_replaced_since_its_grant_is_held_as_why() {
         use crate::{Authority, FsGrant, Grants};
@@ -807,7 +805,6 @@ mod tests {
     /// held as why, and the reopened one is the later path's alone. Two
     /// paths name one real path by two directories only when the start's
     /// reads raced a swap, as `b`'s does here.
-    #[cfg(target_os = "linux")]
     #[test]
     fn a_real_path_is_opened_again_after_its_first_path_is_refused() {
         use crate::{Authority, FsGrant, Grants};
@@ -877,7 +874,6 @@ mod tests {
     /// opens leaves it, or that a symlink reaches, is held by none but
     /// itself; one that isn't open is held by the text alone; and a root
     /// that isn't open holds nothing.
-    #[cfg(target_os = "linux")]
     #[test]
     fn a_root_holds_a_directory_beneath_its_descriptor() {
         use super::{Joined, holds_beneath, opened};
@@ -915,7 +911,6 @@ mod tests {
     /// its real path, taking nothing of that root's scope; one moved out
     /// from beneath a root since is gone too; and one beneath a root then
     /// and now joins its scope.
-    #[cfg(target_os = "linux")]
     #[test]
     fn a_root_nests_as_its_directory_did_when_granted() {
         use crate::{Authority, FsGrant, Grants};
@@ -991,7 +986,6 @@ mod tests {
     /// directory written inside a read one is read; a granted path gone
     /// before the table is made a root held as why; and unconfined, `/`,
     /// read and written, holding every other.
-    #[cfg(target_os = "linux")]
     #[test]
     fn the_root_table_joins_each_real_path_s_grants() {
         use std::path::PathBuf;
@@ -1067,7 +1061,6 @@ mod tests {
     /// A root that can't be opened is held as why, naming the path it was
     /// granted as and its real path, once when they're one path: gone when
     /// its real path holds nothing or no directory, else the OS's reason.
-    #[cfg(target_os = "linux")]
     #[test]
     fn a_root_that_cant_open_names_its_path_once() {
         use std::path::Path;

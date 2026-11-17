@@ -25,7 +25,6 @@ pub(super) struct Program {
     pub(super) path: PathBuf,
     /// The suite's `program` as written, passed as `argv[0]`, which a
     /// multi-call binary dispatches on.
-    #[cfg_attr(not(unix), expect(dead_code, reason = "`argv[0]` is set on unix only"))]
     pub(super) argv0: String,
     /// The runtime's `env`.
     pub(super) env: BTreeMap<String, String>,
@@ -35,12 +34,9 @@ impl Program {
     /// A command running this program from `dir`, in the isolated
     /// environment, with stdin on the null device.
     fn command(&self, dir: &Path) -> Command {
+        use std::os::unix::process::CommandExt as _;
         let mut command = Command::new(&self.path);
-        #[cfg(unix)]
-        {
-            use std::os::unix::process::CommandExt;
-            command.arg0(&self.argv0);
-        }
+        command.arg0(&self.argv0);
         self.isolate(&mut command, dir);
         command
     }
@@ -202,16 +198,8 @@ fn starts_with_shebang(path: &Path) -> Result<bool, BenchError> {
 }
 
 fn is_executable(path: &Path) -> bool {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        fs::metadata(path)
-            .is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
-    }
-    #[cfg(not(unix))]
-    {
-        path.is_file()
-    }
+    use std::os::unix::fs::PermissionsExt as _;
+    fs::metadata(path).is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
 }
 
 /// A command line for messages: the program and its arguments, space-separated.

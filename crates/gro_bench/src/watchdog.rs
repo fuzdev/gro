@@ -8,8 +8,8 @@
 //! with [`BenchError::TimedOut`] when the deadline passed: the watchdog then
 //! killed the group (`SIGKILL`), every process in it, and the caller's own
 //! wait still reaped the leader. Arming takes a lock and a push onto a list
-//! with room reserved (and, on Linux, a compare-and-swap for its guard,
-//! below), and wakes nothing, so in a timed sample it costs the
+//! with room reserved (and a compare-and-swap for its guard, below), and
+//! wakes nothing, so in a timed sample it costs the
 //! span almost nothing; the watchdog wakes on its own at the earliest
 //! deadline it saw, and otherwise once a timeout, which is at or before any
 //! deadline armed since, each one being a timeout after its arming.
@@ -21,14 +21,13 @@
 //! group is set in the child before its `exec`, the same on every row, so
 //! rows stay comparable in time and in instructions.
 //!
-//! A child in a group of its own doesn't get the terminal's signals, so on
-//! Linux the watchdog also guards each group it watches
+//! A child in a group of its own doesn't get the terminal's signals, so the
+//! watchdog also guards each group it watches
 //! (`gro_sys::guard_group`), and [`Watchdog::start`] installs the handler
 //! that kills every guarded group when a Ctrl-C, a hangup, or a `SIGTERM`
 //! ends the run (`gro_sys::kill_guarded_groups_on_signal`), the run then
 //! ending by that signal. A signal in the moment between a spawn and its
-//! guard misses that group, and a `SIGKILL` of the run orphans them all;
-//! elsewhere nothing kills them.
+//! guard misses that group, and a `SIGKILL` of the run orphans them all.
 //!
 //! The kill names the group by its leader's id, which is free for reuse once
 //! the leader is reaped, and the watch is disarmed just after: a deadline
@@ -100,20 +99,18 @@ struct Watch<'a> {
     watchdog: &'a Watchdog,
     token: u64,
     /// Kills the group should a signal end the run, until dropped.
-    #[cfg(target_os = "linux")]
     _guard: Option<gro_sys::GroupGuard>,
 }
 
 impl Watchdog {
     /// Starts the watchdog's thread, each process it watches given
-    /// `timeout`, and, on Linux, installs the handler that kills every
+    /// `timeout`, and installs the handler that kills every
     /// watched group when a signal ends the process.
     ///
     /// # Errors
     ///
     /// Fails when the handler can't be installed or the thread can't start.
     pub fn start(timeout: Duration) -> io::Result<Self> {
-        #[cfg(target_os = "linux")]
         gro_sys::kill_guarded_groups_on_signal()?;
         let shared = Arc::new(Shared {
             state: Mutex::new(State {
@@ -157,7 +154,6 @@ impl Watchdog {
         display: impl FnOnce(&Command) -> String,
         wait: impl FnOnce(Child) -> io::Result<T>,
     ) -> Result<io::Result<T>, BenchError> {
-        #[cfg(unix)]
         std::os::unix::process::CommandExt::process_group(command, 0);
         let child = match command.spawn() {
             Ok(child) => child,
@@ -196,7 +192,6 @@ impl Watchdog {
             token,
             // a run waits on fewer groups at once than there are slots; one
             // past them goes unguarded
-            #[cfg(target_os = "linux")]
             _guard: gro_sys::guard_group(pid),
         }
     }
@@ -258,7 +253,7 @@ fn watch_loop(shared: &Shared, timeout: Duration) {
             if armed.deadline <= now {
                 // a group already gone, reaped in time but not yet disarmed,
                 // fails with `ESRCH`, and isn't reported as killed
-                armed.fate = if kill_group(armed.pid).is_ok() {
+                armed.fate = if gro_sys::kill_process_group(armed.pid).is_ok() {
                     Fate::Killed
                 } else {
                     Fate::Gone
@@ -272,25 +267,6 @@ fn watch_loop(shared: &Shared, timeout: Duration) {
             .wait_timeout(state, wait)
             .unwrap_or_else(PoisonError::into_inner)
             .0;
-    }
-}
-
-/// Kills the process group `pgid`.
-#[cfg(target_os = "linux")]
-fn kill_group(pgid: u32) -> io::Result<()> {
-    gro_sys::kill_process_group(pgid)
-}
-
-/// Elsewhere, by the `kill` utility, its failure an error.
-#[cfg(not(target_os = "linux"))]
-fn kill_group(pgid: u32) -> io::Result<()> {
-    let status = Command::new("kill")
-        .args(["-KILL", "--", &format!("-{pgid}")])
-        .status()?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err(io::Error::other(format!("`kill` failed ({status})")))
     }
 }
 

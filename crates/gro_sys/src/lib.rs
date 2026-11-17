@@ -4,7 +4,8 @@
 //! this one denies it and allows it per function, each `unsafe` block
 //! beside the argument for why it's sound.
 //!
-//! Linux only; elsewhere the crate is empty.
+//! Linux-only: each call is Linux's, and built for another OS the crate
+//! fails to compile.
 //!
 //! - [`close_inherited_fds`] closes every file descriptor above stderr, the
 //!   ones a process inherits from its parent, which a kernel box that gates
@@ -45,17 +46,16 @@
 //!   with a protection, or map one and change it to that protection, and
 //!   unmap it, so a box's tests reach its rule on executable mappings.
 
-#[cfg(target_os = "linux")]
+#[cfg(not(target_os = "linux"))]
+compile_error!("gro_sys is Linux-only: its system calls are Linux's");
+
 use std::ffi::OsString;
-#[cfg(target_os = "linux")]
 use std::io;
 
-#[cfg(target_os = "linux")]
 pub mod beneath;
 
 /// The lowest descriptor [`close_inherited_fds`] closes, the one above
 /// stderr.
-#[cfg(target_os = "linux")]
 const FIRST_INHERITED: libc::c_uint = 3;
 
 /// Closes every file descriptor above stderr (2) the process holds.
@@ -102,7 +102,6 @@ const FIRST_INHERITED: libc::c_uint = 3;
 /// listing's own handle, closed already, failing with `EBADF`, and an
 /// interrupted close, which Linux has released anyway. Some descriptors may
 /// then be closed.
-#[cfg(target_os = "linux")]
 pub fn close_inherited_fds() -> io::Result<()> {
     let threads = thread_count()?;
     if threads != 1 {
@@ -152,7 +151,6 @@ pub fn close_inherited_fds() -> io::Result<()> {
 /// read or isn't 1, or when a name in `kept` is empty or holds a `=` or a
 /// NUL; when `clearenv` fails, or a kept variable can't be set again, the
 /// environment may be left cleared.
-#[cfg(target_os = "linux")]
 #[expect(
     unsafe_code,
     reason = "changing the environment is `unsafe`: another thread may read it"
@@ -214,7 +212,6 @@ pub fn clear_env_except(kept: &[&str]) -> io::Result<()> {
 /// # Errors
 ///
 /// Returns the error of `getrlimit` or `setrlimit`, the limit unchanged.
-#[cfg(target_os = "linux")]
 #[expect(
     unsafe_code,
     reason = "std has no `getrlimit` or `setrlimit`, and a libc call is `unsafe`"
@@ -256,7 +253,6 @@ pub fn limit_data(bytes: u64) -> io::Result<u64> {
 /// # Errors
 ///
 /// Returns the call's error.
-#[cfg(target_os = "linux")]
 #[expect(
     unsafe_code,
     reason = "std has no `getrlimit`, and a libc call is `unsafe`"
@@ -304,7 +300,7 @@ pub fn data_limit() -> io::Result<(u64, u64)> {
 /// `pthread_attr_getstacksize`, `pthread_attr_init`,
 /// `pthread_attr_setstacksize` (a size below `PTHREAD_STACK_MIN`), or
 /// `pthread_setattr_default_np`, the default unchanged.
-#[cfg(all(target_os = "linux", target_env = "gnu"))]
+#[cfg(target_env = "gnu")]
 #[expect(
     unsafe_code,
     reason = "std has no default thread attribute, and a libc call is `unsafe`"
@@ -359,7 +355,7 @@ pub fn set_default_thread_stack(bytes: usize) -> io::Result<()> {
 /// # Errors
 ///
 /// Never: the signature is glibc's, which can fail.
-#[cfg(all(target_os = "linux", not(target_env = "gnu")))]
+#[cfg(not(target_env = "gnu"))]
 pub const fn set_default_thread_stack(_bytes: usize) -> io::Result<()> {
     Ok(())
 }
@@ -370,7 +366,7 @@ pub const fn set_default_thread_stack(_bytes: usize) -> io::Result<()> {
 /// # Errors
 ///
 /// Returns the error of a call.
-#[cfg(all(target_os = "linux", target_env = "gnu"))]
+#[cfg(target_env = "gnu")]
 #[expect(
     unsafe_code,
     reason = "std has no default thread attribute, and a libc call is `unsafe`"
@@ -398,7 +394,7 @@ pub fn default_thread_stack() -> io::Result<usize> {
 }
 
 // glibc's, since 2.18; the `libc` crate doesn't declare them
-#[cfg(all(target_os = "linux", target_env = "gnu"))]
+#[cfg(target_env = "gnu")]
 #[expect(
     unsafe_code,
     reason = "the `libc` crate lacks these two, so they're declared here, as glibc's headers do"
@@ -419,7 +415,7 @@ unsafe extern "C" {
 ///
 /// Every call asks again: it reads the thread's attributes, a system call
 /// among them, so a caller that needs it more than once keeps it.
-#[cfg(all(target_os = "linux", target_env = "gnu"))]
+#[cfg(target_env = "gnu")]
 #[expect(
     unsafe_code,
     reason = "std has no thread attributes, and a libc call and a C static are `unsafe`"
@@ -459,7 +455,7 @@ pub fn stack_start() -> usize {
 }
 
 // glibc's dynamic loader's; the `libc` crate doesn't declare it
-#[cfg(all(target_os = "linux", target_env = "gnu"))]
+#[cfg(target_env = "gnu")]
 #[expect(
     unsafe_code,
     reason = "the `libc` crate lacks it, so it's declared here, as glibc's own code does"
@@ -478,7 +474,6 @@ unsafe extern "C" {
 /// # Errors
 ///
 /// Returns an error when the file can't be read or has no thread count.
-#[cfg(target_os = "linux")]
 pub fn thread_count() -> io::Result<u64> {
     let status = std::fs::read_to_string("/proc/self/status").map_err(|error| {
         context(
@@ -500,7 +495,6 @@ pub fn thread_count() -> io::Result<u64> {
 
 /// Closes the descriptors from [`FIRST_INHERITED`] up with one `close_range`
 /// call.
-#[cfg(target_os = "linux")]
 #[expect(
     unsafe_code,
     reason = "std has no `close_range`, and a raw system call is `unsafe`"
@@ -532,7 +526,6 @@ fn close_range_above_stderr() -> io::Result<()> {
 /// so its close fails with `EBADF`; the process has one thread, so nothing
 /// else opens or closes a descriptor between the listing and the closes, and
 /// one `EBADF` is expected and a second is an error.
-#[cfg(target_os = "linux")]
 fn close_listed() -> io::Result<()> {
     let names = std::fs::read_dir("/proc/self/fd")
         .and_then(|listing| {
@@ -564,7 +557,6 @@ fn close_listed() -> io::Result<()> {
 ///
 /// Returns an error of kind [`io::ErrorKind::InvalidData`] when a name isn't
 /// a descriptor's number.
-#[cfg(target_os = "linux")]
 fn above_stderr(names: impl IntoIterator<Item = OsString>) -> io::Result<Vec<libc::c_int>> {
     let mut fds = Vec::new();
     for name in names {
@@ -587,7 +579,6 @@ fn above_stderr(names: impl IntoIterator<Item = OsString>) -> io::Result<Vec<lib
 }
 
 /// Closes the descriptor `fd`.
-#[cfg(target_os = "linux")]
 #[expect(
     unsafe_code,
     reason = "closing a descriptor by its number, which no value owns, is `unsafe`"
@@ -604,7 +595,6 @@ fn close(fd: libc::c_int) -> io::Result<()> {
 }
 
 /// A child reaped by [`wait_child`].
-#[cfg(target_os = "linux")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Reaped {
     /// How it exited.
@@ -629,7 +619,6 @@ pub struct Reaped {
 ///
 /// Returns the call's error, such as `ECHILD` when the child was reaped
 /// already some other way.
-#[cfg(target_os = "linux")]
 #[expect(
     unsafe_code,
     reason = "std's `wait` drops the resource usage, and a raw system call is `unsafe`"
@@ -681,7 +670,6 @@ pub fn wait_child(child: std::process::Child) -> io::Result<Reaped> {
 /// Returns the call's error: `ESRCH` when no process is in the group,
 /// `EPERM` when none may be signaled, or `EINVAL` for an id past `pid_t` or
 /// not above 1.
-#[cfg(target_os = "linux")]
 pub fn kill_process_group(pgid: u32) -> io::Result<()> {
     // group 1 would be `kill(-1)`, every process the caller may signal
     if pgid <= 1 {
@@ -691,30 +679,25 @@ pub fn kill_process_group(pgid: u32) -> io::Result<()> {
 }
 
 /// The most process groups [`guard_group`] guards at once.
-#[cfg(target_os = "linux")]
 pub const GUARDED_GROUPS: usize = 64;
 
 /// The signals [`kill_guarded_groups_on_signal`] handles: the ones that end
 /// a process from a terminal (an interrupt, a hangup) or from a supervisor.
-#[cfg(target_os = "linux")]
 const GUARDING_SIGNALS: [libc::c_int; 3] = [libc::SIGINT, libc::SIGTERM, libc::SIGHUP];
 
 /// The groups guarded, a slot each, 0 when free; lock-free, so the signal
 /// handler reads them.
-#[cfg(target_os = "linux")]
 static GUARDED: [std::sync::atomic::AtomicI32; GUARDED_GROUPS] =
     [const { std::sync::atomic::AtomicI32::new(0) }; GUARDED_GROUPS];
 
 /// A process group [`kill_guarded_groups_on_signal`]'s handler kills, until
 /// dropped.
-#[cfg(target_os = "linux")]
 #[derive(Debug)]
 #[must_use = "the group is guarded only until the guard drops"]
 pub struct GroupGuard {
     slot: usize,
 }
 
-#[cfg(target_os = "linux")]
 impl Drop for GroupGuard {
     fn drop(&mut self) {
         GUARDED[self.slot].store(0, std::sync::atomic::Ordering::SeqCst);
@@ -740,7 +723,6 @@ impl Drop for GroupGuard {
 ///
 /// Returns `None`, guarding nothing, when [`GUARDED_GROUPS`] are guarded
 /// already, or for an id past `pid_t` or not above 1.
-#[cfg(target_os = "linux")]
 pub fn guard_group(pgid: u32) -> Option<GroupGuard> {
     use std::sync::atomic::Ordering;
 
@@ -770,7 +752,6 @@ pub fn guard_group(pgid: u32) -> Option<GroupGuard> {
 /// # Errors
 ///
 /// Returns `sigaction`'s error, which a valid signal and action never get.
-#[cfg(target_os = "linux")]
 #[expect(
     unsafe_code,
     reason = "std installs no signal handler, and a libc call is `unsafe`"
@@ -808,7 +789,6 @@ pub fn kill_guarded_groups_on_signal() -> io::Result<()> {
 /// [`kill_guarded_groups_on_signal`]'s handler: kills each guarded group,
 /// then raises `signal` again, whose default action, reset as the handler
 /// started, ends the process when the handler returns.
-#[cfg(target_os = "linux")]
 #[expect(
     unsafe_code,
     reason = "a signal handler calls libc's async-signal-safe calls, which are `unsafe`"
@@ -830,7 +810,6 @@ extern "C" fn on_guarding_signal(signal: libc::c_int) {
 }
 
 /// `id` as a `pid_t` above 0, or `EINVAL`.
-#[cfg(target_os = "linux")]
 fn positive_pid(id: u32) -> io::Result<libc::pid_t> {
     libc::pid_t::try_from(id)
         .ok()
@@ -841,7 +820,6 @@ fn positive_pid(id: u32) -> io::Result<libc::pid_t> {
 /// `kill(target, SIGKILL)`, for a `target` that is a process (above 0) or a
 /// group (below -1), never 0 or -1, which name the caller's group or every
 /// process.
-#[cfg(target_os = "linux")]
 #[expect(
     unsafe_code,
     reason = "std kills only a child it owns, and a libc call is `unsafe`"
@@ -871,7 +849,7 @@ fn kill(target: libc::pid_t) -> io::Result<()> {
 /// Returns the call's error: `EPERM` when the signal may not be sent (a
 /// Landlock scope among the reasons), `ESRCH` when no such thread exists, or
 /// `EINVAL` for an invalid signal or a `tgid` or `tid` not above 0.
-#[cfg(all(target_os = "linux", feature = "testing"))]
+#[cfg(feature = "testing")]
 #[expect(
     unsafe_code,
     reason = "std has no `tgkill`, and a raw system call is `unsafe`"
@@ -891,7 +869,7 @@ pub fn signal_thread(tgid: libc::pid_t, tid: libc::pid_t, signal: libc::c_int) -
 
 /// The length [`map_anonymous`] and [`protect_anonymous`] map, which the
 /// kernel rounds up to a whole page where pages are larger.
-#[cfg(all(target_os = "linux", feature = "testing"))]
+#[cfg(feature = "testing")]
 const TEST_MAPPING_LEN: usize = 4096;
 
 /// Maps an anonymous private page with the protection `prot` (`PROT_READ`,
@@ -904,7 +882,7 @@ const TEST_MAPPING_LEN: usize = 4096;
 ///
 /// Returns the `mmap` call's error (`ENOSYS` when a box's allowlist refuses
 /// it), or the `munmap` call's.
-#[cfg(all(target_os = "linux", feature = "testing"))]
+#[cfg(feature = "testing")]
 #[expect(
     unsafe_code,
     reason = "std has no `mmap` or `munmap`, and a raw system call is `unsafe`"
@@ -948,7 +926,7 @@ pub fn map_anonymous(prot: libc::c_int) -> io::Result<()> {
 /// Returns the `mmap` call's error, the `mprotect` call's (`ENOSYS` when a
 /// box's allowlist refuses it), or the `munmap` call's. The page is unmapped
 /// whatever `mprotect` returns.
-#[cfg(all(target_os = "linux", feature = "testing"))]
+#[cfg(feature = "testing")]
 #[expect(
     unsafe_code,
     reason = "std has no `mmap`, `mprotect`, or `munmap`, and a raw system call is `unsafe`"
@@ -993,7 +971,6 @@ pub fn protect_anonymous(prot: libc::c_int) -> io::Result<()> {
 /// so a process whose other threads may be mid-operation (V8's workers, out
 /// of memory) exits by its code rather than crashing in teardown. Anything
 /// the caller wrote must be flushed first.
-#[cfg(target_os = "linux")]
 #[expect(
     unsafe_code,
     reason = "std has no `_exit`, and a libc call is `unsafe`"
@@ -1005,12 +982,11 @@ pub fn exit_now(code: i32) -> ! {
 }
 
 /// `error`, of the same kind, its message prefixed with `what`.
-#[cfg(target_os = "linux")]
 fn context(what: &str, error: &io::Error) -> io::Error {
     io::Error::new(error.kind(), format!("{what}: {error}"))
 }
 
-#[cfg(all(test, target_os = "linux"))]
+#[cfg(test)]
 mod tests {
     use std::ffi::OsString;
 

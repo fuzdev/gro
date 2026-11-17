@@ -13,7 +13,16 @@ deno_core.workspace = true
 deno_web.workspace = true
 deno_webidl.workspace = true
 getrandom.workspace = true
+# the system calls std lacks: the out-of-memory backstop's exit, which skips
+# the process's teardown, the thread count the box checks, a thread's stack
+# start, and `fs`'s calls beneath a descriptor
+gro_sys = { path = "../gro_sys" }
 gro_v8 = { path = "../gro_v8" }
+landlock.workspace = true
+# the kernel's constants: the box's, `fs`'s error numbers, and `ELOOP` and
+# `O_NONBLOCK` for the resolver's reads
+libc.workspace = true
+seccompiler.workspace = true
 serde.workspace = true
 # preserve_order: an "exports" object matches in the package's own key order
 serde_json = { workspace = true, features = ["preserve_order"] }
@@ -21,18 +30,6 @@ thiserror.workspace = true
 tokio.workspace = true
 tsv_ts.workspace = true
 url.workspace = true
-
-[target.'cfg(target_os = "linux")'.dependencies]
-# the out-of-memory backstop's exit, which skips the process's teardown, and
-# the thread count the box checks
-gro_sys = { path = "../gro_sys" }
-landlock.workspace = true
-seccompiler.workspace = true
-
-[target.'cfg(unix)'.dependencies]
-# the OS's `ELOOP` and `O_NONBLOCK` for the resolver's reads, and on Linux the
-# box's constants
-libc.workspace = true
 
 [dev-dependencies]
 # the measurement harness, which keeps its own copies of the phases file's

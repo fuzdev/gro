@@ -1,8 +1,6 @@
 //! A file's identity ([`FileId`]), which the resolver takes as it finds a
 //! file, and the module loader and the fs host module hold a file they open to.
 
-use std::io;
-
 /// A file's identity, its device and inode numbers and its birth time, taken
 /// when the resolver looked it up, or, for a directory the fs host module
 /// is granted, when the embedder checked it (`FsGrant`).
@@ -29,30 +27,12 @@ pub struct FileId {
 
 impl FileId {
     /// The identity of the file `metadata` was read from.
-    ///
-    /// # Errors
-    ///
-    /// Off Unix, an error of kind [`io::ErrorKind::Unsupported`]: there is no
-    /// identity to read, so resolution and loading fail closed.
-    pub fn of(metadata: &std::fs::Metadata) -> io::Result<Self> {
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::MetadataExt as _;
-            Ok(Self {
-                dev: metadata.dev(),
-                ino: metadata.ino(),
-                born: metadata.created().ok(),
-            })
-        }
-        // TODO: the volume serial and file index if gro ever runs off Unix,
-        // failing closed until then
-        #[cfg(not(unix))]
-        {
-            let _ = metadata;
-            Err(io::Error::new(
-                io::ErrorKind::Unsupported,
-                "telling a file's identity needs Unix device and inode numbers",
-            ))
+    pub fn of(metadata: &std::fs::Metadata) -> Self {
+        use std::os::unix::fs::MetadataExt as _;
+        Self {
+            dev: metadata.dev(),
+            ino: metadata.ino(),
+            born: metadata.created().ok(),
         }
     }
 }

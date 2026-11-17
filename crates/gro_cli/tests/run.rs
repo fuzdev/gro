@@ -3371,7 +3371,6 @@ fn a_package_reads_the_observations_and_cwd_is_the_start_directory() {
 /// Started in a directory whose path isn't UTF-8, a run imports `cwd`, and
 /// calling it throws an `Error` saying so, which uncaught fails the run;
 /// a script that never calls it runs as anywhere.
-#[cfg(unix)]
 #[test]
 fn cwd_throws_when_called_in_a_directory_that_is_not_utf8() {
     use std::ffi::OsStr;
@@ -3427,7 +3426,6 @@ fn cwd_throws_when_called_in_a_directory_that_is_not_utf8() {
 
 /// An argument that isn't UTF-8 is refused before anything runs, the file or
 /// one of the script's.
-#[cfg(unix)]
 #[test]
 fn non_utf8_argument_is_a_usage_error() {
     use std::ffi::OsStr;
@@ -3448,7 +3446,6 @@ fn non_utf8_argument_is_a_usage_error() {
 /// Runs `console.js` on a pseudo-terminal through util-linux's `script`, with
 /// `env` set and `redirect` (a shell redirection, or empty) applied inside the
 /// terminal, returning what reached the terminal.
-#[cfg(target_os = "linux")]
 fn run_on_terminal(env: &[(&str, &str)], redirect: &str) -> String {
     // probed once per test binary, not once per call
     static SCRIPT_PROBED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
@@ -3474,7 +3471,6 @@ fn run_on_terminal(env: &[(&str, &str)], redirect: &str) -> String {
     String::from_utf8(output.stdout).unwrap()
 }
 
-#[cfg(target_os = "linux")]
 #[test]
 fn color_is_decided_per_stream() {
     let scratch = Scratch::new("streams", &[]);
@@ -3493,7 +3489,6 @@ fn color_is_decided_per_stream() {
     assert_eq!(stdout, "log 1 { a: [ 1, \"two\" ] }\ninfo\n");
 }
 
-#[cfg(target_os = "linux")]
 #[test]
 fn the_off_vars_turn_color_off_when_non_empty() {
     assert!(run_on_terminal(&[], "").contains('\x1b'));
@@ -3516,7 +3511,6 @@ fn the_off_vars_turn_color_off_when_non_empty() {
     }
 }
 
-#[cfg(target_os = "linux")]
 #[test]
 fn term_of_dumb_turns_color_off() {
     let output = run_on_terminal(&[("TERM", "dumb")], "");
@@ -3543,7 +3537,6 @@ fn force_color_colors_a_pipe_and_its_other_values_do_not() {
     assert!(!String::from_utf8(output.stderr).unwrap().contains('\x1b'));
 }
 
-#[cfg(target_os = "linux")]
 #[test]
 fn force_color_of_another_value_turns_a_terminal_off() {
     let output = run_on_terminal(&[("FORCE_COLOR", "0")], "");

@@ -157,7 +157,6 @@ fn measures_every_row_and_the_noise_row() {
 
 /// Each sample's peak memory is recorded, above the floor every spawned
 /// process reads at least, which the run measures too.
-#[cfg(target_os = "linux")]
 #[test]
 fn records_each_sample_s_peak_memory_and_the_floor() {
     let dir = scratch(
@@ -523,7 +522,6 @@ fn commit_all(dir: &Path) {
 
 /// A project workload runs its script from a fresh copy holding the
 /// committed files, the stubs, and the links.
-#[cfg(unix)]
 #[test]
 fn a_project_workload_runs_from_a_fresh_copy() {
     // it runs only beside its copy's node_modules, with the stubs and the link
@@ -606,7 +604,6 @@ fn a_project_workload_runs_from_a_fresh_copy() {
 
 /// A change to a linked checkout during the run discards it, even when the
 /// checkout was dirty already and only an untracked file's contents move.
-#[cfg(unix)]
 #[test]
 fn a_linked_checkout_changing_mid_run_discards_it() {
     let dir = scratch("checkout_moves", &[]);
@@ -649,7 +646,6 @@ fn a_missing_program_is_an_input_error() {
     assert!(error.is_input_error());
 }
 
-#[cfg(unix)]
 #[test]
 fn a_script_program_is_an_input_error() {
     use std::os::unix::fs::PermissionsExt;
@@ -693,7 +689,6 @@ fn records_the_hash_of_each_suite_file() {
 
 /// The probe sees what a measured process sees: `argv[0]` (from
 /// `/proc/self/cmdline`) and the environment's variable names.
-#[cfg(target_os = "linux")]
 #[test]
 fn processes_get_the_suite_argv0_and_an_isolated_environment() {
     let dir = scratch("isolated", &[("a.sh", "")]);

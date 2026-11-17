@@ -216,7 +216,7 @@ pub fn materialize_project(
         if let Some(parent) = link.parent() {
             fs::create_dir_all(parent).map_err(write_error(parent))?;
         }
-        symlink(&target, &link).map_err(write_error(&link))?;
+        std::os::unix::fs::symlink(&target, &link).map_err(write_error(&link))?;
     }
     // validation puts the script inside the project's directory
     let inside = script.strip_prefix(&project.dir).unwrap_or(script);
@@ -346,18 +346,6 @@ fn walk_tree(
         }
     }
     Ok(())
-}
-
-#[cfg(unix)]
-fn symlink(target: &Path, link: &Path) -> io::Result<()> {
-    std::os::unix::fs::symlink(target, link)
-}
-
-#[cfg(not(unix))]
-fn symlink(_target: &Path, _link: &Path) -> io::Result<()> {
-    Err(io::Error::other(
-        "a project's links are symlinks, which this platform's run doesn't write",
-    ))
 }
 
 #[cfg(test)]
@@ -522,7 +510,6 @@ mod tests {
             write("g", &[("a.t", "sx"), ("src/b.ts", "y"), ("src/c/d.ts", "")]),
         ];
         // a symlink is refused, as a copy refuses it
-        #[cfg(unix)]
         let linked = {
             std::os::unix::fs::symlink("a.ts", base.join("a/l.ts")).unwrap();
             project_blake3("w", &base.join("a"))
@@ -531,7 +518,6 @@ mod tests {
         for (index, other) in moved.iter().enumerate() {
             assert_ne!(other, &hash, "{index}");
         }
-        #[cfg(unix)]
         assert!(
             matches!(linked, Err(BenchError::ProjectEntry { .. })),
             "{linked:?}"

@@ -150,13 +150,11 @@ fn fs_grant(dirs: &FlagDirs, cwd: &Path) -> Result<(FsGrant, Vec<String>), CliEr
         let found = std::fs::canonicalize(&path)
             .and_then(|real| std::fs::metadata(&real).map(|metadata| (real, metadata)));
         let fault = match found {
-            Ok((real, metadata)) if metadata.is_dir() => match FileId::of(&metadata) {
-                Ok(id) => {
-                    notes.extend(grant_note(flag, dir, &path, &real));
-                    return Ok((path, GrantedDir { real, id }));
-                }
-                Err(error) => DirFault::Unreadable(error),
-            },
+            Ok((real, metadata)) if metadata.is_dir() => {
+                let id = FileId::of(&metadata);
+                notes.extend(grant_note(flag, dir, &path, &real));
+                return Ok((path, GrantedDir { real, id }));
+            }
             Ok(_) => DirFault::NotADirectory,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => DirFault::Missing,
             Err(error) if error.kind() == std::io::ErrorKind::NotADirectory => {

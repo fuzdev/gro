@@ -1,12 +1,14 @@
 //! The box's Landlock rules: the filesystem, network, and scope walls, and
 //! the kernel floor they need.
 
-use super::{ConfineError, Pin};
+use std::os::fd::OwnedFd;
+
+use super::ConfineError;
 
 /// Installs the Landlock rules, reading beneath each of `pins`, the roots'
 /// handles opened before, after `no_new_privs`, which the kernel requires
 /// first and Landlock sets.
-pub(super) fn landlock(pins: &[Pin]) -> Result<(), ConfineError> {
+pub(super) fn landlock(pins: &[OwnedFd]) -> Result<(), ConfineError> {
     use std::os::fd::AsFd as _;
 
     use landlock::{

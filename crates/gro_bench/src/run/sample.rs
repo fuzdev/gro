@@ -71,9 +71,9 @@ pub(super) struct Sample {
     pub(super) counts: Option<Counts>,
     /// Its phases' durations, under [`Sampler::Phases`] for a phases runtime.
     pub(super) phases: Vec<(String, u64)>,
-    /// Its peak resident set size in KiB, where the harness reads one
-    /// ([`reap`]).
-    pub(super) max_rss_kib: Option<u64>,
+    /// Its peak resident set size in KiB, read as it's reaped
+    /// (`gro_sys::wait_child`).
+    pub(super) max_rss_kib: u64,
 }
 
 /// How many times [`rss_floor`] runs its trivial program.
@@ -82,15 +82,12 @@ const FLOOR_RUNS: usize = 4;
 /// The peak a sample reads at least, whatever it runs: the largest of a
 /// trivial program's (`true`, found on `PATH`) over a few runs as `sampler`
 /// runs the samples, taken after them, when the harness's own peak is
-/// highest. `None` where the harness reads no peak.
+/// highest.
 pub(super) fn rss_floor(
     dir: &Path,
     sampler: &Sampler,
     watchdog: &Watchdog,
-) -> Result<Option<u64>, BenchError> {
-    if !cfg!(target_os = "linux") {
-        return Ok(None);
-    }
+) -> Result<u64, BenchError> {
     let program = find_program("true", dir).ok_or_else(|| BenchError::ProgramNotFound {
         runtime: "the peak memory floor".to_owned(),
         program: "true".to_owned(),
@@ -110,7 +107,7 @@ pub(super) fn rss_floor(
         stdout: None,
         phases: false,
     };
-    let mut floor = None;
+    let mut floor = 0;
     for _ in 0..FLOOR_RUNS {
         let peak = run_once(&row, dir, sampler, watchdog)?.max_rss_kib;
         floor = floor.max(peak);
@@ -227,15 +224,21 @@ fn run_once(
         &mut command,
         |_| row.display(),
         |child| {
-            let reaped = reap(child)?;
+            let reaped = gro_sys::wait_child(child)?;
             Ok((reaped, start.elapsed(), phases_file.map(|_| unix_ns())))
         },
     )?;
-    let ((status, max_rss_kib), elapsed, reap_unix_ns) =
-        reaped.map_err(|source| BenchError::Spawn {
-            command: row.display(),
-            source,
-        })?;
+    let (
+        gro_sys::Reaped {
+            status,
+            max_rss_kib,
+        },
+        elapsed,
+        reap_unix_ns,
+    ) = reaped.map_err(|source| BenchError::Spawn {
+        command: row.display(),
+        source,
+    })?;
     if !status.success() {
         return Err(BenchError::CommandFailed {
             command: row.display(),
@@ -273,22 +276,4 @@ fn run_once(
         phases,
         max_rss_kib,
     })
-}
-
-/// Waits for `child` and reaps it, returning its exit status and, on Linux,
-/// its peak resident set size in KiB (`gro_sys::wait_child`).
-#[cfg(target_os = "linux")]
-pub(super) fn reap(
-    child: std::process::Child,
-) -> io::Result<(std::process::ExitStatus, Option<u64>)> {
-    gro_sys::wait_child(child).map(|reaped| (reaped.status, Some(reaped.max_rss_kib)))
-}
-
-/// Waits for `child` and reaps it, returning its exit status; elsewhere no
-/// peak is read.
-#[cfg(not(target_os = "linux"))]
-pub(super) fn reap(
-    mut child: std::process::Child,
-) -> io::Result<(std::process::ExitStatus, Option<u64>)> {
-    child.wait().map(|status| (status, None))
 }

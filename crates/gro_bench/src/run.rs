@@ -38,8 +38,8 @@
 //! ([`phases`](crate::phases)), or hardware counters under `perf stat`
 //! ([`counters`](crate::counters)), which the run checks work before
 //! anything else. Only the timed samples are counted; the correctness run,
-//! the warmups, and the version probes run as they are. In a wall run, on
-//! Linux, each sample's peak memory is read as it's reaped (`wait4`'s
+//! the warmups, and the version probes run as they are. In a wall run, each
+//! sample's peak memory is read as it's reaped (`wait4`'s
 //! `ru_maxrss`), and after the samples the floor that peak can't go below
 //! (a trivial program's, run the same way; [`RunRecord`]'s `rss_floor_kib`);
 //! a counter run's spawner is `perf`, whose own peak would mask a small
@@ -188,7 +188,7 @@ pub fn run(suite: &Suite, dir: &Path, context: RunContext) -> Result<RunRecord, 
     // only a wall run's spawner is the harness alone ([`RunRecord`])
     let wall = matches!(sampler, Sampler::Wall);
     let rss_floor_kib = if wall {
-        rss_floor(dir, &sampler, &watchdog)?
+        Some(rss_floor(dir, &sampler, &watchdog)?)
     } else {
         None
     };

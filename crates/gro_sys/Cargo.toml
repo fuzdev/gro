@@ -7,7 +7,7 @@ repository.workspace = true
 publish.workspace = true
 description = "gro's raw system calls, behind a safe API"
 
-[target.'cfg(target_os = "linux")'.dependencies]
+[dependencies]
 libc.workspace = true
 
 [features]

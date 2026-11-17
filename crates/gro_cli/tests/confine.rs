@@ -5,8 +5,8 @@
 //!
 //! The binary runs without libtest's harness, whose threads would refuse the
 //! box. It needs a snapshot build, for the case that evaluates a module
-//! under the box, and Linux, the only platform with one, so it runs from
-//! `cargo xtask build --verify`; elsewhere it prints that it skipped.
+//! under the box, so it runs from `cargo xtask build --verify`; without one
+//! it prints that it skipped.
 //!
 //! Built with the `prices` feature too, it adds a case that installs
 //! Landlock without the seccomp allowlist (`GRO_PRICES_OFF=seccomp`), whose
@@ -19,7 +19,7 @@
 
 // clippy's test allowance covers `#[test]` functions, and this binary has none
 #![cfg_attr(
-    all(feature = "snapshot", target_os = "linux"),
+    feature = "snapshot",
     expect(
         clippy::unwrap_used,
         clippy::panic,
@@ -30,15 +30,13 @@
 mod support;
 
 fn main() {
-    #[cfg(all(feature = "snapshot", target_os = "linux"))]
+    #[cfg(feature = "snapshot")]
     confined::main();
-    #[cfg(not(all(feature = "snapshot", target_os = "linux")))]
-    println!(
-        "skipped: the box's cases need a snapshot build on Linux (`cargo xtask build --verify`)"
-    );
+    #[cfg(not(feature = "snapshot"))]
+    println!("skipped: the box's cases need a snapshot build (`cargo xtask build --verify`)");
 }
 
-#[cfg(all(feature = "snapshot", target_os = "linux"))]
+#[cfg(feature = "snapshot")]
 mod confined {
     use std::io::ErrorKind;
     use std::os::unix::fs::{MetadataExt as _, OpenOptionsExt as _};
