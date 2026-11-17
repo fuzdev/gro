@@ -182,7 +182,8 @@ the reads (`read`, `read_text`, `read_if_exists`, `read_text_if_exists`, `read_t
   a program writes a granted directory through a handle `fs.open_dir` makes on it, and `fs.open_dir` of `out` is the handle that writes it.
   The hint after such a refusal says to open the directory with `fs.open_dir`, never to grant a flag that would widen the handle's root ([run](run.md#errors-and-exit-codes)).
   A read op (`stat`, `exists`, the reads, `read_link`, `list`) through a handle that doesn't read is `not_granted`, after its path is checked and before anything is looked up,
-  and so is a write op through one that doesn't write. A write op through one that writes throws a plain `Error` saying it isn't built on `fgro` yet.
+  and so is a write op through one that doesn't write. A `copy` reads its `from`, so a handle that doesn't read is refused it naming `from`, before the write is judged.
+  A write op through one that writes throws a plain `Error` saying it isn't built on `fgro` yet.
   `dir()` and `readonly()` work on any handle, so a handle that only writes still narrows to a subdirectory.
 - `fs.open_dir` and `fs.real_path` take an absolute path inside a root, `fs.real_path` only a root that reads, its `..` resolved as Node's `realpath` resolves it:
   after the symlink before it, so `link/..` is the parent of `link`'s target, and `missing/..` and `a.txt/..` fail as they do on Node.

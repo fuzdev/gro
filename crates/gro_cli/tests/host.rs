@@ -1903,6 +1903,96 @@ fn fs_unconfined_reads_and_writes_everything() {
     );
 }
 
+/// The script [`fs_a_copy_s_read_is_judged_by_the_handle_s_read`] runs: the
+/// call it names, uncaught.
+const FS_COPY_GATE: &str = "import { fs } from '@fuzdev/gro/fs.ts';
+import { args } from '@fuzdev/gro/args.ts';
+const [w, name] = args;
+const handle = name.startsWith('project') ? fs.project : await fs.open_dir(w);
+const calls = {
+\tread_refused: () => handle.copy('f.txt', 'g.txt'),
+\tproject_write_refused: () => handle.copy('package.json', 'g.txt'),
+\tproject_above: () => handle.copy('../x', 'y'),
+\tproject_absolute: () => handle.copy('/etc/passwd', 'y'),
+\tabove: () => handle.copy('../x', 'y'),
+\tabsolute: () => handle.copy('/etc/passwd', 'y'),
+};
+try {
+\tawait calls[name]();
+} catch (error) {
+\tconsole.log(error.constructor.name, error.kind ?? error.message);
+}
+";
+
+/// A copy reads its `from`, so a handle that doesn't read is refused it
+/// `not_granted` naming `from`, judged before the write, with the hint a
+/// read needs; a handle that reads but doesn't write is refused naming
+/// `to`. A `from` above the handle or absolute is `outside_root` before any
+/// grant is judged, through a handle that reads and one that writes alike,
+/// and no refusal is recorded. (`copy` itself isn't built on fgro yet.)
+#[test]
+fn fs_a_copy_s_read_is_judged_by_the_handle_s_read() {
+    let project = Scratch::new(
+        "fs_copy_gate",
+        &[
+            (
+                "package.json",
+                "{\"name\": \"fs_copy_gate\", \"type\": \"module\"}\n",
+            ),
+            ("main.js", FS_COPY_GATE),
+        ],
+    );
+    let w = Scratch::new("fs_copy_gate_w", &[("f.txt", "f")]);
+    let w_path = w.0.display().to_string();
+    let run = |name: &str| {
+        let mut command = fgro_command(&[
+            "run",
+            &format!("--allow-write={w_path}"),
+            "main.js",
+            &w_path,
+            name,
+        ]);
+        command.env_clear().current_dir(&project.0);
+        let output = spawn(command, b"");
+        (
+            output.status.code(),
+            String::from_utf8(output.stdout).unwrap(),
+            String::from_utf8(output.stderr).unwrap(),
+        )
+    };
+    let p = project.0.display();
+    let refusal = |path: String, hint: &str| {
+        format!(
+            "error: fs refused: not_granted: {path}\n\
+             error: a refusal fails the run, whether or not the program caught it\n\
+             {hint}\n"
+        )
+    };
+    assert_eq!(
+        run("read_refused"),
+        (
+            Some(1),
+            "FsError not_granted\n".to_owned(),
+            refusal(format!("{w_path}/f.txt"), HINT_READ)
+        )
+    );
+    assert_eq!(
+        run("project_write_refused"),
+        (
+            Some(1),
+            "FsError not_granted\n".to_owned(),
+            refusal(format!("{p}/g.txt"), HINT_WRITE)
+        )
+    );
+    for name in ["project_above", "project_absolute", "above", "absolute"] {
+        assert_eq!(
+            run(name),
+            (Some(0), "FsError outside_root\n".to_owned(), String::new()),
+            "{name}"
+        );
+    }
+}
+
 /// The hint after an fs refusal that a grant to read lets through.
 const HINT_READ: &str = "hint: add --allow-read naming the directory to grant what fs refused";
 
