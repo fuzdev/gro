@@ -2288,9 +2288,9 @@ fn fs_a_root_s_directory_is_kept_under_a_run_granted_everything() {
     assert!(!Path::new(&scratch.path("beside.txt")).exists());
 }
 
-/// The script [`fs_a_copy_s_read_is_judged_by_the_handle_s_read`] runs: the
-/// call it names, uncaught.
-const FS_COPY_GATE: &str = "import { fs } from '@fuzdev/gro/fs.ts';
+/// The script [`fs_a_write_s_paths_are_judged_by_the_handle_s_scope`] runs:
+/// the call it names, caught, and then, for one that settled, what it left.
+const FS_WRITE_GATE: &str = "import { fs } from '@fuzdev/gro/fs.ts';
 import { args } from '@fuzdev/gro/args.ts';
 const [w, name] = args;
 const handle = name.startsWith('project') ? fs.project : await fs.open_dir(w);
@@ -2301,9 +2301,15 @@ const calls = {
 \tproject_absolute: () => handle.copy('/etc/passwd', 'y'),
 \tabove: () => handle.copy('../x', 'y'),
 \tabsolute: () => handle.copy('/etc/passwd', 'y'),
+\tproject_set_times: () => handle.set_times('package.json', { mtime_ms: 0 }),
+\tproject_set_mode: () => handle.set_mode('package.json', 0o600),
+\tproject_symlink: () => handle.symlink('l', 'package.json'),
+\tset_times: () => handle.set_times('f.txt', { mtime_ms: 1000 }),
+\tset_mode: () => handle.set_mode('f.txt', 0o600),
+\tsymlink: () => handle.symlink('l', 'f.txt'),
 };
 try {
-\tawait calls[name]();
+\tconsole.log('settled', await calls[name]());
 } catch (error) {
 \tconsole.log(error.constructor.name, error.kind ?? error.message);
 }
@@ -2314,9 +2320,13 @@ try {
 /// read needs; a handle that reads but doesn't write is refused naming
 /// `to`. A `from` above the handle or absolute is `outside_root` before any
 /// grant is judged, through a handle that reads and one that writes alike,
-/// and no refusal is recorded. (`copy` itself isn't built on fgro yet.)
+/// and no refusal is recorded. `set_times`, `set_mode`, and `symlink` each
+/// need the handle's write: through one that only reads, each is refused
+/// naming its path, with the hint a write needs, and through one that
+/// writes, each settles and does what it says, a write-only handle's
+/// included, since none reads.
 #[test]
-fn fs_a_copy_s_read_is_judged_by_the_handle_s_read() {
+fn fs_a_write_s_paths_are_judged_by_the_handle_s_scope() {
     let project = Scratch::new(
         "fs_copy_gate",
         &[
@@ -2324,7 +2334,7 @@ fn fs_a_copy_s_read_is_judged_by_the_handle_s_read() {
                 "package.json",
                 "{\"name\": \"fs_copy_gate\", \"type\": \"module\"}\n",
             ),
-            ("main.js", FS_COPY_GATE),
+            ("main.js", FS_WRITE_GATE),
         ],
     );
     let w = Scratch::new("fs_copy_gate_w", &[("f.txt", "f")]);
@@ -2376,6 +2386,50 @@ fn fs_a_copy_s_read_is_judged_by_the_handle_s_read() {
             "{name}"
         );
     }
+    for name in ["project_set_times", "project_set_mode", "project_symlink"] {
+        let path = if name == "project_symlink" {
+            "l"
+        } else {
+            "package.json"
+        };
+        assert_eq!(
+            run(name),
+            (
+                Some(1),
+                "FsError not_granted\n".to_owned(),
+                refusal("a write", format!("{p}/{path}"), HINT_WRITE)
+            ),
+            "{name}"
+        );
+    }
+    let f = w.0.join("f.txt");
+    for (name, settled) in [
+        ("set_times", "undefined"),
+        ("set_mode", "undefined"),
+        ("symlink", "created"),
+    ] {
+        assert_eq!(
+            run(name),
+            (Some(0), format!("settled {settled}\n"), String::new()),
+            "{name}"
+        );
+    }
+    use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
+    let metadata = std::fs::metadata(&f).unwrap();
+    assert_eq!(
+        (metadata.mtime(), metadata.permissions().mode() & 0o777),
+        (1, 0o600)
+    );
+    assert_eq!(
+        std::fs::read_link(w.0.join("l")).unwrap(),
+        Path::new("f.txt")
+    );
+    let modes = std::fs::metadata(project.0.join("package.json"))
+        .unwrap()
+        .permissions()
+        .mode();
+    assert_ne!(modes & 0o777, 0o600);
+    assert!(!project.0.join("l").exists());
 }
 
 /// The script [`fs_a_refused_move_of_a_root_hints_no_grant`] runs: the call

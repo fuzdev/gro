@@ -581,25 +581,24 @@ native_members! {
         fs::writes::unbuilt(state, scope, "copy", handle, Some(from), to, errors)
     }
 
-    /// `dir.set_times(path, times, options?)`, not built
-    /// ([`fs::writes::unbuilt`]).
-    async set_times(state, _granted: FsGrant; scope, path, _times, _options)
+    /// `dir.set_times(path, times, options?)` ([`fs::writes::set_times`]).
+    async set_times(state, _granted: FsGrant; scope, path, times, options)
         for "@fuzdev/gro/fs.ts" on FS_DIR(handle) throws FS_ERROR(errors)
     {
-        fs::writes::unbuilt(state, scope, "set_times", handle, None, path, errors)
+        fs::writes::set_times(state, scope, handle, path, times, options, errors)
     }
 
-    /// `dir.set_mode(path, mode)`, not built ([`fs::writes::unbuilt`]).
-    async set_mode(state, _granted: FsGrant; scope, path, _mode) for "@fuzdev/gro/fs.ts"
+    /// `dir.set_mode(path, mode)` ([`fs::writes::set_mode`]).
+    async set_mode(state, _granted: FsGrant; scope, path, mode) for "@fuzdev/gro/fs.ts"
         on FS_DIR(handle) throws FS_ERROR(errors)
     {
-        fs::writes::unbuilt(state, scope, "set_mode", handle, None, path, errors)
+        fs::writes::set_mode(state, scope, handle, path, mode, errors)
     }
 
-    /// `dir.symlink(path, target)`, not built ([`fs::writes::unbuilt`]).
-    async symlink(state, _granted: FsGrant; scope, path, _target) for "@fuzdev/gro/fs.ts"
+    /// `dir.symlink(path, target)` ([`fs::writes::symlink`]).
+    async symlink(state, _granted: FsGrant; scope, path, target) for "@fuzdev/gro/fs.ts"
         on FS_DIR(handle) throws FS_ERROR(errors)
     {
-        fs::writes::unbuilt(state, scope, "symlink", handle, None, path, errors)
+        fs::writes::symlink(state, scope, handle, path, target, errors)
     }
 }

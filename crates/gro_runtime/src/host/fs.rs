@@ -652,6 +652,16 @@ fn read_flag(
     Ok(read_option(scope, options, key)?.is_some_and(|value| value.boolean_value(scope)))
 }
 
+/// Whether `options` say to follow a final symlink, as the Node module
+/// reads `options?.follow ?? true` ([`read_option`]).
+fn read_follow(
+    scope: &v8::PinScope<'_, '_>,
+    options: v8::Local<'_, v8::Value>,
+) -> Result<bool, Failure> {
+    Ok(read_option(scope, options, "follow")?
+        .is_none_or(|follow| follow.is_null_or_undefined() || follow.boolean_value(scope)))
+}
+
 /// Whether an op's `error` is nothing at its path, the handle's directory
 /// or the target.
 fn is_missing(error: &sys::OpError) -> bool {

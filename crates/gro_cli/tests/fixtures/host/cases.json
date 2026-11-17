@@ -784,6 +784,57 @@
 		"differs": []
 	},
 	{
+		"name": "fs_set_times",
+		"module": "fs",
+		"args": ["set_times"],
+		"flags": ["--allow-write=scratch"],
+		"scratch": {
+			"dir": "scratch",
+			"links": {
+				"dangling": "missing.txt",
+				"to_sub": "sub",
+				"to_file": "a.txt",
+				"escape": "../outside.txt",
+				"absolute": "/proc/self/status"
+			}
+		},
+		"differs": []
+	},
+	{
+		"name": "fs_set_mode",
+		"module": "fs",
+		"args": ["set_mode"],
+		"flags": ["--allow-write=scratch"],
+		"scratch": {
+			"dir": "scratch",
+			"links": {
+				"dangling": "missing.txt",
+				"to_sub": "sub",
+				"to_file": "a.txt",
+				"escape": "../outside.txt",
+				"absolute": "/proc/self/status"
+			}
+		},
+		"differs": []
+	},
+	{
+		"name": "fs_symlink",
+		"module": "fs",
+		"args": ["symlink"],
+		"flags": ["--allow-write=scratch"],
+		"scratch": {
+			"dir": "scratch",
+			"links": {
+				"dangling": "missing.txt",
+				"to_sub": "sub",
+				"to_file": "a.txt",
+				"escape": "../outside.txt",
+				"absolute": "/proc/self/status"
+			}
+		},
+		"differs": []
+	},
+	{
 		"name": "fs_write_arguments",
 		"module": "fs",
 		"args": [

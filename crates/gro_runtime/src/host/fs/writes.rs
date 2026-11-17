@@ -32,12 +32,14 @@
 //! ([`gro_sys::beneath::Last::remove_tree`]), and names no entry inside it
 //! in its error.
 
+use std::time::Duration;
+
 use deno_core::{OpState, v8};
 
 use super::roots::{Held, MoveRefusal, RenameEnd};
 use super::{
     Access, End, Failure, FsErrorKind, MODULE, Op, finish, gains_scope_failure,
-    holds_a_root_failure, is_missing, read_flag, read_option, sys,
+    holds_a_root_failure, is_missing, read_flag, read_follow, read_option, sys,
 };
 use crate::host::error_class::DeclaredFamily;
 use crate::host::handle::FS_DIR;
@@ -292,6 +294,191 @@ pub fn rename<'s>(
         Ok(v8::undefined(scope).into())
     })();
     finish(state, scope, Some(errors), result)
+}
+
+/// The latest time `set_times` takes, in milliseconds since the epoch, the
+/// latest a `Date` holds, as the Node module's `MAX_TIME_MS`.
+const MAX_TIME_MS: f64 = 8.64e15;
+
+/// `set_times(path, times, options?)` called on `receiver`: sets the
+/// entry's modification time to `times.mtime_ms` and its access time to
+/// `times.atime_ms`, `mtime_ms` when it's missing or `undefined`, each
+/// read as data ([`read_option`]) and checked as the Node module checks
+/// them ([`time_of`]); of the entry a final symlink leads to beneath the
+/// handle, or, with `follow: false`, of the entry the path names, a symlink
+/// itself, but for a path naming a directory (a trailing `/`) or the
+/// handle's own, which no symlink is.
+pub fn set_times<'s>(
+    state: &OpState,
+    scope: &v8::PinScope<'s, '_>,
+    receiver: v8::Local<'s, v8::Value>,
+    path: v8::Local<'s, v8::Value>,
+    times: v8::Local<'s, v8::Value>,
+    options: v8::Local<'s, v8::Value>,
+    errors: DeclaredFamily,
+) -> Option<v8::Local<'s, v8::Value>> {
+    let result = (|| {
+        let op = Op::new(state, scope, &FS_DIR, receiver)?;
+        let end = op.path(scope, path)?;
+        let mtime = time_of(read_option(scope, times, "mtime_ms")?, "mtime_ms")?;
+        let atime = match read_option(scope, times, "atime_ms")?.filter(|atime| !atime.is_undefined())
+        {
+            Some(atime) => time_of(Some(atime), "atime_ms")?,
+            None => mtime,
+        };
+        // a trailing `/` follows a final symlink, as in the kernel
+        let follow = read_follow(scope, options)? || end.lexical.dir || end.is_own();
+        op.check(Access::Write, &[&end], false)?;
+        let (fd, dir, rel) = op.call(&end)?;
+        sys::set_times(fd, dir, rel, follow, atime, mtime)
+            .map_err(|error| op.failure(&end, error))?;
+        Ok(v8::undefined(scope).into())
+    })();
+    finish(state, scope, Some(errors), result)
+}
+
+/// `value`, the time `name` of `set_times`' times, as the time since the
+/// epoch it names, to the nearest nanosecond: a number from `0` to
+/// [`MAX_TIME_MS`], else a `TypeError`, a `Number` object among them,
+/// never converted, as the Node module's `to_time_ms` checks it.
+fn time_of(value: Option<v8::Local<'_, v8::Value>>, name: &str) -> Result<Duration, Failure> {
+    let ms = value
+        .and_then(|value| v8::Local::<v8::Number>::try_from(value).ok())
+        .map(|number| number.value())
+        .filter(|ms| (0.0..=MAX_TIME_MS).contains(ms))
+        .ok_or_else(|| {
+            Failure::Type(format!(
+                "fs times are finite numbers of ms from 0 to {MAX_TIME_MS}: {name}"
+            ))
+        })?;
+    Ok(to_duration(ms))
+}
+
+/// `ms`, a number of milliseconds from `0` to [`MAX_TIME_MS`], as a time
+/// since the epoch, its fraction of a millisecond rounded to the nearest
+/// nanosecond: the whole seconds split off first, so an integer is exact.
+fn to_duration(ms: f64) -> Duration {
+    let mut seconds = (ms / 1000.0).trunc();
+    // exact either way: the seconds' milliseconds are a whole number of them
+    let mut rest = seconds.mul_add(-1000.0, ms);
+    if rest < 0.0 {
+        seconds -= 1.0;
+        rest += 1000.0;
+    }
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "whole numbers from 0 to the most seconds and nanoseconds a time from 0 to MAX_TIME_MS holds, checked"
+    )]
+    let (seconds, nanos) = (seconds as u64, (rest * 1_000_000.0).round() as u64);
+    Duration::from_secs(seconds) + Duration::from_nanos(nanos)
+}
+
+/// `set_mode(path, mode)` called on `receiver`: sets the permission bits
+/// of the entry a final symlink leads to beneath the handle to `mode`, an
+/// integer from `0` to `0o777`, so no setuid, setgid, or sticky bit, as the
+/// Node module's `to_permission_mode` checks it, else a `TypeError`, never
+/// converted.
+pub fn set_mode<'s>(
+    state: &OpState,
+    scope: &v8::PinScope<'s, '_>,
+    receiver: v8::Local<'s, v8::Value>,
+    path: v8::Local<'s, v8::Value>,
+    mode: v8::Local<'s, v8::Value>,
+    errors: DeclaredFamily,
+) -> Option<v8::Local<'s, v8::Value>> {
+    let result = (|| {
+        let op = Op::new(state, scope, &FS_DIR, receiver)?;
+        let end = op.path(scope, path)?;
+        let mode = v8::Local::<v8::Number>::try_from(mode)
+            .ok()
+            .map(|number| number.value())
+            .filter(|mode| mode.fract() == 0.0 && (0.0..=f64::from(0o777)).contains(mode))
+            .map(permission_bits)
+            .ok_or_else(|| Failure::Type("fs modes are integers from 0 to 0o777".to_owned()))?;
+        op.check(Access::Write, &[&end], false)?;
+        let (fd, dir, rel) = op.call(&end)?;
+        sys::set_mode(fd, dir, rel, mode).map_err(|error| op.failure(&end, error))?;
+        Ok(v8::undefined(scope).into())
+    })();
+    finish(state, scope, Some(errors), result)
+}
+
+/// `mode`, an integer from `0` to `0o777`, as its bits.
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "an integer from 0 to 0o777, checked"
+)]
+const fn permission_bits(mode: f64) -> u32 {
+    mode as u32
+}
+
+/// `symlink(path, target)` called on `receiver`: makes a symlink at `path`
+/// pointing at `target`, which is data, stored as it is and never
+/// resolved, checked as the Node module checks it ([`link_target`]);
+/// `'created'`, or `'exists'` when any entry was already there, a dangling
+/// symlink and the handle's own directory among them, left as they are. A
+/// path naming a directory, by a trailing `/`, `/.`, or `/..`, is a
+/// `TypeError`, as the kernel would follow it, never make it.
+pub fn symlink<'s>(
+    state: &OpState,
+    scope: &v8::PinScope<'s, '_>,
+    receiver: v8::Local<'s, v8::Value>,
+    path: v8::Local<'s, v8::Value>,
+    target: v8::Local<'s, v8::Value>,
+    errors: DeclaredFamily,
+) -> Option<v8::Local<'s, v8::Value>> {
+    let result = (|| {
+        let op = Op::new(state, scope, &FS_DIR, receiver)?;
+        let end = op.path(scope, path)?;
+        let target = link_target(scope, target)?;
+        if end.lexical.dir {
+            return Err(Failure::Type(format!(
+                "fs.symlink takes a path with no trailing `/`: {}",
+                end.requested
+            )));
+        }
+        op.check(Access::Write, &[&end], false)?;
+        let answer = if end.is_own() {
+            "exists"
+        } else {
+            let (fd, dir, rel) = op.call(&end)?;
+            match sys::symlink(fd, dir, rel, target) {
+                Ok(()) => "created",
+                Err(sys::OpError::Target(error)) if error.raw_os_error() == Some(libc::EEXIST) => {
+                    "exists"
+                }
+                Err(error) => return Err(op.failure(&end, error)),
+            }
+        };
+        string(scope, answer).map(Into::into).ok_or(Failure::Thrown)
+    })();
+    finish(state, scope, Some(errors), result)
+}
+
+/// `value` as a symlink's target, as the Node module's `assert_link_target`
+/// checks one: a string, not empty, with no NUL byte, and well-formed
+/// Unicode, so it stores the target it spells, else a `TypeError`.
+fn link_target(
+    scope: &v8::PinScope<'_, '_>,
+    value: v8::Local<'_, v8::Value>,
+) -> Result<String, Failure> {
+    let Ok(text) = v8::Local::<v8::String>::try_from(value) else {
+        return Err(Failure::Type("fs symlink targets are strings".to_owned()));
+    };
+    let mut units = vec![0; text.length()];
+    text.write_v2(scope, 0, &mut units, v8::WriteFlags::empty());
+    if units.is_empty() {
+        return Err(Failure::Type("fs symlink targets are not empty".to_owned()));
+    }
+    if units.contains(&0) {
+        return Err(Failure::Type(
+            "fs symlink targets hold no NUL byte".to_owned(),
+        ));
+    }
+    String::from_utf16(&units)
+        .map_err(|_| Failure::Type("fs symlink targets are well-formed Unicode".to_owned()))
 }
 
 /// The write op `name`, not built on fgro yet, called on `receiver`, an

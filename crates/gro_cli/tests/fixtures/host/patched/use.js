@@ -149,7 +149,8 @@ const EXERCISES = new Map([
 	['@fuzdev/gro/fs.ts fs.project.symlink', [[ABOVE, 'x']]],
 	// each write built on fgro through `written`, a handle on a directory the run writes, with
 	// data and options, so a hostile one in their place is read: a file written, made new, a
-	// directory made, a file renamed, a missing file and a directory removed
+	// directory made, a file renamed, a missing file and a directory removed, a file's times and
+	// mode set, and a link made
 	[
 		'@fuzdev/gro/fs.ts written.write',
 		[
@@ -165,7 +166,13 @@ const EXERCISES = new Map([
 			['made', { recursive: true }]
 		]
 	],
-	['@fuzdev/gro/fs.ts written.rename', [['written.txt', 'renamed.txt']]]
+	['@fuzdev/gro/fs.ts written.rename', [['written.txt', 'renamed.txt']]],
+	[
+		'@fuzdev/gro/fs.ts written.set_times',
+		[['made.txt', { mtime_ms: 0, atime_ms: 1 }, { follow: false }]]
+	],
+	['@fuzdev/gro/fs.ts written.set_mode', [['made.txt', 0o644]]],
+	['@fuzdev/gro/fs.ts written.symlink', [['link', 'made.txt']]]
 ]);
 
 /** How far into an export's properties and its calls' results the functions are looked for. */
@@ -196,7 +203,7 @@ exerciser.exercise(
 // the writes built on fgro, through a handle that writes, each reached as it would be through
 // `fs.project`, and nothing past them
 const written_prototype = Object.getPrototypeOf(written);
-for (const name of ['write', 'mkdir', 'remove', 'rename']) {
+for (const name of ['write', 'mkdir', 'remove', 'rename', 'set_times', 'set_mode', 'symlink']) {
 	exerciser.exercise(`@fuzdev/gro/fs.ts written.${name}`, written_prototype[name], written, 1);
 }
 

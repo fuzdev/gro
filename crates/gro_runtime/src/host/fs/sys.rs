@@ -380,6 +380,53 @@ fn mkdir_all(dir: BorrowedFd<'_>, rel: &str) -> io::Result<()> {
     Ok(())
 }
 
+/// Sets the permission bits of the entry at `rel` beneath the handle's
+/// directory, at `beneath` the root, a final symlink followed beneath, to
+/// `mode` ([`beneath::set_mode`]).
+pub fn set_mode(root: Arc<OwnedFd>, beneath: String, rel: String, mode: u32) -> Result<(), OpError> {
+    let handle = HandleDir::open(&root, &beneath).map_err(OpError::Handle)?;
+    beneath::set_mode(handle.fd(), Path::new(&rel), mode).map_err(OpError::Target)
+}
+
+/// Sets the access and modification times of the entry at `rel` beneath
+/// the handle's directory, at `beneath` the root, `atime` and `mtime`
+/// since the epoch: of the entry a final symlink leads to beneath when
+/// `follow` says, else of the entry the path names, a symlink itself
+/// ([`beneath::set_times`]).
+pub fn set_times(
+    root: Arc<OwnedFd>,
+    beneath: String,
+    rel: String,
+    follow: bool,
+    atime: std::time::Duration,
+    mtime: std::time::Duration,
+) -> Result<(), OpError> {
+    let handle = HandleDir::open(&root, &beneath).map_err(OpError::Handle)?;
+    let final_link = if follow {
+        FinalLink::Follow
+    } else {
+        FinalLink::Keep
+    };
+    beneath::set_times(handle.fd(), Path::new(&rel), final_link, atime, mtime)
+        .map_err(OpError::Target)
+}
+
+/// Makes a symlink at `rel` beneath the handle's directory, at `beneath`
+/// the root, pointing at `target`, stored as it is and never resolved; the
+/// last component is never followed, so any entry there fails with
+/// `EEXIST` ([`Last::symlink`]).
+pub fn symlink(
+    root: Arc<OwnedFd>,
+    beneath: String,
+    rel: String,
+    target: String,
+) -> Result<(), OpError> {
+    let handle = HandleDir::open(&root, &beneath).map_err(OpError::Handle)?;
+    Last::open(handle.fd(), Path::new(&rel))
+        .and_then(|last| last.symlink(target.as_ref()))
+        .map_err(OpError::Target)
+}
+
 /// The real path of `last`'s entry, as text: its parent's real path,
 /// the handle's directory's, `handle_path`, for one in it, else read
 /// beneath the root at `root_path` ([`beneath::path_beneath`]), joined

@@ -17,7 +17,7 @@ use deno_core::{OpState, v8};
 use gro_v8::PendingArrayBuffer;
 
 use super::{
-    Access, Failure, FsErrorKind, Op, file_kind_name, finish, is_missing, path_text, read_option,
+    Access, Failure, FsErrorKind, Op, file_kind_name, finish, is_missing, path_text, read_follow,
     sys,
 };
 use crate::host::error_class::DeclaredFamily;
@@ -79,10 +79,8 @@ fn find<'s>(
 ) -> Result<Found, Failure> {
     let op = Op::new(state, scope, &FS_READ_DIR, receiver)?;
     let requested = path_text(scope, path)?;
-    // `options?.follow ?? true`
     let follow = match options {
-        Some(options) => read_option(scope, options, "follow")?
-            .is_none_or(|follow| follow.is_null_or_undefined() || follow.boolean_value(scope)),
+        Some(options) => read_follow(scope, options)?,
         None => true,
     };
     let end = op.resolve(requested)?;

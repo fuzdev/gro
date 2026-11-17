@@ -180,7 +180,7 @@ const PATHS = [
 	'order/link'
 ];
 
-/** The symlinks the case's runner makes in `scratch/`, which no op here can make on fgro. */
+/** The symlinks the case's runner makes in `scratch/`. */
 const LINKS = ['dangling', 'to_sub', 'to_file', 'escape', 'absolute'];
 
 /**
@@ -834,6 +834,146 @@ const SCENARIOS = {
 			a_dangling_link: () => dir.rename('dangling', 'moved_dangling'),
 			a_link_out: () => dir.rename('escape', 'moved_escape'),
 			an_absolute_link: () => dir.rename('absolute', 'sub/moved_absolute')
+		});
+	},
+	// `set_times` of each kind of path, time, and option, through a handle on `scratch/`, each
+	// shown by the modification time `stat` reads after it, of the link itself without `follow`
+	set_times: async (ns) => {
+		const dir = await open_scratch(ns);
+		const at = 1_700_000_000_123;
+		/** @type {(path: string, times: any, options?: any, read?: string) => () => Promise<unknown>} */
+		const set =
+			(path, times, options = undefined, read = path) =>
+			async () => {
+				await dir.set_times(path, times, options);
+				const info = await dir.stat(read, { follow: options?.follow ?? true });
+				return info?.mtime_ms;
+			};
+		const ended = await outcomes({
+			a_file: set('a.txt', { mtime_ms: at }),
+			an_access_time: set('a.txt', { mtime_ms: at + 1, atime_ms: 5 }),
+			a_fraction: set('a.txt', { mtime_ms: at + 0.5 }),
+			zero: set('a.txt', { mtime_ms: 0 }),
+			negative_zero: set('a.txt', { mtime_ms: -0 }),
+			a_directory: set('sub', { mtime_ms: at }),
+			its_own_directory: set('', { mtime_ms: at }),
+			its_own_directory_kept: set('.', { mtime_ms: at + 2 }, { follow: false }),
+			a_link_followed: set('to_file', { mtime_ms: at + 3 }, undefined, 'a.txt'),
+			a_link_kept: set('to_file', { mtime_ms: at + 4 }, { follow: false }),
+			a_link_kept_falsy: set('to_file', { mtime_ms: at + 5 }, { follow: 0 }),
+			a_link_null_follow: set('to_file', { mtime_ms: at + 6 }, { follow: null }, 'a.txt'),
+			a_link_slashed_kept: set('to_sub/', { mtime_ms: at + 7 }, { follow: false }, 'sub'),
+			a_dangling_link: set('dangling', { mtime_ms: at }),
+			a_dangling_link_kept: set('dangling', { mtime_ms: at + 8 }, { follow: false }),
+			a_link_out: set('escape', { mtime_ms: at }),
+			a_link_out_kept: set('escape', { mtime_ms: at + 9 }, { follow: false }),
+			an_absolute_link: set('absolute', { mtime_ms: at }),
+			an_absolute_link_kept: set('absolute', { mtime_ms: at + 10 }, { follow: false }),
+			missing: set('missing', { mtime_ms: at }),
+			through_a_file: set('a.txt/x', { mtime_ms: at }),
+			through_a_link: set('to_sub/b.txt', { mtime_ms: at + 11 }),
+			above: set('../x', { mtime_ms: at }),
+			absolute: set('/x', { mtime_ms: at }),
+			negative: set('a.txt', { mtime_ms: -1 }),
+			past_a_date: set('a.txt', { mtime_ms: 8.64e15 + 1 }),
+			not_a_number: set('a.txt', { mtime_ms: NaN }),
+			infinite: set('a.txt', { mtime_ms: Infinity }),
+			a_string: set('a.txt', { mtime_ms: '5' }),
+			a_boxed_number: set('a.txt', { mtime_ms: new Number(5) }),
+			no_time: set('a.txt', {}),
+			a_primitive: set('a.txt', 5),
+			a_null_access_time: set('a.txt', { mtime_ms: at, atime_ms: null }),
+			a_bad_access_time: set('a.txt', { mtime_ms: at, atime_ms: -1 }),
+			an_inherited_time: set('a.txt', Object.create({ mtime_ms: at + 12 })),
+			path_then_times: set('../x', {}),
+			a_path_that_is_none: set(/** @type {any} */ (1), {}),
+			the_latest: set('a.txt', { mtime_ms: 8.64e15 })
+		});
+		return { ...ended, tree: await tree(dir) };
+	},
+	// `set_mode` of each kind of path and mode, through a handle on `scratch/`, each shown by the
+	// permission bits `stat` reads after it
+	set_mode: async (ns) => {
+		const dir = await open_scratch(ns);
+		await dir.write('zero.txt', '');
+		/** @type {(path: string, mode: any, read?: string) => () => Promise<unknown>} */
+		const set =
+			(path, mode, read = path) =>
+			async () => {
+				await dir.set_mode(path, mode);
+				return (await dir.stat(read))?.mode;
+			};
+		const ended = await outcomes({
+			a_file: set('a.txt', 0o600),
+			a_directory: set('sub', 0o700),
+			its_own_directory: set('', 0o750),
+			a_link: set('to_file', 0o640, 'a.txt'),
+			a_slashed_link: set('to_sub/', 0o750, 'sub'),
+			negative_zero: set('zero.txt', -0),
+			a_dangling_link: set('dangling', 0o600),
+			a_link_out: set('escape', 0o600),
+			an_absolute_link: set('absolute', 0o600),
+			missing: set('missing', 0o600),
+			through_a_file: set('a.txt/x', 0o600),
+			above: set('../x', 0o600),
+			a_setuid_bit: set('a.txt', 0o4755),
+			past_the_bits: set('a.txt', 0o1000),
+			negative: set('a.txt', -1),
+			a_fraction: set('a.txt', 1.5),
+			an_octal_string: set('a.txt', '644'),
+			a_boxed_number: set('a.txt', new Number(0o644)),
+			not_a_number: set('a.txt', NaN),
+			undefined: set('a.txt', undefined),
+			path_then_mode: set('../x', 'x'),
+			restored: set('', 0o755)
+		});
+		await dir.set_mode('zero.txt', 0o644);
+		return { ...ended, tree: await tree(dir) };
+	},
+	// `symlink` of each kind of path and target, through a handle on `scratch/`, each link made
+	// shown by the target `read_link` reads back
+	symlink: async (ns) => {
+		const dir = await open_scratch(ns);
+		/** @type {(path: any, target: any, read?: string) => () => Promise<unknown>} */
+		const link =
+			(path, target, read = path) =>
+			async () => {
+				const made = await dir.symlink(path, target);
+				const stored = await dir.read_link(read).catch(show_error);
+				return `${made} ${relative(JSON.stringify(stored))}`;
+			};
+		return steps(dir, {
+			new: link('l', 'a.txt'),
+			again: link('l', 'sub'),
+			over_a_file: link('a.txt', 'x'),
+			over_a_directory: link('sub', 'x'),
+			over_a_dangling_link: link('dangling', 'x'),
+			an_absolute_target: link('abs', '/etc/hostname'),
+			a_climbing_target: link('up', '../outside.txt'),
+			a_dangling_target: link('nowhere', 'missing'),
+			a_unicode_target: link('u', 'é/ü'),
+			in_a_directory: link('sub/l', '../a.txt'),
+			through_a_link: link('to_sub/l2', 'b.txt', 'sub/l2'),
+			a_missing_parent: link('missing/l', 'x'),
+			through_a_file: link('a.txt/l', 'x'),
+			through_a_link_out: link('escape/l', 'x'),
+			through_an_absolute_link: link('absolute/l', 'x'),
+			above: link('../l', 'x'),
+			absolute: link('/l', 'x'),
+			slashed: link('s/', 'x'),
+			slashed_dot: link('s/.', 'x'),
+			slashed_dot_dot: link('sub/s/..', 'x'),
+			its_own_directory: link('', 'x'),
+			its_own_directory_dotted: link('.', 'x'),
+			its_own_directory_climbed: link('sub/..', 'x'),
+			an_empty_target: link('t', ''),
+			a_target_that_is_none: link('t', 1),
+			a_boxed_target: link('t', new String('x')),
+			a_nul_target: link('t', 'a\0b'),
+			a_lone_surrogate_target: link('t', 'a\uD800'),
+			path_then_target: link('../t', ''),
+			a_path_that_is_none: link(1, ''),
+			target_then_slash: link('t/', '')
 		});
 	},
 	// paths and options that are none for each op that writes, each a `TypeError`

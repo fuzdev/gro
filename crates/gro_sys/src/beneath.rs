@@ -33,10 +33,16 @@
 //!   ([`FinalLink`]).
 //! - [`read_dir`] lists a directory's entries ([`DirEntry`]), names as the
 //!   kernel's bytes, `.` and `..` left out, in the kernel's order.
+//! - [`set_mode`] sets an entry's permission bits and [`set_times`] its
+//!   access and modification times, each on the entry a final symlink
+//!   leads to beneath the descriptor, opened as a path only and acted on
+//!   through `/proc/self/fd`, never a path the kernel resolves again; or,
+//!   for [`set_times`] with [`FinalLink::Keep`], on the entry the last
+//!   component names, a symlink itself ([`Last`]).
 //! - [`Last`] holds a path's last component: its parent is opened beneath
 //!   the descriptor by `openat2`, then each call on it (`mkdirat`,
-//!   `unlinkat`, `renameat`) acts on that one name in that one directory, a
-//!   final symlink never followed; [`Last::remove_tree`] empties a
+//!   `symlinkat`, `unlinkat`, `renameat`, `utimensat`) acts on that one
+//!   name in that one directory, a final symlink never followed; [`Last::remove_tree`] empties a
 //!   directory first, entry by entry, each beneath its own directory's
 //!   descriptor.
 //!
@@ -750,6 +756,117 @@ pub fn read_dir(dir: BorrowedFd<'_>, path: &Path) -> io::Result<Vec<DirEntry>> {
     entries(fd.as_fd())
 }
 
+/// Sets the permission bits of the entry at `path` beneath `dir`, a final
+/// symlink followed beneath, to `mode`, at most `0o7777`.
+///
+/// The entry is opened as a path only ([`OpenAs::Path`]), which any entry
+/// allows, then changed by `chmod` of its descriptor's `/proc/self/fd`
+/// link, which names the opened entry and nothing a path resolves again;
+/// Linux before 6.6 changes no mode through an `O_PATH` descriptor any
+/// other way.
+///
+/// # Errors
+///
+/// Returns [`open`]'s errors for the entry, else the kernel's for the
+/// change (`EPERM` for an entry the process doesn't own), or an error of
+/// kind [`io::ErrorKind::Other`], with no OS code, when `/proc` can't be
+/// reached.
+pub fn set_mode(dir: BorrowedFd<'_>, path: &Path, mode: u32) -> io::Result<()> {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    let fd = open(dir, path, OpenAs::Path, Links::Beneath)?;
+    through_proc(fd.as_fd(), |link| {
+        std::fs::set_permissions(link, std::fs::Permissions::from_mode(mode))
+    })
+}
+
+/// Sets the access and modification times of the entry at `path` beneath
+/// `dir`, each a time since the epoch, to the nanosecond.
+///
+/// With [`FinalLink::Follow`], it sets those of the entry a final symlink leads to beneath,
+/// opened as a path only and changed by `utimensat` of its descriptor's
+/// `/proc/self/fd` link, as [`set_mode`] changes one; with
+/// [`FinalLink::Keep`], of the entry the last component names, a symlink
+/// itself, by `utimensat` in its parent ([`Last`]), which refuses a last
+/// component of `.` or `..` as it does.
+///
+/// # Errors
+///
+/// Returns [`open`]'s errors for the entry, or [`Last::open`]'s, else the
+/// kernel's for the change, or an error of kind [`io::ErrorKind::Other`],
+/// with no OS code, when `/proc` can't be reached.
+pub fn set_times(
+    dir: BorrowedFd<'_>,
+    path: &Path,
+    final_link: FinalLink,
+    atime: std::time::Duration,
+    mtime: std::time::Duration,
+) -> io::Result<()> {
+    let times = [to_timespec(atime)?, to_timespec(mtime)?];
+    match final_link {
+        FinalLink::Follow => {
+            let fd = open(dir, path, OpenAs::Path, Links::Beneath)?;
+            through_proc(fd.as_fd(), |link| {
+                utimensat(None, &to_c_path(link.as_os_str())?, &times, 0)
+            })
+        }
+        FinalLink::Keep => {
+            let last = Last::open(dir, path)?;
+            utimensat(
+                Some(last.held()),
+                &last.name,
+                &times,
+                libc::AT_SYMLINK_NOFOLLOW,
+            )
+        }
+    }
+}
+
+/// `time` as the `timespec` a call takes.
+fn to_timespec(time: std::time::Duration) -> io::Result<libc::timespec> {
+    Ok(libc::timespec {
+        tv_sec: libc::time_t::try_from(time.as_secs())
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "a time past a time_t"))?,
+        tv_nsec: libc::c_long::from(time.subsec_nanos()),
+    })
+}
+
+/// `call` on the `/proc/self/fd` link of `fd`, which names what `fd` holds
+/// open; a missing link is `/proc` that can't be reached, never a missing
+/// entry, since `fd` holds the entry.
+fn through_proc(
+    fd: BorrowedFd<'_>,
+    call: impl FnOnce(&Path) -> io::Result<()>,
+) -> io::Result<()> {
+    let link = format!("/proc/self/fd/{}", fd.as_raw_fd());
+    call(Path::new(&link)).map_err(|error| {
+        if error.raw_os_error() == Some(libc::ENOENT) {
+            io::Error::other(format!("/proc/self/fd can't be reached: {error}"))
+        } else {
+            error
+        }
+    })
+}
+
+/// `utimensat(dir, name, times, flags)`, from the working directory when
+/// `dir` is none.
+#[expect(
+    unsafe_code,
+    reason = "std sets times only through an open file or a path from the working directory, and a libc call is `unsafe`"
+)]
+fn utimensat(
+    dir: Option<BorrowedFd<'_>>,
+    name: &CStr,
+    times: &[libc::timespec; 2],
+    flags: libc::c_int,
+) -> io::Result<()> {
+    let dir = dir.map_or(libc::AT_FDCWD, |dir| dir.as_raw_fd());
+    // SAFETY: `utimensat` reads only the name, a live NUL-terminated
+    // string, and the two times, a live array of two; the descriptor is
+    // borrowed for the call, or the working directory's marker
+    cvt(unsafe { libc::utimensat(dir, name.as_ptr(), times.as_ptr(), flags) })
+}
+
 /// The entries of the directory `fd` holds open to read, but `.` and `..`,
 /// in the kernel's order.
 fn entries(fd: BorrowedFd<'_>) -> io::Result<Vec<DirEntry>> {
@@ -848,6 +965,29 @@ impl<'d> Last<'d> {
         // SAFETY: `mkdirat` reads only the name, a live NUL-terminated
         // string, and takes the descriptor, borrowed for the call
         cvt(unsafe { libc::mkdirat(self.held().as_raw_fd(), self.name.as_ptr(), mode) })
+    }
+
+    /// Makes a symlink of the entry, pointing at `target`, stored as it is,
+    /// by `symlinkat`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error of kind [`io::ErrorKind::InvalidInput`] for a
+    /// target holding a NUL byte, else the kernel's: `EEXIST` when any
+    /// entry is there, a dangling symlink included, which is left as it
+    /// is.
+    #[expect(
+        unsafe_code,
+        reason = "std makes a symlink only by a path from the working directory, and a libc call is `unsafe`"
+    )]
+    pub fn symlink(&self, target: &OsStr) -> io::Result<()> {
+        let target = to_c_path(target)?;
+        // SAFETY: `symlinkat` reads only the target and the name, live
+        // NUL-terminated strings, and takes the descriptor, borrowed for the
+        // call
+        cvt(unsafe {
+            libc::symlinkat(target.as_ptr(), self.held().as_raw_fd(), self.name.as_ptr())
+        })
     }
 
     /// Removes the entry, which isn't a directory, by `unlinkat`; a symlink

@@ -11340,6 +11340,1014 @@
 			}
 		}
 	},
+	"fs_set_times": {
+		"code": 0,
+		"output": {
+			"a_file": {
+				"resolved": 1700000000123
+			},
+			"an_access_time": {
+				"resolved": 1700000000124
+			},
+			"a_fraction": {
+				"resolved": 1700000000123.5
+			},
+			"zero": {
+				"resolved": 0
+			},
+			"negative_zero": {
+				"resolved": 0
+			},
+			"a_directory": {
+				"resolved": 1700000000123
+			},
+			"its_own_directory": {
+				"resolved": 1700000000123
+			},
+			"its_own_directory_kept": {
+				"resolved": 1700000000125
+			},
+			"a_link_followed": {
+				"resolved": 1700000000126
+			},
+			"a_link_kept": {
+				"resolved": 1700000000127
+			},
+			"a_link_kept_falsy": {
+				"resolved": 1700000000128
+			},
+			"a_link_null_follow": {
+				"resolved": 1700000000129
+			},
+			"a_link_slashed_kept": {
+				"resolved": 1700000000130
+			},
+			"a_dangling_link": {
+				"rejected": {
+					"class": "FsError",
+					"message": "not_found: {project}/scratch/dangling",
+					"kind": "not_found",
+					"path": "{project}/scratch/dangling"
+				}
+			},
+			"a_dangling_link_kept": {
+				"resolved": 1700000000131
+			},
+			"a_link_out": {
+				"rejected": {
+					"class": "FsError",
+					"message": "outside_root: escape",
+					"kind": "outside_root",
+					"path": "escape"
+				}
+			},
+			"a_link_out_kept": {
+				"resolved": 1700000000132
+			},
+			"an_absolute_link": {
+				"rejected": {
+					"class": "FsError",
+					"message": "outside_root: absolute",
+					"kind": "outside_root",
+					"path": "absolute"
+				}
+			},
+			"an_absolute_link_kept": {
+				"resolved": 1700000000133
+			},
+			"missing": {
+				"rejected": {
+					"class": "FsError",
+					"message": "not_found: {project}/scratch/missing",
+					"kind": "not_found",
+					"path": "{project}/scratch/missing"
+				}
+			},
+			"through_a_file": {
+				"rejected": {
+					"class": "FsError",
+					"message": "not_a_directory: {project}/scratch/a.txt/x",
+					"kind": "not_a_directory",
+					"path": "{project}/scratch/a.txt/x"
+				}
+			},
+			"through_a_link": {
+				"resolved": 1700000000134
+			},
+			"above": {
+				"rejected": {
+					"class": "FsError",
+					"message": "outside_root: ../x",
+					"kind": "outside_root",
+					"path": "../x"
+				}
+			},
+			"absolute": {
+				"rejected": {
+					"class": "FsError",
+					"message": "outside_root: /x",
+					"kind": "outside_root",
+					"path": "/x"
+				}
+			},
+			"negative": {
+				"rejected": {
+					"class": "TypeError",
+					"message": "fs times are finite numbers of ms from 0 to 8640000000000000: mtime_ms"
+				}
+			},
+			"past_a_date": {
+				"rejected": {
+					"class": "TypeError",
+					"message": "fs times are finite numbers of ms from 0 to 8640000000000000: mtime_ms"
+				}
+			},
+			"not_a_number": {
+				"rejected": {
+					"class": "TypeError",
+					"message": "fs times are finite numbers of ms from 0 to 8640000000000000: mtime_ms"
+				}
+			},
+			"infinite": {
+				"rejected": {
+					"class": "TypeError",
+					"message": "fs times are finite numbers of ms from 0 to 8640000000000000: mtime_ms"
+				}
+			},
+			"a_string": {
+				"rejected": {
+					"class": "TypeError",
+					"message": "fs times are finite numbers of ms from 0 to 8640000000000000: mtime_ms"
+				}
+			},
+			"a_boxed_number": {
+				"rejected": {
+					"class": "TypeError",
+					"message": "fs times are finite numbers of ms from 0 to 8640000000000000: mtime_ms"
+				}
+			},
+			"no_time": {
+				"rejected": {
+					"class": "TypeError",
+					"message": "fs times are finite numbers of ms from 0 to 8640000000000000: mtime_ms"
+				}
+			},
+			"a_primitive": {
+				"rejected": {
+					"class": "TypeError",
+					"message": "fs times are finite numbers of ms from 0 to 8640000000000000: mtime_ms"
+				}
+			},
+			"a_null_access_time": {
+				"rejected": {
+					"class": "TypeError",
+					"message": "fs times are finite numbers of ms from 0 to 8640000000000000: atime_ms"
+				}
+			},
+			"a_bad_access_time": {
+				"rejected": {
+					"class": "TypeError",
+					"message": "fs times are finite numbers of ms from 0 to 8640000000000000: atime_ms"
+				}
+			},
+			"an_inherited_time": {
+				"resolved": 1700000000135
+			},
+			"path_then_times": {
+				"rejected": {
+					"class": "FsError",
+					"message": "outside_root: ../x",
+					"kind": "outside_root",
+					"path": "../x"
+				}
+			},
+			"a_path_that_is_none": {
+				"rejected": {
+					"class": "TypeError",
+					"message": "fs paths are strings"
+				}
+			},
+			"the_latest": {
+				"resolved": 15032385535000
+			},
+			"tree": [
+				"a.txt: a",
+				"absolute (symlink)",
+				"dangling (symlink)",
+				"escape (symlink)",
+				"sub/",
+				"sub/b.txt: b",
+				"to_file (symlink)",
+				"to_sub (symlink)"
+			]
+		}
+	},
+	"fs_set_mode": {
+		"code": 0,
+		"output": {
+			"a_file": {
+				"resolved": 384
+			},
+			"a_directory": {
+				"resolved": 448
+			},
+			"its_own_directory": {
+				"resolved": 488
+			},
+			"a_link": {
+				"resolved": 416
+			},
+			"a_slashed_link": {
+				"resolved": 488
+			},
+			"negative_zero": {
+				"resolved": 0
+			},
+			"a_dangling_link": {
+				"rejected": {
+					"class": "FsError",
+					"message": "not_found: {project}/scratch/dangling",
+					"kind": "not_found",
+					"path": "{project}/scratch/dangling"
+				}
+			},
+			"a_link_out": {
+				"rejected": {
+					"class": "FsError",
+					"message": "outside_root: escape",
+					"kind": "outside_root",
+					"path": "escape"
+				}
+			},
+			"an_absolute_link": {
+				"rejected": {
+					"class": "FsError",
+					"message": "outside_root: absolute",
+					"kind": "outside_root",
+					"path": "absolute"
+				}
+			},
+			"missing": {
+				"rejected": {
+					"class": "FsError",
+					"message": "not_found: {project}/scratch/missing",
+					"kind": "not_found",
+					"path": "{project}/scratch/missing"
+				}
+			},
+			"through_a_file": {
+				"rejected": {
+					"class": "FsError",
+					"message": "not_a_directory: {project}/scratch/a.txt/x",
+					"kind": "not_a_directory",
+					"path": "{project}/scratch/a.txt/x"
+				}
+			},
+			"above": {
+				"rejected": {
+					"class": "FsError",
+					"message": "outside_root: ../x",
+					"kind": "outside_root",
+					"path": "../x"
+				}
+			},
+			"a_setuid_bit": {
+				"rejected": {
+					"class": "TypeError",
+					"message": "fs modes are integers from 0 to 0o777"
+				}
+			},
+			"past_the_bits": {
+				"rejected": {
+					"class": "TypeError",
+					"message": "fs modes are integers from 0 to 0o777"
+				}
+			},
+			"negative": {
+				"rejected": {
+					"class": "TypeError",
+					"message": "fs modes are integers from 0 to 0o777"
+				}
+			},
+			"a_fraction": {
+				"rejected": {
+					"class": "TypeError",
+					"message": "fs modes are integers from 0 to 0o777"
+				}
+			},
+			"an_octal_string": {
+				"rejected": {
+					"class": "TypeError",
+					"message": "fs modes are integers from 0 to 0o777"
+				}
+			},
+			"a_boxed_number": {
+				"rejected": {
+					"class": "TypeError",
+					"message": "fs modes are integers from 0 to 0o777"
+				}
+			},
+			"not_a_number": {
+				"rejected": {
+					"class": "TypeError",
+					"message": "fs modes are integers from 0 to 0o777"
+				}
+			},
+			"undefined": {
+				"rejected": {
+					"class": "TypeError",
+					"message": "fs modes are integers from 0 to 0o777"
+				}
+			},
+			"path_then_mode": {
+				"rejected": {
+					"class": "FsError",
+					"message": "outside_root: ../x",
+					"kind": "outside_root",
+					"path": "../x"
+				}
+			},
+			"restored": {
+				"resolved": 493
+			},
+			"tree": [
+				"a.txt: a",
+				"absolute (symlink)",
+				"dangling (symlink)",
+				"escape (symlink)",
+				"sub/",
+				"sub/b.txt: b",
+				"to_file (symlink)",
+				"to_sub (symlink)",
+				"zero.txt: "
+			]
+		}
+	},
+	"fs_symlink": {
+		"code": 0,
+		"output": {
+			"new": {
+				"resolved": "created \"a.txt\"",
+				"tree": [
+					"a.txt: a",
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"l (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"again": {
+				"resolved": "exists \"a.txt\"",
+				"tree": [
+					"a.txt: a",
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"l (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"over_a_file": {
+				"resolved": {
+					"text": 123,
+					"sum": 696606,
+					"start": "exists {\"cl"
+				},
+				"tree": [
+					"a.txt: a",
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"l (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"over_a_directory": {
+				"resolved": {
+					"text": 119,
+					"sum": 655463,
+					"start": "exists {\"cl"
+				},
+				"tree": [
+					"a.txt: a",
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"l (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"over_a_dangling_link": {
+				"resolved": "exists \"missing.txt\"",
+				"tree": [
+					"a.txt: a",
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"l (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"an_absolute_target": {
+				"resolved": "created \"/etc/hostname\"",
+				"tree": [
+					"a.txt: a",
+					"abs (symlink)",
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"l (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"to_file (symlink)",
+					"to_sub (symlink)"
+				]
+			},
+			"a_climbing_target": {
+				"resolved": "created \"../outside.txt\"",
+				"tree": [
+					"a.txt: a",
+					"abs (symlink)",
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"l (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"to_file (symlink)",
+					"to_sub (symlink)",
+					"up (symlink)"
+				]
+			},
+			"a_dangling_target": {
+				"resolved": "created \"missing\"",
+				"tree": [
+					"a.txt: a",
+					"abs (symlink)",
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"l (symlink)",
+					"nowhere (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"to_file (symlink)",
+					"to_sub (symlink)",
+					"up (symlink)"
+				]
+			},
+			"a_unicode_target": {
+				"resolved": "created \"é/ü\"",
+				"tree": [
+					"a.txt: a",
+					"abs (symlink)",
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"l (symlink)",
+					"nowhere (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"to_file (symlink)",
+					"to_sub (symlink)",
+					"u (symlink)",
+					"up (symlink)"
+				]
+			},
+			"in_a_directory": {
+				"resolved": "created \"../a.txt\"",
+				"tree": [
+					"a.txt: a",
+					"abs (symlink)",
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"l (symlink)",
+					"nowhere (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"sub/l (symlink)",
+					"to_file (symlink)",
+					"to_sub (symlink)",
+					"u (symlink)",
+					"up (symlink)"
+				]
+			},
+			"through_a_link": {
+				"resolved": "created \"b.txt\"",
+				"tree": [
+					"a.txt: a",
+					"abs (symlink)",
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"l (symlink)",
+					"nowhere (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"sub/l (symlink)",
+					"sub/l2 (symlink)",
+					"to_file (symlink)",
+					"to_sub (symlink)",
+					"u (symlink)",
+					"up (symlink)"
+				]
+			},
+			"a_missing_parent": {
+				"rejected": {
+					"class": "FsError",
+					"message": "not_found: {project}/scratch/missing/l",
+					"kind": "not_found",
+					"path": "{project}/scratch/missing/l"
+				},
+				"tree": [
+					"a.txt: a",
+					"abs (symlink)",
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"l (symlink)",
+					"nowhere (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"sub/l (symlink)",
+					"sub/l2 (symlink)",
+					"to_file (symlink)",
+					"to_sub (symlink)",
+					"u (symlink)",
+					"up (symlink)"
+				]
+			},
+			"through_a_file": {
+				"rejected": {
+					"class": "FsError",
+					"message": "not_a_directory: {project}/scratch/a.txt/l",
+					"kind": "not_a_directory",
+					"path": "{project}/scratch/a.txt/l"
+				},
+				"tree": [
+					"a.txt: a",
+					"abs (symlink)",
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"l (symlink)",
+					"nowhere (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"sub/l (symlink)",
+					"sub/l2 (symlink)",
+					"to_file (symlink)",
+					"to_sub (symlink)",
+					"u (symlink)",
+					"up (symlink)"
+				]
+			},
+			"through_a_link_out": {
+				"rejected": {
+					"class": "FsError",
+					"message": "outside_root: escape/l",
+					"kind": "outside_root",
+					"path": "escape/l"
+				},
+				"tree": [
+					"a.txt: a",
+					"abs (symlink)",
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"l (symlink)",
+					"nowhere (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"sub/l (symlink)",
+					"sub/l2 (symlink)",
+					"to_file (symlink)",
+					"to_sub (symlink)",
+					"u (symlink)",
+					"up (symlink)"
+				]
+			},
+			"through_an_absolute_link": {
+				"rejected": {
+					"class": "FsError",
+					"message": "outside_root: absolute/l",
+					"kind": "outside_root",
+					"path": "absolute/l"
+				},
+				"tree": [
+					"a.txt: a",
+					"abs (symlink)",
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"l (symlink)",
+					"nowhere (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"sub/l (symlink)",
+					"sub/l2 (symlink)",
+					"to_file (symlink)",
+					"to_sub (symlink)",
+					"u (symlink)",
+					"up (symlink)"
+				]
+			},
+			"above": {
+				"rejected": {
+					"class": "FsError",
+					"message": "outside_root: ../l",
+					"kind": "outside_root",
+					"path": "../l"
+				},
+				"tree": [
+					"a.txt: a",
+					"abs (symlink)",
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"l (symlink)",
+					"nowhere (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"sub/l (symlink)",
+					"sub/l2 (symlink)",
+					"to_file (symlink)",
+					"to_sub (symlink)",
+					"u (symlink)",
+					"up (symlink)"
+				]
+			},
+			"absolute": {
+				"rejected": {
+					"class": "FsError",
+					"message": "outside_root: /l",
+					"kind": "outside_root",
+					"path": "/l"
+				},
+				"tree": [
+					"a.txt: a",
+					"abs (symlink)",
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"l (symlink)",
+					"nowhere (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"sub/l (symlink)",
+					"sub/l2 (symlink)",
+					"to_file (symlink)",
+					"to_sub (symlink)",
+					"u (symlink)",
+					"up (symlink)"
+				]
+			},
+			"slashed": {
+				"rejected": {
+					"class": "TypeError",
+					"message": "fs.symlink takes a path with no trailing `/`: s/"
+				},
+				"tree": [
+					"a.txt: a",
+					"abs (symlink)",
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"l (symlink)",
+					"nowhere (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"sub/l (symlink)",
+					"sub/l2 (symlink)",
+					"to_file (symlink)",
+					"to_sub (symlink)",
+					"u (symlink)",
+					"up (symlink)"
+				]
+			},
+			"slashed_dot": {
+				"rejected": {
+					"class": "TypeError",
+					"message": "fs.symlink takes a path with no trailing `/`: s/."
+				},
+				"tree": [
+					"a.txt: a",
+					"abs (symlink)",
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"l (symlink)",
+					"nowhere (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"sub/l (symlink)",
+					"sub/l2 (symlink)",
+					"to_file (symlink)",
+					"to_sub (symlink)",
+					"u (symlink)",
+					"up (symlink)"
+				]
+			},
+			"slashed_dot_dot": {
+				"rejected": {
+					"class": "TypeError",
+					"message": "fs.symlink takes a path with no trailing `/`: sub/s/.."
+				},
+				"tree": [
+					"a.txt: a",
+					"abs (symlink)",
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"l (symlink)",
+					"nowhere (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"sub/l (symlink)",
+					"sub/l2 (symlink)",
+					"to_file (symlink)",
+					"to_sub (symlink)",
+					"u (symlink)",
+					"up (symlink)"
+				]
+			},
+			"its_own_directory": {
+				"resolved": {
+					"text": 111,
+					"sum": 569462,
+					"start": "exists {\"cl"
+				},
+				"tree": [
+					"a.txt: a",
+					"abs (symlink)",
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"l (symlink)",
+					"nowhere (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"sub/l (symlink)",
+					"sub/l2 (symlink)",
+					"to_file (symlink)",
+					"to_sub (symlink)",
+					"u (symlink)",
+					"up (symlink)"
+				]
+			},
+			"its_own_directory_dotted": {
+				"resolved": {
+					"text": 111,
+					"sum": 569462,
+					"start": "exists {\"cl"
+				},
+				"tree": [
+					"a.txt: a",
+					"abs (symlink)",
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"l (symlink)",
+					"nowhere (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"sub/l (symlink)",
+					"sub/l2 (symlink)",
+					"to_file (symlink)",
+					"to_sub (symlink)",
+					"u (symlink)",
+					"up (symlink)"
+				]
+			},
+			"its_own_directory_climbed": {
+				"resolved": {
+					"text": 111,
+					"sum": 569462,
+					"start": "exists {\"cl"
+				},
+				"tree": [
+					"a.txt: a",
+					"abs (symlink)",
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"l (symlink)",
+					"nowhere (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"sub/l (symlink)",
+					"sub/l2 (symlink)",
+					"to_file (symlink)",
+					"to_sub (symlink)",
+					"u (symlink)",
+					"up (symlink)"
+				]
+			},
+			"an_empty_target": {
+				"rejected": {
+					"class": "TypeError",
+					"message": "fs symlink targets are not empty"
+				},
+				"tree": [
+					"a.txt: a",
+					"abs (symlink)",
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"l (symlink)",
+					"nowhere (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"sub/l (symlink)",
+					"sub/l2 (symlink)",
+					"to_file (symlink)",
+					"to_sub (symlink)",
+					"u (symlink)",
+					"up (symlink)"
+				]
+			},
+			"a_target_that_is_none": {
+				"rejected": {
+					"class": "TypeError",
+					"message": "fs symlink targets are strings"
+				},
+				"tree": [
+					"a.txt: a",
+					"abs (symlink)",
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"l (symlink)",
+					"nowhere (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"sub/l (symlink)",
+					"sub/l2 (symlink)",
+					"to_file (symlink)",
+					"to_sub (symlink)",
+					"u (symlink)",
+					"up (symlink)"
+				]
+			},
+			"a_boxed_target": {
+				"rejected": {
+					"class": "TypeError",
+					"message": "fs symlink targets are strings"
+				},
+				"tree": [
+					"a.txt: a",
+					"abs (symlink)",
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"l (symlink)",
+					"nowhere (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"sub/l (symlink)",
+					"sub/l2 (symlink)",
+					"to_file (symlink)",
+					"to_sub (symlink)",
+					"u (symlink)",
+					"up (symlink)"
+				]
+			},
+			"a_nul_target": {
+				"rejected": {
+					"class": "TypeError",
+					"message": "fs symlink targets hold no NUL byte"
+				},
+				"tree": [
+					"a.txt: a",
+					"abs (symlink)",
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"l (symlink)",
+					"nowhere (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"sub/l (symlink)",
+					"sub/l2 (symlink)",
+					"to_file (symlink)",
+					"to_sub (symlink)",
+					"u (symlink)",
+					"up (symlink)"
+				]
+			},
+			"a_lone_surrogate_target": {
+				"rejected": {
+					"class": "TypeError",
+					"message": "fs symlink targets are well-formed Unicode"
+				},
+				"tree": [
+					"a.txt: a",
+					"abs (symlink)",
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"l (symlink)",
+					"nowhere (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"sub/l (symlink)",
+					"sub/l2 (symlink)",
+					"to_file (symlink)",
+					"to_sub (symlink)",
+					"u (symlink)",
+					"up (symlink)"
+				]
+			},
+			"path_then_target": {
+				"rejected": {
+					"class": "FsError",
+					"message": "outside_root: ../t",
+					"kind": "outside_root",
+					"path": "../t"
+				},
+				"tree": [
+					"a.txt: a",
+					"abs (symlink)",
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"l (symlink)",
+					"nowhere (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"sub/l (symlink)",
+					"sub/l2 (symlink)",
+					"to_file (symlink)",
+					"to_sub (symlink)",
+					"u (symlink)",
+					"up (symlink)"
+				]
+			},
+			"a_path_that_is_none": {
+				"rejected": {
+					"class": "TypeError",
+					"message": "fs paths are strings"
+				},
+				"tree": [
+					"a.txt: a",
+					"abs (symlink)",
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"l (symlink)",
+					"nowhere (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"sub/l (symlink)",
+					"sub/l2 (symlink)",
+					"to_file (symlink)",
+					"to_sub (symlink)",
+					"u (symlink)",
+					"up (symlink)"
+				]
+			},
+			"target_then_slash": {
+				"rejected": {
+					"class": "TypeError",
+					"message": "fs symlink targets are not empty"
+				},
+				"tree": [
+					"a.txt: a",
+					"abs (symlink)",
+					"absolute (symlink)",
+					"dangling (symlink)",
+					"escape (symlink)",
+					"l (symlink)",
+					"nowhere (symlink)",
+					"sub/",
+					"sub/b.txt: b",
+					"sub/l (symlink)",
+					"sub/l2 (symlink)",
+					"to_file (symlink)",
+					"to_sub (symlink)",
+					"u (symlink)",
+					"up (symlink)"
+				]
+			}
+		}
+	},
 	"fs_write_arguments": {
 		"code": 0,
 		"output": {
