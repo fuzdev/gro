@@ -782,6 +782,7 @@ version = "0.0.0"
 dependencies = [
  "blake3",
  "gro_sys",
+ "libc",
  "serde",
  "serde_json",
  "thiserror",
