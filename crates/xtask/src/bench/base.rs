@@ -168,10 +168,9 @@ pub fn lock(dir: &Path) -> Result<DirLock, XtaskError> {
             holder.as_deref().unwrap_or("unknown"),
             path.display()
         )),
-        LockError::Io(LockIoError { source, .. }) => XtaskError::Failed(format!(
-            "failed to lock the base dir {}: {source}",
-            dir.display()
-        )),
+        LockError::Io(LockIoError { source, .. }) => {
+            XtaskError::io("lock the base dir", dir, source)
+        }
     })
 }
 

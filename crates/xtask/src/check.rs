@@ -25,7 +25,7 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use crate::cmd::{StepResult, io_failure, relative, run, run_program, target_dir};
+use crate::cmd::{StepResult, relative, run, run_program, target_dir};
 use crate::error::XtaskError;
 use crate::snapshot::{self, Measurement};
 use crate::v8_archive;
@@ -145,7 +145,8 @@ pub fn check_rust(root: &Path) -> StepResult {
 pub fn check_crates_js(root: &Path) -> StepResult {
     let crates = root.join("crates");
 
-    let tsconfigs = find_tsconfigs(&crates).map_err(|error| io_failure(&crates, &error))?;
+    let tsconfigs =
+        find_tsconfigs(&crates).map_err(|error| XtaskError::io("read", &crates, error))?;
     if tsconfigs.is_empty() {
         println!("[xtask] no tsconfig.json found under crates/*/js/, nothing to typecheck");
     }
@@ -156,7 +157,8 @@ pub fn check_crates_js(root: &Path) -> StepResult {
     }
 
     let mut sources = Vec::new();
-    find_js_sources(&crates, &mut sources).map_err(|error| io_failure(&crates, &error))?;
+    find_js_sources(&crates, &mut sources)
+        .map_err(|error| XtaskError::io("read", &crates, error))?;
     if sources.is_empty() {
         println!("[xtask] no .ts, .mts, or .js files under crates/, nothing to format-check");
         return Ok(());

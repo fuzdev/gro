@@ -3,6 +3,7 @@
 
 use std::error::Error as _;
 use std::io;
+use std::path::{Path, PathBuf};
 use std::process::ExitStatus;
 
 use gro_bench::error::BenchError;
@@ -33,6 +34,18 @@ pub enum XtaskError {
         #[source]
         source: io::Error,
     },
+    /// A filesystem call failed: `action` names it, as the verb and words
+    /// that come before `path` in the message.
+    #[error("failed to {action} {path}: {source}")]
+    Io {
+        /// What was being done to `path` (`read`, `remove the earlier clone`).
+        action: &'static str,
+        /// The path it was done to.
+        path: PathBuf,
+        /// The failure.
+        #[source]
+        source: io::Error,
+    },
     /// A build the bench needs before it runs failed, so the run can't go
     /// ahead until it's fixed.
     #[error(transparent)]
@@ -46,7 +59,7 @@ pub enum XtaskError {
         /// What must change.
         message: String,
     },
-    /// Anything else, such as a failed read or write.
+    /// Anything else, such as two builds that differ.
     #[error("{0}")]
     Failed(String),
 }
@@ -84,6 +97,15 @@ impl InputStage {
 }
 
 impl XtaskError {
+    /// A failure to `action` `path`.
+    pub fn io(action: &'static str, path: &Path, source: io::Error) -> Self {
+        Self::Io {
+            action,
+            path: path.to_owned(),
+            source,
+        }
+    }
+
     /// A bench command line refused with `message`.
     pub fn bench_usage(message: impl Into<String>) -> Self {
         Self::Input {
@@ -142,6 +164,7 @@ impl XtaskError {
             | Self::Budget(_)
             | Self::Archive(_)
             | Self::Spawn { .. }
+            | Self::Io { .. }
             | Self::Failed(_) => 1,
         }
     }
@@ -197,7 +220,12 @@ mod tests {
             failed(101 << 8).in_bench_build().to_string(),
             "cargo failed (exit status: 101)"
         );
-        let io_failure = XtaskError::Failed("failed to write x".to_owned());
+        let io_failure = XtaskError::io("write", Path::new("x"), io::Error::other("test"));
+        assert_eq!(io_failure.to_string(), "failed to write x: test");
+        assert_eq!(
+            io_failure.source().map(ToString::to_string).as_deref(),
+            Some("test")
+        );
         assert_eq!(io_failure.in_bench_build().exit_code(), 1);
         let spawn = XtaskError::Spawn {
             display: "cargo metadata".to_owned(),

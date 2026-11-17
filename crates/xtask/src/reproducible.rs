@@ -329,17 +329,15 @@ fn take(root: &Path, dir: &Path) -> Result<(PathBuf, DirLock), XtaskError> {
     let real = real_dir(root, dir)?;
     owned(&real)?;
     let marker = real.join(MARKER);
-    fs::write(&marker, MARKER_TEXT).map_err(|error| {
-        XtaskError::Failed(format!("failed to write {}: {error}", marker.display()))
-    })?;
+    fs::write(&marker, MARKER_TEXT).map_err(|error| XtaskError::io("write", &marker, error))?;
     Ok((real, held))
 }
 
 /// The real path of `dir`, which exists, refused by [`kept_apart`].
 fn real_dir(root: &Path, dir: &Path) -> Result<PathBuf, XtaskError> {
-    let real = dir.canonicalize().map_err(|error| {
-        XtaskError::Failed(format!("failed to resolve {}: {error}", dir.display()))
-    })?;
+    let real = dir
+        .canonicalize()
+        .map_err(|error| XtaskError::io("resolve", dir, error))?;
     kept_apart(root, dir, &real)?;
     Ok(real)
 }
@@ -361,10 +359,7 @@ fn owned(dir: &Path) -> StepResult {
             )));
         }
         Err(error) => {
-            return Err(XtaskError::Failed(format!(
-                "failed to read {}: {error}",
-                dir.display()
-            )));
+            return Err(XtaskError::io("read", dir, error));
         }
     };
     if fs::symlink_metadata(dir.join(MARKER)).is_ok_and(|meta| meta.is_file()) {
@@ -372,9 +367,7 @@ fn owned(dir: &Path) -> StepResult {
     }
     let mut others = Vec::new();
     for entry in entries {
-        let entry = entry.map_err(|error| {
-            XtaskError::Failed(format!("failed to read {}: {error}", dir.display()))
-        })?;
+        let entry = entry.map_err(|error| XtaskError::io("read", dir, error))?;
         if !(entry.file_name() == LOCK_FILE && is_left_lock(&entry.path())) {
             others.push(entry.file_name().to_string_lossy().into_owned());
         }
@@ -405,9 +398,9 @@ fn is_left_lock(path: &Path) -> bool {
 /// parents can't redirect a removal in it, and [`owned`] must still hold,
 /// so a directory moved into its place is another's to keep.
 fn still_taken(dir: &Path) -> StepResult {
-    let real = dir.canonicalize().map_err(|error| {
-        XtaskError::Failed(format!("failed to resolve {}: {error}", dir.display()))
-    })?;
+    let real = dir
+        .canonicalize()
+        .map_err(|error| XtaskError::io("resolve", dir, error))?;
     if real != dir {
         return Err(XtaskError::reproducible_input(format!(
             "the clone's directory {} resolves to {} since the check took it, so nothing in it \
@@ -424,8 +417,7 @@ fn still_taken(dir: &Path) -> StepResult {
 fn remove_clone(dir: &Path) -> StepResult {
     still_taken(dir)?;
     let src = dir.join("src");
-    fs::remove_dir_all(&src)
-        .map_err(|error| XtaskError::Failed(format!("failed to remove {}: {error}", src.display())))
+    fs::remove_dir_all(&src).map_err(|error| XtaskError::io("remove", &src, error))
 }
 
 /// The files cargo reads its config from in a directory's `.cargo`.
@@ -493,9 +485,7 @@ fn lock(dir: &Path) -> Result<DirLock, XtaskError> {
             holder.as_deref().unwrap_or("unknown"),
             path.display()
         )),
-        LockError::Io(LockIoError { source, .. }) => {
-            XtaskError::Failed(format!("failed to lock {}: {source}", dir.display()))
-        }
+        LockError::Io(LockIoError { source, .. }) => XtaskError::io("lock", dir, source),
     })
 }
 
@@ -519,16 +509,11 @@ fn clone(
     let src = dir.join("src");
     match fs::remove_dir_all(&src) {
         Err(error) if error.kind() != io::ErrorKind::NotFound => {
-            return Err(XtaskError::Failed(format!(
-                "failed to remove the earlier clone {}: {error}",
-                src.display()
-            )));
+            return Err(XtaskError::io("remove the earlier clone", &src, error));
         }
         _ => {}
     }
-    fs::create_dir_all(&src).map_err(|error| {
-        XtaskError::Failed(format!("failed to create {}: {error}", src.display()))
-    })?;
+    fs::create_dir_all(&src).map_err(|error| XtaskError::io("create", &src, error))?;
     let root_arg = root.display().to_string();
     run(&src, &[], "git", &["init", "--quiet"])?;
     // a fetch from a path honors --depth, and git serves a commit by its id
@@ -544,12 +529,8 @@ fn clone(
         "git",
         &["checkout", "--quiet", "--detach", "FETCH_HEAD"],
     )?;
-    link_v8_archives(root, &src).map_err(|error| {
-        XtaskError::Failed(format!(
-            "failed to link the V8 archives into {}: {error}",
-            src.display()
-        ))
-    })?;
+    link_v8_archives(root, &src)
+        .map_err(|error| XtaskError::io("link the V8 archives into", &src, error))?;
     Ok(src)
 }
 
@@ -557,11 +538,7 @@ fn clone(
 /// each, failing with what [`describe`] finds when they differ, which names
 /// `kept`, the clone left for inspection.
 fn compare(first: &Path, second: &Path, kept: &Path) -> StepResult {
-    let read = |path: &Path| {
-        fs::read(path).map_err(|error| {
-            XtaskError::Failed(format!("failed to read {}: {error}", path.display()))
-        })
-    };
+    let read = |path: &Path| fs::read(path).map_err(|error| XtaskError::io("read", path, error));
     let sha = |path: &Path| crate::v8_archive::sha256(path).map_err(XtaskError::from);
     let (first_sha, second_sha) = (sha(first)?, sha(second)?);
     println!(

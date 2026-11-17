@@ -54,17 +54,14 @@ impl Vendored {
 }
 
 fn read(path: &Path) -> Result<String, XtaskError> {
-    fs::read_to_string(path)
-        .map_err(|error| XtaskError::Failed(format!("failed to read {}: {error}", path.display())))
+    fs::read_to_string(path).map_err(|error| XtaskError::io("read", path, error))
 }
 
 /// Every crate with a `vendor/<name>.patch`, sorted by name.
 fn vendored(root: &Path) -> Result<Vec<Vendored>, XtaskError> {
     let vendor = root.join("vendor");
     let readme = read(&vendor.join("README.md"))?;
-    let entries = fs::read_dir(&vendor).map_err(|error| {
-        XtaskError::Failed(format!("failed to read {}: {error}", vendor.display()))
-    })?;
+    let entries = fs::read_dir(&vendor).map_err(|error| XtaskError::io("read", &vendor, error))?;
     let mut names: Vec<String> = entries
         .filter_map(Result::ok)
         .filter_map(|entry| {
@@ -109,7 +106,11 @@ fn package_version(manifest: &str) -> Option<&str> {
 /// patches, and compares there, and none deletes another's work tree.
 fn lock(root: &Path) -> Result<DirLock, XtaskError> {
     lock_dir_blocking(&root.join("target/vendor")).map_err(|LockIoError { path, source }| {
-        XtaskError::Failed(format!("failed to lock {}: {source}", path.display()))
+        XtaskError::Io {
+            action: "lock",
+            path,
+            source,
+        }
     })
 }
 
@@ -169,18 +170,14 @@ fn executable_bits(dir: &Path) -> Result<BTreeMap<PathBuf, bool>, XtaskError> {
     let mut bits = BTreeMap::new();
     let mut pending = vec![dir.to_owned()];
     while let Some(current) = pending.pop() {
-        let entries = fs::read_dir(&current).map_err(|error| {
-            XtaskError::Failed(format!("failed to read {}: {error}", current.display()))
-        })?;
+        let entries =
+            fs::read_dir(&current).map_err(|error| XtaskError::io("read", &current, error))?;
         for entry in entries {
             let path = entry
-                .map_err(|error| {
-                    XtaskError::Failed(format!("failed to read {}: {error}", current.display()))
-                })?
+                .map_err(|error| XtaskError::io("read", &current, error))?
                 .path();
-            let metadata = fs::symlink_metadata(&path).map_err(|error| {
-                XtaskError::Failed(format!("failed to read {}: {error}", path.display()))
-            })?;
+            let metadata = fs::symlink_metadata(&path)
+                .map_err(|error| XtaskError::io("read", &path, error))?;
             if metadata.is_dir() {
                 pending.push(path);
             } else {
@@ -198,9 +195,7 @@ fn extract(root: &Path, vendored: &Vendored) -> Result<PathBuf, XtaskError> {
     let published = fetch(root, vendored)?;
     let work = root.join("target/vendor/work").join(&vendored.name);
     let _ = fs::remove_dir_all(&work);
-    fs::create_dir_all(&work).map_err(|error| {
-        XtaskError::Failed(format!("failed to create {}: {error}", work.display()))
-    })?;
+    fs::create_dir_all(&work).map_err(|error| XtaskError::io("create", &work, error))?;
     run_quiet(
         Command::new("tar")
             .arg("-xzf")
@@ -237,7 +232,10 @@ pub fn check(root: &Path) -> StepResult {
             .arg(&tree)
             .stderr(Stdio::inherit())
             .output()
-            .map_err(|error| XtaskError::Failed(format!("failed to run diff: {error}")))?;
+            .map_err(|source| XtaskError::Spawn {
+                display: "diff".to_owned(),
+                source,
+            })?;
         let mut differences = String::from_utf8_lossy(&diff.stdout).trim_end().to_owned();
         if diff.status.success() {
             let (expected, actual) = (executable_bits(&extracted)?, executable_bits(&tree)?);
@@ -321,13 +319,11 @@ pub fn write_patch(root: &Path, name: &str) -> StepResult {
     run_quiet(&mut git(&["init", "-q"]), "git init")?;
     run_quiet(&mut git(&["add", "-A", "-f"]), "git add")?;
     // the working tree becomes the vendored copy, `.git` aside
-    for entry in fs::read_dir(&extracted).map_err(|error| {
-        XtaskError::Failed(format!("failed to read {}: {error}", extracted.display()))
-    })? {
+    for entry in
+        fs::read_dir(&extracted).map_err(|error| XtaskError::io("read", &extracted, error))?
+    {
         let path = entry
-            .map_err(|error| {
-                XtaskError::Failed(format!("failed to read {}: {error}", extracted.display()))
-            })?
+            .map_err(|error| XtaskError::io("read", &extracted, error))?
             .path();
         if path.file_name().is_some_and(|file| file == ".git") {
             continue;
@@ -337,9 +333,7 @@ pub fn write_patch(root: &Path, name: &str) -> StepResult {
         } else {
             fs::remove_file(&path)
         };
-        removed.map_err(|error| {
-            XtaskError::Failed(format!("failed to remove {}: {error}", path.display()))
-        })?;
+        removed.map_err(|error| XtaskError::io("remove", &path, error))?;
     }
     run_quiet(
         Command::new("cp")
@@ -360,7 +354,10 @@ pub fn write_patch(root: &Path, name: &str) -> StepResult {
     ])
     .stderr(Stdio::inherit())
     .output()
-    .map_err(|error| XtaskError::Failed(format!("failed to run git diff: {error}")))?;
+    .map_err(|source| XtaskError::Spawn {
+        display: "git diff".to_owned(),
+        source,
+    })?;
     if !diff.status.success() {
         return Err(XtaskError::Failed(format!(
             "git diff failed ({})",
@@ -368,9 +365,7 @@ pub fn write_patch(root: &Path, name: &str) -> StepResult {
         )));
     }
     let patch = vendored.patch(root);
-    fs::write(&patch, &diff.stdout).map_err(|error| {
-        XtaskError::Failed(format!("failed to write {}: {error}", patch.display()))
-    })?;
+    fs::write(&patch, &diff.stdout).map_err(|error| XtaskError::io("write", &patch, error))?;
     let _ = fs::remove_dir_all(extracted.parent().unwrap_or(&extracted));
     println!(
         "[xtask] wrote vendor/{name}.patch, vendor/{name}/ against {}",

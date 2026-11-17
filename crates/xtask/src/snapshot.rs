@@ -179,9 +179,7 @@ pub fn build(
             Stdio::null(),
         )?;
         // identical outputs aren't rewritten, so the stamp records when it ran
-        fs::write(&stamp, b"").map_err(|error| {
-            XtaskError::Failed(format!("failed to write {}: {error}", stamp.display()))
-        })?;
+        fs::write(&stamp, b"").map_err(|error| XtaskError::io("write", &stamp, error))?;
     }
 
     let features = measurement.features();
@@ -207,9 +205,7 @@ pub fn build(
         let dir = target_dir
             .join("gro_snapshot")
             .join(format!("{profile}-{feature}"));
-        fs::create_dir_all(&dir).map_err(|error| {
-            XtaskError::Failed(format!("failed to create {}: {error}", dir.display()))
-        })?;
+        fs::create_dir_all(&dir).map_err(|error| XtaskError::io("create", &dir, error))?;
         dir.join("fgro")
     } else {
         dir.join("fgro")
@@ -397,11 +393,8 @@ fn reproduce(root: &Path, binary: &Path) -> StepResult {
         Stdio::null(),
     )?;
     for file in SNAPSHOT_FILES {
-        let read = |path: &Path| {
-            fs::read(path).map_err(|error| {
-                XtaskError::Failed(format!("failed to read {}: {error}", path.display()))
-            })
-        };
+        let read =
+            |path: &Path| fs::read(path).map_err(|error| XtaskError::io("read", path, error));
         let (expected, made) = (embedded.join(file), fresh.join(file));
         let (expected_bytes, made_bytes) = (read(&expected)?, read(&made)?);
         if expected_bytes != made_bytes {

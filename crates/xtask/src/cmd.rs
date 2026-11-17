@@ -1,7 +1,6 @@
 //! Running the programs a step names: the result a step returns, and the
 //! helpers every step prints and spawns with.
 
-use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
@@ -88,11 +87,6 @@ pub fn run_program_to(
         display: display.to_owned(),
         status,
     })
-}
-
-/// A failed read of `path`.
-pub fn io_failure(path: &Path, error: &io::Error) -> XtaskError {
-    XtaskError::Failed(format!("failed to read {}: {error}", path.display()))
 }
 
 /// `path` relative to `root`, for printing and for commands run from `root`.
