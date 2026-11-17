@@ -399,111 +399,111 @@ native_members! {
         Some(root.into())
     }
 
-    /// `fs.project`, an `FsDir` on the project's root ([`fs::project`]).
+    /// `fs.project`, an `FsDir` on the project's root ([`fs::dirs::project`]).
     value project(state, _granted: FsGrant; scope) for "@fuzdev/gro/fs.ts" on FS_ROOT
         handle FS_DIR(prototype)
     {
-        fs::project(state, scope, prototype)
+        fs::dirs::project(state, scope, prototype)
     }
 
-    /// `fs.open_dir(path)` ([`fs::open_dir`]).
+    /// `fs.open_dir(path)` ([`fs::dirs::open_dir`]).
     async open_dir(state, _granted: FsGrant; scope, path) for "@fuzdev/gro/fs.ts" on FS_ROOT
         throws FS_ERROR(errors)
     {
-        fs::open_dir(state, scope, path, errors)
+        fs::dirs::open_dir(state, scope, path, errors)
     }
 
-    /// `fs.real_path(path)` ([`fs::real_path`]).
+    /// `fs.real_path(path)` ([`fs::dirs::real_path`]).
     async real_path(state, _granted: FsGrant; scope, path) for "@fuzdev/gro/fs.ts" on FS_ROOT
         throws FS_ERROR(errors)
     {
-        fs::real_path(state, scope, path, errors)
+        fs::dirs::real_path(state, scope, path, errors)
     }
 
-    /// `fs.temp_dir(prefix?)`, not built ([`fs::unbuilt`]).
+    /// `fs.temp_dir(prefix?)`, not built ([`fs::dirs::unbuilt`]).
     async temp_dir(state, _granted: FsGrant; scope) for "@fuzdev/gro/fs.ts" on FS_ROOT {
-        fs::unbuilt(state, scope, "temp_dir", None)
+        fs::dirs::unbuilt(state, scope, "temp_dir", None)
     }
 
     /// `dir.dir(path)`, called on `handle`, an `FsReadDir`
-    /// ([`fs::dir`]).
+    /// ([`fs::dirs::dir`]).
     fn dir(state, _granted: FsGrant; scope, path) for "@fuzdev/gro/fs.ts" on FS_READ_DIR(handle)
         throws FS_ERROR(errors)
     {
-        fs::dir(state, scope, &FS_READ_DIR, handle, path, errors)
+        fs::dirs::dir(state, scope, &FS_READ_DIR, handle, path, errors)
     }
 
-    /// `dir.stat(path, options?)`, called on `handle` ([`fs::stat`]).
+    /// `dir.stat(path, options?)`, called on `handle` ([`fs::reads::stat`]).
     async stat(state, _granted: FsGrant; scope, path, options) for "@fuzdev/gro/fs.ts"
         on FS_READ_DIR(handle) throws FS_ERROR(errors)
     {
-        fs::stat(state, scope, handle, path, options, errors)
+        fs::reads::stat(state, scope, handle, path, options, errors)
     }
 
-    /// `dir.exists(path)`, called on `handle` ([`fs::exists`]).
+    /// `dir.exists(path)`, called on `handle` ([`fs::reads::exists`]).
     async exists(state, _granted: FsGrant; scope, path) for "@fuzdev/gro/fs.ts"
         on FS_READ_DIR(handle) throws FS_ERROR(errors)
     {
-        fs::exists(state, scope, handle, path, errors)
+        fs::reads::exists(state, scope, handle, path, errors)
     }
 
-    /// `dir.read(path)`, called on `handle` ([`fs::read`]).
+    /// `dir.read(path)`, called on `handle` ([`fs::reads::read`]).
     async read(state, _granted: FsGrant; scope, path) for "@fuzdev/gro/fs.ts"
         on FS_READ_DIR(handle) throws FS_ERROR(errors)
     {
-        fs::read(state, scope, handle, path, fs::Contents::Bytes, false, errors)
+        fs::reads::read(state, scope, handle, path, fs::reads::Contents::Bytes, false, errors)
     }
 
-    /// `dir.read_text(path)`, called on `handle` ([`fs::read`]).
+    /// `dir.read_text(path)`, called on `handle` ([`fs::reads::read`]).
     async read_text(state, _granted: FsGrant; scope, path) for "@fuzdev/gro/fs.ts"
         on FS_READ_DIR(handle) throws FS_ERROR(errors)
     {
-        fs::read(state, scope, handle, path, fs::Contents::Text, false, errors)
+        fs::reads::read(state, scope, handle, path, fs::reads::Contents::Text, false, errors)
     }
 
-    /// `dir.read_if_exists(path)`, called on `handle` ([`fs::read`]).
+    /// `dir.read_if_exists(path)`, called on `handle` ([`fs::reads::read`]).
     async read_if_exists(state, _granted: FsGrant; scope, path) for "@fuzdev/gro/fs.ts"
         on FS_READ_DIR(handle) throws FS_ERROR(errors)
     {
-        fs::read(state, scope, handle, path, fs::Contents::Bytes, true, errors)
+        fs::reads::read(state, scope, handle, path, fs::reads::Contents::Bytes, true, errors)
     }
 
-    /// `dir.read_text_if_exists(path)`, called on `handle` ([`fs::read`]).
+    /// `dir.read_text_if_exists(path)`, called on `handle` ([`fs::reads::read`]).
     async read_text_if_exists(state, _granted: FsGrant; scope, path) for "@fuzdev/gro/fs.ts"
         on FS_READ_DIR(handle) throws FS_ERROR(errors)
     {
-        fs::read(state, scope, handle, path, fs::Contents::Text, true, errors)
+        fs::reads::read(state, scope, handle, path, fs::reads::Contents::Text, true, errors)
     }
 
     /// `dir.list(path?)`, called on `handle`, which the listing's first
-    /// `next()` reads ([`fs::list`]).
+    /// `next()` reads ([`fs::listing::list`]).
     fn list(state, _granted: FsGrant; scope, [path]) for "@fuzdev/gro/fs.ts"
         on FS_READ_DIR(handle)
     {
-        fs::list(state, scope, handle, path)
+        fs::listing::list(state, scope, handle, path)
     }
 
-    /// A listing's `next()`, called on `listing` ([`fs::listing_next`]).
+    /// A listing's `next()`, called on `listing` ([`fs::listing::listing_next`]).
     async next(state, _granted: FsGrant; scope) for "@fuzdev/gro/fs.ts"
         on FS_LISTING(listing) throws FS_ERROR(errors)
     {
-        fs::listing_next(state, scope, listing, errors)
+        fs::listing::listing_next(state, scope, listing, errors)
     }
 
     /// A listing's `return(value)`, called on `listing`
-    /// ([`fs::listing_return`]).
+    /// ([`fs::listing::listing_return`]).
     async return(state, _granted: FsGrant; scope, value) for "@fuzdev/gro/fs.ts"
         on FS_LISTING(listing)
     {
-        fs::listing_return(state, scope, listing, value)
+        fs::listing::listing_return(state, scope, listing, value)
     }
 
     /// A listing's `throw(error)`, called on `listing`
-    /// ([`fs::listing_throw`]).
+    /// ([`fs::listing::listing_throw`]).
     async throw(state, _granted: FsGrant; scope, error) for "@fuzdev/gro/fs.ts"
         on FS_LISTING(listing)
     {
-        fs::listing_throw(state, scope, listing, error)
+        fs::listing::listing_throw(state, scope, listing, error)
     }
 
     /// A listing's `[Symbol.asyncIterator]()`, which returns its receiver,
@@ -515,100 +515,100 @@ native_members! {
         Some(listing)
     }
 
-    /// `dir.read_link(path)`, called on `handle` ([`fs::read_link`]).
+    /// `dir.read_link(path)`, called on `handle` ([`fs::reads::read_link`]).
     async read_link(state, _granted: FsGrant; scope, path) for "@fuzdev/gro/fs.ts"
         on FS_READ_DIR(handle) throws FS_ERROR(errors)
     {
-        fs::read_link(state, scope, handle, path, errors)
+        fs::reads::read_link(state, scope, handle, path, errors)
     }
 
-    /// `dir.stat_sync(path, options?)`, called on `handle` ([`fs::stat`]).
+    /// `dir.stat_sync(path, options?)`, called on `handle` ([`fs::reads::stat`]).
     fn stat_sync(state, _granted: FsGrant; scope, path, options) for "@fuzdev/gro/fs.ts"
         on FS_READ_DIR(handle) throws FS_ERROR(errors)
     {
-        fs::stat(state, scope, handle, path, options, errors)
+        fs::reads::stat(state, scope, handle, path, options, errors)
     }
 
-    /// `dir.exists_sync(path)`, called on `handle` ([`fs::exists`]).
+    /// `dir.exists_sync(path)`, called on `handle` ([`fs::reads::exists`]).
     fn exists_sync(state, _granted: FsGrant; scope, path) for "@fuzdev/gro/fs.ts"
         on FS_READ_DIR(handle) throws FS_ERROR(errors)
     {
-        fs::exists(state, scope, handle, path, errors)
+        fs::reads::exists(state, scope, handle, path, errors)
     }
 
-    /// `dir.read_text_sync(path)`, called on `handle` ([`fs::read`]).
+    /// `dir.read_text_sync(path)`, called on `handle` ([`fs::reads::read`]).
     fn read_text_sync(state, _granted: FsGrant; scope, path) for "@fuzdev/gro/fs.ts"
         on FS_READ_DIR(handle) throws FS_ERROR(errors)
     {
-        fs::read(state, scope, handle, path, fs::Contents::Text, false, errors)
+        fs::reads::read(state, scope, handle, path, fs::reads::Contents::Text, false, errors)
     }
 
-    /// `dir.dir(path)`, called on `handle`, an `FsDir` ([`fs::dir`]).
+    /// `dir.dir(path)`, called on `handle`, an `FsDir` ([`fs::dirs::dir`]).
     fn dir(state, _granted: FsGrant; scope, path) for "@fuzdev/gro/fs.ts" on FS_DIR(handle)
         throws FS_ERROR(errors)
     {
-        fs::dir(state, scope, &FS_DIR, handle, path, errors)
+        fs::dirs::dir(state, scope, &FS_DIR, handle, path, errors)
     }
 
-    /// `dir.readonly()`, called on `handle` ([`fs::readonly`]).
+    /// `dir.readonly()`, called on `handle` ([`fs::dirs::readonly`]).
     fn readonly(state, _granted: FsGrant; scope) for "@fuzdev/gro/fs.ts" on FS_DIR(handle) {
-        fs::readonly(state, scope, handle)
+        fs::dirs::readonly(state, scope, handle)
     }
 
-    /// `dir.write(path, data, options?)` ([`fs::write_op`]).
+    /// `dir.write(path, data, options?)` ([`fs::writes::write_op`]).
     async write(state, _granted: FsGrant; scope, path, _data, _options) for "@fuzdev/gro/fs.ts"
         on FS_DIR(handle) throws FS_ERROR(errors)
     {
-        fs::write_op(state, scope, "write", handle, &[path], 0, errors)
+        fs::writes::write_op(state, scope, "write", handle, &[path], 0, errors)
     }
 
-    /// `dir.mkdir(path, options?)` ([`fs::write_op`]).
+    /// `dir.mkdir(path, options?)` ([`fs::writes::write_op`]).
     async mkdir(state, _granted: FsGrant; scope, path, _options) for "@fuzdev/gro/fs.ts"
         on FS_DIR(handle) throws FS_ERROR(errors)
     {
-        fs::write_op(state, scope, "mkdir", handle, &[path], 0, errors)
+        fs::writes::write_op(state, scope, "mkdir", handle, &[path], 0, errors)
     }
 
-    /// `dir.remove(path, options?)` ([`fs::write_op`]).
+    /// `dir.remove(path, options?)` ([`fs::writes::write_op`]).
     async remove(state, _granted: FsGrant; scope, path, _options) for "@fuzdev/gro/fs.ts"
         on FS_DIR(handle) throws FS_ERROR(errors)
     {
-        fs::write_op(state, scope, "remove", handle, &[path], 0, errors)
+        fs::writes::write_op(state, scope, "remove", handle, &[path], 0, errors)
     }
 
-    /// `dir.rename(from, to)` ([`fs::write_op`]).
+    /// `dir.rename(from, to)` ([`fs::writes::write_op`]).
     async rename(state, _granted: FsGrant; scope, from, to) for "@fuzdev/gro/fs.ts"
         on FS_DIR(handle) throws FS_ERROR(errors)
     {
-        fs::write_op(state, scope, "rename", handle, &[from, to], 0, errors)
+        fs::writes::write_op(state, scope, "rename", handle, &[from, to], 0, errors)
     }
 
-    /// `dir.copy(from, to, options?)` ([`fs::write_op`]).
+    /// `dir.copy(from, to, options?)` ([`fs::writes::write_op`]).
     async copy(state, _granted: FsGrant; scope, from, to, _options) for "@fuzdev/gro/fs.ts"
         on FS_DIR(handle) throws FS_ERROR(errors)
     {
-        fs::write_op(state, scope, "copy", handle, &[from, to], 1, errors)
+        fs::writes::write_op(state, scope, "copy", handle, &[from, to], 1, errors)
     }
 
     /// `dir.set_times(path, times, options?)`, refused
-    /// ([`fs::write_op`]).
+    /// ([`fs::writes::write_op`]).
     async set_times(state, _granted: FsGrant; scope, path, _times, _options)
         for "@fuzdev/gro/fs.ts" on FS_DIR(handle) throws FS_ERROR(errors)
     {
-        fs::write_op(state, scope, "set_times", handle, &[path], 0, errors)
+        fs::writes::write_op(state, scope, "set_times", handle, &[path], 0, errors)
     }
 
-    /// `dir.set_mode(path, mode)` ([`fs::write_op`]).
+    /// `dir.set_mode(path, mode)` ([`fs::writes::write_op`]).
     async set_mode(state, _granted: FsGrant; scope, path, _mode) for "@fuzdev/gro/fs.ts"
         on FS_DIR(handle) throws FS_ERROR(errors)
     {
-        fs::write_op(state, scope, "set_mode", handle, &[path], 0, errors)
+        fs::writes::write_op(state, scope, "set_mode", handle, &[path], 0, errors)
     }
 
-    /// `dir.symlink(path, target)` ([`fs::write_op`]).
+    /// `dir.symlink(path, target)` ([`fs::writes::write_op`]).
     async symlink(state, _granted: FsGrant; scope, path, _target) for "@fuzdev/gro/fs.ts"
         on FS_DIR(handle) throws FS_ERROR(errors)
     {
-        fs::write_op(state, scope, "symlink", handle, &[path], 0, errors)
+        fs::writes::write_op(state, scope, "symlink", handle, &[path], 0, errors)
     }
 }

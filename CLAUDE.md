@@ -346,9 +346,12 @@ miss there, and the contracts no one module doc owns:
     state, never from the run's grants, which gate only that the run holds
     the row.
   - An `fs` handle's state is plain data, and only a root holds a descriptor
-    (`host/fs.rs`'s module doc owns the roots, their scopes and nesting, the
-    `openat2` lookups, reads, and listings): no handle's op checks the run's
-    roots, and no lookup leaves a root. An op's I/O takes owned arguments, so it can
+    (`host/fs.rs`'s module doc maps its children and owns the `openat2`
+    lookups beneath a handle; `host/fs/roots.rs`'s owns the roots, their
+    scopes and nesting, `host/fs/walk.rs`'s the walk of an absolute path
+    from them, and `host/fs/reads.rs`'s and `host/fs/listing.rs`'s the
+    reads and listings): no handle's op checks the run's roots, and no
+    lookup leaves a root. An op's I/O takes owned arguments, so it can
     move off the thread, but for a read's fill of the buffer V8 allocated
     (`gro_v8::PendingArrayBuffer`, not `Send`), which stays on the isolate's
     thread.
