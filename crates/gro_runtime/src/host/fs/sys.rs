@@ -20,7 +20,7 @@ use std::sync::Arc;
 pub use gro_sys::beneath::Reading;
 use gro_sys::beneath::{self, FileKind, FinalLink, Last, Links, OpenAs};
 
-use super::roots::{Held, Refusal};
+use super::roots::{Held, HoldsARoot, MoveRefusal, RenameEnd};
 
 /// What `stat` reported of an entry.
 pub struct Info {
@@ -52,7 +52,7 @@ pub enum OpError {
     /// The target's resolution, or the call on it, failed.
     Target(io::Error),
     /// The target is a root's directory or holds one ([`Held`]).
-    Refused(Refusal),
+    Refused(HoldsARoot),
 }
 
 /// A rename's failure, by the end it's of.
@@ -60,11 +60,10 @@ pub enum RenameError {
     /// The handle's directory's open failed.
     Handle(io::Error),
     /// An end's parent's open, its real path's read, or the rename failed,
-    /// of the destination when `to` says, as the Node module names it.
-    At { to: bool, error: io::Error },
-    /// The rule for a root's directory refused it ([`Held::movable`]), of
-    /// the destination when `to` says.
-    Refused { to: bool, why: Refusal },
+    /// of `end`, as the Node module names it.
+    At { end: RenameEnd, error: io::Error },
+    /// The rule for a root's directory refused it ([`Held::movable`]).
+    Refused(MoveRefusal),
 }
 
 /// What [`open_in_root`] opens a path as.
@@ -463,15 +462,17 @@ pub fn rename(
 ) -> Result<(), RenameError> {
     let handle = HandleDir::open(&root, &beneath).map_err(RenameError::Handle)?;
     let dir = handle.fd();
-    let at = |to: bool| move |error: io::Error| RenameError::At { to, error };
-    let source = Last::open(dir, Path::new(&from)).map_err(at(false))?;
+    let at = |end: RenameEnd| move |error: io::Error| RenameError::At { end, error };
+    let source = Last::open(dir, Path::new(&from)).map_err(at(RenameEnd::From))?;
     // which end a missing entry or a non-directory is of
     let named = |error: io::Error| {
         let either = matches!(error.raw_os_error(), Some(libc::ENOENT | libc::ENOTDIR));
-        RenameError::At {
-            to: either && source.stat().is_ok(),
-            error,
-        }
+        let end = if either && source.stat().is_ok() {
+            RenameEnd::To
+        } else {
+            RenameEnd::From
+        };
+        RenameError::At { end, error }
     };
     // a missing parent, or one that's no directory, could be either
     // end's, as the Node module confines the destination's no further;
@@ -480,14 +481,18 @@ pub fn rename(
         if matches!(error.raw_os_error(), Some(libc::ENOENT | libc::ENOTDIR)) {
             named(error)
         } else {
-            RenameError::At { to: true, error }
+            RenameError::At {
+                end: RenameEnd::To,
+                error,
+            }
         }
     })?;
     if let Some(held) = held {
-        let from = real_end(&root, &root_path, &handle_path, &source).map_err(at(false))?;
-        let to = real_end(&root, &root_path, &handle_path, &destination).map_err(at(true))?;
-        held.movable(&from, &to)
-            .map_err(|(to, why)| RenameError::Refused { to, why })?;
+        let from =
+            real_end(&root, &root_path, &handle_path, &source).map_err(at(RenameEnd::From))?;
+        let to =
+            real_end(&root, &root_path, &handle_path, &destination).map_err(at(RenameEnd::To))?;
+        held.movable(&from, &to).map_err(RenameError::Refused)?;
     }
     source.rename_to(&destination).map_err(named)
 }

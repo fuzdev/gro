@@ -34,10 +34,10 @@
 
 use deno_core::{OpState, v8};
 
-use super::roots::{Held, Refusal};
+use super::roots::{Held, MoveRefusal, RenameEnd};
 use super::{
-    Access, End, Failure, FsErrorKind, MODULE, Op, finish, is_missing, read_flag, read_option,
-    rule_failure, sys,
+    Access, End, Failure, FsErrorKind, MODULE, Op, finish, gains_scope_failure,
+    holds_a_root_failure, is_missing, read_flag, read_option, sys,
 };
 use crate::host::error_class::DeclaredFamily;
 use crate::host::handle::FS_DIR;
@@ -64,12 +64,6 @@ impl End {
                 self.target
             )),
         }
-    }
-
-    /// `io_error` about it, which the rule for a root's directory refused
-    /// as `why` says, `to` the rename's destination.
-    fn rule_refused(&self, why: Refusal, to: &Self) -> Failure {
-        rule_failure(why, &self.target, Some(&to.target))
     }
 }
 
@@ -281,11 +275,19 @@ pub fn rename<'s>(
             destination.lexical.rel(),
             op.held(),
         );
-        let end = |to: bool| if to { &destination } else { &source };
+        let at = |end: RenameEnd| match end {
+            RenameEnd::From => &source,
+            RenameEnd::To => &destination,
+        };
         renamed.map_err(|error| match error {
             sys::RenameError::Handle(error) => op.failure(&source, sys::OpError::Handle(error)),
-            sys::RenameError::At { to, error } => op.failure(end(to), sys::OpError::Target(error)),
-            sys::RenameError::Refused { to, why } => end(to).rule_refused(why, &destination),
+            sys::RenameError::At { end, error } => op.failure(at(end), sys::OpError::Target(error)),
+            sys::RenameError::Refused(MoveRefusal::HoldsARoot(end)) => {
+                holds_a_root_failure(&at(end).target)
+            }
+            sys::RenameError::Refused(MoveRefusal::GainsScope) => {
+                gains_scope_failure(&source.target, &destination.target)
+            }
         })?;
         Ok(v8::undefined(scope).into())
     })();

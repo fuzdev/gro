@@ -739,25 +739,31 @@ fn op_failure(error: sys::OpError, requested: &str, handle_path: &str, target: &
         sys::OpError::Handle(error) | sys::OpError::Target(error) => {
             Failure::of(kind_of(&error), target, &error)
         }
-        sys::OpError::Refused(why) => rule_failure(why, target, None),
+        sys::OpError::Refused(roots::HoldsARoot) => holds_a_root_failure(target),
     }
 }
 
-/// `io_error` about `target`, which the rule for a root's directory refused
-/// as `why` says ([`roots::Held`]), `to` the rename's destination when
-/// there's one.
-fn rule_failure(why: roots::Refusal, target: &str, to: Option<&str>) -> Failure {
-    let cause = match why {
-        roots::Refusal::HoldsARoot => format!("{target} is or holds a root of the run"),
-        roots::Refusal::GainsScope => format!(
-            "{target} -> {} would move it where the run's grants allow more than where it is",
-            to.unwrap_or_default()
-        ),
-    };
+/// `io_error` about `target`, which the rule for a root's directory
+/// refused to remove or move ([`roots::Held`]): it is or holds a root's
+/// directory.
+fn holds_a_root_failure(target: &str) -> Failure {
     Failure::Fs {
         kind: FsErrorKind::IoError,
         path: target.to_owned(),
-        cause: Some(cause),
+        cause: Some(format!("{target} is or holds a root of the run")),
+    }
+}
+
+/// `io_error` about `from`, which the rule for a root's directory refused
+/// to rename to `to` ([`roots::Held`]): the run's grants allow more there
+/// than where it is.
+fn gains_scope_failure(from: &str, to: &str) -> Failure {
+    Failure::Fs {
+        kind: FsErrorKind::IoError,
+        path: from.to_owned(),
+        cause: Some(format!(
+            "{from} -> {to} would move it where the run's grants allow more than where it is"
+        )),
     }
 }
 

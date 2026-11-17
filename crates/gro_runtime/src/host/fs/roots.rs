@@ -144,11 +144,25 @@ fn at_or_beneath(path: &str, dir: &str) -> bool {
             .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
 }
 
-/// Why the rule refuses a rename or a remove.
+/// Why the rule refuses a remove, or either end of a rename: the entry is a
+/// root's directory or holds one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum Refusal {
-    /// The entry is a root's directory or holds one.
-    HoldsARoot,
+pub(super) struct HoldsARoot;
+
+/// An end of a rename.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum RenameEnd {
+    /// The entry moved, the source.
+    From,
+    /// Where it moves, the destination.
+    To,
+}
+
+/// Why the rule refuses a rename.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum MoveRefusal {
+    /// This end is a root's directory or holds one.
+    HoldsARoot(RenameEnd),
     /// The destination's deepest root grants what the source's doesn't.
     GainsScope,
 }
@@ -216,13 +230,13 @@ impl Held {
     /// That the entry at `path`, a real path beneath the handle's
     /// directory, may be removed, or moved: it's no root's directory and
     /// holds none.
-    pub(super) fn removable(&self, path: &str) -> Result<(), Refusal> {
+    pub(super) fn removable(&self, path: &str) -> Result<(), HoldsARoot> {
         if self
             .beneath
             .iter()
             .any(|(root, _)| at_or_beneath(root, path))
         {
-            return Err(Refusal::HoldsARoot);
+            return Err(HoldsARoot);
         }
         Ok(())
     }
@@ -233,13 +247,15 @@ impl Held {
     /// rename over an empty directory replaces it; and the deepest root
     /// holding the destination grants nothing the source's doesn't, as
     /// Landlock's `REFER` holds a rename, so no write moves a file into a
-    /// root that reads it. A refusal says whether it's of the destination.
-    pub(super) fn movable(&self, from: &str, to: &str) -> Result<(), (bool, Refusal)> {
-        self.removable(from).map_err(|why| (false, why))?;
-        self.removable(to).map_err(|why| (true, why))?;
+    /// root that reads it. A refusal of a root's directory names its end.
+    pub(super) fn movable(&self, from: &str, to: &str) -> Result<(), MoveRefusal> {
+        self.removable(from)
+            .map_err(|HoldsARoot| MoveRefusal::HoldsARoot(RenameEnd::From))?;
+        self.removable(to)
+            .map_err(|HoldsARoot| MoveRefusal::HoldsARoot(RenameEnd::To))?;
         let (source, destination) = (self.scope_at(from), self.scope_at(to));
         if (destination.read && !source.read) || (destination.write && !source.write) {
-            return Err((false, Refusal::GainsScope));
+            return Err(MoveRefusal::GainsScope);
         }
         Ok(())
     }
@@ -535,7 +551,9 @@ fn spelled(path: &Path) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Held, Refusal, Root, Scope, holds_a_root, root_table, spelled};
+    use super::{
+        Held, HoldsARoot, MoveRefusal, RenameEnd, Root, Scope, holds_a_root, root_table, spelled,
+    };
 
     /// The roots of a run granted `--allow-write=/o --allow-read=/o/r
     /// --allow-write=/o/w/inner` with its project at `/p`, each by its real
@@ -589,7 +607,7 @@ mod tests {
         assert!(Held::of(&roots, "/q").is_none());
         let held = Held::of(&roots, "/o").unwrap();
         for path in ["/o/r", "/o/w", "/o/w/inner"] {
-            assert_eq!(held.removable(path), Err(Refusal::HoldsARoot), "{path}");
+            assert_eq!(held.removable(path), Err(HoldsARoot), "{path}");
         }
         for path in [
             "/o/x",
@@ -603,22 +621,22 @@ mod tests {
         }
         assert_eq!(
             held.movable("/o/w", "/o/x"),
-            Err((false, Refusal::HoldsARoot))
+            Err(MoveRefusal::HoldsARoot(RenameEnd::From))
         );
         assert_eq!(
             held.movable("/o/x", "/o/r"),
-            Err((true, Refusal::HoldsARoot))
+            Err(MoveRefusal::HoldsARoot(RenameEnd::To))
         );
         assert_eq!(
             held.movable("/o/secret", "/o/r/secret"),
-            Err((false, Refusal::GainsScope))
+            Err(MoveRefusal::GainsScope)
         );
         assert_eq!(held.movable("/o/r/f", "/o/f"), Ok(()));
         assert_eq!(held.movable("/o/f", "/o/w/inner/f"), Ok(()));
         assert_eq!(held.movable("/o/f", "/o/w/g"), Ok(()));
         let in_w = Held::of(&roots, "/o/w").unwrap();
         assert_eq!(in_w.movable("/o/w/f", "/o/w/inner/f"), Ok(()));
-        assert_eq!(in_w.removable("/o/w/inner"), Err(Refusal::HoldsARoot));
+        assert_eq!(in_w.removable("/o/w/inner"), Err(HoldsARoot));
         // a write root inside a root that reads only: moving in gains the write
         let read_only = [
             Root::unopened("/p", &[], Scope::READ),
@@ -627,7 +645,7 @@ mod tests {
         let held = Held::of(&read_only, "/p").unwrap();
         assert_eq!(
             held.movable("/p/f", "/p/out/f"),
-            Err((false, Refusal::GainsScope))
+            Err(MoveRefusal::GainsScope)
         );
         assert_eq!(held.movable("/p/out/f", "/p/f"), Ok(()));
     }
@@ -648,7 +666,7 @@ mod tests {
         let held = Held::of(&roots, "/o").unwrap();
         assert_eq!(
             held.movable("/o/f", "/o/w/r/f"),
-            Err((false, Refusal::GainsScope))
+            Err(MoveRefusal::GainsScope)
         );
         let in_x = Held::of(&roots, "/o/a/x").unwrap();
         assert_eq!(in_x.movable("/o/a/x/f", "/o/a/x/r/f"), Ok(()));
@@ -664,7 +682,7 @@ mod tests {
             Root::unopened("/", &[], Scope::ALL),
         ];
         let held = Held::of(&roots, "/p").unwrap();
-        assert_eq!(held.removable("/p/proj"), Err(Refusal::HoldsARoot));
+        assert_eq!(held.removable("/p/proj"), Err(HoldsARoot));
         assert_eq!(held.movable("/p/f", "/p/proj/f"), Ok(()));
         assert!(Held::of(&roots, "/").is_some());
         assert!(Held::of(&roots, "/q").is_none());
