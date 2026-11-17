@@ -18,7 +18,7 @@
 //! Node follows; but for a root at `/`, an unconfined run's or a flag's
 //! naming `/`, which resolves an absolute path as the kernel does.
 //! Such a refusal is recorded in the run's record of refusals as it's
-//! thrown, with what would have allowed it ([`NeededGrant`]), which fails
+//! thrown, with what would have allowed it ([`FsNeed`]), which fails
 //! the run whatever the program does with the error: a grant to read; and
 //! for an op a handle's scope lacks, a handle `fs.open_dir` makes on a root
 //! that grants it, since a grant never widens the handle that refused it,
@@ -29,13 +29,13 @@
 
 use super::roots::Root;
 use super::{Access, Failure, Scope, beneath_of, join, kind_of, root_fd, sys};
-use crate::{FsNeed, NeededGrant};
+use crate::FsNeed;
 
 /// What lets through an op on `targets`, absolute paths, that a handle
 /// refused for want of `access`: a handle `fs.open_dir` makes on a root
 /// doing it that holds every target by its text, when one does, since a
 /// grant wouldn't widen the handle that refused it; else the grant of it.
-pub(super) fn scope_needed(roots: &[Root], targets: &[&str], access: Access) -> NeededGrant {
+pub(super) fn scope_needed(roots: &[Root], targets: &[&str], access: Access) -> FsNeed {
     let need = access.scope();
     // each target's roots doing `access`
     let mut held = targets.iter().map(|target| {
@@ -55,9 +55,9 @@ pub(super) fn scope_needed(roots: &[Root], targets: &[&str], access: Access) -> 
         .iter()
         .any(|index| rest.iter().all(|other| other.contains(index)))
     {
-        NeededGrant::Fs(FsNeed::OpenDir)
+        FsNeed::OpenDir
     } else {
-        NeededGrant::Fs(access.grant())
+        access.grant()
     }
 }
 
@@ -232,7 +232,7 @@ fn find_roots<'r>(
 mod tests {
     use super::super::tests::shown;
     use super::{Access, Failure, Root, Scope, find_roots, scope_needed, sys, walk};
-    use crate::{FsNeed, NeededGrant};
+    use crate::FsNeed;
 
     /// A root at `path`, never opened, reading and writing.
     fn root(path: &str) -> Root {
@@ -397,10 +397,10 @@ mod tests {
         ) {
             Err(Failure::NotGranted {
                 path: refused,
-                needed,
+                need,
             }) => {
                 assert_eq!(refused, path, "the refusal names the path as asked");
-                needed
+                need
             }
             _ => panic!("{path} wasn't refused"),
         };
@@ -417,11 +417,7 @@ mod tests {
             ("/p/out", directory, Scope::ALL),
             ("/p/out", entry, Scope::READ),
         ] {
-            assert_eq!(
-                needed(path, opened, need),
-                Some(NeededGrant::Fs(FsNeed::Read)),
-                "{path}"
-            );
+            assert_eq!(needed(path, opened, need), Some(FsNeed::Read), "{path}");
         }
     }
 
@@ -446,11 +442,7 @@ mod tests {
             };
             scope_needed(&roots, targets, access)
         };
-        let (open_dir, read, write) = (
-            NeededGrant::Fs(FsNeed::OpenDir),
-            NeededGrant::Fs(FsNeed::Read),
-            NeededGrant::Fs(FsNeed::Write),
-        );
+        let (open_dir, read, write) = (FsNeed::OpenDir, FsNeed::Read, FsNeed::Write);
         for (targets, need, expected) in [
             (&["/p/out/x"][..], Scope::WRITE, &open_dir),
             (&["/p/out"], Scope::WRITE, &open_dir),

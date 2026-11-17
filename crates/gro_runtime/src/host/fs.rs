@@ -88,8 +88,8 @@ use super::error_class::{DeclaredFamily, ErrorClasses};
 use super::handle::{self, HandleKind};
 use super::{HostData, NO_ERROR_CLASSES, name, string, throw_error, throw_type_error};
 use crate::loader::RefusalLog;
-use crate::resolver::Capability;
-use crate::{Authority, FsNeed, NeededGrant, RefusedBy};
+use crate::loader::refused::{NOT_GRANTED, NotGranted};
+use crate::{Authority, FsNeed};
 use roots::{Root, holds_a_root};
 use walk::scope_needed;
 
@@ -108,9 +108,6 @@ const NOT_A_HANDLE: &str = "fs's methods are called on an fs handle of their kin
 /// record of refusals, which only a runtime made outside a run's start is.
 const NO_REFUSAL_STATE: &str = "fs refused a path, but this runtime was started without the \
                                 run's record of refusals, so the refusal can't fail the run";
-
-/// The kind of the error a reach outside the run's roots throws.
-const NOT_GRANTED: &str = "not_granted";
 
 /// The keys of a handle's state.
 const ROOT: &str = "root";
@@ -231,13 +228,13 @@ enum Failure {
         path: String,
         cause: Option<String>,
     },
-    /// `not_granted` about `path`, recorded as it's thrown with the grant
-    /// that would have allowed it, if one would.
+    /// `not_granted` about `path`, recorded as it's thrown with the kind
+    /// of grant that would have allowed it, if one would.
     NotGranted {
         /// The path refused.
         path: String,
-        /// The grant that would have allowed it.
-        needed: Option<NeededGrant>,
+        /// The kind of grant that would have allowed it.
+        need: Option<FsNeed>,
     },
     /// A plain `Error` of this message: what isn't the call's to fix.
     Plain(String),
@@ -261,7 +258,7 @@ impl Failure {
     fn unreached(path: &str) -> Self {
         Self::NotGranted {
             path: path.to_owned(),
-            needed: Some(NeededGrant::Fs(FsNeed::Read)),
+            need: Some(FsNeed::Read),
         }
     }
 
@@ -289,20 +286,13 @@ fn throw(
         Failure::Type(message) => return throw_type_error(scope, &message),
         Failure::Plain(message) => return throw_error(scope, &message),
         Failure::Fs { kind, path, cause } => (kind, path, cause),
-        Failure::NotGranted { path, needed } => {
+        Failure::NotGranted { path, need } => {
             let Some(log) = state.try_borrow::<RefusalLog>() else {
                 return throw_error(scope, NO_REFUSAL_STATE);
             };
             // recorded as it's thrown, so the run fails whatever the
             // program does with the error
-            log.record(
-                RefusedBy::Grant {
-                    grant: Capability::Fs,
-                    error: super::error_class::FS_ERROR.name,
-                },
-                &format!("{NOT_GRANTED}: {path}"),
-                needed,
-            );
+            log.record_not_granted(NotGranted::Fs(need), &path);
             (NOT_GRANTED, path, None)
         }
     };
@@ -439,7 +429,7 @@ impl<'r> Op<'r> {
             return Ok(());
         }
         let targets: Vec<&str> = ends.iter().map(|end| end.target.as_str()).collect();
-        let needed = if ruled && targets.iter().any(|path| holds_a_root(&self.roots, path)) {
+        let need = if ruled && targets.iter().any(|path| holds_a_root(&self.roots, path)) {
             None
         } else {
             Some(scope_needed(&self.roots, &targets, access))
@@ -448,7 +438,7 @@ impl<'r> Op<'r> {
             path: ends
                 .first()
                 .map_or_else(|| self.handle_path.clone(), |end| end.target.clone()),
-            needed,
+            need,
         })
     }
 
@@ -790,7 +780,8 @@ mod tests {
 
     use super::roots::Root;
     use super::{
-        Access, Failure, Handle, Op, Scope, beneath_of, kind_of, op_failure, sys, to_lexical,
+        Access, Failure, Handle, NOT_GRANTED, Op, Scope, beneath_of, kind_of, op_failure, sys,
+        to_lexical,
     };
 
     /// What `failure` is, as data: its kind of error, and an `FsError`'s
@@ -799,7 +790,7 @@ mod tests {
         match failure {
             Failure::Type(message) => ("TypeError".to_owned(), message),
             Failure::Fs { kind, path, .. } => (kind.to_owned(), path),
-            Failure::NotGranted { path, .. } => ("not_granted".to_owned(), path),
+            Failure::NotGranted { path, .. } => (NOT_GRANTED.to_owned(), path),
             Failure::Plain(message) => ("Error".to_owned(), message),
             Failure::Thrown => ("thrown".to_owned(), String::new()),
         }

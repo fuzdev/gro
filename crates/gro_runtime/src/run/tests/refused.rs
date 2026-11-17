@@ -10,12 +10,11 @@ use super::super::{Ended, RunError, run_main};
 use super::builtins::{HOP, SELF_LINK, granted, run_linked_outcome};
 use crate::confine::Confinement;
 use crate::engine::{EngineOptions, init_engine};
-use crate::resolver::Capability;
 use crate::test_support::TestDir;
 use crate::test_support::never_exits;
 use crate::{
-    MAX_LISTED_MESSAGE, MAX_LISTED_REFUSALS, NeededGrant, Refusal, RefusedBy, RuntimeOptions,
-    STACK_SIZE,
+    FsNeed, MAX_LISTED_MESSAGE, MAX_LISTED_REFUSALS, NeededGrant, Refusal, RefusedBy,
+    RuntimeOptions, STACK_SIZE,
 };
 
 /// Writes `files` and `links` (a path and its target, made a symlink) into
@@ -538,21 +537,15 @@ if (refusals.join() !== 'not_granted: B,not_granted: B,not_granted: B,not_grante
 ";
     let (outcome, _) = run_project("env_caught", &[("main.mjs", caught)], &[]);
     assert!(outcome.result.is_ok(), "{:?}", outcome.result);
-    let env = RefusedBy::Grant {
-        grant: Capability::Env,
-        error: "EnvError",
-    };
     assert_eq!(
         outcome.refused.listed,
         [
             Refusal {
-                by: env,
-                fs_need: None,
+                by: RefusedBy::Env,
                 message: "not_granted: B".to_owned(),
             },
             Refusal {
-                by: env,
-                fs_need: None,
+                by: RefusedBy::Env,
                 message: "not_granted: C".to_owned(),
             },
         ]
@@ -578,6 +571,73 @@ env.get('B');
     assert_eq!(outcome.refused.messages(), ["not_granted: C"]);
     assert_eq!(outcome.refused.unlisted, 0);
     assert_eq!(outcome.refused.needed, [needs("C"), needs("B")]);
+}
+
+/// A host function's refused call is listed with the message of the error
+/// it threw, which the record makes apart from the error, for `env` and
+/// `fs` alike: a program that throws a plain `Error` of a caught refusal's
+/// message reports the listed text, and one whose uncaught error is the
+/// refusal itself finds it unlisted, its grant kept.
+#[test]
+fn a_refused_call_is_listed_with_its_error_s_message() {
+    for (name, call, by, needed) in [
+        (
+            "env",
+            "import { env } from '@fuzdev/gro/env.ts';\nconst call = () => env.get('B');\n",
+            RefusedBy::Env,
+            needs("B"),
+        ),
+        (
+            "fs",
+            "import { fs } from '@fuzdev/gro/fs.ts';\nconst call = () => fs.open_dir('/');\n",
+            RefusedBy::Fs(Some(FsNeed::Read)),
+            NeededGrant::Fs(FsNeed::Read),
+        ),
+    ] {
+        let caught = format!(
+            "{call}try {{\n\tawait call();\n}} catch (error) {{\n\tthrow new Error(error.message);\n}}\n"
+        );
+        let (outcome, _) = run_project(
+            &format!("message_{name}_caught"),
+            &[("main.mjs", &caught)],
+            &[],
+        );
+        let Err(RunError::Uncaught(report)) = &outcome.result else {
+            panic!("{name}: {:?}", outcome.result);
+        };
+        let [listed] = &outcome.refused.listed[..] else {
+            panic!("{name}: {:?}", outcome.refused);
+        };
+        assert_eq!(listed.by, by, "{name}");
+        assert!(
+            listed.message.starts_with("not_granted: "),
+            "{name}: {listed:?}"
+        );
+        let report = report.to_string();
+        assert_eq!(
+            report.lines().next(),
+            Some(format!("Uncaught (in promise) Error: {}", listed.message).as_str()),
+            "{name}"
+        );
+        let uncaught = format!("{call}await call();\n");
+        let (outcome, _) = run_project(
+            &format!("message_{name}_uncaught"),
+            &[("main.mjs", &uncaught)],
+            &[],
+        );
+        let Err(RunError::Uncaught(report)) = &outcome.result else {
+            panic!("{name}: {:?}", outcome.result);
+        };
+        assert!(
+            report.to_string().starts_with(&format!(
+                "Uncaught (in promise) {}: not_granted: ",
+                by.error()
+            )),
+            "{name}: {report}"
+        );
+        assert!(outcome.refused.is_empty(), "{name}: {:?}", outcome.refused);
+        assert_eq!(outcome.refused.needed, [needed], "{name}");
+    }
 }
 
 /// The grant an env name refused by the root needed.

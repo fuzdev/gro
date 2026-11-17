@@ -29,8 +29,8 @@ use super::error_class::{DeclaredFamily, ErrorClasses};
 use super::handle::{self, ENV_HANDLE};
 use super::{HostData, native, own_data, string, throw_error, throw_type_error};
 use crate::loader::RefusalLog;
-use crate::resolver::Capability;
-use crate::{Authority, EnvNameFault, Grants, NeededGrant, RefusedBy, env_name_fault};
+use crate::loader::refused::{NOT_GRANTED, NotGranted};
+use crate::{Authority, EnvNameFault, Grants, env_name_fault};
 
 /// What a method called on anything but an env handle throws.
 const NOT_A_HANDLE: &str = "env's methods are called on an env handle, not another object";
@@ -263,16 +263,7 @@ fn check_granted<'s>(
     classes.throw(scope, errors, NOT_GRANTED, name, None);
     // recorded as it's thrown, so the run fails whatever the program does
     // with the error; the name, never a value
-    let message = format!("{NOT_GRANTED}: {text}");
-    let needed = root.then_some(NeededGrant::Env(text));
-    log.record(
-        RefusedBy::Grant {
-            grant: Capability::Env,
-            error: errors.family().name,
-        },
-        &message,
-        needed,
-    );
+    log.record_not_granted(NotGranted::Env { needed: root }, &text);
     None
 }
 
@@ -291,9 +282,6 @@ fn is_root(
 /// run's start is: a refusal that couldn't fail the run is an error itself.
 const NO_REFUSAL_STATE: &str = "env refused a name, but this runtime was started without the \
                                 run's record of refusals, so the refusal can't fail the run";
-
-/// The kind of the error a name outside a handle's set throws.
-const NOT_GRANTED: &str = "not_granted";
 
 /// `value` as a variable's name, checked as the Node module checks one,
 /// `what` naming it in a refusal's message, a `*` refused unless `glob`.

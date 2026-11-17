@@ -12,7 +12,7 @@ use gro_runtime::confine::Confinement;
 use gro_runtime::engine::{EngineOptions, init_engine};
 use gro_runtime::file_id::FileId;
 use gro_runtime::phases::{self, Phase};
-use gro_runtime::resolver::{Capability, normalize};
+use gro_runtime::resolver::normalize;
 use gro_runtime::{
     ArgsGrant, Authority, EnvGrant, EnvVars, Exit, ExitGrant, FsGrant, FsNeed, GrantedDir, Grants,
     NeededGrant, Refusal, Refusals, RefusedBy, RunOutcome, RuntimeOptions, env_name_fault,
@@ -237,11 +237,9 @@ fn refusal_line(refusal: &Refusal) -> String {
     let message = escape_controls(&refusal.message);
     match refusal.by {
         RefusedBy::Import => format!("error: import() refused: {message}"),
-        RefusedBy::Grant {
-            grant: Capability::Fs,
-            ..
-        } => {
-            let need = match refusal.fs_need {
+        RefusedBy::Env => format!("error: env refused: {message}"),
+        RefusedBy::Fs(need) => {
+            let need = match need {
                 Some(FsNeed::Read) => "a read",
                 Some(FsNeed::Write) => "a write",
                 Some(FsNeed::OpenDir) => "what the run grants",
@@ -249,7 +247,6 @@ fn refusal_line(refusal: &Refusal) -> String {
             };
             format!("error: fs refused {need}: {message}")
         }
-        RefusedBy::Grant { grant, .. } => format!("error: {grant} refused: {message}"),
     }
 }
 
@@ -747,48 +744,38 @@ mod tests {
     /// needed none, its message escaped.
     #[test]
     fn a_listed_refusal_names_what_refused_it_and_an_fs_one_its_need() {
-        use gro_runtime::resolver::Capability;
         use gro_runtime::{FsNeed, Refusal, RefusedBy};
 
         use super::refusal_line;
 
-        let fs = RefusedBy::Grant {
-            grant: Capability::Fs,
-            error: "FsError",
-        };
-        let env = RefusedBy::Grant {
-            grant: Capability::Env,
-            error: "EnvError",
-        };
-        let line = |by: RefusedBy, fs_need: Option<FsNeed>, message: &str| {
+        let line = |by: RefusedBy, message: &str| {
             refusal_line(&Refusal {
                 by,
-                fs_need,
                 message: message.to_owned(),
             })
         };
         assert_eq!(
-            line(fs, Some(FsNeed::Read), "not_granted: /r"),
+            line(RefusedBy::Fs(Some(FsNeed::Read)), "not_granted: /r"),
             "error: fs refused a read: not_granted: /r"
         );
         assert_eq!(
-            line(fs, Some(FsNeed::Write), "not_granted: /w"),
+            line(RefusedBy::Fs(Some(FsNeed::Write)), "not_granted: /w"),
             "error: fs refused a write: not_granted: /w"
         );
         assert_eq!(
-            line(fs, Some(FsNeed::OpenDir), "not_granted: /o"),
+            line(RefusedBy::Fs(Some(FsNeed::OpenDir)), "not_granted: /o"),
             "error: fs refused what the run grants: not_granted: /o"
         );
         assert_eq!(
-            line(fs, None, "not_granted: /n\u{1b}[2K\u{2028}"),
+            line(RefusedBy::Fs(None), "not_granted: /n\u{1b}[2K\u{2028}"),
             "error: fs refused what no grant allows: not_granted: /n\\u{1b}[2K\\u{2028}"
         );
         assert_eq!(
-            line(env, None, "not_granted: HOME\n"),
+            line(RefusedBy::Env, "not_granted: HOME\n"),
             "error: env refused: not_granted: HOME\\u{a}"
         );
         assert_eq!(
-            line(RefusedBy::Import, None, "cannot resolve 'ext:x'"),
+            line(RefusedBy::Import, "cannot resolve 'ext:x'"),
             "error: import() refused: cannot resolve 'ext:x'"
         );
     }

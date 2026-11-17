@@ -13,7 +13,7 @@
 
 use std::borrow::Cow;
 
-use crate::resolver::Capability;
+use crate::host::error_class::{ENV_ERROR, FS_ERROR};
 
 /// The most refusals listed.
 ///
@@ -35,16 +35,16 @@ pub const MAX_LISTED_MESSAGE: usize = 2048;
 pub enum RefusedBy {
     /// The loader refused an `import()`, which rejected with a `TypeError`.
     Import,
-    /// A host function of the module `grant` names refused a call for a
-    /// target outside what the handle it was called on reaches, or an op its
-    /// scope lacks, throwing `not_granted` of the error class named `error`
-    /// (`EnvError` or `FsError`).
-    Grant {
-        /// The host module's grant, which names it: `env` or `fs`.
-        grant: Capability,
-        /// The name of the class of the error the call threw.
-        error: &'static str,
-    },
+    /// `env` refused a call for a variable outside the names of the handle
+    /// it was called on, throwing `EnvError` `not_granted`. The grant that
+    /// would have allowed it, when one would, is the variable, which the
+    /// message names, so the listing keeps no need.
+    Env,
+    /// `fs` refused a call for a path outside every root the call may use,
+    /// or an op its handle's scope lacks, throwing `FsError` `not_granted`,
+    /// with the kind of fs grant that would have allowed it, `None` when
+    /// none would.
+    Fs(Option<FsNeed>),
 }
 
 impl RefusedBy {
@@ -52,9 +52,32 @@ impl RefusedBy {
     pub const fn error(self) -> &'static str {
         match self {
             Self::Import => "TypeError",
-            Self::Grant { error, .. } => error,
+            Self::Env => ENV_ERROR.name,
+            Self::Fs(_) => FS_ERROR.name,
         }
     }
+}
+
+/// The kind of the error a host module's call throws when it's refused for
+/// a grant the handle it was called on doesn't hold: its message is
+/// `not_granted: target`, as the family's class makes it.
+pub const NOT_GRANTED: &str = "not_granted";
+
+/// A host module's call refused for a grant the handle it was called on
+/// doesn't hold, as [`Refusals::record_not_granted`] takes it, with what
+/// would have allowed it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NotGranted {
+    /// `env` refused the variable the target names; `needed` when
+    /// granting it would have let the call through, as for a refusal by
+    /// the run's root handle.
+    Env {
+        /// Whether a grant of the variable would have allowed the call.
+        needed: bool,
+    },
+    /// `fs` refused the path the target names, with the kind of fs grant
+    /// that would have allowed it, `None` when none would.
+    Fs(Option<FsNeed>),
 }
 
 /// What would have allowed a refused call, so a report can say what to
@@ -101,12 +124,8 @@ pub enum FsNeed {
 /// One refusal, as a run's record lists it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Refusal {
-    /// What refused it.
+    /// What refused it, with the kind of fs grant an `fs` refusal needed.
     pub by: RefusedBy,
-    /// The kind of fs grant it needed, for a refusal by `fs` that one
-    /// would have allowed; `None` for any other, a refusal by `env` among
-    /// them, whose message names what it needed.
-    pub fs_need: Option<FsNeed>,
     /// The message of the error JS saw, cut past [`MAX_LISTED_MESSAGE`]
     /// bytes and marked there with its whole length: `cannot resolve
     /// 'data:… (4096 bytes)`. A refused op's names its target and never a
@@ -121,8 +140,8 @@ pub struct Refusal {
 pub struct Refusals {
     /// The first [`MAX_LISTED_REFUSALS`] distinct refusals, in the order
     /// each first happened. Two refusals are one when what refused them is
-    /// the same, they needed the same kind of fs grant or none, and their
-    /// messages, cut, are the same text, as a retry's are.
+    /// the same, an `fs` refusal's need included, and their messages, cut,
+    /// are the same text, as a retry's are.
     pub listed: Vec<Refusal>,
     /// How many more refusals there were than `listed` lists: each that
     /// isn't listed, a retry of one included.
@@ -154,22 +173,44 @@ impl Refusals {
             .collect()
     }
 
-    /// Records a refusal by `by` whose error carries `message`: listed,
-    /// unless it's listed already, while there's room, and counted after;
-    /// and `needed`, the grant that would have allowed it, if one would
+    /// Records an `import()` the loader refused, its `TypeError` carrying
+    /// `message` ([`Self::list`]).
+    pub(crate) fn record_import(&mut self, message: &str) {
+        self.list(RefusedBy::Import, message);
+    }
+
+    /// Records a host module's call refused about `target`, its error's
+    /// message `not_granted: target`, the text the family's class gives the
+    /// error it throws, which [`Self::unlist`] finds the run's uncaught
+    /// error by; and the grant that would have allowed it, if one would
     /// have, kept unless it's kept already, while there's room.
-    pub(crate) fn record(&mut self, by: RefusedBy, message: &str, needed: Option<NeededGrant>) {
-        let fs_need = match &needed {
-            Some(NeededGrant::Fs(need)) => Some(*need),
-            Some(NeededGrant::Env(_)) | None => None,
+    pub(crate) fn record_not_granted(&mut self, refused: NotGranted, target: &str) {
+        let by = match refused {
+            NotGranted::Env { needed } => {
+                if needed {
+                    self.need(NeededGrant::Env(target.to_owned()));
+                }
+                RefusedBy::Env
+            }
+            NotGranted::Fs(need) => {
+                if let Some(need) = need {
+                    self.need(NeededGrant::Fs(need));
+                }
+                RefusedBy::Fs(need)
+            }
         };
-        if let Some(needed) = needed {
-            self.need(needed);
-        }
+        self.list(by, &format!("{NOT_GRANTED}: {target}"));
+    }
+
+    /// Lists a refusal by `by` whose error carries `message`, unless it's
+    /// listed already, while there's room, and counts it after.
+    fn list(&mut self, by: RefusedBy, message: &str) {
         let message = cut(message);
-        if self.listed.iter().any(|listed| {
-            listed.by == by && listed.fs_need == fs_need && *listed.message == message
-        }) {
+        if self
+            .listed
+            .iter()
+            .any(|listed| listed.by == by && *listed.message == message)
+        {
             return;
         }
         if self.listed.len() == MAX_LISTED_REFUSALS {
@@ -177,7 +218,6 @@ impl Refusals {
         } else {
             self.listed.push(Refusal {
                 by,
-                fs_need,
                 message: message.into_owned(),
             });
         }
@@ -243,14 +283,20 @@ fn cut(message: &str) -> Cow<'_, str> {
 #[cfg(test)]
 mod tests {
     use super::{
-        FsNeed, MAX_LISTED_MESSAGE, MAX_LISTED_REFUSALS, NeededGrant, Refusals, RefusedBy,
+        FsNeed, MAX_LISTED_MESSAGE, MAX_LISTED_REFUSALS, NeededGrant, NotGranted, Refusals,
+        RefusedBy,
     };
-    use crate::resolver::Capability;
 
-    const ENV: RefusedBy = RefusedBy::Grant {
-        grant: Capability::Env,
-        error: "EnvError",
-    };
+    /// A name a narrowed env handle refused, which no grant would allow.
+    const NARROWED: NotGranted = NotGranted::Env { needed: false };
+
+    /// A name env's root handle refused, which a grant of it would allow.
+    const ROOT: NotGranted = NotGranted::Env { needed: true };
+
+    /// An fs refusal that needed `need`.
+    const fn fs(need: Option<FsNeed>) -> NotGranted {
+        NotGranted::Fs(need)
+    }
 
     /// The first refusals are listed in order, a retry of a listed one
     /// changes nothing, and each one past the listed, a retry included, is
@@ -263,18 +309,18 @@ mod tests {
             .map(|i| format!("cannot resolve 'ext:{i}'"))
             .collect();
         for message in &messages[..MAX_LISTED_REFUSALS] {
-            refused.record(RefusedBy::Import, message, None);
-            refused.record(RefusedBy::Import, message, None);
+            refused.record_import(message);
+            refused.record_import(message);
         }
         assert!(!refused.is_empty());
         assert_eq!(refused.messages(), messages[..MAX_LISTED_REFUSALS]);
         assert_eq!(refused.unlisted, 0);
         for message in &messages[MAX_LISTED_REFUSALS..] {
-            refused.record(RefusedBy::Import, message, None);
-            refused.record(RefusedBy::Import, message, None);
+            refused.record_import(message);
+            refused.record_import(message);
         }
         // a listed one retried once the list is full still isn't counted
-        refused.record(RefusedBy::Import, &messages[0], None);
+        refused.record_import(&messages[0]);
         assert_eq!(refused.messages(), messages[..MAX_LISTED_REFUSALS]);
         assert_eq!(refused.unlisted, 4);
     }
@@ -287,17 +333,13 @@ mod tests {
     fn a_long_message_is_cut_and_marked_with_its_length() {
         let mut refused = Refusals::default();
         let whole = "a".repeat(MAX_LISTED_MESSAGE);
-        refused.record(RefusedBy::Import, &whole, None);
+        refused.record_import(&whole);
         // 'é' is two bytes, so a cut at the bound falls inside the last one
-        refused.record(
-            RefusedBy::Import,
-            &format!("b{}", "é".repeat(MAX_LISTED_MESSAGE / 2)),
-            None,
-        );
+        refused.record_import(&format!("b{}", "é".repeat(MAX_LISTED_MESSAGE / 2)));
         let head = "c".repeat(MAX_LISTED_MESSAGE);
-        refused.record(RefusedBy::Import, &format!("{head}x"), None);
-        refused.record(RefusedBy::Import, &format!("{head}y"), None);
-        refused.record(RefusedBy::Import, &format!("{head}xy"), None);
+        refused.record_import(&format!("{head}x"));
+        refused.record_import(&format!("{head}y"));
+        refused.record_import(&format!("{head}xy"));
         assert_eq!(
             refused.messages(),
             [
@@ -320,7 +362,7 @@ mod tests {
     fn a_refusal_is_unlisted_by_its_message() {
         let mut refused = Refusals::default();
         for i in 0..MAX_LISTED_REFUSALS {
-            refused.record(RefusedBy::Import, &format!("refused {i}"), None);
+            refused.record_import(&format!("refused {i}"));
         }
         refused.unlist("TypeError", "refused 1");
         refused.unlist("TypeError", "refused");
@@ -329,7 +371,7 @@ mod tests {
 
         let mut refused = Refusals::default();
         let long = "c".repeat(MAX_LISTED_MESSAGE + 1);
-        refused.record(RefusedBy::Import, &long, None);
+        refused.record_import(&long);
         refused.unlist("TypeError", &long);
         assert!(refused.is_empty());
 
@@ -346,27 +388,19 @@ mod tests {
     /// of its class and message another the program caught.
     #[test]
     fn nothing_is_unlisted_once_a_refusal_was_counted() {
-        let fs = RefusedBy::Grant {
-            grant: Capability::Fs,
-            error: "FsError",
-        };
         let mut refused = Refusals::default();
         for i in 0..MAX_LISTED_REFUSALS - 1 {
-            refused.record(RefusedBy::Import, &format!("refused {i}"), None);
+            refused.record_import(&format!("refused {i}"));
         }
-        refused.record(
-            fs,
-            "not_granted: /a",
-            Some(NeededGrant::Fs(FsNeed::OpenDir)),
-        );
-        refused.record(fs, "not_granted: /a", None);
+        refused.record_not_granted(fs(Some(FsNeed::OpenDir)), "/a");
+        refused.record_not_granted(fs(None), "/a");
         assert_eq!(refused.unlisted, 1);
         refused.unlist("FsError", "not_granted: /a");
         refused.unlist("TypeError", "refused 0");
         assert_eq!(refused.listed.len(), MAX_LISTED_REFUSALS);
         assert_eq!(
-            refused.listed[MAX_LISTED_REFUSALS - 1].fs_need,
-            Some(FsNeed::OpenDir)
+            refused.listed[MAX_LISTED_REFUSALS - 1].by,
+            RefusedBy::Fs(Some(FsNeed::OpenDir))
         );
     }
 
@@ -376,16 +410,16 @@ mod tests {
     #[test]
     fn an_import_s_refusal_and_an_op_s_share_the_record_apart() {
         let mut refused = Refusals::default();
-        refused.record(ENV, "not_granted: HOME", None);
-        refused.record(RefusedBy::Import, "not_granted: HOME", None);
-        refused.record(ENV, "not_granted: HOME", None);
+        refused.record_not_granted(NARROWED, "HOME");
+        refused.record_import("not_granted: HOME");
+        refused.record_not_granted(NARROWED, "HOME");
         assert_eq!(
             refused
                 .listed
                 .iter()
                 .map(|listed| listed.by)
                 .collect::<Vec<_>>(),
-            [ENV, RefusedBy::Import]
+            [RefusedBy::Env, RefusedBy::Import]
         );
         refused.unlist("TypeError", "not_granted: HOME");
         assert_eq!(
@@ -394,19 +428,50 @@ mod tests {
                 .iter()
                 .map(|listed| listed.by)
                 .collect::<Vec<_>>(),
-            [ENV]
+            [RefusedBy::Env]
         );
         refused.unlist("EnvError", "not_granted: HOME");
         assert!(refused.is_empty());
-        refused.record(ENV, "not_granted: HOME", None);
-        refused.record(RefusedBy::Import, "not_granted: HOME", None);
+        refused.record_not_granted(NARROWED, "HOME");
+        refused.record_import("not_granted: HOME");
         for i in 0..MAX_LISTED_REFUSALS {
-            refused.record(ENV, &format!("not_granted: N{i}"), None);
+            refused.record_not_granted(NARROWED, &format!("N{i}"));
         }
         assert_eq!(refused.listed.len(), MAX_LISTED_REFUSALS);
         assert_eq!(refused.unlisted, 2);
-        assert_eq!(ENV.error(), "EnvError");
+    }
+
+    /// Each refusal's error is of its family's class, an fs one's whatever
+    /// it needed, and an import's a `TypeError`.
+    #[test]
+    fn a_refusal_s_error_is_its_family_s_class() {
         assert_eq!(RefusedBy::Import.error(), "TypeError");
+        assert_eq!(RefusedBy::Env.error(), "EnvError");
+        for need in [
+            None,
+            Some(FsNeed::Read),
+            Some(FsNeed::Write),
+            Some(FsNeed::OpenDir),
+        ] {
+            assert_eq!(RefusedBy::Fs(need).error(), "FsError");
+        }
+    }
+
+    /// A host module's refusal is listed with the message its error
+    /// carries, `not_granted: target`, by which the run's uncaught one is
+    /// unlisted.
+    #[test]
+    fn a_refused_call_s_message_is_not_granted_and_its_target() {
+        let mut refused = Refusals::default();
+        refused.record_not_granted(ROOT, "HOME");
+        refused.record_not_granted(fs(Some(FsNeed::Read)), "/a b");
+        assert_eq!(
+            refused.messages(),
+            ["not_granted: HOME", "not_granted: /a b"]
+        );
+        refused.unlist("EnvError", "not_granted: HOME");
+        refused.unlist("FsError", "not_granted: /a b");
+        assert!(refused.is_empty());
     }
 
     /// An fs refusal is listed with the kind of grant it needed, and two of
@@ -414,38 +479,29 @@ mod tests {
     /// both none; an env refusal keeps no kind, whatever it needed.
     #[test]
     fn an_fs_refusal_is_listed_with_the_kind_it_needed() {
-        let fs = RefusedBy::Grant {
-            grant: Capability::Fs,
-            error: "FsError",
-        };
         let mut refused = Refusals::default();
-        let read = Some(NeededGrant::Fs(FsNeed::Read));
-        let write = Some(NeededGrant::Fs(FsNeed::Write));
-        refused.record(fs, "not_granted: /a", read.clone());
-        refused.record(fs, "not_granted: /a", write.clone());
-        refused.record(fs, "not_granted: /a", read);
-        refused.record(fs, "not_granted: /a", None);
-        refused.record(
-            fs,
-            "not_granted: /a",
-            Some(NeededGrant::Fs(FsNeed::OpenDir)),
-        );
-        refused.record(fs, "not_granted: /a", write);
-        refused.record(fs, "not_granted: /a", None);
-        refused.record(ENV, "not_granted: A", Some(needs("A")));
-        refused.record(ENV, "not_granted: A", None);
+        let (read, write) = (fs(Some(FsNeed::Read)), fs(Some(FsNeed::Write)));
+        refused.record_not_granted(read, "/a");
+        refused.record_not_granted(write, "/a");
+        refused.record_not_granted(read, "/a");
+        refused.record_not_granted(fs(None), "/a");
+        refused.record_not_granted(fs(Some(FsNeed::OpenDir)), "/a");
+        refused.record_not_granted(write, "/a");
+        refused.record_not_granted(fs(None), "/a");
+        refused.record_not_granted(ROOT, "A");
+        refused.record_not_granted(NARROWED, "A");
         assert_eq!(
             refused
                 .listed
                 .iter()
-                .map(|listed| (listed.by, listed.fs_need))
+                .map(|listed| listed.by)
                 .collect::<Vec<_>>(),
             [
-                (fs, Some(FsNeed::Read)),
-                (fs, Some(FsNeed::Write)),
-                (fs, None),
-                (fs, Some(FsNeed::OpenDir)),
-                (ENV, None),
+                RefusedBy::Fs(Some(FsNeed::Read)),
+                RefusedBy::Fs(Some(FsNeed::Write)),
+                RefusedBy::Fs(None),
+                RefusedBy::Fs(Some(FsNeed::OpenDir)),
+                RefusedBy::Env,
             ]
         );
         assert_eq!(refused.unlisted, 0);
@@ -456,29 +512,21 @@ mod tests {
     /// and one whose message only one carries unlists that one.
     #[test]
     fn an_fs_refusal_shared_by_needs_stays_listed() {
-        let fs = RefusedBy::Grant {
-            grant: Capability::Fs,
-            error: "FsError",
-        };
         let mut refused = Refusals::default();
-        refused.record(
-            fs,
-            "not_granted: /a",
-            Some(NeededGrant::Fs(FsNeed::OpenDir)),
-        );
-        refused.record(fs, "not_granted: /a", None);
-        refused.record(fs, "not_granted: /b", Some(NeededGrant::Fs(FsNeed::Read)));
+        refused.record_not_granted(fs(Some(FsNeed::OpenDir)), "/a");
+        refused.record_not_granted(fs(None), "/a");
+        refused.record_not_granted(fs(Some(FsNeed::Read)), "/b");
         refused.unlist("FsError", "not_granted: /a");
         assert_eq!(
             refused
                 .listed
                 .iter()
-                .map(|listed| (listed.message.as_str(), listed.fs_need))
+                .map(|listed| (listed.message.as_str(), listed.by))
                 .collect::<Vec<_>>(),
             [
-                ("not_granted: /a", Some(FsNeed::OpenDir)),
-                ("not_granted: /a", None),
-                ("not_granted: /b", Some(FsNeed::Read)),
+                ("not_granted: /a", RefusedBy::Fs(Some(FsNeed::OpenDir))),
+                ("not_granted: /a", RefusedBy::Fs(None)),
+                ("not_granted: /b", RefusedBy::Fs(Some(FsNeed::Read))),
             ]
         );
         refused.unlist("FsError", "not_granted: /b");
@@ -499,52 +547,45 @@ mod tests {
     #[test]
     fn the_grants_refused_calls_needed_are_kept_apart_and_bounded() {
         let mut refused = Refusals::default();
-        refused.record(RefusedBy::Import, "cannot import", None);
-        refused.record(ENV, "not_granted: NARROWED", None);
+        refused.record_import("cannot import");
+        refused.record_not_granted(NARROWED, "NARROWED");
+        refused.record_not_granted(fs(None), "/n");
         assert!(refused.needed.is_empty());
         assert!(!refused.more_names);
-        refused.record(ENV, "not_granted: B", Some(needs("B")));
-        refused.record(ENV, "not_granted: A", Some(needs("A")));
-        refused.record(ENV, "not_granted: B", Some(needs("B")));
+        refused.record_not_granted(ROOT, "B");
+        refused.record_not_granted(ROOT, "A");
+        refused.record_not_granted(ROOT, "B");
         refused.unlist("EnvError", "not_granted: A");
         assert_eq!(refused.needed, [needs("B"), needs("A")]);
         assert!(!refused.more_names);
         // one exactly the bound long is kept, one longer marks more
         let longest = "L".repeat(MAX_LISTED_MESSAGE);
-        refused.record(ENV, "not_granted: L", Some(needs(&longest)));
+        refused.record_not_granted(ROOT, &longest);
         assert!(!refused.more_names);
-        refused.record(ENV, "not_granted: M", Some(needs(&format!("{longest}M"))));
+        refused.record_not_granted(ROOT, &format!("{longest}M"));
         assert!(refused.more_names);
         assert_eq!(refused.needed.len(), 3);
         let mut refused = Refusals::default();
         for i in 0..MAX_LISTED_REFUSALS {
-            refused.record(
-                ENV,
-                &format!("not_granted: N{i}"),
-                Some(needs(&format!("N{i}"))),
-            );
+            refused.record_not_granted(ROOT, &format!("N{i}"));
         }
         assert!(!refused.more_names);
         // a kept one again past the bound is no more
-        refused.record(ENV, "not_granted: N0", Some(needs("N0")));
+        refused.record_not_granted(ROOT, "N0");
         assert!(!refused.more_names);
-        refused.record(ENV, "not_granted: X", Some(needs("X")));
+        refused.record_not_granted(ROOT, "X");
         assert!(refused.more_names);
         assert_eq!(refused.needed.len(), MAX_LISTED_REFUSALS);
         assert_eq!(refused.needed[0], needs("N0"));
         // the fs kinds past the variables' bound, each once
-        let fs = RefusedBy::Grant {
-            grant: Capability::Fs,
-            error: "FsError",
-        };
-        for (path, needed) in [
-            ("/a", NeededGrant::Fs(FsNeed::Write)),
-            ("/b", NeededGrant::Fs(FsNeed::Read)),
-            ("/c", NeededGrant::Fs(FsNeed::Write)),
-            ("/d", NeededGrant::Fs(FsNeed::OpenDir)),
-            ("/e", NeededGrant::Fs(FsNeed::Read)),
+        for (path, need) in [
+            ("/a", FsNeed::Write),
+            ("/b", FsNeed::Read),
+            ("/c", FsNeed::Write),
+            ("/d", FsNeed::OpenDir),
+            ("/e", FsNeed::Read),
         ] {
-            refused.record(fs, &format!("not_granted: {path}"), Some(needed));
+            refused.record_not_granted(fs(Some(need)), path);
         }
         assert_eq!(
             refused.needed[MAX_LISTED_REFUSALS..],
@@ -556,13 +597,9 @@ mod tests {
         );
         // and none takes a variable's room
         let mut refused = Refusals::default();
-        refused.record(fs, "not_granted: /a", Some(NeededGrant::Fs(FsNeed::Read)));
+        refused.record_not_granted(fs(Some(FsNeed::Read)), "/a");
         for i in 0..MAX_LISTED_REFUSALS {
-            refused.record(
-                ENV,
-                &format!("not_granted: N{i}"),
-                Some(needs(&format!("N{i}"))),
-            );
+            refused.record_not_granted(ROOT, &format!("N{i}"));
         }
         assert!(!refused.more_names);
         assert_eq!(refused.needed.len(), MAX_LISTED_REFUSALS + 1);
