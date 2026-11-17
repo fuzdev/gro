@@ -28,7 +28,7 @@
 //! symlink, and the refusal itself names the path.
 
 use super::roots::Root;
-use super::{Access, Failure, Scope, beneath_of, join, kind_of, root_fd, sys};
+use super::{Access, Failure, FsErrorKind, Scope, beneath_of, join, kind_of, root_fd, sys};
 use crate::FsNeed;
 
 /// What lets through an op on `targets`, absolute paths, that a handle
@@ -84,7 +84,7 @@ pub(super) fn reach<'r>(
                     // the Node module names no cause for a path that is no
                     // directory
                     Failure::Fs {
-                        kind: "not_a_directory",
+                        kind: FsErrorKind::NotADirectory,
                         path: path.to_owned(),
                         cause: None,
                     }
@@ -93,7 +93,7 @@ pub(super) fn reach<'r>(
                 }
             })?;
         beneath_of(&root.path, found).map_err(|why| Failure::Fs {
-            kind: "io_error",
+            kind: FsErrorKind::IoError,
             path: path.to_owned(),
             cause: Some(why),
         })
@@ -231,7 +231,7 @@ fn find_roots<'r>(
 #[cfg(test)]
 mod tests {
     use super::super::tests::shown;
-    use super::{Access, Failure, Root, Scope, find_roots, scope_needed, sys, walk};
+    use super::{Access, Failure, FsErrorKind, Root, Scope, find_roots, scope_needed, sys, walk};
     use crate::FsNeed;
 
     /// A root at `path`, never opened, reading and writing.
@@ -279,7 +279,7 @@ mod tests {
                             "link" => real.extend(["a", "b"]),
                             "missing" => {
                                 return Err(Failure::Fs {
-                                    kind: "not_found",
+                                    kind: FsErrorKind::NotFound,
                                     path: path.to_owned(),
                                     cause: None,
                                 });
@@ -289,7 +289,7 @@ mod tests {
                                 || matches!(step, sys::Opened::Directory) =>
                             {
                                 return Err(Failure::Fs {
-                                    kind: "not_a_directory",
+                                    kind: FsErrorKind::NotADirectory,
                                     path: path.to_owned(),
                                     cause: None,
                                 });
@@ -539,7 +539,7 @@ mod tests {
                         ("/p/in", "up") | (_, "in/out" | "out") => Err(Failure::unreached(path)),
                         ("/p", "in/up") => Ok("x".to_owned()),
                         (_, "missing") => Err(Failure::Fs {
-                            kind: "not_found",
+                            kind: FsErrorKind::NotFound,
                             path: path.to_owned(),
                             cause: None,
                         }),

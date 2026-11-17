@@ -16,7 +16,10 @@ use std::os::unix::ffi::OsStringExt as _;
 use deno_core::{OpState, v8};
 use gro_v8::PendingArrayBuffer;
 
-use super::{Access, Failure, Op, finish, is_missing, path_text, read_option, sys};
+use super::{
+    Access, Failure, FsErrorKind, Op, file_kind_name, finish, is_missing, path_text, read_option,
+    sys,
+};
 use crate::host::error_class::DeclaredFamily;
 use crate::host::handle::FS_READ_DIR;
 use crate::host::{name, string};
@@ -141,7 +144,7 @@ pub fn read<'s>(
                 v8::String::new_from_utf8(scope, &bytes, v8::NewStringType::Normal)
                     .map(Into::into)
                     .ok_or_else(|| Failure::Fs {
-                        kind: "io_error",
+                        kind: FsErrorKind::IoError,
                         path: end.target.clone(),
                         cause: Some(format!(
                             "{} holds {} bytes, more text than a string holds",
@@ -244,7 +247,7 @@ fn to_utf8(bytes: Vec<u8>, path: &str, what: &str) -> Result<String, Failure> {
 /// that isn't UTF-8, as [`to_utf8`] fails.
 pub(super) fn not_utf8(bytes: &[u8], path: &str, what: &str) -> Failure {
     Failure::Fs {
-        kind: "io_error",
+        kind: FsErrorKind::IoError,
         path: path.to_owned(),
         cause: Some(format!(
             "{path} {what} {}, which isn't UTF-8",
@@ -282,7 +285,7 @@ fn file_info<'s>(
         name(scope, "mode")?,
     ];
     let values = [
-        string(scope, info.kind)?.into(),
+        string(scope, file_kind_name(info.kind))?.into(),
         v8::Number::new(scope, info.size).into(),
         v8::Number::new(scope, info.mtime_ms).into(),
         v8::Integer::new_from_unsigned(scope, info.mode).into(),

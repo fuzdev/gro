@@ -83,6 +83,7 @@ use std::os::fd::OwnedFd;
 use std::sync::Arc;
 
 use deno_core::{OpState, v8};
+use gro_sys::beneath::FileKind;
 
 use super::error_class::{DeclaredFamily, ErrorClasses};
 use super::handle::{self, HandleKind};
@@ -224,7 +225,7 @@ enum Failure {
     /// An `FsError` of `kind` about `path`, with the OS's account of it as
     /// its `cause` when there is one.
     Fs {
-        kind: &'static str,
+        kind: FsErrorKind,
         path: String,
         cause: Option<String>,
     },
@@ -244,7 +245,7 @@ enum Failure {
 
 impl Failure {
     /// An `FsError` of `kind` about `path`, its cause `error`.
-    fn of(kind: &'static str, path: &str, error: &std::io::Error) -> Self {
+    fn of(kind: FsErrorKind, path: &str, error: &std::io::Error) -> Self {
         Self::Fs {
             kind,
             path: path.to_owned(),
@@ -265,7 +266,7 @@ impl Failure {
     /// `outside_root` about `requested`, the path as given, `why` its cause.
     fn outside(requested: &str, why: String) -> Self {
         Self::Fs {
-            kind: "outside_root",
+            kind: FsErrorKind::OutsideRoot,
             path: requested.to_owned(),
             cause: Some(why),
         }
@@ -293,7 +294,7 @@ fn throw(
             // recorded as it's thrown, so the run fails whatever the
             // program does with the error
             log.record_not_granted(NotGranted::Fs(need), &path);
-            (NOT_GRANTED, path, None)
+            (FsErrorKind::NotGranted, path, None)
         }
     };
     let (Some(errors), Some(classes)) = (errors, state.try_borrow::<ErrorClasses>()) else {
@@ -311,7 +312,7 @@ fn throw(
         },
         None => None,
     };
-    classes.throw(scope, errors, kind, target, cause);
+    classes.throw(scope, errors, kind.as_str(), target, cause);
 }
 
 /// `result` as a member returns it, its failure thrown.
@@ -539,7 +540,7 @@ fn make_dir<'s>(
 /// open.
 fn root_fd(root: &Root, path: &str) -> Result<Arc<OwnedFd>, Failure> {
     root.fd.clone().map_err(|why| Failure::Fs {
-        kind: "io_error",
+        kind: FsErrorKind::IoError,
         path: path.to_owned(),
         cause: Some(why),
     })
@@ -754,23 +755,81 @@ fn rule_failure(why: roots::Refusal, target: &str, to: Option<&str>) -> Failure 
         ),
     };
     Failure::Fs {
-        kind: "io_error",
+        kind: FsErrorKind::IoError,
         path: target.to_owned(),
         cause: Some(cause),
     }
 }
 
+/// Declares [`FsErrorKind`] from one list of its variants, each with the
+/// name an `FsError` carries, so `FsErrorKind::ALL` can't miss one.
+macro_rules! fs_error_kinds {
+    ($($(#[doc = $doc:literal])* $variant:ident => $name:expr,)*) => {
+        /// The `kind` of an `FsError`, the closed set `fs_error.ts`'s
+        /// `FsErrorKind` declares.
+        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+        enum FsErrorKind {
+            $($(#[doc = $doc])* $variant,)*
+        }
+
+        impl FsErrorKind {
+            /// Every kind, in the order declared.
+            #[cfg(test)]
+            const ALL: &[Self] = &[$(Self::$variant),*];
+
+            /// The name an `FsError` carries as its `kind`, as the Node
+            /// module names it.
+            const fn as_str(self) -> &'static str {
+                match self {
+                    $(Self::$variant => $name,)*
+                }
+            }
+        }
+    };
+}
+
+fs_error_kinds! {
+    /// Nothing at the path.
+    NotFound => "not_found",
+    /// An entry already at the path.
+    AlreadyExists => "already_exists",
+    /// The OS refused the access.
+    PermissionDenied => "permission_denied",
+    /// A directory was needed and the entry is none.
+    NotADirectory => "not_a_directory",
+    /// The entry is a directory where one isn't allowed.
+    IsADirectory => "is_a_directory",
+    /// A directory to remove or replace holds entries.
+    NotEmpty => "not_empty",
+    /// A path that would leave its handle.
+    OutsideRoot => "outside_root",
+    /// A reach outside what the run granted.
+    NotGranted => NOT_GRANTED,
+    /// Every failure without a kind of its own.
+    IoError => "io_error",
+}
+
+/// The name of an entry's kind, as the Node module's `FileKind` names it.
+const fn file_kind_name(kind: FileKind) -> &'static str {
+    match kind {
+        FileKind::File => "file",
+        FileKind::Directory => "directory",
+        FileKind::Symlink => "symlink",
+        FileKind::Other => "other",
+    }
+}
+
 /// The `FsError` kind of `error`, as the Node module maps an OS code.
-fn kind_of(error: &std::io::Error) -> &'static str {
+fn kind_of(error: &std::io::Error) -> FsErrorKind {
     use std::io::ErrorKind;
     match error.kind() {
-        ErrorKind::NotFound => "not_found",
-        ErrorKind::AlreadyExists => "already_exists",
-        ErrorKind::PermissionDenied => "permission_denied",
-        ErrorKind::NotADirectory => "not_a_directory",
-        ErrorKind::IsADirectory => "is_a_directory",
-        ErrorKind::DirectoryNotEmpty => "not_empty",
-        _ => "io_error",
+        ErrorKind::NotFound => FsErrorKind::NotFound,
+        ErrorKind::AlreadyExists => FsErrorKind::AlreadyExists,
+        ErrorKind::PermissionDenied => FsErrorKind::PermissionDenied,
+        ErrorKind::NotADirectory => FsErrorKind::NotADirectory,
+        ErrorKind::IsADirectory => FsErrorKind::IsADirectory,
+        ErrorKind::DirectoryNotEmpty => FsErrorKind::NotEmpty,
+        _ => FsErrorKind::IoError,
     }
 }
 
@@ -780,8 +839,8 @@ mod tests {
 
     use super::roots::Root;
     use super::{
-        Access, Failure, Handle, NOT_GRANTED, Op, Scope, beneath_of, kind_of, op_failure, sys,
-        to_lexical,
+        Access, Failure, FsErrorKind, Handle, NOT_GRANTED, Op, Scope, beneath_of, kind_of,
+        op_failure, sys, to_lexical,
     };
 
     /// What `failure` is, as data: its kind of error, and an `FsError`'s
@@ -789,7 +848,7 @@ mod tests {
     pub(super) fn shown(failure: Failure) -> (String, String) {
         match failure {
             Failure::Type(message) => ("TypeError".to_owned(), message),
-            Failure::Fs { kind, path, .. } => (kind.to_owned(), path),
+            Failure::Fs { kind, path, .. } => (kind.as_str().to_owned(), path),
             Failure::NotGranted { path, .. } => (NOT_GRANTED.to_owned(), path),
             Failure::Plain(message) => ("Error".to_owned(), message),
             Failure::Thrown => ("thrown".to_owned(), String::new()),
@@ -926,7 +985,7 @@ mod tests {
             (
                 "an FsError's cause",
                 Failure::Fs {
-                    kind: "io_error",
+                    kind: FsErrorKind::IoError,
                     path: "/p".to_owned(),
                     cause: Some(long()),
                 },
@@ -982,9 +1041,42 @@ mod tests {
             (libc::ENAMETOOLONG, "io_error"),
             (libc::EXDEV, "io_error"),
         ] {
-            assert_eq!(kind_of(&os(code)), kind, "{code}");
+            assert_eq!(kind_of(&os(code)).as_str(), kind, "{code}");
         }
         let unsupported = std::io::Error::new(std::io::ErrorKind::Unsupported, "no openat2");
-        assert_eq!(kind_of(&unsupported), "io_error");
+        assert_eq!(kind_of(&unsupported).as_str(), "io_error");
+    }
+
+    /// The kinds an `FsError` of the host can carry are the ones the Node
+    /// module's `FsErrorKind` declares in `fs_error.ts`, so neither side has
+    /// a kind the other lacks.
+    #[test]
+    fn the_error_kinds_are_the_node_module_s() {
+        let path =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../src/lib/fs_error.ts");
+        let source = std::fs::read_to_string(&path).unwrap();
+        let declared = source
+            .split_once("export type FsErrorKind =")
+            .and_then(|(_, rest)| rest.split_once(';'))
+            .map(|(union, _)| union)
+            .unwrap();
+        let node: Vec<&str> = declared
+            .split('|')
+            .map(|member| member.trim().trim_matches('\''))
+            .filter(|member| !member.is_empty())
+            .collect();
+        let host: Vec<&str> = FsErrorKind::ALL.iter().map(|kind| kind.as_str()).collect();
+        let unique = |kinds: &[&str]| {
+            kinds
+                .iter()
+                .collect::<std::collections::BTreeSet<_>>()
+                .len()
+        };
+        assert_eq!(unique(&node), node.len(), "{node:?}");
+        assert_eq!(unique(&host), host.len(), "{host:?}");
+        let (mut node, mut host) = (node, host);
+        node.sort_unstable();
+        host.sort_unstable();
+        assert_eq!(host, node);
     }
 }

@@ -36,7 +36,8 @@ use deno_core::{OpState, v8};
 
 use super::roots::{Held, Refusal};
 use super::{
-    Access, End, Failure, MODULE, Op, finish, is_missing, read_flag, read_option, rule_failure, sys,
+    Access, End, Failure, FsErrorKind, MODULE, Op, finish, is_missing, read_flag, read_option,
+    rule_failure, sys,
 };
 use crate::host::error_class::DeclaredFamily;
 use crate::host::handle::FS_DIR;
@@ -56,7 +57,7 @@ impl End {
     /// do what `verb` says to, as the Node module refuses it.
     fn own_refused(&self, verb: &str) -> Failure {
         Failure::Fs {
-            kind: "io_error",
+            kind: FsErrorKind::IoError,
             path: self.target.clone(),
             cause: Some(format!(
                 "the handle's own directory can't be {verb}: {}",

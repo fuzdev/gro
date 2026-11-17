@@ -24,8 +24,8 @@ use super::roots::{Held, Refusal};
 
 /// What `stat` reported of an entry.
 pub struct Info {
-    /// `file`, `directory`, `symlink`, or `other`.
-    pub kind: &'static str,
+    /// What it is.
+    pub kind: FileKind,
     /// Its size in bytes.
     pub size: f64,
     /// Its modification time in milliseconds since the epoch, as Node's
@@ -39,9 +39,8 @@ pub struct Info {
 pub struct Listed {
     /// Its name, the kernel's bytes.
     pub name: OsString,
-    /// `file`, `directory`, `symlink`, or `other`, a symlink never
-    /// followed.
-    pub kind: &'static str,
+    /// What it is, a symlink never followed.
+    pub kind: FileKind,
 }
 
 /// An op's failure: opening the handle's directory beneath its root,
@@ -162,21 +161,11 @@ pub fn stat(
     )]
     let size = stat.size as f64;
     Ok(Info {
-        kind: kind_name(stat.kind),
+        kind: stat.kind,
         size,
         mtime_ms: stat.mtime_ms(),
         mode: stat.mode,
     })
-}
-
-/// The name of an entry's kind.
-const fn kind_name(kind: FileKind) -> &'static str {
-    match kind {
-        FileKind::File => "file",
-        FileKind::Directory => "directory",
-        FileKind::Symlink => "symlink",
-        FileKind::Other => "other",
-    }
 }
 
 /// The regular file at `rel` beneath the handle's directory, at
@@ -230,7 +219,7 @@ pub fn list(root: Arc<OwnedFd>, beneath: String, rel: String) -> Result<Vec<List
         };
         listed.push(Listed {
             name: entry.name,
-            kind: kind_name(kind),
+            kind,
         });
     }
     Ok(listed)

@@ -11,7 +11,7 @@ use std::os::unix::ffi::OsStringExt as _;
 use deno_core::{OpState, v8};
 
 use super::reads::not_utf8;
-use super::{Access, Failure, Op, finish, sys};
+use super::{Access, Failure, Op, file_kind_name, finish, sys};
 use crate::host::error_class::DeclaredFamily;
 use crate::host::handle::{self, FS_LISTING, FS_READ_DIR};
 use crate::host::{name, native, string};
@@ -280,7 +280,9 @@ fn listed<'s>(
     for (entry_name, kind) in entries {
         let values = [
             string(scope, &entry_name).ok_or(Failure::Thrown)?.into(),
-            string(scope, kind).ok_or(Failure::Thrown)?.into(),
+            string(scope, file_kind_name(kind))
+                .ok_or(Failure::Thrown)?
+                .into(),
         ];
         records.push(
             v8::Object::with_prototype_and_properties(scope, object_prototype, &keys, &values)
