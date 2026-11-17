@@ -144,6 +144,43 @@ describe('read and write', () => {
 		assert.deepEqual(readdirSync(sandbox.root), []);
 	});
 
+	test('write data that is neither a string nor a `Uint8Array` is a `TypeError`, writing nothing', async () => {
+		const refused: Array<[string, unknown]> = [
+			['a number', 1],
+			['null', null],
+			['undefined', undefined],
+			['an array', [1, 2]],
+			['a Uint16Array', new Uint16Array([1])],
+			['a Uint8ClampedArray', new Uint8ClampedArray([1])],
+			['a DataView', new DataView(new ArrayBuffer(1))],
+			['an ArrayBuffer', new ArrayBuffer(1)],
+			['a boxed string', Object('x')],
+			['an array-like', { length: 1, 0: 1 }]
+		];
+		for (const [what, data] of refused) {
+			try {
+				await dir.write('a.txt', data as any);
+				assert.fail(`expected a TypeError for ${what}`);
+			} catch (error) {
+				assert.instanceOf(error, TypeError, what);
+				assert.strictEqual(error.message, 'fs write data is a string or a Uint8Array', what);
+			}
+		}
+		assert.deepEqual(readdirSync(sandbox.root), []);
+	});
+
+	test('write takes a `Uint8Array` of any kind, a `Buffer` and a view of part of a buffer among them', async () => {
+		await dir.write('buffer.txt', Buffer.from('ab'));
+		await dir.write('part.txt', new Uint8Array([0, 99, 100, 0]).subarray(1, 3));
+		assert.strictEqual(await dir.read_text('buffer.txt'), 'ab');
+		assert.strictEqual(await dir.read_text('part.txt'), 'cd');
+	});
+
+	test('write writes a lone surrogate as U+FFFD', async () => {
+		await dir.write('a.txt', 'a\uD800b');
+		assert.deepEqual([...(await dir.read('a.txt'))], [0x61, 0xef, 0xbf, 0xbd, 0x62]);
+	});
+
 	test('the `_if_exists` reads return `null` for a missing file', async () => {
 		await dir.write('a.txt', 'a');
 		assert.strictEqual(await dir.read_text_if_exists('a.txt'), 'a');
@@ -259,6 +296,15 @@ describe('mkdir and remove', () => {
 		assert.ok(lstatSync(join(sandbox.root, 'a')).isDirectory());
 		assert.ok(lstatSync(join(sandbox.root, 'b/c/d')).isDirectory());
 		await assert_fs_error_rejects(dir.mkdir('x/y'), 'not_found');
+	});
+
+	test('mkdir and remove read their options by truthiness', async () => {
+		await dir.mkdir('a/b', { recursive: 1 as any });
+		await dir.mkdir('a', { exists_ok: 'yes' as any });
+		await assert_fs_error_rejects(dir.mkdir('x/y', { recursive: 0 as any }), 'not_found');
+		await dir.remove('a', { recursive: 1 as any });
+		await dir.remove('a', { missing_ok: 1 as any });
+		assert.ok(!existsSync(join(sandbox.root, 'a')));
 	});
 
 	test('mkdir throws `already_exists` unless `exists_ok` and a directory is there', async () => {

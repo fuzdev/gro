@@ -69,6 +69,7 @@ import type { Dir, Dirent, Stats } from 'node:fs';
 import * as node_buffer from 'node:buffer';
 import * as node_os from 'node:os';
 import * as node_path from 'node:path';
+import * as node_util from 'node:util';
 
 import { FsError, is_own_fs_error, type FsErrorKind } from './fs_error.ts';
 import { to_checked_cwd } from './internal/cwd.ts';
@@ -106,6 +107,7 @@ const { tmpdir } = node_os;
 const { versions } = globalThis.process;
 const { dirname, isAbsolute } = node_path;
 const { compare: compare_bytes } = node_buffer.Buffer;
+const { isUint8Array: is_uint8_array } = node_util.types;
 
 // TODO: `FsFile` and `dir.open(path)`, a file handle for byte-level reads and writes
 // into caller buffers, the native-first byte path, once a caller needs one
@@ -282,6 +284,7 @@ export interface FsDir extends FsReadDir {
 	readonly(): FsReadDir;
 	/**
 	 * Writes a file, replacing one that exists, or with `create_new` only creating one.
+	 * `data` is a string, written as UTF-8, or a `Uint8Array`, else a `TypeError`.
 	 * @returns with `create_new`, `'created'`, or `'exists'` when an entry was already there
 	 */
 	write(
@@ -556,6 +559,16 @@ const to_write_mode = (mode: unknown): number => {
 		throw new TypeError('fs write modes are integers from 0 to 0o7777');
 	}
 	return mode & 0o777;
+};
+
+/**
+ * Checks `write`'s data, a string or a `Uint8Array`, as the runtime's builtin does,
+ * by a brand check no prototype can answer, so no other view or object reaches `writeFile`.
+ */
+const assert_write_data = (data: unknown): void => {
+	if (typeof data !== 'string' && !is_uint8_array(data)) {
+		throw new TypeError('fs write data is a string or a Uint8Array');
+	}
 };
 
 /**
@@ -1190,8 +1203,9 @@ class NodeFsDir extends NodeFsReadDir implements FsDir {
 		data: Uint8Array | string,
 		options?: FsWriteOptions
 	): Promise<'created' | 'exists' | void> {
-		const create_new = options?.create_new ?? false;
 		const lexical = to_lexical_path(this.#root, path);
+		assert_write_data(data);
+		const create_new = options?.create_new ?? false;
 		const requested_mode = options?.mode;
 		const mode = requested_mode === undefined ? undefined : to_write_mode(requested_mode);
 		try {
@@ -1211,7 +1225,7 @@ class NodeFsDir extends NodeFsReadDir implements FsDir {
 		const lexical = to_lexical_path(this.#root, path);
 		try {
 			await mkdir(await confine(this.#root, path, lexical, true), {
-				recursive: options?.recursive
+				recursive: !!options?.recursive
 			});
 		} catch (error) {
 			if (options?.exists_ok && code_of(error) === 'EEXIST') {
