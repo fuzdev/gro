@@ -83,9 +83,15 @@ const ALLOW_ENV_NAMES: &str = "--allow-env=";
 /// read.
 pub const ALLOW_READ: &str = "--allow-read";
 
+/// `--allow-read`'s spelling with its directories, which follow it.
+const ALLOW_READ_DIRS: &str = "--allow-read=";
+
 /// The option that grants the fs host module the directories it lists, to
 /// write.
 pub const ALLOW_WRITE: &str = "--allow-write";
+
+/// `--allow-write`'s spelling with its directories, which follow it.
+const ALLOW_WRITE_DIRS: &str = "--allow-write=";
 
 /// The option that runs unconfined, every grant at its widest.
 pub const ALLOW_ALL: &str = "-A";
@@ -199,18 +205,19 @@ impl RunInvocation {
                 Some(arg) if arg == "--" => break args.next(),
                 Some(arg) if arg == ALLOW_ALL => all = true,
                 Some(arg) if arg == ALLOW_ENV => return Err(CliError::AllowEnvBare),
-                Some(arg) if arg.starts_with(ALLOW_ENV_NAMES) => {
-                    env.extend(check_env_flag_names(&arg[ALLOW_ENV_NAMES.len()..])?);
+                Some(ref arg) if let Some(names) = arg.strip_prefix(ALLOW_ENV_NAMES) => {
+                    env.extend(check_env_flag_names(names)?);
                 }
-                Some(arg) if arg == ALLOW_READ || arg == ALLOW_WRITE => {
-                    return Err(CliError::AllowDirsBare(dir_flag(&arg)));
+                Some(arg) if arg == ALLOW_READ => {
+                    return Err(CliError::AllowDirsBare(DirFlag::Read));
                 }
-                Some(arg) if arg.starts_with(&format!("{ALLOW_READ}=")) => {
-                    let listed = &arg[ALLOW_READ.len() + 1..];
+                Some(arg) if arg == ALLOW_WRITE => {
+                    return Err(CliError::AllowDirsBare(DirFlag::Write));
+                }
+                Some(ref arg) if let Some(listed) = arg.strip_prefix(ALLOW_READ_DIRS) => {
                     dirs.read.extend(check_dir_flag(DirFlag::Read, listed)?);
                 }
-                Some(arg) if arg.starts_with(&format!("{ALLOW_WRITE}=")) => {
-                    let listed = &arg[ALLOW_WRITE.len() + 1..];
+                Some(ref arg) if let Some(listed) = arg.strip_prefix(ALLOW_WRITE_DIRS) => {
                     dirs.write.extend(check_dir_flag(DirFlag::Write, listed)?);
                 }
                 Some(arg) if arg.starts_with('-') => return Err(CliError::RunOption(arg)),
@@ -318,15 +325,6 @@ impl DirFlag {
 impl std::fmt::Display for DirFlag {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.spelled())
-    }
-}
-
-/// The flag `arg` spells, `--allow-read` or else `--allow-write`.
-fn dir_flag(arg: &str) -> DirFlag {
-    if arg.starts_with(ALLOW_READ) {
-        DirFlag::Read
-    } else {
-        DirFlag::Write
     }
 }
 
@@ -724,6 +722,12 @@ mod tests {
                 option("--allow-reads=."),
             ),
             (&["run", "--allow-readx", "a.js"], option("--allow-readx")),
+            (
+                &["run", "--allow-writes=.", "a.js"],
+                option("--allow-writes=."),
+            ),
+            (&["run", "--allow-writex", "a.js"], option("--allow-writex")),
+            (&["run", "--allow-envx=A", "a.js"], option("--allow-envx=A")),
             (&["run", "--allow-net=x", "a.js"], option("--allow-net=x")),
             (&["run", "-"], option("-")),
             (&["run", "--help", "--x"], option("--x")),
