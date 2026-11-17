@@ -139,10 +139,10 @@ index 73f76e0..9a953c6 100644
          .module_map_rc
          .build_synthetic_esm_module(
 diff --git a/runtime/bindings.rs b/runtime/bindings.rs
-index 5b3366e..1652f80 100644
+index 16bf704..fe634a6 100644
 --- a/runtime/bindings.rs
 +++ b/runtime/bindings.rs
-@@ -1292,6 +1292,8 @@ pub fn host_import_module_with_phase_dynamically_callback<'s, 'i>(
+@@ -1294,6 +1294,8 @@ pub fn host_import_module_with_phase_dynamically_callback<'s, 'i>(
        phase,
        resolver_handle,
        cped_handle,
@@ -152,10 +152,10 @@ index 5b3366e..1652f80 100644
        // Short-circuit if the module is already cached and we know it won't error.
        return Some(promise);
 diff --git a/runtime/jsrealm.rs b/runtime/jsrealm.rs
-index eb03a44..0eb3325 100644
+index 7347315..7273ac6 100644
 --- a/runtime/jsrealm.rs
 +++ b/runtime/jsrealm.rs
-@@ -130,6 +130,8 @@ pub struct ContextState {
+@@ -134,6 +134,8 @@ pub struct ContextState {
    /// Shared timer info buffer exposed to JS as an Int32Array.
    /// Index 0: refed timer count (managed by JS)
    pub(crate) timer_info: Box<[i32; 1]>,
@@ -164,7 +164,7 @@ index eb03a44..0eb3325 100644
    /// Active JS-managed timers tracked for the leak sanitizer.
    /// Maps timer ID → (is_repeat, is_system). System timers (e.g.
    /// AbortSignal.timeout) are excluded from sanitizer stats.
-@@ -223,6 +225,8 @@ impl ContextState {
+@@ -227,6 +229,8 @@ impl ContextState {
        task_spawner_factory: Default::default(),
        user_timer: Default::default(),
        timer_info: Box::new([0i32; 1]),
@@ -173,7 +173,7 @@ index eb03a44..0eb3325 100644
        active_timers: Default::default(),
        unrefed_ops,
        external_ops_tracker,
-@@ -354,6 +358,11 @@ impl JsRealmInner {
+@@ -367,6 +371,11 @@ impl JsRealmInner {
      std::mem::take(&mut *state.js_handle_rejections_cb.borrow_mut());
      std::mem::take(&mut *state.run_immediate_callbacks_cb.borrow_mut());
      std::mem::take(&mut *state.js_wasm_streaming_cb.borrow_mut());
@@ -186,10 +186,10 @@ index eb03a44..0eb3325 100644
      {
        let ctx = self.context().open(scope);
 diff --git a/runtime/jsruntime.rs b/runtime/jsruntime.rs
-index 3107f35..28547fe 100644
+index b859b91..e327495 100644
 --- a/runtime/jsruntime.rs
 +++ b/runtime/jsruntime.rs
-@@ -1799,6 +1799,11 @@ impl JsRuntime {
+@@ -1817,6 +1817,11 @@ impl JsRuntime {
          let backing_store_shared = backing_store.make_shared();
          let ab =
            v8::ArrayBuffer::with_backing_store(scope, &backing_store_shared);
@@ -201,7 +201,7 @@ index 3107f35..28547fe 100644
          let tick_info_array = v8::Uint8Array::new(scope, ab, 0, 2).unwrap();
          let set_tick_info_fn: v8::Local<v8::Function> = bindings::get(
            scope,
-@@ -1831,6 +1836,11 @@ impl JsRuntime {
+@@ -1849,6 +1854,11 @@ impl JsRuntime {
          let backing_store_shared = backing_store.make_shared();
          let ab =
            v8::ArrayBuffer::with_backing_store(scope, &backing_store_shared);
@@ -213,7 +213,7 @@ index 3107f35..28547fe 100644
          let imm_info_array = v8::Uint32Array::new(scope, ab, 0, 3).unwrap();
          let set_imm_info_fn: v8::Local<v8::Function> = bindings::get(
            scope,
-@@ -1862,6 +1872,11 @@ impl JsRuntime {
+@@ -1880,6 +1890,11 @@ impl JsRuntime {
          let backing_store_shared = backing_store.make_shared();
          let ab =
            v8::ArrayBuffer::with_backing_store(scope, &backing_store_shared);
@@ -225,7 +225,7 @@ index 3107f35..28547fe 100644
          let timer_info_array = v8::Int32Array::new(scope, ab, 0, 1).unwrap();
          let set_timer_info_fn: v8::Local<v8::Function> = bindings::get(
            scope,
-@@ -1998,6 +2013,20 @@ impl JsRuntime {
+@@ -2016,6 +2031,20 @@ impl JsRuntime {
      state.op_ctxs.iter().map(|o| o.decl().name).collect()
    }
  

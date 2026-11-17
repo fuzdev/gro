@@ -17,7 +17,7 @@ pub const EVAL_PROTOCOL: u32 = 2;
 
 /// The `deno_core` version the runtime is built on, as `Cargo.lock` pins it,
 /// which a test checks.
-pub const DENO_CORE_VERSION: &str = "0.412.0";
+pub const DENO_CORE_VERSION: &str = "0.413.0";
 
 /// The tsv commit the type strip is built from: the one the `tsv_ts` release
 /// at [`TSV_VERSION`] was published from (its crate's `.cargo_vcs_info.json`).

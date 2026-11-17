@@ -24,9 +24,9 @@ argh = "0.1"
 blake3 = "1"
 # the JS host's V8 binding and its web-standard extensions; one release line
 # from the Deno monorepo, so the three versions move together
-deno_core = "0.412.0"
-deno_web = "0.290.0"
-deno_webidl = "0.259.0"
+deno_core = "0.413.0"
+deno_web = "0.291.0"
+deno_webidl = "0.260.0"
 # V8's entropy source, the operating system's random source
 getrandom = "0.4.3"
 # the kernel box `fgro eval` confines its process to (Linux): Landlock's

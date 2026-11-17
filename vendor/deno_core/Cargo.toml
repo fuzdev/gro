@@ -12,7 +12,7 @@
 [package]
 edition = "2024"
 name = "deno_core"
-version = "0.412.0"
+version = "0.413.0"
 authors = ["the Deno authors"]
 build = false
 autolib = false
@@ -136,7 +136,7 @@ features = [
 ]
 
 [dependencies.deno_ops]
-version = "0.288.0"
+version = "0.289.0"
 
 [dependencies.deno_path_util]
 version = "=0.6.4"
@@ -184,7 +184,7 @@ features = [
 ]
 
 [dependencies.serde_v8]
-version = "0.321.0"
+version = "0.322.0"
 default-features = false
 
 [dependencies.smallvec]
@@ -219,7 +219,7 @@ version = "1.3.0"
 features = ["v4"]
 
 [dependencies.v8]
-version = "0.4.0"
+version = "0.5.0"
 features = ["simdutf"]
 default-features = false
 package = "deno_v8"

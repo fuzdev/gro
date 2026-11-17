@@ -41,8 +41,8 @@ against the extracted `.crate`.
 
 ## deno_core
 
-- upstream: `deno_core` 0.412.0, the `.crate` published on crates.io, SHA-256
-  `580cb2e0d797d75ff3dfc4a8f2b14aa7470f0fa31654a09a83d4cbb42b5eb9b4` (the
+- upstream: `deno_core` 0.413.0, the `.crate` published on crates.io, SHA-256
+  `7ad7d5294f640fd99db08c455e2453c9860b1fa728b76fbdacf0eed3e308d48a` (the
   checksum crates.io's index records for it)
 - patch: [deno_core.patch](deno_core.patch)
 - `LICENSE`, added: the MIT text the crate's file headers name, which the
