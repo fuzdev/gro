@@ -29,6 +29,8 @@
 //!   `node_modules` through their `"exports"`, each module kept inside its
 //!   project's or package's root; `.mjs`, `.ts`, and `.mts` load, and `.js`
 //!   under `"type": "module"`)
+//! - [`file_id`]: a file's identity, which the resolver takes as it finds a
+//!   file, and the loader and the fs host module hold a file they open to
 //! - `loader`: the `deno_core` module loader, an adapter over the resolver
 //!   that strips TypeScript's types in process with `tsv_ts`, and keeps the
 //!   run's module graph: its roots and each module's root and file, and,
@@ -90,6 +92,7 @@ mod bootstrap;
 pub mod confine;
 pub mod engine;
 pub mod eval;
+pub mod file_id;
 mod host;
 mod loader;
 pub mod phases;
@@ -108,7 +111,8 @@ mod test_support;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
-use crate::resolver::{Capability, FileId};
+use crate::file_id::FileId;
+use crate::resolver::Capability;
 use crate::snapshot::StartupSnapshot;
 
 pub use crate::host::exit::{Exit, ExitStep};

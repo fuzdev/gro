@@ -11,7 +11,7 @@
 //! arrives here already final, with the roots its graph starts with.
 //!
 //! The loader owns the graph's [`Roots`], the [`Root`](crate::resolver::Root)
-//! each URL resolved inside, and its [`FileId`](crate::resolver::FileId),
+//! each URL resolved inside, and its [`FileId`](crate::file_id::FileId),
 //! and passes the roots into every resolution. A bare specifier's package
 //! root is admitted when it resolves, and one admitted around a module
 //! already recorded inside an outer one is refused

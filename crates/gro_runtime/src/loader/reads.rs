@@ -25,7 +25,8 @@ use std::fmt;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use crate::resolver::{Entry, FileId, ReadRefusal, SourceTree};
+use crate::file_id::FileId;
+use crate::resolver::{Entry, ReadRefusal, SourceTree};
 
 /// The metadata files a graph's resolutions read, each once, by real path,
 /// and the paths they found absent.

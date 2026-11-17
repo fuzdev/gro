@@ -37,9 +37,10 @@ use tsv_ts::UnsupportedConstruct;
 use url::Url;
 
 use super::reads::{Reads, RecordingTree};
+use crate::file_id::FileId;
 use crate::resolver::{
-    self, Builtin, ConsultedFile, FileId, ModuleFormat, Origin, Resolution, ResolveError,
-    ResolveErrorKind, Resolved, Root, Roots, SourceTree,
+    self, Builtin, ConsultedFile, ModuleFormat, Origin, Resolution, ResolveError, ResolveErrorKind,
+    Resolved, Root, Roots, SourceTree,
 };
 
 /// How much a graph records beyond what loading needs.

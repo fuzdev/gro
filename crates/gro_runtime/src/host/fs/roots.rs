@@ -61,8 +61,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use super::{FsState, Scope, sys};
+use crate::file_id::FileId;
 use crate::host::HostData;
-use crate::resolver::FileId;
 use crate::{Authority, FsGrant};
 
 /// Why the root table's one root isn't open in a runtime given no
@@ -695,12 +695,12 @@ mod tests {
     fn checked(path: &std::path::Path) -> (std::path::PathBuf, crate::GrantedDir) {
         let real = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
         let id = std::fs::metadata(&real).map_or(
-            crate::resolver::FileId {
+            crate::file_id::FileId {
                 dev: u64::MAX,
                 ino: u64::MAX,
                 born: None,
             },
-            |metadata| crate::resolver::FileId::of(&metadata).unwrap(),
+            |metadata| crate::file_id::FileId::of(&metadata).unwrap(),
         );
         (path.to_path_buf(), crate::GrantedDir { real, id })
     }
@@ -745,7 +745,7 @@ mod tests {
         let y_reborn = (
             y.0,
             crate::GrantedDir {
-                id: crate::resolver::FileId {
+                id: crate::file_id::FileId {
                     born: Some(std::time::UNIX_EPOCH),
                     ..y.1.id
                 },

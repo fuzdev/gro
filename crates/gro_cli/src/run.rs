@@ -10,8 +10,9 @@ use std::path::Path;
 
 use gro_runtime::confine::Confinement;
 use gro_runtime::engine::{EngineOptions, init_engine};
+use gro_runtime::file_id::FileId;
 use gro_runtime::phases::{self, Phase};
-use gro_runtime::resolver::{Capability, FileId, normalize};
+use gro_runtime::resolver::{Capability, normalize};
 use gro_runtime::{
     ArgsGrant, Authority, EnvGrant, EnvVars, Exit, ExitGrant, FsGrant, FsNeed, GrantedDir, Grants,
     NeededGrant, Refusal, Refusals, RefusedBy, RunOutcome, RuntimeOptions, env_name_fault,
@@ -682,7 +683,7 @@ mod tests {
     /// reading and writing everything whatever the flags list.
     #[test]
     fn the_fs_grant_reaches_a_confined_run_only() {
-        let id = gro_runtime::resolver::FileId {
+        let id = gro_runtime::file_id::FileId {
             dev: 1,
             ino: 2,
             born: None,

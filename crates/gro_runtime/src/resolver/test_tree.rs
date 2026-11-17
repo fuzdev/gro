@@ -4,8 +4,9 @@ use std::collections::BTreeMap;
 use std::io;
 use std::path::{Component, Path, PathBuf};
 
+use crate::file_id::FileId;
 use crate::resolver::tree::ELOOP;
-use crate::resolver::{Entry, FileId, MAX_PACKAGE_JSON_SIZE, ReadRefusal, SourceTree};
+use crate::resolver::{Entry, MAX_PACKAGE_JSON_SIZE, ReadRefusal, SourceTree};
 
 /// An in-memory tree: files by path with their contents, symlinks as a
 /// map to their target, symlink loops, which fail with `ELOOP`, and the

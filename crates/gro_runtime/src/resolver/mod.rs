@@ -84,12 +84,12 @@ pub use error::{PackageSearchBound, ResolveError, ResolveErrorKind, TargetFault,
 pub use format::{ModuleFormat, module_format};
 pub use roots::{Origin, Root, Roots};
 pub(crate) use tree::read_checked;
-pub use tree::{
-    DiskTree, Entry, FileId, MAX_MODULE_SIZE, MAX_PACKAGE_JSON_SIZE, ReadRefusal, SourceTree,
-};
+pub use tree::{DiskTree, Entry, MAX_MODULE_SIZE, MAX_PACKAGE_JSON_SIZE, ReadRefusal, SourceTree};
 
 use std::path::{Path, PathBuf};
 use url::Url;
+
+use crate::file_id::FileId;
 
 use find::find_module;
 use package::resolve_package;

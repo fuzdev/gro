@@ -9,10 +9,11 @@ use std::path::{Path, PathBuf};
 use url::Url;
 
 use super::{kind, resolve, resolve_any, roots};
+use crate::file_id::FileId;
 use crate::resolver::test_tree::MemoryTree;
 use crate::resolver::{
-    BUILTINS, Capability, Entry, FileId, Origin, Reserved, ResolveErrorKind, Resolved, Root,
-    SPLIT_MODULES, SourceTree, UNBUILT_HOST_MODULES, find_builtin, find_reserved,
+    BUILTINS, Capability, Entry, Origin, Reserved, ResolveErrorKind, Resolved, Root, SPLIT_MODULES,
+    SourceTree, UNBUILT_HOST_MODULES, find_builtin, find_reserved,
 };
 
 /// The table's rows, pinned: a row added, removed, or regranted fails here

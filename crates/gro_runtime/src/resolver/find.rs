@@ -4,8 +4,9 @@ use std::path::{Path, PathBuf};
 
 use super::error::ResolveErrorKind;
 use super::format::module_format;
-use super::tree::{Entry, FileId, SourceTree};
+use super::tree::{Entry, SourceTree};
 use super::walk::{Consulted, Walk, lookup, package_scope};
+use crate::file_id::FileId;
 
 /// The extensions a missing-extension message suggests, in order.
 const SUGGESTED_EXTENSIONS: [&str; 4] = ["ts", "js", "mjs", "mts"];

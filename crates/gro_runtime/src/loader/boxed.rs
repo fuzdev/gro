@@ -6,7 +6,8 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use crate::confine::BoxRoots;
-use crate::resolver::{Entry, FileId, ReadRefusal, SourceTree};
+use crate::file_id::FileId;
+use crate::resolver::{Entry, ReadRefusal, SourceTree};
 
 /// The roots of the box a loader's reads are confined to, if any, and the
 /// first read it refused. Apart from the loader's graph, so a check made

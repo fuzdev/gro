@@ -350,9 +350,10 @@ mod tests {
     use super::super::DynamicImport;
     use super::super::envelope::access;
     use super::*;
+    use crate::file_id::FileId;
     use crate::loader::graph::Recording;
     use crate::loader::graph::{Position, StripFailure};
-    use crate::resolver::{FileId, Origin, Resolution, ResolveErrorKind, Root, Roots, UrlFault};
+    use crate::resolver::{Origin, Resolution, ResolveErrorKind, Root, Roots, UrlFault};
 
     /// A graph of `/p/main.js` with `failures` recorded, each at its own
     /// site and reached as given.

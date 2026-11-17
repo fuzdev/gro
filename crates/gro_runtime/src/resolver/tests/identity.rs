@@ -4,9 +4,10 @@ use std::path::Path;
 use url::Url;
 
 use super::{from_entry, importer, packages, resolve, roots, tree};
+use crate::file_id::FileId;
 use crate::resolver::test_tree::MemoryTree;
 use crate::resolver::{
-    DiskTree, Entry, FileId, MAX_PACKAGE_JSON_SIZE, ReadRefusal, ResolveErrorKind, SourceTree,
+    DiskTree, Entry, MAX_PACKAGE_JSON_SIZE, ReadRefusal, ResolveErrorKind, SourceTree,
     resolve_entry,
 };
 use crate::test_support::TestDir;

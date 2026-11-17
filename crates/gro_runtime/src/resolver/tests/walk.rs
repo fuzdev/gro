@@ -5,9 +5,10 @@ use std::path::{Path, PathBuf};
 use url::Url;
 
 use super::{MODULE, from_entry, package, packages, resolve, roots};
+use crate::file_id::FileId;
 use crate::resolver::test_tree::MemoryTree;
 use crate::resolver::{
-    ConsultedFile, DiskTree, Entry, EntryBound, FileId, FileRole, MAX_PACKAGE_JSON_SIZE,
+    ConsultedFile, DiskTree, Entry, EntryBound, FileRole, MAX_PACKAGE_JSON_SIZE,
     PackageSearchBound, ResolveErrorKind, SourceTree, resolve_entry, resolve_entry_with_bound,
 };
 use crate::test_support::TestDir;

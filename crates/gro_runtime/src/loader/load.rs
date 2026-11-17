@@ -8,7 +8,8 @@ use deno_core::{ModuleSource, ModuleSourceCode, ModuleSpecifier, ModuleType, Req
 use super::Refused;
 use super::graph::{FailureReason, LoadFailure, Loaded, Recording};
 use super::strip::strip_module;
-use crate::resolver::{self, FileId, MAX_MODULE_SIZE, ModuleFormat, ReadRefusal};
+use crate::file_id::FileId;
+use crate::resolver::{self, MAX_MODULE_SIZE, ModuleFormat, ReadRefusal};
 
 /// Reads the module at `specifier`, a URL the resolver produced for the file
 /// `file_id` names, once `check` allows its path, stripping a TypeScript
