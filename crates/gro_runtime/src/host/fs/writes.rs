@@ -6,7 +6,7 @@
 //! path when the handle doesn't read, before the write is judged, as the
 //! op would read it first; and one the handle may not write, naming the
 //! first path it writes; each recorded as it's thrown with what would let
-//! it through ([`scope_needed`]).
+//! it through ([`Op::check`]).
 //!
 //! `write` takes a string, written as UTF-8 with each lone surrogate a
 //! U+FFFD, as Node writes one, or a `Uint8Array`, a `TypeError` otherwise;
@@ -32,18 +32,11 @@
 //! ([`gro_sys::beneath::Last::remove_tree`]), and names no entry inside it
 //! in its error.
 
-use std::cell::Ref;
-use std::os::fd::OwnedFd;
-use std::sync::Arc;
-
 use deno_core::{OpState, v8};
 
-use super::roots::{Held, Refusal, Root, holds_a_root};
-use super::walk::scope_needed;
+use super::roots::{Held, Refusal};
 use super::{
-    Access, Failure, Handle, Lexical, MODULE, finish, handle_root, is_missing, op_failure,
-    path_text, read_flag, read_handle, read_option, root_fd, rule_failure, run_roots, run_state,
-    sys, to_lexical,
+    Access, End, Failure, MODULE, Op, finish, is_missing, read_flag, read_option, rule_failure, sys,
 };
 use crate::host::error_class::DeclaredFamily;
 use crate::host::handle::FS_DIR;
@@ -52,28 +45,6 @@ use crate::host::string;
 /// The permission bits a file `write` makes gets when its options name
 /// none, less the process's umask, as Node's `writeFile` makes one.
 const FILE_MODE: u32 = 0o666;
-
-/// A write op on a handle, its paths checked.
-struct Op<'r> {
-    /// The run's roots.
-    roots: Ref<'r, [Root]>,
-    /// The handle.
-    handle: Handle,
-    /// The handle's directory's absolute path.
-    handle_path: String,
-    /// The paths, in the order the op was given them.
-    ends: Vec<End>,
-}
-
-/// A path a write op was given.
-struct End {
-    /// The path as requested.
-    requested: String,
-    /// It, resolved by its text beneath the handle.
-    lexical: Lexical,
-    /// The absolute path it names, which its errors name.
-    target: String,
-}
 
 impl End {
     /// Whether it's the handle's own directory.
@@ -102,92 +73,10 @@ impl End {
 }
 
 impl Op<'_> {
-    /// The op on `receiver`, an `FsDir`, of `paths`, each checked in turn as
-    /// the Node module checks it: a string, then resolved by its text
-    /// beneath the handle ([`to_lexical`]).
-    fn new<'r>(
-        state: &'r OpState,
-        scope: &v8::PinScope<'_, '_>,
-        receiver: v8::Local<'_, v8::Value>,
-        paths: &[v8::Local<'_, v8::Value>],
-    ) -> Result<Op<'r>, Failure> {
-        run_state(state)?.ready()?;
-        let handle = read_handle(scope, &FS_DIR, receiver)?;
-        let roots = run_roots(state)?;
-        let (_, handle_path) = handle_root(&roots, &handle)?;
-        let mut ends = Vec::with_capacity(paths.len());
-        for path in paths {
-            let requested = path_text(scope, *path)?;
-            let lexical = to_lexical(&requested, &handle_path)?;
-            let target = lexical.path_beneath(&handle_path);
-            ends.push(End {
-                requested,
-                lexical,
-                target,
-            });
-        }
-        Ok(Op {
-            roots,
-            handle,
-            handle_path,
-            ends,
-        })
-    }
-
-    /// That the handle may do the op, which reads its paths before
-    /// `written` and writes the rest: `not_granted` naming the first it
-    /// reads when the handle doesn't read, else the first it writes when
-    /// the handle doesn't write, recorded with what would let it through
-    /// ([`scope_needed`]); but for an op the rule for a root's directory
-    /// refuses, `ruled`, with a path written that is or holds one by its
-    /// text, which no grant lets through.
-    fn granted(&self, written: usize, ruled: bool) -> Result<(), Failure> {
-        let targets: Vec<&str> = self.ends.iter().map(|end| end.target.as_str()).collect();
-        let (read, write) = targets.split_at(written.min(targets.len()));
-        if let Some(&first) = read.first()
-            && !self.handle.scope.read
-        {
-            return Err(Failure::NotGranted {
-                path: first.to_owned(),
-                needed: Some(scope_needed(&self.roots, read, Access::Read)),
-            });
-        }
-        if self.handle.scope.write {
-            return Ok(());
-        }
-        let needed = if ruled && write.iter().any(|path| holds_a_root(&self.roots, path)) {
-            None
-        } else {
-            Some(scope_needed(&self.roots, write, Access::Write))
-        };
-        Err(Failure::NotGranted {
-            path: write
-                .first()
-                .map_or_else(|| self.handle_path.clone(), |&path| path.to_owned()),
-            needed,
-        })
-    }
-
-    /// The handle's root's descriptor and real path, or `io_error` about the
-    /// first path when the root isn't open.
-    fn root(&self) -> Result<(Arc<OwnedFd>, String), Failure> {
-        let root = &self.roots[self.handle.root];
-        let named = self
-            .ends
-            .first()
-            .map_or(self.handle_path.as_str(), |end| end.target.as_str());
-        Ok((root_fd(root, named)?, root.path.clone()))
-    }
-
     /// The roots beneath the handle's directory, which a rename or a remove
     /// checks its ends against, or none when none is.
     fn held(&self) -> Option<Held> {
         Held::of(&self.roots, &self.handle_path)
-    }
-
-    /// What the op's failure at `end`, `error`, throws ([`op_failure`]).
-    fn failure(&self, end: &End, error: sys::OpError) -> Failure {
-        op_failure(error, &end.requested, &self.handle_path, &end.target)
     }
 }
 
@@ -206,21 +95,14 @@ pub fn write<'s>(
     errors: DeclaredFamily,
 ) -> Option<v8::Local<'s, v8::Value>> {
     let result = (|| {
-        let op = Op::new(state, scope, receiver, &[path])?;
+        let op = Op::new(state, scope, &FS_DIR, receiver)?;
+        let end = op.path(scope, path)?;
         let bytes = data_bytes(scope, data)?;
         let create_new = read_flag(scope, options, "create_new")?;
         let mode = write_mode(scope, options)?;
-        op.granted(0, false)?;
-        let (fd, _) = op.root()?;
-        let end = &op.ends[0];
-        let written = sys::write(
-            fd,
-            op.handle.beneath.clone(),
-            end.lexical.rel(),
-            bytes,
-            create_new,
-            mode,
-        );
+        op.check(Access::Write, &[&end], false)?;
+        let (fd, dir, rel) = op.call(&end)?;
+        let written = sys::write(fd, dir, rel, bytes, create_new, mode);
         let answer = match written {
             Ok(()) if create_new => "created",
             Ok(()) => return Ok(v8::undefined(scope).into()),
@@ -229,7 +111,7 @@ pub fn write<'s>(
             {
                 "exists"
             }
-            Err(error) => return Err(op.failure(end, error)),
+            Err(error) => return Err(op.failure(&end, error)),
         };
         string(scope, answer).map(Into::into).ok_or(Failure::Thrown)
     })();
@@ -307,20 +189,13 @@ pub fn mkdir<'s>(
     errors: DeclaredFamily,
 ) -> Option<v8::Local<'s, v8::Value>> {
     let result = (|| {
-        let op = Op::new(state, scope, receiver, &[path])?;
+        let op = Op::new(state, scope, &FS_DIR, receiver)?;
+        let end = op.path(scope, path)?;
         let recursive = read_flag(scope, options, "recursive")?;
         let exists_ok = read_flag(scope, options, "exists_ok")?;
-        op.granted(0, false)?;
-        let (fd, _) = op.root()?;
-        let end = &op.ends[0];
-        sys::mkdir(
-            fd,
-            op.handle.beneath.clone(),
-            end.lexical.rel(),
-            recursive,
-            exists_ok,
-        )
-        .map_err(|error| op.failure(end, error))?;
+        op.check(Access::Write, &[&end], false)?;
+        let (fd, dir, rel) = op.call(&end)?;
+        sys::mkdir(fd, dir, rel, recursive, exists_ok).map_err(|error| op.failure(&end, error))?;
         Ok(v8::undefined(scope).into())
     })();
     finish(state, scope, Some(errors), result)
@@ -340,28 +215,28 @@ pub fn remove<'s>(
     errors: DeclaredFamily,
 ) -> Option<v8::Local<'s, v8::Value>> {
     let result = (|| {
-        let op = Op::new(state, scope, receiver, &[path])?;
+        let op = Op::new(state, scope, &FS_DIR, receiver)?;
+        let end = op.path(scope, path)?;
         let recursive = read_flag(scope, options, "recursive")?;
         let missing_ok = read_flag(scope, options, "missing_ok")?;
-        let end = &op.ends[0];
         if end.is_own() {
             return Err(end.own_refused("removed"));
         }
-        op.granted(0, true)?;
-        let (fd, root_path) = op.root()?;
+        op.check(Access::Write, &[&end], true)?;
+        let (fd, dir, rel) = op.call(&end)?;
         let removed = sys::remove(
             fd,
-            root_path,
-            op.handle.beneath.clone(),
+            op.root().path.clone(),
+            dir,
             op.handle_path.clone(),
-            end.lexical.rel(),
+            rel,
             recursive,
             op.held(),
         );
         match removed {
             Ok(()) => {}
             Err(error) if missing_ok && is_missing(&error) => {}
-            Err(error) => return Err(op.failure(end, error)),
+            Err(error) => return Err(op.failure(&end, error)),
         }
         Ok(v8::undefined(scope).into())
     })();
@@ -385,30 +260,31 @@ pub fn rename<'s>(
     errors: DeclaredFamily,
 ) -> Option<v8::Local<'s, v8::Value>> {
     let result = (|| {
-        let op = Op::new(state, scope, receiver, &[from, to])?;
-        let (source, destination) = (&op.ends[0], &op.ends[1]);
+        let op = Op::new(state, scope, &FS_DIR, receiver)?;
+        let source = op.path(scope, from)?;
+        let destination = op.path(scope, to)?;
         if source.is_own() {
             return Err(source.own_refused("renamed"));
         }
         if destination.is_own() {
             return Err(destination.own_refused("replaced"));
         }
-        op.granted(0, true)?;
-        let (fd, root_path) = op.root()?;
+        op.check(Access::Write, &[&source, &destination], true)?;
+        let (fd, dir, source_rel) = op.call(&source)?;
         let renamed = sys::rename(
             fd,
-            root_path,
-            op.handle.beneath.clone(),
+            op.root().path.clone(),
+            dir,
             op.handle_path.clone(),
-            source.lexical.rel(),
+            source_rel,
             destination.lexical.rel(),
             op.held(),
         );
-        let end = |to: bool| if to { destination } else { source };
+        let end = |to: bool| if to { &destination } else { &source };
         renamed.map_err(|error| match error {
-            sys::RenameError::Handle(error) => op.failure(source, sys::OpError::Handle(error)),
+            sys::RenameError::Handle(error) => op.failure(&source, sys::OpError::Handle(error)),
             sys::RenameError::At { to, error } => op.failure(end(to), sys::OpError::Target(error)),
-            sys::RenameError::Refused { to, why } => end(to).rule_refused(why, destination),
+            sys::RenameError::Refused { to, why } => end(to).rule_refused(why, &destination),
         })?;
         Ok(v8::undefined(scope).into())
     })();
@@ -416,21 +292,28 @@ pub fn rename<'s>(
 }
 
 /// The write op `name`, not built on fgro yet, called on `receiver`, an
-/// `FsDir`, with `paths`, each checked in order as the op would check it,
-/// the op reading those before `written` (a copy's `from`) and writing the
-/// rest: refused as [`Op::granted`] refuses it, else a plain `Error` saying
-/// the op isn't built on fgro yet.
+/// `FsDir`, with `read`, the path it reads, when it reads one (a copy's
+/// `from`), then `written`, the path it writes, each checked in order as
+/// the op would check it: refused as [`Op::check`] refuses it, the read
+/// before the write, else a plain `Error` saying the op isn't built on
+/// fgro yet.
 pub fn unbuilt<'s>(
     state: &OpState,
     scope: &v8::PinScope<'s, '_>,
     name: &str,
     receiver: v8::Local<'s, v8::Value>,
-    paths: &[v8::Local<'s, v8::Value>],
-    written: usize,
+    read: Option<v8::Local<'s, v8::Value>>,
+    written: v8::Local<'s, v8::Value>,
     errors: DeclaredFamily,
 ) -> Option<v8::Local<'s, v8::Value>> {
     let result = (|| {
-        Op::new(state, scope, receiver, paths)?.granted(written, false)?;
+        let op = Op::new(state, scope, &FS_DIR, receiver)?;
+        let read = read.map(|path| op.path(scope, path)).transpose()?;
+        let written = op.path(scope, written)?;
+        if let Some(read) = &read {
+            op.check(Access::Read, &[read], false)?;
+        }
+        op.check(Access::Write, &[&written], false)?;
         Err::<v8::Local<'s, v8::Value>, _>(Failure::Plain(format!(
             "{name} of {MODULE} isn't built on fgro yet"
         )))

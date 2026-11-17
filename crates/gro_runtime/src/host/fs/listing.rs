@@ -11,7 +11,7 @@ use std::os::unix::ffi::OsStringExt as _;
 use deno_core::{OpState, v8};
 
 use super::reads::not_utf8;
-use super::{Failure, beneath, finish, path_text, read_handle, run_roots, run_state, sys};
+use super::{Access, Failure, Op, finish, sys};
 use crate::host::error_class::DeclaredFamily;
 use crate::host::handle::{self, FS_LISTING, FS_READ_DIR};
 use crate::host::{name, native, string};
@@ -242,16 +242,15 @@ fn listed<'s>(
     dir: v8::Local<'s, v8::Value>,
     path: v8::Local<'s, v8::Value>,
 ) -> Result<v8::Local<'s, v8::Array>, Failure> {
-    run_state(state)?.ready()?;
-    let handle = read_handle(scope, &FS_READ_DIR, dir)?;
-    let requested = if path.is_undefined() {
-        String::new()
+    let op = Op::new(state, scope, &FS_READ_DIR, dir)?;
+    let end = if path.is_undefined() {
+        op.resolve(String::new())?
     } else {
-        path_text(scope, path)?
+        op.path(scope, path)?
     };
-    let op = beneath(&run_roots(state)?, handle, requested)?;
-    let (fd, dir, rel) = op.call();
-    let listed = sys::list(fd, dir, rel).map_err(|error| op.failure(error))?;
+    op.check(Access::Read, &[&end], false)?;
+    let (fd, dir, rel) = op.call(&end)?;
+    let listed = sys::list(fd, dir, rel).map_err(|error| op.failure(&end, error))?;
     let mut entries = Vec::with_capacity(listed.len());
     let mut invalid: Option<Vec<u8>> = None;
     for entry in listed {
@@ -266,7 +265,7 @@ fn listed<'s>(
         }
     }
     if let Some(bytes) = invalid {
-        return Err(not_utf8(&bytes, &op.target, "holds an entry named"));
+        return Err(not_utf8(&bytes, &end.target, "holds an entry named"));
     }
     // a `String`'s order is its UTF-8 bytes'
     entries.sort_unstable_by(|(a, _), (b, _)| a.cmp(b));

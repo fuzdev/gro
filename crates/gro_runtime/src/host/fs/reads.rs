@@ -16,10 +16,7 @@ use std::os::unix::ffi::OsStringExt as _;
 use deno_core::{OpState, v8};
 use gro_v8::PendingArrayBuffer;
 
-use super::{
-    Failure, beneath, finish, is_missing, path_text, read_handle, read_option, run_roots,
-    run_state, sys,
-};
+use super::{Access, Failure, Op, finish, is_missing, path_text, read_option, sys};
 use crate::host::error_class::DeclaredFamily;
 use crate::host::handle::FS_READ_DIR;
 use crate::host::{name, string};
@@ -77,8 +74,7 @@ fn find<'s>(
     path: v8::Local<'s, v8::Value>,
     options: Option<v8::Local<'s, v8::Value>>,
 ) -> Result<Found, Failure> {
-    run_state(state)?.ready()?;
-    let handle = read_handle(scope, &FS_READ_DIR, receiver)?;
+    let op = Op::new(state, scope, &FS_READ_DIR, receiver)?;
     let requested = path_text(scope, path)?;
     // `options?.follow ?? true`
     let follow = match options {
@@ -86,14 +82,15 @@ fn find<'s>(
             .is_none_or(|follow| follow.is_null_or_undefined() || follow.boolean_value(scope)),
         None => true,
     };
-    let op = beneath(&run_roots(state)?, handle, requested)?;
+    let end = op.resolve(requested)?;
+    op.check(Access::Read, &[&end], false)?;
     // a trailing `/` follows a final symlink, as in the kernel
-    let follow = follow || op.lexical.dir;
-    let (fd, dir, rel) = op.call();
+    let follow = follow || end.lexical.dir;
+    let (fd, dir, rel) = op.call(&end)?;
     match sys::stat(fd, dir, rel, follow) {
         Ok(info) => Ok(Found::Entry(info)),
         Err(error) if is_missing(&error) => Ok(Found::Missing),
-        Err(error) => Err(op.failure(error)),
+        Err(error) => Err(op.failure(&end, error)),
     }
 }
 
@@ -124,17 +121,16 @@ pub fn read<'s>(
     errors: DeclaredFamily,
 ) -> Option<v8::Local<'s, v8::Value>> {
     let result = (|| {
-        run_state(state)?.ready()?;
-        let handle = read_handle(scope, &FS_READ_DIR, receiver)?;
-        let requested = path_text(scope, path)?;
-        let op = beneath(&run_roots(state)?, handle, requested)?;
-        let (fd, dir, rel) = op.call();
+        let op = Op::new(state, scope, &FS_READ_DIR, receiver)?;
+        let end = op.path(scope, path)?;
+        op.check(Access::Read, &[&end], false)?;
+        let (fd, dir, rel) = op.call(&end)?;
         let reading = match sys::open_read(fd, dir, rel) {
             Ok(reading) => reading,
             Err(error) if if_exists && is_missing(&error) => return Ok(v8::null(scope).into()),
-            Err(error) => return Err(op.failure(error)),
+            Err(error) => return Err(op.failure(&end, error)),
         };
-        let read_failure = |error| op.failure(sys::OpError::Target(error));
+        let read_failure = |error| op.failure(&end, sys::OpError::Target(error));
         match contents {
             Contents::Bytes => {
                 let bytes = read_bytes(scope, reading).map_err(read_failure)?;
@@ -146,10 +142,10 @@ pub fn read<'s>(
                     .map(Into::into)
                     .ok_or_else(|| Failure::Fs {
                         kind: "io_error",
-                        path: op.target.clone(),
+                        path: end.target.clone(),
                         cause: Some(format!(
                             "{} holds {} bytes, more text than a string holds",
-                            op.target,
+                            end.target,
                             bytes.len()
                         )),
                     })
@@ -222,14 +218,13 @@ pub fn read_link<'s>(
     errors: DeclaredFamily,
 ) -> Option<v8::Local<'s, v8::Value>> {
     let result = (|| {
-        run_state(state)?.ready()?;
-        let handle = read_handle(scope, &FS_READ_DIR, receiver)?;
-        let requested = path_text(scope, path)?;
-        let op = beneath(&run_roots(state)?, handle, requested)?;
-        let (fd, dir, rel) = op.call();
-        let target =
-            sys::read_link(fd, dir, rel, op.lexical.dir).map_err(|error| op.failure(error))?;
-        let target = to_utf8(target.into_vec(), &op.target, "is a symlink to")?;
+        let op = Op::new(state, scope, &FS_READ_DIR, receiver)?;
+        let end = op.path(scope, path)?;
+        op.check(Access::Read, &[&end], false)?;
+        let (fd, dir, rel) = op.call(&end)?;
+        let target = sys::read_link(fd, dir, rel, end.lexical.dir)
+            .map_err(|error| op.failure(&end, error))?;
+        let target = to_utf8(target.into_vec(), &end.target, "is a symlink to")?;
         string(scope, &target)
             .map(Into::into)
             .ok_or(Failure::Thrown)

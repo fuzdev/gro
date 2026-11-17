@@ -7,8 +7,8 @@ use deno_core::{OpState, v8};
 
 use super::walk::reach;
 use super::{
-    Failure, MODULE, Scope, beneath_of, finish, handle_root, join, make_dir, op_failure, path_text,
-    read_handle, root_fd, run_roots, run_state, sys, to_lexical,
+    Failure, MODULE, Op, Scope, beneath_of, finish, join, make_dir, path_text, read_handle,
+    run_roots, run_state, sys,
 };
 use crate::host::error_class::DeclaredFamily;
 use crate::host::handle::{FS_DIR, FS_READ_DIR, HandleKind};
@@ -110,33 +110,29 @@ pub fn dir<'s>(
     errors: DeclaredFamily,
 ) -> Option<v8::Local<'s, v8::Value>> {
     let result = (|| {
-        run_state(state)?.ready()?;
-        let handle = read_handle(scope, kind, receiver)?;
-        let requested = path_text(scope, path)?;
-        let roots = run_roots(state)?;
-        let (root, handle_path) = handle_root(&roots, &handle)?;
-        let lexical = to_lexical(&requested, &handle_path)?;
-        let target = lexical.path_beneath(&handle_path);
-        let fd = root_fd(root, &target)?;
-        let real = sys::open_dir(fd, root.path.clone(), handle.beneath.clone(), lexical.rel())
-            .map_err(|error| op_failure(error, &requested, &handle_path, &target))?;
+        let op = Op::new(state, scope, kind, receiver)?;
+        let end = op.path(scope, path)?;
+        let (fd, dir, rel) = op.call(&end)?;
+        let root = op.root();
+        let real = sys::open_dir(fd, root.path.clone(), dir, rel)
+            .map_err(|error| op.failure(&end, error))?;
         let beneath = beneath_of(&root.path, real).map_err(|why| {
             Failure::outside(
-                &requested,
-                format!("{requested} beneath {handle_path}: {why}"),
+                &end.requested,
+                format!("{} beneath {}: {why}", end.requested, op.handle_path),
             )
         })?;
         let prototype = native::prototype(state, scope, kind).ok_or(Failure::Thrown)?;
         let access = if *kind == FS_DIR {
-            handle.scope
+            op.handle.scope
         } else {
-            handle.scope.read_only()
+            op.handle.scope.read_only()
         };
         make_dir(
             scope,
             kind,
             prototype,
-            handle.root,
+            op.handle.root,
             &root.path,
             &beneath,
             access,
@@ -155,19 +151,16 @@ pub fn readonly<'s>(
     receiver: v8::Local<'s, v8::Value>,
 ) -> Option<v8::Local<'s, v8::Value>> {
     let result = (|| {
-        run_state(state)?.ready()?;
-        let handle = read_handle(scope, &FS_DIR, receiver)?;
-        let roots = run_roots(state)?;
-        let (root, _) = handle_root(&roots, &handle)?;
+        let op = Op::new(state, scope, &FS_DIR, receiver)?;
         let prototype = native::prototype(state, scope, &FS_READ_DIR).ok_or(Failure::Thrown)?;
         make_dir(
             scope,
             &FS_READ_DIR,
             prototype,
-            handle.root,
-            &root.path,
-            &handle.beneath,
-            handle.scope.read_only(),
+            op.handle.root,
+            &op.root().path,
+            &op.handle.beneath,
+            op.handle.scope.read_only(),
         )
         .map(Into::into)
         .ok_or(Failure::Thrown)

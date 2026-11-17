@@ -90,7 +90,7 @@ use super::{HostData, NO_ERROR_CLASSES, name, string, throw_error, throw_type_er
 use crate::loader::RefusalLog;
 use crate::resolver::Capability;
 use crate::{Authority, FsNeed, NeededGrant, RefusedBy};
-use roots::Root;
+use roots::{Root, holds_a_root};
 use walk::scope_needed;
 
 /// The fs namespace's specifier.
@@ -358,66 +358,121 @@ fn run_roots(state: &OpState) -> Result<Ref<'_, [Root]>, Failure> {
     Ok(fs.roots(data, state.try_borrow::<Authority>()))
 }
 
-/// An op on a path beneath a handle, resolved and checked, ready for its
-/// calls.
-struct Beneath {
-    /// The descriptor of the handle's root.
-    fd: Arc<OwnedFd>,
+/// An op on a handle, the run's roots borrowed while it runs: each path
+/// it was given resolves beneath the handle's directory ([`Op::path`]),
+/// and an op that reads or writes them checks the handle's scope for it
+/// ([`Op::check`]) before anything is looked up.
+struct Op<'r> {
+    /// The run's roots.
+    roots: Ref<'r, [Root]>,
     /// The handle.
     handle: Handle,
+    /// The handle's directory's absolute path.
+    handle_path: String,
+}
+
+/// A path an op was given, resolved beneath its handle.
+struct End {
     /// The path as requested.
     requested: String,
     /// It, resolved by its text beneath the handle.
     lexical: Lexical,
-    /// The handle's directory's absolute path.
-    handle_path: String,
-    /// The absolute path the op names, which its errors name.
+    /// The absolute path it names, which its errors name.
     target: String,
 }
 
-impl Beneath {
-    /// What the op's call takes, owned: the root's descriptor, the
+impl<'r> Op<'r> {
+    /// The op called on `receiver`, a handle of `kind` or a kind extending
+    /// it, once the kernel is found to serve `openat2` ([`FsState::ready`]).
+    fn new(
+        state: &'r OpState,
+        scope: &v8::PinScope<'_, '_>,
+        kind: &HandleKind,
+        receiver: v8::Local<'_, v8::Value>,
+    ) -> Result<Self, Failure> {
+        run_state(state)?.ready()?;
+        let handle = read_handle(scope, kind, receiver)?;
+        let roots = run_roots(state)?;
+        let root = roots
+            .get(handle.root)
+            .ok_or_else(|| Failure::Plain("an fs handle names no root of the run".to_owned()))?;
+        let handle_path = join(&root.path, &handle.beneath);
+        Ok(Self {
+            roots,
+            handle,
+            handle_path,
+        })
+    }
+
+    /// `path` checked as a path ([`path_text`]), then resolved beneath the
+    /// handle ([`Op::resolve`]).
+    fn path(
+        &self,
+        scope: &v8::PinScope<'_, '_>,
+        path: v8::Local<'_, v8::Value>,
+    ) -> Result<End, Failure> {
+        self.resolve(path_text(scope, path)?)
+    }
+
+    /// `requested` resolved by its text beneath the handle
+    /// ([`to_lexical`]), `outside_root` for a climb above it.
+    fn resolve(&self, requested: String) -> Result<End, Failure> {
+        let lexical = to_lexical(&requested, &self.handle_path)?;
+        let target = lexical.path_beneath(&self.handle_path);
+        Ok(End {
+            requested,
+            lexical,
+            target,
+        })
+    }
+
+    /// That the handle's scope allows `access` to `ends`, the paths the op
+    /// does it to, in the order it was given them: else `not_granted`
+    /// naming the first, or the handle's own directory for none, before
+    /// anything is looked up, recorded as it's thrown with what would let
+    /// it through ([`scope_needed`]); but with nothing that would, when
+    /// `ruled`, an op the rule for a root's directory refuses, and one of
+    /// `ends` is or holds a root's directory by its text, which no grant
+    /// lets through.
+    fn check(&self, access: Access, ends: &[&End], ruled: bool) -> Result<(), Failure> {
+        if self.handle.scope.meets(access.scope()) {
+            return Ok(());
+        }
+        let targets: Vec<&str> = ends.iter().map(|end| end.target.as_str()).collect();
+        let needed = if ruled && targets.iter().any(|path| holds_a_root(&self.roots, path)) {
+            None
+        } else {
+            Some(scope_needed(&self.roots, &targets, access))
+        };
+        Err(Failure::NotGranted {
+            path: ends
+                .first()
+                .map_or_else(|| self.handle_path.clone(), |end| end.target.clone()),
+            needed,
+        })
+    }
+
+    /// The handle's root.
+    fn root(&self) -> &Root {
+        &self.roots[self.handle.root]
+    }
+
+    /// What the op's call on `end` takes, owned: the root's descriptor, the
     /// handle's directory's real path beneath it, and the path beneath the
-    /// handle the kernel resolves.
-    fn call(&self) -> (Arc<OwnedFd>, String, String) {
-        (
-            Arc::clone(&self.fd),
+    /// handle the kernel resolves; or `io_error` about `end` when the root
+    /// isn't open.
+    fn call(&self, end: &End) -> Result<(Arc<OwnedFd>, String, String), Failure> {
+        Ok((
+            root_fd(self.root(), &end.target)?,
             self.handle.beneath.clone(),
-            self.lexical.rel(),
-        )
+            end.lexical.rel(),
+        ))
     }
 
-    /// What the op's failure, `error`, throws ([`op_failure`]).
-    fn failure(&self, error: sys::OpError) -> Failure {
-        op_failure(error, &self.requested, &self.handle_path, &self.target)
+    /// What the op's failure at `end`, `error`, throws ([`op_failure`]).
+    fn failure(&self, end: &End, error: sys::OpError) -> Failure {
+        op_failure(error, &end.requested, &self.handle_path, &end.target)
     }
-}
-
-/// The read on `requested` beneath `handle`, of the run's `roots`: its
-/// path resolved by its text ([`to_lexical`]), `outside_root` for a climb
-/// above the handle; then `not_granted` when the handle doesn't read,
-/// before anything is looked up, recorded with what would let it through
-/// ([`scope_needed`]); and `io_error` when the handle's root isn't open.
-fn beneath(roots: &[Root], handle: Handle, requested: String) -> Result<Beneath, Failure> {
-    let (root, handle_path) = handle_root(roots, &handle)?;
-    let lexical = to_lexical(&requested, &handle_path)?;
-    let target = lexical.path_beneath(&handle_path);
-    if !handle.scope.read {
-        let needed = scope_needed(roots, &[target.as_str()], Access::Read);
-        return Err(Failure::NotGranted {
-            path: target,
-            needed: Some(needed),
-        });
-    }
-    let fd = root_fd(root, &target)?;
-    Ok(Beneath {
-        fd,
-        handle,
-        requested,
-        lexical,
-        handle_path,
-        target,
-    })
 }
 
 /// A handle, as an op reads the one it's handed.
@@ -488,15 +543,6 @@ fn make_dir<'s>(
     held.set_integrity_level(scope, v8::IntegrityLevel::Frozen)?;
     let path = string(scope, &join(root_path, beneath))?;
     handle::make(scope, kind, prototype, held.into(), &[path.into()])
-}
-
-/// The root `handle` is beneath and its directory's absolute path.
-fn handle_root<'r>(roots: &'r [Root], handle: &Handle) -> Result<(&'r Root, String), Failure> {
-    let root = roots
-        .get(handle.root)
-        .ok_or_else(|| Failure::Plain("an fs handle names no root of the run".to_owned()))?;
-    let path = join(&root.path, &handle.beneath);
-    Ok((root, path))
 }
 
 /// `root`'s descriptor, or `io_error` about `path` naming why it isn't
@@ -740,7 +786,12 @@ fn kind_of(error: &std::io::Error) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::{Failure, beneath_of, kind_of, op_failure, sys, to_lexical};
+    use std::cell::{Ref, RefCell};
+
+    use super::roots::Root;
+    use super::{
+        Access, Failure, Handle, Op, Scope, beneath_of, kind_of, op_failure, sys, to_lexical,
+    };
 
     /// What `failure` is, as data: its kind of error, and an `FsError`'s
     /// kind and path, a `TypeError`'s message.
@@ -752,6 +803,49 @@ mod tests {
             Failure::Plain(message) => ("Error".to_owned(), message),
             Failure::Thrown => ("thrown".to_owned(), String::new()),
         }
+    }
+
+    /// An op through a handle on a root that didn't open is `io_error`
+    /// naming the path it was given, beneath the handle, never the
+    /// handle's own directory.
+    #[test]
+    fn an_op_on_an_unopened_root_names_its_path() {
+        let roots = RefCell::new(vec![Root::unopened("/r", &[], Scope::ALL)]);
+        let op = Op {
+            roots: Ref::map(roots.borrow(), Vec::as_slice),
+            handle: Handle {
+                root: 0,
+                beneath: "h".to_owned(),
+                scope: Scope::ALL,
+            },
+            handle_path: "/r/h".to_owned(),
+        };
+        let end = op.resolve("a/b".to_owned()).map_err(shown).unwrap();
+        assert_eq!(
+            op.call(&end).map(|_| ()).map_err(shown),
+            Err(("io_error".to_owned(), "/r/h/a/b".to_owned()))
+        );
+    }
+
+    /// An op checked for a scope its handle lacks is refused even with no
+    /// path to name, naming the handle's own directory.
+    #[test]
+    fn a_check_without_paths_still_refuses_a_scope_the_handle_lacks() {
+        let roots = RefCell::new(vec![Root::unopened("/r", &[], Scope::READ)]);
+        let op = Op {
+            roots: Ref::map(roots.borrow(), Vec::as_slice),
+            handle: Handle {
+                root: 0,
+                beneath: "h".to_owned(),
+                scope: Scope::READ,
+            },
+            handle_path: "/r/h".to_owned(),
+        };
+        assert_eq!(
+            op.check(Access::Write, &[], false).map_err(shown),
+            Err(("not_granted".to_owned(), "/r/h".to_owned()))
+        );
+        assert!(op.check(Access::Read, &[], false).is_ok());
     }
 
     /// A path's `..` resolves by its text, as the Node module's
