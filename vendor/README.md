@@ -53,8 +53,9 @@ sources make the same blob, byte for byte, in every process and checkout. It
 also turns off source maps, makes one internal key public for gro's
 prepare-stack-trace callback, refuses a source-phase import of a synthetic
 module, hands the loader an `import()`'s attributes, builds one module per
-synthetic module's specifier, and gives each op's function addresses (the
-sections after the snapshot's).
+synthetic module's specifier, gives each op's function addresses, and
+registers the task queue's waker before it checks the queue (the sections
+after the snapshot's).
 `cargo xtask build --verify` checks it, remaking the snapshot with the built
 `fgro` and comparing.
 
@@ -202,6 +203,29 @@ functions private.
   as a runtime without op metrics lists them
 
 Reportable upstream: no, a check of gro's own.
+
+### A task posted between the queue's check and its waker's register
+
+The event loop drains the queue a `V8CrossThreadTaskSpawner` posts to with
+`V8TaskSpawnerFactory::poll_inner`, which checked the queue's flag first and
+registered the event loop's waker after, only when it found nothing. A post
+wakes the waker it takes out of its slot, so the slot is empty after a
+turn a post woke, and each turn calls `poll_inner` again after running what
+it took. A task posted from another thread between that call's check and
+its register found no waker and woke nothing: the event loop slept with
+the task queued until something else woke it, and a run with nothing else
+pending never woke.
+
+- `tasks.rs`, `V8TaskSpawnerFactory::poll_inner`: registers the waker
+  first and then checks, the order `AtomicWaker` asks for; the two
+  registers after the check are gone
+
+A post after the register finds the waker, and one before the check is
+found by it; one between the two wakes the event loop once more than it
+needs, which costs a turn. An upgrade whose `poll_inner` registers before
+it checks drops this hunk.
+
+Reportable upstream: yes, as a lost wakeup.
 
 ## Upgrading a vendored crate
 

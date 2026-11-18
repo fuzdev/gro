@@ -292,3 +292,32 @@ index 0f9d3b3..7da03de 100644
      // Lookup expects 0-based line and column numbers, but ours are 1-based.
      let line_number = line_number - 1;
      let column_number = column_number - 1;
+diff --git a/tasks.rs b/tasks.rs
+index 9523100..9329155 100644
+--- a/tasks.rs
++++ b/tasks.rs
+@@ -61,6 +61,8 @@ impl V8TaskSpawnerFactory {
+   /// Poll this set of tasks, returning a non-empty set of tasks if there have
+   /// been any queued, or registering the waker if not.
+   pub fn poll_inner(&self, cx: &mut Context) -> Poll<Vec<UnsendTask>> {
++    // gro patch: registered before the check, so a task spawned after the check finds this waker to wake
++    self.waker.register(cx.waker());
+     // Check the flag first -- if it's false we definitely have no tasks. AcqRel semantics ensure
+     // that this read happens-before the vector read below, and that any writes happen-after the success
+     // case.
+@@ -69,7 +71,6 @@ impl V8TaskSpawnerFactory {
+       .compare_exchange(true, false, Ordering::AcqRel, Ordering::Acquire)
+       .is_err()
+     {
+-      self.waker.register(cx.waker());
+       return Poll::Pending;
+     }
+ 
+@@ -79,7 +80,6 @@ impl V8TaskSpawnerFactory {
+       // Unlikely race lost -- the task submission to the queue and flag are not atomic, so it's
+       // possible we ended up with an extra poll here. This only shows up under Miri, but as it is
+       // possible we do need to handle it.
+-      self.waker.register(cx.waker());
+       return Poll::Pending;
+     }
+ 
