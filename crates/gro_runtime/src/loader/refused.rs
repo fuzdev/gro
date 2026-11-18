@@ -74,7 +74,7 @@ pub const NOT_GRANTED: &str = "not_granted";
 /// A host module's call refused for a grant the handle it was called on
 /// doesn't hold, as [`Refusals::record_not_granted`] takes it, with what
 /// would have allowed it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NotGranted {
     /// `env` refused the variable the target names; `needed` when
     /// granting it would have let the call through, as for a refusal by
@@ -86,6 +86,30 @@ pub enum NotGranted {
     /// `fs` refused the path the target names, with the kind of fs grant
     /// that would have allowed it, `None` when none would.
     Fs(Option<FsNeed>),
+    /// `spawn` refused a call about the program the target names, with
+    /// what would have allowed it, `None` when nothing the run can be
+    /// granted would.
+    Spawn(Option<SpawnNeed>),
+}
+
+/// What would have let a refused `spawn` call through: a grant of the
+/// run's, by name.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SpawnNeed {
+    /// The program, by the name it was asked for ([`NeededGrant::Run`]).
+    Program(String),
+    /// A variable forwarded to a granted program, by its name, or the glob
+    /// a program's `pass_env` gave ([`NeededGrant::RunEnv`]).
+    Forward(String),
+}
+
+impl From<SpawnNeed> for NeededGrant {
+    fn from(need: SpawnNeed) -> Self {
+        match need {
+            SpawnNeed::Program(name) => Self::Run(name),
+            SpawnNeed::Forward(name) => Self::RunEnv(name),
+        }
+    }
 }
 
 /// What would have allowed a refused call, so a report can say what to
@@ -239,6 +263,12 @@ impl Refusals {
     /// have, kept unless it's kept already, while there's room.
     pub(crate) fn record_not_granted(&mut self, refused: NotGranted, target: &str) {
         let by = match refused {
+            NotGranted::Spawn(needed) => {
+                if let Some(needed) = needed {
+                    self.need(needed.into());
+                }
+                RefusedBy::Spawn
+            }
             NotGranted::Env { needed } => {
                 if needed {
                     self.need(NeededGrant::Env(target.to_owned()));
@@ -343,7 +373,7 @@ fn cut(message: &str) -> Cow<'_, str> {
 mod tests {
     use super::{
         FsNeed, MAX_LISTED_MESSAGE, MAX_LISTED_REFUSALS, NameKind, NeededGrant, NotGranted,
-        Refusals, RefusedBy,
+        Refusals, RefusedBy, SpawnNeed,
     };
 
     /// A name a narrowed env handle refused, which no grant would allow.
@@ -542,8 +572,8 @@ mod tests {
     fn an_fs_refusal_is_listed_with_the_kind_it_needed() {
         let mut refused = Refusals::default();
         let (read, write) = (fs(Some(FsNeed::Read)), fs(Some(FsNeed::Write)));
-        refused.record_not_granted(read, "/a");
-        refused.record_not_granted(write, "/a");
+        refused.record_not_granted(read.clone(), "/a");
+        refused.record_not_granted(write.clone(), "/a");
         refused.record_not_granted(read, "/a");
         refused.record_not_granted(fs(None), "/a");
         refused.record_not_granted(fs(Some(FsNeed::OpenDir)), "/a");
@@ -664,5 +694,60 @@ mod tests {
         }
         assert!(refused.more_names.is_empty());
         assert_eq!(refused.needed.len(), MAX_LISTED_REFUSALS + 1);
+    }
+    /// A spawn refusal is listed by the program it names, the grant it
+    /// needed kept apart, a program's or a variable's, each kind of name
+    /// bounded on its own, so neither takes the other's room or an env
+    /// name's, and one past its bound marks that kind alone.
+    #[test]
+    fn a_spawn_refusal_keeps_its_need_apart_and_bounded_by_kind() {
+        let mut refused = Refusals::default();
+        let run = |name: &str| NotGranted::Spawn(Some(SpawnNeed::Program(name.to_owned())));
+        let run_env = |name: &str| NotGranted::Spawn(Some(SpawnNeed::Forward(name.to_owned())));
+        refused.record_not_granted(run("git"), "git");
+        refused.record_not_granted(run_env("CARGO_HOME"), "cargo");
+        refused.record_not_granted(NotGranted::Spawn(None), "tool");
+        assert_eq!(
+            refused.messages(),
+            [
+                "not_granted: git",
+                "not_granted: cargo",
+                "not_granted: tool"
+            ]
+        );
+        assert!(
+            refused
+                .listed
+                .iter()
+                .all(|listed| listed.by == RefusedBy::Spawn)
+        );
+        assert_eq!(RefusedBy::Spawn.error(), "SpawnError");
+        assert_eq!(
+            refused.needed,
+            [
+                NeededGrant::Run("git".to_owned()),
+                NeededGrant::RunEnv("CARGO_HOME".to_owned())
+            ]
+        );
+        for i in 0..MAX_LISTED_REFUSALS {
+            refused.record_not_granted(run(&format!("p{i}")), "p");
+            refused.record_not_granted(ROOT, &format!("V{i}"));
+        }
+        assert_eq!(refused.more_names, [NameKind::Run]);
+        refused.record_not_granted(run_env("X"), "x");
+        assert_eq!(refused.more_names, [NameKind::Run]);
+        refused.record_not_granted(ROOT, "W");
+        assert_eq!(refused.more_names, [NameKind::Run, NameKind::Env]);
+        let kept =
+            |kind: fn(&NeededGrant) -> bool| refused.needed.iter().filter(|n| kind(n)).count();
+        assert_eq!(
+            kept(|n| matches!(n, NeededGrant::Run(_))),
+            MAX_LISTED_REFUSALS
+        );
+        assert_eq!(kept(|n| matches!(n, NeededGrant::RunEnv(_))), 2);
+        assert_eq!(
+            kept(|n| matches!(n, NeededGrant::Env(_))),
+            MAX_LISTED_REFUSALS
+        );
     }
 }

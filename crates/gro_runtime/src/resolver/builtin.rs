@@ -120,6 +120,16 @@ macro_rules! builtin_rows {
                 Some($crate::resolver::Capability::Fs),
                 ["fs"]
             ),
+            $row!(
+                "@fuzdev/gro/spawn_error.ts",
+                None,
+                ["SpawnError", "is_spawn_error"]
+            ),
+            $row!(
+                "@fuzdev/gro/spawn.ts",
+                Some($crate::resolver::Capability::Spawn),
+                ["spawn"]
+            ),
         ]
     };
 }
@@ -162,8 +172,6 @@ pub fn find_builtin(specifier: &str) -> Option<&'static Builtin> {
 /// host's, so none resolves to the package's copy before its row lands. A
 /// module joins the table's rows when it's built, and leaves this list.
 pub const UNBUILT_HOST_MODULES: &[&str] = &[
-    "@fuzdev/gro/spawn",
-    "@fuzdev/gro/spawn_error",
     "@fuzdev/gro/net",
     "@fuzdev/gro/net_error",
     "@fuzdev/gro/watch",

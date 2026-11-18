@@ -7,6 +7,7 @@ mod eval_refusals;
 mod host_ops;
 mod native_members;
 mod ops;
+mod spawn_scopes;
 
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
@@ -327,5 +328,6 @@ fn host_data() -> HostData {
             .collect(),
         project: None,
         temp_dir: None,
+        spawn: None,
     }
 }

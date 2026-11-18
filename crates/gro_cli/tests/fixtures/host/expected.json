@@ -14620,5 +14620,1921 @@
 				"to_sub (symlink)"
 			]
 		}
+	},
+	"spawn_error": {
+		"code": 0,
+		"output": {
+			"namespace": {
+				"type": "object",
+				"prototype": null,
+				"frozen": false,
+				"own": {
+					"SpawnError": {
+						"type": "function",
+						"writable": true,
+						"enumerable": true,
+						"configurable": false
+					},
+					"is_spawn_error": {
+						"type": "function",
+						"writable": true,
+						"enumerable": true,
+						"configurable": false
+					},
+					"Symbol(Symbol.toStringTag)": {
+						"type": "string",
+						"writable": false,
+						"enumerable": false,
+						"configurable": false
+					}
+				}
+			},
+			"class": {
+				"type": "function",
+				"prototype": "other",
+				"frozen": true,
+				"own": {
+					"length": {
+						"type": "number",
+						"writable": false,
+						"enumerable": false,
+						"configurable": false
+					},
+					"name": {
+						"type": "string",
+						"writable": false,
+						"enumerable": false,
+						"configurable": false
+					},
+					"prototype": {
+						"type": "object",
+						"writable": false,
+						"enumerable": false,
+						"configurable": false
+					}
+				}
+			},
+			"class_name": "SpawnError",
+			"class_length": 3,
+			"prototype": {
+				"type": "object",
+				"prototype": "other",
+				"frozen": true,
+				"own": {
+					"constructor": {
+						"type": "function",
+						"writable": false,
+						"enumerable": false,
+						"configurable": false
+					}
+				}
+			},
+			"extends_error": true,
+			"prototype_extends_error": true,
+			"constructor_is_the_class": true,
+			"instance": {
+				"type": "object",
+				"prototype": "other",
+				"frozen": false,
+				"own": {
+					"message": {
+						"type": "string",
+						"writable": true,
+						"enumerable": false,
+						"configurable": true
+					},
+					"name": {
+						"type": "string",
+						"writable": true,
+						"enumerable": true,
+						"configurable": true
+					},
+					"kind": {
+						"type": "string",
+						"writable": true,
+						"enumerable": true,
+						"configurable": true
+					},
+					"program": {
+						"type": "string",
+						"writable": true,
+						"enumerable": true,
+						"configurable": true
+					}
+				}
+			},
+			"instance_of_the_class": true,
+			"instance_of_error": true,
+			"is_error": true,
+			"tag": "[object Error]",
+			"message": "not_found: git",
+			"name": "SpawnError",
+			"kind": "not_found",
+			"program": "git",
+			"string": "SpawnError: not_found: git",
+			"has_cause": false,
+			"stack_head": "SpawnError: not_found: git",
+			"stack_has_a_frame": true,
+			"caught_is_the_error": true,
+			"custom": {
+				"type": "object",
+				"prototype": "other",
+				"frozen": false,
+				"own": {
+					"message": {
+						"type": "string",
+						"writable": true,
+						"enumerable": false,
+						"configurable": true
+					},
+					"cause": {
+						"type": "string",
+						"writable": true,
+						"enumerable": false,
+						"configurable": true
+					},
+					"name": {
+						"type": "string",
+						"writable": true,
+						"enumerable": true,
+						"configurable": true
+					},
+					"kind": {
+						"type": "string",
+						"writable": true,
+						"enumerable": true,
+						"configurable": true
+					},
+					"program": {
+						"type": "string",
+						"writable": true,
+						"enumerable": true,
+						"configurable": true
+					}
+				}
+			},
+			"custom_message": "not_found: git",
+			"custom_cause": "why",
+			"string_options": {
+				"message": "not_found: git",
+				"has_cause": false
+			},
+			"null_options": {
+				"message": "not_found: git",
+				"has_cause": false
+			},
+			"getter_cause": "got",
+			"no_options_cause": false,
+			"converted_message": "hostile: hostile",
+			"converted_kind_kept": true,
+			"message_past_the_longest_string": "RangeError",
+			"symbol_kind": "TypeError",
+			"symbol_target": "TypeError",
+			"symbol_options": {
+				"message": "not_found: y",
+				"has_cause": false
+			},
+			"clone": {
+				"tag": "[object Error]",
+				"name": "Error",
+				"message": "not_found: git",
+				"has_kind": false,
+				"is_an_error": true,
+				"is_an_env_error": false
+			},
+			"json": "{\"name\":\"SpawnError\",\"kind\":\"not_found\",\"program\":\"git\"}",
+			"call_without_new": "TypeError",
+			"subclass": {
+				"instance_of_sub": true,
+				"instance_of_the_class": true,
+				"extra": 1,
+				"kind": "not_found",
+				"prototype_is_subs": true,
+				"own": {
+					"type": "object",
+					"prototype": "other",
+					"frozen": false,
+					"own": {
+						"message": {
+							"type": "string",
+							"writable": true,
+							"enumerable": false,
+							"configurable": true
+						},
+						"name": {
+							"type": "string",
+							"writable": true,
+							"enumerable": true,
+							"configurable": true
+						},
+						"kind": {
+							"type": "string",
+							"writable": true,
+							"enumerable": true,
+							"configurable": true
+						},
+						"program": {
+							"type": "string",
+							"writable": true,
+							"enumerable": true,
+							"configurable": true
+						},
+						"extra": {
+							"type": "number",
+							"writable": true,
+							"enumerable": true,
+							"configurable": true
+						}
+					}
+				}
+			},
+			"class_frozen_against_set_prototype": "TypeError",
+			"class_write": "TypeError",
+			"prototype_write": "TypeError",
+			"guard": {
+				"type": "function",
+				"prototype": "Function.prototype",
+				"frozen": false,
+				"own": {
+					"length": {
+						"type": "number",
+						"writable": false,
+						"enumerable": false,
+						"configurable": true
+					},
+					"name": {
+						"type": "string",
+						"writable": false,
+						"enumerable": false,
+						"configurable": true
+					}
+				}
+			},
+			"guard_name": "is_spawn_error",
+			"guard_length": 2,
+			"guard_new": "TypeError",
+			"guards": {
+				"error": true,
+				"of_its_kind": true,
+				"of_another_kind": false,
+				"subclass": true,
+				"subclass_of_its_kind": true,
+				"lookalike": true,
+				"inherited": true,
+				"inherited_of_its_kind": false,
+				"plain_error": false,
+				"plain_object": false,
+				"null_prototype": false,
+				"null": false,
+				"undefined": false,
+				"string": false,
+				"class": false,
+				"clone": false,
+				"proxy_of_an_error": true,
+				"function_with_the_prototype": false,
+				"named_through_a_proxy": true,
+				"named_by_a_proxy": true,
+				"constructor_by_getter": true,
+				"named_by_getter": true,
+				"ran": [
+					"chain get",
+					"constructor get",
+					"constructor getter",
+					"name getter"
+				],
+				"kind_by_getter": true
+			}
+		}
+	},
+	"spawn_shape": {
+		"code": 0,
+		"output": {
+			"namespace": {
+				"type": "object",
+				"prototype": null,
+				"frozen": false,
+				"own": {
+					"spawn": {
+						"type": "object",
+						"writable": true,
+						"enumerable": true,
+						"configurable": false
+					},
+					"Symbol(Symbol.toStringTag)": {
+						"type": "string",
+						"writable": false,
+						"enumerable": false,
+						"configurable": false
+					}
+				}
+			},
+			"root": {
+				"type": "object",
+				"prototype": "other",
+				"frozen": true,
+				"own": {}
+			},
+			"prototype": {
+				"type": "object",
+				"prototype": null,
+				"frozen": true,
+				"own": {
+					"constructor": {
+						"type": "function",
+						"writable": false,
+						"enumerable": false,
+						"configurable": false
+					},
+					"program": {
+						"type": "function",
+						"writable": false,
+						"enumerable": false,
+						"configurable": false
+					},
+					"find": {
+						"type": "function",
+						"writable": false,
+						"enumerable": false,
+						"configurable": false
+					},
+					"program_in": {
+						"type": "function",
+						"writable": false,
+						"enumerable": false,
+						"configurable": false
+					},
+					"find_in": {
+						"type": "function",
+						"writable": false,
+						"enumerable": false,
+						"configurable": false
+					},
+					"narrow": {
+						"type": "function",
+						"writable": false,
+						"enumerable": false,
+						"configurable": false
+					}
+				}
+			},
+			"methods": {
+				"program": {
+					"length": 2,
+					"name": "program"
+				},
+				"find": {
+					"length": 2,
+					"name": "find"
+				},
+				"program_in": {
+					"length": 3,
+					"name": "program_in"
+				},
+				"find_in": {
+					"length": 3,
+					"name": "find_in"
+				},
+				"narrow": {
+					"length": 1,
+					"name": "narrow"
+				}
+			},
+			"program": {
+				"type": "object",
+				"prototype": "other",
+				"frozen": true,
+				"own": {
+					"name": {
+						"type": "string",
+						"writable": false,
+						"enumerable": true,
+						"configurable": false
+					},
+					"path": {
+						"type": "string",
+						"writable": false,
+						"enumerable": true,
+						"configurable": false
+					}
+				}
+			},
+			"program_prototype": {
+				"type": "object",
+				"prototype": null,
+				"frozen": true,
+				"own": {
+					"constructor": {
+						"type": "function",
+						"writable": false,
+						"enumerable": false,
+						"configurable": false
+					},
+					"run": {
+						"type": "function",
+						"writable": false,
+						"enumerable": false,
+						"configurable": false
+					},
+					"out": {
+						"type": "function",
+						"writable": false,
+						"enumerable": false,
+						"configurable": false
+					},
+					"out_bytes": {
+						"type": "function",
+						"writable": false,
+						"enumerable": false,
+						"configurable": false
+					},
+					"start": {
+						"type": "function",
+						"writable": false,
+						"enumerable": false,
+						"configurable": false
+					}
+				}
+			},
+			"program_methods": {
+				"run": {
+					"length": 2,
+					"name": "run"
+				},
+				"out": {
+					"length": 2,
+					"name": "out"
+				},
+				"out_bytes": {
+					"length": 2,
+					"name": "out_bytes"
+				},
+				"start": {
+					"length": 2,
+					"name": "start"
+				}
+			},
+			"narrowed": {
+				"type": "object",
+				"prototype": "other",
+				"frozen": true,
+				"own": {}
+			},
+			"narrowed_shares_the_prototype": true,
+			"same_handle_twice": false,
+			"then": false,
+			"write": "TypeError",
+			"write_prototype": "TypeError"
+		}
+	},
+	"spawn_names": {
+		"code": 0,
+		"output": {
+			"tool": {
+				"program": {
+					"value": {
+						"name": "tool",
+						"path": "{project}/spawn/bin/tool"
+					}
+				},
+				"find": {
+					"value": {
+						"name": "tool",
+						"path": "{project}/spawn/bin/tool"
+					}
+				}
+			},
+			"elf": {
+				"program": {
+					"value": {
+						"name": "elf",
+						"path": "{project}/spawn/bin/elf"
+					}
+				},
+				"find": {
+					"value": {
+						"name": "elf",
+						"path": "{project}/spawn/bin/elf"
+					}
+				}
+			},
+			"shadowed": {
+				"program": {
+					"threw": {
+						"class": "SpawnError",
+						"message": "not_found: shadowed",
+						"kind": "not_found",
+						"program": "shadowed",
+						"cause": "no program shadowed"
+					}
+				},
+				"find": {
+					"value": null
+				}
+			},
+			"relonly": {
+				"program": {
+					"threw": {
+						"class": "SpawnError",
+						"message": "not_found: relonly",
+						"kind": "not_found",
+						"program": "relonly",
+						"cause": "no program relonly"
+					}
+				},
+				"find": {
+					"value": null
+				}
+			},
+			"noexec_only": {
+				"program": {
+					"threw": {
+						"class": "SpawnError",
+						"message": "not_executable: noexec_only",
+						"kind": "not_executable",
+						"program": "noexec_only",
+						"cause": "noexec_only is on PATH only without execute permission"
+					}
+				},
+				"find": {
+					"threw": {
+						"class": "SpawnError",
+						"message": "not_executable: noexec_only",
+						"kind": "not_executable",
+						"program": "noexec_only",
+						"cause": "noexec_only is on PATH only without execute permission"
+					}
+				}
+			},
+			"missing": {
+				"program": {
+					"threw": {
+						"class": "SpawnError",
+						"message": "not_found: missing",
+						"kind": "not_found",
+						"program": "missing",
+						"cause": "no program missing"
+					}
+				},
+				"find": {
+					"value": null
+				}
+			},
+			"run.cmd": {
+				"program": {
+					"threw": {
+						"class": "SpawnError",
+						"message": "not_executable: run.cmd",
+						"kind": "not_executable",
+						"program": "run.cmd",
+						"cause": "run.cmd at run.cmd is a .bat or .cmd file, which only a shell runs"
+					}
+				},
+				"find": {
+					"threw": {
+						"class": "SpawnError",
+						"message": "not_executable: run.cmd",
+						"kind": "not_executable",
+						"program": "run.cmd",
+						"cause": "run.cmd at run.cmd is a .bat or .cmd file, which only a shell runs"
+					}
+				}
+			},
+			"./spawn/bin/tool": {
+				"program": {
+					"value": {
+						"name": "./spawn/bin/tool",
+						"path": "{project}/spawn/bin/tool"
+					}
+				},
+				"find": {
+					"value": {
+						"name": "./spawn/bin/tool",
+						"path": "{project}/spawn/bin/tool"
+					}
+				}
+			},
+			"spawn/bin/link": {
+				"program": {
+					"value": {
+						"name": "spawn/bin/link",
+						"path": "{project}/spawn/bin/tool"
+					}
+				},
+				"find": {
+					"value": {
+						"name": "spawn/bin/link",
+						"path": "{project}/spawn/bin/tool"
+					}
+				}
+			},
+			"./spawn/bin/elf": {
+				"program": {
+					"value": {
+						"name": "./spawn/bin/elf",
+						"path": "{project}/spawn/bin/elf"
+					}
+				},
+				"find": {
+					"value": {
+						"name": "./spawn/bin/elf",
+						"path": "{project}/spawn/bin/elf"
+					}
+				}
+			},
+			"./spawn/bin/bare": {
+				"program": {
+					"value": {
+						"name": "./spawn/bin/bare",
+						"path": "{project}/spawn/bin/bare"
+					}
+				},
+				"find": {
+					"value": {
+						"name": "./spawn/bin/bare",
+						"path": "{project}/spawn/bin/bare"
+					}
+				}
+			},
+			"./spawn/bin/noexec": {
+				"program": {
+					"threw": {
+						"class": "SpawnError",
+						"message": "not_executable: ./spawn/bin/noexec",
+						"kind": "not_executable",
+						"program": "./spawn/bin/noexec",
+						"cause": "{project}/spawn/bin/noexec isn't executable"
+					}
+				},
+				"find": {
+					"threw": {
+						"class": "SpawnError",
+						"message": "not_executable: ./spawn/bin/noexec",
+						"kind": "not_executable",
+						"program": "./spawn/bin/noexec",
+						"cause": "{project}/spawn/bin/noexec isn't executable"
+					}
+				}
+			},
+			"./spawn/bin/text": {
+				"program": {
+					"threw": {
+						"class": "SpawnError",
+						"message": "not_executable: ./spawn/bin/text",
+						"kind": "not_executable",
+						"program": "./spawn/bin/text",
+						"cause": "./spawn/bin/text at {project}/spawn/bin/text starts with neither #! nor a native binary's magic"
+					}
+				},
+				"find": {
+					"threw": {
+						"class": "SpawnError",
+						"message": "not_executable: ./spawn/bin/text",
+						"kind": "not_executable",
+						"program": "./spawn/bin/text",
+						"cause": "./spawn/bin/text at {project}/spawn/bin/text starts with neither #! nor a native binary's magic"
+					}
+				}
+			},
+			"./spawn/bin/run.cmd": {
+				"program": {
+					"threw": {
+						"class": "SpawnError",
+						"message": "not_executable: ./spawn/bin/run.cmd",
+						"kind": "not_executable",
+						"program": "./spawn/bin/run.cmd",
+						"cause": "./spawn/bin/run.cmd at ./spawn/bin/run.cmd is a .bat or .cmd file, which only a shell runs"
+					}
+				},
+				"find": {
+					"threw": {
+						"class": "SpawnError",
+						"message": "not_executable: ./spawn/bin/run.cmd",
+						"kind": "not_executable",
+						"program": "./spawn/bin/run.cmd",
+						"cause": "./spawn/bin/run.cmd at ./spawn/bin/run.cmd is a .bat or .cmd file, which only a shell runs"
+					}
+				}
+			},
+			"./spawn/bin/RUN.CMD. ": {
+				"program": {
+					"threw": {
+						"class": "SpawnError",
+						"message": "not_executable: ./spawn/bin/RUN.CMD. ",
+						"kind": "not_executable",
+						"program": "./spawn/bin/RUN.CMD. ",
+						"cause": "./spawn/bin/RUN.CMD.  at ./spawn/bin/RUN.CMD.  is a .bat or .cmd file, which only a shell runs"
+					}
+				},
+				"find": {
+					"threw": {
+						"class": "SpawnError",
+						"message": "not_executable: ./spawn/bin/RUN.CMD. ",
+						"kind": "not_executable",
+						"program": "./spawn/bin/RUN.CMD. ",
+						"cause": "./spawn/bin/RUN.CMD.  at ./spawn/bin/RUN.CMD.  is a .bat or .cmd file, which only a shell runs"
+					}
+				}
+			},
+			"./spawn/bin/missing": {
+				"program": {
+					"threw": {
+						"class": "SpawnError",
+						"message": "not_found: ./spawn/bin/missing",
+						"kind": "not_found",
+						"program": "./spawn/bin/missing",
+						"cause": "no program ./spawn/bin/missing"
+					}
+				},
+				"find": {
+					"value": null
+				}
+			},
+			"./spawn/bin/": {
+				"program": {
+					"threw": {
+						"class": "SpawnError",
+						"message": "not_found: ./spawn/bin/",
+						"kind": "not_found",
+						"program": "./spawn/bin/",
+						"cause": "no program ./spawn/bin/"
+					}
+				},
+				"find": {
+					"value": null
+				}
+			},
+			"./spawn/bin/tool/": {
+				"program": {
+					"threw": {
+						"class": "SpawnError",
+						"message": "not_found: ./spawn/bin/tool/",
+						"kind": "not_found",
+						"program": "./spawn/bin/tool/",
+						"cause": "no program ./spawn/bin/tool/"
+					}
+				},
+				"find": {
+					"value": null
+				}
+			},
+			"./spawn/bin/tool/.": {
+				"program": {
+					"threw": {
+						"class": "SpawnError",
+						"message": "not_found: ./spawn/bin/tool/.",
+						"kind": "not_found",
+						"program": "./spawn/bin/tool/.",
+						"cause": "no program ./spawn/bin/tool/."
+					}
+				},
+				"find": {
+					"value": null
+				}
+			},
+			"spawn/../spawn/bin/tool": {
+				"program": {
+					"value": {
+						"name": "spawn/../spawn/bin/tool",
+						"path": "{project}/spawn/bin/tool"
+					}
+				},
+				"find": {
+					"value": {
+						"name": "spawn/../spawn/bin/tool",
+						"path": "{project}/spawn/bin/tool"
+					}
+				}
+			},
+			"sh": {
+				"program": {
+					"value": {
+						"name": "sh",
+						"path": "string"
+					}
+				},
+				"find": {
+					"value": {
+						"name": "sh",
+						"path": "string"
+					}
+				}
+			}
+		}
+	},
+	"spawn_names_granted": {
+		"code": 0,
+		"output": {
+			"tool": {
+				"program": {
+					"value": {
+						"name": "tool",
+						"path": "{project}/spawn/bin/tool"
+					}
+				},
+				"find": {
+					"value": {
+						"name": "tool",
+						"path": "{project}/spawn/bin/tool"
+					}
+				}
+			},
+			"elf": {
+				"program": {
+					"value": {
+						"name": "elf",
+						"path": "{project}/spawn/bin/elf"
+					}
+				},
+				"find": {
+					"value": {
+						"name": "elf",
+						"path": "{project}/spawn/bin/elf"
+					}
+				}
+			},
+			"shadowed": {
+				"program": {
+					"threw": {
+						"class": "SpawnError",
+						"message": "not_found: shadowed",
+						"kind": "not_found",
+						"program": "shadowed",
+						"cause": "no program shadowed"
+					}
+				},
+				"find": {
+					"value": null
+				}
+			},
+			"relonly": {
+				"program": {
+					"threw": {
+						"class": "SpawnError",
+						"message": "not_found: relonly",
+						"kind": "not_found",
+						"program": "relonly",
+						"cause": "no program relonly"
+					}
+				},
+				"find": {
+					"value": null
+				}
+			},
+			"noexec_only": {
+				"program": {
+					"threw": {
+						"class": "SpawnError",
+						"message": "not_executable: noexec_only",
+						"kind": "not_executable",
+						"program": "noexec_only",
+						"cause": "noexec_only is on PATH only without execute permission"
+					}
+				},
+				"find": {
+					"threw": {
+						"class": "SpawnError",
+						"message": "not_executable: noexec_only",
+						"kind": "not_executable",
+						"program": "noexec_only",
+						"cause": "noexec_only is on PATH only without execute permission"
+					}
+				}
+			},
+			"missing": {
+				"program": {
+					"threw": {
+						"class": "SpawnError",
+						"message": "not_found: missing",
+						"kind": "not_found",
+						"program": "missing",
+						"cause": "no program missing"
+					}
+				},
+				"find": {
+					"value": null
+				}
+			},
+			"run.cmd": {
+				"program": {
+					"threw": {
+						"class": "SpawnError",
+						"message": "not_executable: run.cmd",
+						"kind": "not_executable",
+						"program": "run.cmd",
+						"cause": "run.cmd at run.cmd is a .bat or .cmd file, which only a shell runs"
+					}
+				},
+				"find": {
+					"threw": {
+						"class": "SpawnError",
+						"message": "not_executable: run.cmd",
+						"kind": "not_executable",
+						"program": "run.cmd",
+						"cause": "run.cmd at run.cmd is a .bat or .cmd file, which only a shell runs"
+					}
+				}
+			},
+			"./spawn/bin/tool": {
+				"program": {
+					"value": {
+						"name": "./spawn/bin/tool",
+						"path": "{project}/spawn/bin/tool"
+					}
+				},
+				"find": {
+					"value": {
+						"name": "./spawn/bin/tool",
+						"path": "{project}/spawn/bin/tool"
+					}
+				}
+			},
+			"spawn/bin/link": {
+				"program": {
+					"value": {
+						"name": "spawn/bin/link",
+						"path": "{project}/spawn/bin/tool"
+					}
+				},
+				"find": {
+					"value": {
+						"name": "spawn/bin/link",
+						"path": "{project}/spawn/bin/tool"
+					}
+				}
+			},
+			"./spawn/bin/elf": {
+				"program": {
+					"value": {
+						"name": "./spawn/bin/elf",
+						"path": "{project}/spawn/bin/elf"
+					}
+				},
+				"find": {
+					"value": {
+						"name": "./spawn/bin/elf",
+						"path": "{project}/spawn/bin/elf"
+					}
+				}
+			},
+			"./spawn/bin/bare": {
+				"program": {
+					"value": {
+						"name": "./spawn/bin/bare",
+						"path": "{project}/spawn/bin/bare"
+					}
+				},
+				"find": {
+					"value": {
+						"name": "./spawn/bin/bare",
+						"path": "{project}/spawn/bin/bare"
+					}
+				}
+			},
+			"./spawn/bin/noexec": {
+				"program": {
+					"threw": {
+						"class": "SpawnError",
+						"message": "not_executable: ./spawn/bin/noexec",
+						"kind": "not_executable",
+						"program": "./spawn/bin/noexec",
+						"cause": "{project}/spawn/bin/noexec isn't executable"
+					}
+				},
+				"find": {
+					"threw": {
+						"class": "SpawnError",
+						"message": "not_executable: ./spawn/bin/noexec",
+						"kind": "not_executable",
+						"program": "./spawn/bin/noexec",
+						"cause": "{project}/spawn/bin/noexec isn't executable"
+					}
+				}
+			},
+			"./spawn/bin/text": {
+				"program": {
+					"threw": {
+						"class": "SpawnError",
+						"message": "not_executable: ./spawn/bin/text",
+						"kind": "not_executable",
+						"program": "./spawn/bin/text",
+						"cause": "./spawn/bin/text at {project}/spawn/bin/text starts with neither #! nor a native binary's magic"
+					}
+				},
+				"find": {
+					"threw": {
+						"class": "SpawnError",
+						"message": "not_executable: ./spawn/bin/text",
+						"kind": "not_executable",
+						"program": "./spawn/bin/text",
+						"cause": "./spawn/bin/text at {project}/spawn/bin/text starts with neither #! nor a native binary's magic"
+					}
+				}
+			},
+			"./spawn/bin/run.cmd": {
+				"program": {
+					"threw": {
+						"class": "SpawnError",
+						"message": "not_executable: ./spawn/bin/run.cmd",
+						"kind": "not_executable",
+						"program": "./spawn/bin/run.cmd",
+						"cause": "./spawn/bin/run.cmd at ./spawn/bin/run.cmd is a .bat or .cmd file, which only a shell runs"
+					}
+				},
+				"find": {
+					"threw": {
+						"class": "SpawnError",
+						"message": "not_executable: ./spawn/bin/run.cmd",
+						"kind": "not_executable",
+						"program": "./spawn/bin/run.cmd",
+						"cause": "./spawn/bin/run.cmd at ./spawn/bin/run.cmd is a .bat or .cmd file, which only a shell runs"
+					}
+				}
+			},
+			"./spawn/bin/RUN.CMD. ": {
+				"program": {
+					"threw": {
+						"class": "SpawnError",
+						"message": "not_executable: ./spawn/bin/RUN.CMD. ",
+						"kind": "not_executable",
+						"program": "./spawn/bin/RUN.CMD. ",
+						"cause": "./spawn/bin/RUN.CMD.  at ./spawn/bin/RUN.CMD.  is a .bat or .cmd file, which only a shell runs"
+					}
+				},
+				"find": {
+					"threw": {
+						"class": "SpawnError",
+						"message": "not_executable: ./spawn/bin/RUN.CMD. ",
+						"kind": "not_executable",
+						"program": "./spawn/bin/RUN.CMD. ",
+						"cause": "./spawn/bin/RUN.CMD.  at ./spawn/bin/RUN.CMD.  is a .bat or .cmd file, which only a shell runs"
+					}
+				}
+			},
+			"./spawn/bin/missing": {
+				"program": {
+					"threw": {
+						"class": "SpawnError",
+						"message": "not_found: ./spawn/bin/missing",
+						"kind": "not_found",
+						"program": "./spawn/bin/missing",
+						"cause": "no program ./spawn/bin/missing"
+					}
+				},
+				"find": {
+					"value": null
+				}
+			},
+			"./spawn/bin/": {
+				"program": {
+					"threw": {
+						"class": "SpawnError",
+						"message": "not_found: ./spawn/bin/",
+						"kind": "not_found",
+						"program": "./spawn/bin/",
+						"cause": "no program ./spawn/bin/"
+					}
+				},
+				"find": {
+					"value": null
+				}
+			},
+			"./spawn/bin/tool/": {
+				"program": {
+					"threw": {
+						"class": "SpawnError",
+						"message": "not_found: ./spawn/bin/tool/",
+						"kind": "not_found",
+						"program": "./spawn/bin/tool/",
+						"cause": "no program ./spawn/bin/tool/"
+					}
+				},
+				"find": {
+					"value": null
+				}
+			},
+			"./spawn/bin/tool/.": {
+				"program": {
+					"threw": {
+						"class": "SpawnError",
+						"message": "not_found: ./spawn/bin/tool/.",
+						"kind": "not_found",
+						"program": "./spawn/bin/tool/.",
+						"cause": "no program ./spawn/bin/tool/."
+					}
+				},
+				"find": {
+					"value": null
+				}
+			},
+			"spawn/../spawn/bin/tool": {
+				"program": {
+					"value": {
+						"name": "spawn/../spawn/bin/tool",
+						"path": "{project}/spawn/bin/tool"
+					}
+				},
+				"find": {
+					"value": {
+						"name": "spawn/../spawn/bin/tool",
+						"path": "{project}/spawn/bin/tool"
+					}
+				}
+			},
+			"sh": {
+				"program": {
+					"value": {
+						"name": "sh",
+						"path": "string"
+					}
+				},
+				"find": {
+					"value": {
+						"name": "sh",
+						"path": "string"
+					}
+				}
+			}
+		}
+	},
+	"spawn_outside": {
+		"code": 0,
+		"output": {
+			"/bin/sh": {
+				"program": {
+					"threw": {
+						"class": "SpawnError",
+						"message": "not_granted: /bin/sh",
+						"kind": "not_granted",
+						"program": "/bin/sh",
+						"cause": "/bin/sh is absolute, and a program name with / resolves beneath the project"
+					}
+				},
+				"find": {
+					"threw": {
+						"class": "SpawnError",
+						"message": "not_granted: /bin/sh",
+						"kind": "not_granted",
+						"program": "/bin/sh",
+						"cause": "/bin/sh is absolute, and a program name with / resolves beneath the project"
+					}
+				}
+			},
+			"../spawn/bin/tool": {
+				"program": {
+					"threw": {
+						"class": "SpawnError",
+						"message": "not_granted: ../spawn/bin/tool",
+						"kind": "not_granted",
+						"program": "../spawn/bin/tool",
+						"cause": "../spawn/bin/tool climbs above the project {project}"
+					}
+				},
+				"find": {
+					"threw": {
+						"class": "SpawnError",
+						"message": "not_granted: ../spawn/bin/tool",
+						"kind": "not_granted",
+						"program": "../spawn/bin/tool",
+						"cause": "../spawn/bin/tool climbs above the project {project}"
+					}
+				}
+			},
+			"spawn/../../x": {
+				"program": {
+					"threw": {
+						"class": "SpawnError",
+						"message": "not_granted: spawn/../../x",
+						"kind": "not_granted",
+						"program": "spawn/../../x",
+						"cause": "spawn/../../x climbs above the project {project}"
+					}
+				},
+				"find": {
+					"threw": {
+						"class": "SpawnError",
+						"message": "not_granted: spawn/../../x",
+						"kind": "not_granted",
+						"program": "spawn/../../x",
+						"cause": "spawn/../../x climbs above the project {project}"
+					}
+				}
+			}
+		}
+	},
+	"spawn_invalid": {
+		"code": 0,
+		"output": {
+			"names": [
+				{
+					"threw": {
+						"class": "TypeError",
+						"message": "a spawn program name must be a string",
+						"cause": "undefined"
+					}
+				},
+				{
+					"threw": {
+						"class": "TypeError",
+						"message": "a spawn program name is empty",
+						"cause": "undefined"
+					}
+				},
+				{
+					"threw": {
+						"class": "TypeError",
+						"message": "a spawn program name holds a NUL byte",
+						"cause": "undefined"
+					}
+				},
+				{
+					"threw": {
+						"class": "TypeError",
+						"message": "a spawn program name isn't well-formed Unicode",
+						"cause": "undefined"
+					}
+				},
+				{
+					"threw": {
+						"class": "TypeError",
+						"message": "a spawn program name must be a string",
+						"cause": "undefined"
+					}
+				},
+				{
+					"threw": {
+						"class": "TypeError",
+						"message": "a spawn program name must be a string",
+						"cause": "undefined"
+					}
+				},
+				{
+					"threw": {
+						"class": "TypeError",
+						"message": "a spawn program name must be a string",
+						"cause": "undefined"
+					}
+				}
+			],
+			"name_before_options": {
+				"threw": {
+					"class": "TypeError",
+					"message": "a spawn program name must be a string",
+					"cause": "undefined"
+				}
+			},
+			"options": [
+				{
+					"threw": {
+						"class": "TypeError",
+						"message": "spawn program options are an object",
+						"cause": "undefined"
+					}
+				},
+				{
+					"threw": {
+						"class": "TypeError",
+						"message": "spawn program options are an object",
+						"cause": "undefined"
+					}
+				},
+				{
+					"threw": {
+						"class": "TypeError",
+						"message": "spawn program options are an object",
+						"cause": "undefined"
+					}
+				},
+				{
+					"threw": {
+						"class": "TypeError",
+						"message": "spawn program options are an object",
+						"cause": "undefined"
+					}
+				},
+				{
+					"threw": {
+						"class": "TypeError",
+						"message": "spawn program options are an object",
+						"cause": "undefined"
+					}
+				},
+				{
+					"threw": {
+						"class": "TypeError",
+						"message": "`pass_env` is an array of names or 'all'",
+						"cause": "undefined"
+					}
+				},
+				{
+					"threw": {
+						"class": "TypeError",
+						"message": "`pass_env` is an array of names or 'all'",
+						"cause": "undefined"
+					}
+				},
+				{
+					"threw": {
+						"class": "TypeError",
+						"message": "a `pass_env` glob ends in its one `*`: A*B",
+						"cause": "undefined"
+					}
+				},
+				{
+					"threw": {
+						"class": "TypeError",
+						"message": "a `pass_env` glob ends in its one `*`: A**",
+						"cause": "undefined"
+					}
+				},
+				{
+					"threw": {
+						"class": "TypeError",
+						"message": "`pass_env` glob needs a prefix: use 'all'",
+						"cause": "undefined"
+					}
+				},
+				{
+					"threw": {
+						"class": "TypeError",
+						"message": "a `pass_env` entry is empty",
+						"cause": "undefined"
+					}
+				},
+				{
+					"threw": {
+						"class": "TypeError",
+						"message": "a `pass_env` entry holds a `=`",
+						"cause": "undefined"
+					}
+				},
+				{
+					"threw": {
+						"class": "TypeError",
+						"message": "a `pass_env` entry holds a NUL byte",
+						"cause": "undefined"
+					}
+				},
+				{
+					"threw": {
+						"class": "TypeError",
+						"message": "a `pass_env` entry must be a string",
+						"cause": "undefined"
+					}
+				},
+				{
+					"threw": {
+						"class": "TypeError",
+						"message": "a `pass_env` entry must be a string",
+						"cause": "undefined"
+					}
+				},
+				{
+					"threw": {
+						"class": "TypeError",
+						"message": "`omit_env` is only valid with `pass_env: 'all'`",
+						"cause": "undefined"
+					}
+				},
+				{
+					"threw": {
+						"class": "TypeError",
+						"message": "`omit_env` is only valid with `pass_env: 'all'`",
+						"cause": "undefined"
+					}
+				},
+				{
+					"threw": {
+						"class": "TypeError",
+						"message": "`omit_env` is an array of names",
+						"cause": "undefined"
+					}
+				},
+				{
+					"threw": {
+						"class": "TypeError",
+						"message": "an `omit_env` entry is an exact name, not a glob: A*",
+						"cause": "undefined"
+					}
+				},
+				{
+					"threw": {
+						"class": "TypeError",
+						"message": "an `omit_env` entry holds a `=`",
+						"cause": "undefined"
+					}
+				},
+				{
+					"threw": {
+						"class": "TypeError",
+						"message": "`env` is a record of names to values",
+						"cause": "undefined"
+					}
+				},
+				{
+					"threw": {
+						"class": "TypeError",
+						"message": "`env` is a record of names to values",
+						"cause": "undefined"
+					}
+				},
+				{
+					"threw": {
+						"class": "TypeError",
+						"message": "`env` is a record of names to values",
+						"cause": "undefined"
+					}
+				},
+				{
+					"threw": {
+						"class": "TypeError",
+						"message": "`env` is a record of names to values",
+						"cause": "undefined"
+					}
+				},
+				{
+					"threw": {
+						"class": "TypeError",
+						"message": "the `env` value of A must be a string",
+						"cause": "undefined"
+					}
+				},
+				{
+					"threw": {
+						"class": "TypeError",
+						"message": "an `env` name is empty",
+						"cause": "undefined"
+					}
+				},
+				{
+					"threw": {
+						"class": "TypeError",
+						"message": "an `env` name holds a `=`",
+						"cause": "undefined"
+					}
+				},
+				{
+					"threw": {
+						"class": "TypeError",
+						"message": "the `env` value of A holds a NUL byte",
+						"cause": "undefined"
+					}
+				},
+				{
+					"threw": {
+						"class": "TypeError",
+						"message": "the `env` value of A isn't well-formed Unicode",
+						"cause": "undefined"
+					}
+				},
+				{
+					"threw": {
+						"class": "TypeError",
+						"message": "`pass_env` is an array of names or 'all'",
+						"cause": "undefined"
+					}
+				},
+				{
+					"value": {
+						"name": "tool",
+						"path": "{project}/spawn/bin/tool"
+					}
+				},
+				{
+					"value": {
+						"name": "tool",
+						"path": "{project}/spawn/bin/tool"
+					}
+				},
+				{
+					"value": {
+						"name": "tool",
+						"path": "{project}/spawn/bin/tool"
+					}
+				}
+			],
+			"narrow": [
+				{
+					"threw": {
+						"class": "TypeError",
+						"message": "spawn.narrow takes an array of names",
+						"cause": "undefined"
+					}
+				},
+				{
+					"threw": {
+						"class": "TypeError",
+						"message": "spawn.narrow takes an array of names",
+						"cause": "undefined"
+					}
+				},
+				{
+					"threw": {
+						"class": "TypeError",
+						"message": "a spawn program name must be a string",
+						"cause": "undefined"
+					}
+				},
+				{
+					"threw": {
+						"class": "TypeError",
+						"message": "a spawn program name is empty",
+						"cause": "undefined"
+					}
+				},
+				{
+					"threw": {
+						"class": "TypeError",
+						"message": "a spawn program name holds a NUL byte",
+						"cause": "undefined"
+					}
+				},
+				{
+					"threw": {
+						"class": "TypeError",
+						"message": "spawn.narrow takes an array of names",
+						"cause": "undefined"
+					}
+				}
+			],
+			"program_in": [
+				{
+					"threw": {
+						"class": "TypeError",
+						"message": "expected an fs directory handle from this copy of Gro",
+						"cause": "undefined"
+					}
+				},
+				{
+					"threw": {
+						"class": "TypeError",
+						"message": "expected an fs directory handle from this copy of Gro",
+						"cause": "undefined"
+					}
+				},
+				{
+					"threw": {
+						"class": "TypeError",
+						"message": "expected an fs directory handle from this copy of Gro",
+						"cause": "undefined"
+					}
+				}
+			]
+		}
+	},
+	"spawn_narrow": {
+		"code": 0,
+		"output": {
+			"program": {
+				"tool": {
+					"program": {
+						"value": {
+							"name": "tool",
+							"path": "{project}/spawn/bin/tool"
+						}
+					},
+					"find": {
+						"value": {
+							"name": "tool",
+							"path": "{project}/spawn/bin/tool"
+						}
+					}
+				},
+				"./spawn/bin/tool": {
+					"program": {
+						"value": {
+							"name": "./spawn/bin/tool",
+							"path": "{project}/spawn/bin/tool"
+						}
+					},
+					"find": {
+						"value": {
+							"name": "./spawn/bin/tool",
+							"path": "{project}/spawn/bin/tool"
+						}
+					}
+				},
+				"elf": {
+					"program": {
+						"threw": {
+							"class": "SpawnError",
+							"message": "not_granted: elf",
+							"kind": "not_granted",
+							"program": "elf",
+							"cause": "elf isn't in this spawn's set"
+						}
+					},
+					"find": {
+						"threw": {
+							"class": "SpawnError",
+							"message": "not_granted: elf",
+							"kind": "not_granted",
+							"program": "elf",
+							"cause": "elf isn't in this spawn's set"
+						}
+					}
+				}
+			},
+			"narrow": [
+				{
+					"value": {
+						"path": "undefined"
+					}
+				},
+				{
+					"value": {
+						"path": "undefined"
+					}
+				},
+				{
+					"threw": {
+						"class": "SpawnError",
+						"message": "not_granted: elf",
+						"kind": "not_granted",
+						"program": "elf",
+						"cause": "elf isn't in this spawn's set, and narrow only shrinks"
+					}
+				},
+				{
+					"threw": {
+						"class": "SpawnError",
+						"message": "not_granted: elf",
+						"kind": "not_granted",
+						"program": "elf",
+						"cause": "elf isn't in this spawn's set, and narrow only shrinks"
+					}
+				}
+			],
+			"narrowed_twice": {
+				"value": {
+					"name": "tool",
+					"path": "{project}/spawn/bin/tool"
+				}
+			},
+			"emptied": {
+				"threw": {
+					"class": "SpawnError",
+					"message": "not_granted: tool",
+					"kind": "not_granted",
+					"program": "tool",
+					"cause": "tool isn't in this spawn's set"
+				}
+			},
+			"options": [
+				{
+					"threw": {
+						"class": "SpawnError",
+						"message": "not_granted: tool",
+						"kind": "not_granted",
+						"program": "tool",
+						"cause": "a narrowed spawn can't set env for tool: build the program at the root"
+					}
+				},
+				{
+					"threw": {
+						"class": "SpawnError",
+						"message": "not_granted: tool",
+						"kind": "not_granted",
+						"program": "tool",
+						"cause": "a narrowed spawn can't pass the whole environment to tool"
+					}
+				},
+				{
+					"threw": {
+						"class": "SpawnError",
+						"message": "not_granted: tool",
+						"kind": "not_granted",
+						"program": "tool",
+						"cause": "a narrowed spawn can't pass the glob GRO_P_* to tool: name each variable"
+					}
+				},
+				{
+					"value": {
+						"name": "tool",
+						"path": "{project}/spawn/bin/tool"
+					}
+				},
+				{
+					"threw": {
+						"class": "SpawnError",
+						"message": "not_granted: tool",
+						"kind": "not_granted",
+						"program": "tool",
+						"cause": "a narrowed spawn can't set env for tool: build the program at the root"
+					}
+				}
+			],
+			"program_in": {
+				"threw": {
+					"class": "TypeError",
+					"message": "expected an fs directory handle from this copy of Gro",
+					"cause": "undefined"
+				}
+			}
+		}
+	},
+	"spawn_receiver": {
+		"code": 0,
+		"output": {
+			"root": {
+				"plain": "TypeError",
+				"null": "TypeError",
+				"look-alike": "TypeError",
+				"proxy": "TypeError",
+				"program": "TypeError"
+			},
+			"narrow": "TypeError",
+			"program": {
+				"run": "TypeError",
+				"out": "TypeError",
+				"out_bytes": "TypeError",
+				"start": "TypeError"
+			}
+		}
+	},
+	"spawn_forward": {
+		"code": 0,
+		"output": {
+			"none": {
+				"value": {
+					"name": "tool",
+					"path": "{project}/spawn/bin/tool"
+				}
+			},
+			"named": {
+				"value": {
+					"name": "tool",
+					"path": "{project}/spawn/bin/tool"
+				}
+			},
+			"the base set": {
+				"value": {
+					"name": "tool",
+					"path": "{project}/spawn/bin/tool"
+				}
+			},
+			"covered by a glob": {
+				"value": {
+					"name": "tool",
+					"path": "{project}/spawn/bin/tool"
+				}
+			},
+			"a glob within a glob": {
+				"value": {
+					"name": "tool",
+					"path": "{project}/spawn/bin/tool"
+				}
+			},
+			"env": {
+				"value": {
+					"name": "tool",
+					"path": "{project}/spawn/bin/tool"
+				}
+			},
+			"ungranted": {
+				"value": {
+					"name": "tool",
+					"path": "{project}/spawn/bin/tool"
+				}
+			},
+			"ungranted glob": {
+				"value": {
+					"name": "tool",
+					"path": "{project}/spawn/bin/tool"
+				}
+			},
+			"all": {
+				"value": {
+					"name": "tool",
+					"path": "{project}/spawn/bin/tool"
+				}
+			}
+		}
+	},
+	"spawn_forward_granted": {
+		"code": 0,
+		"output": {
+			"none": {
+				"value": {
+					"name": "tool",
+					"path": "{project}/spawn/bin/tool"
+				}
+			},
+			"named": {
+				"value": {
+					"name": "tool",
+					"path": "{project}/spawn/bin/tool"
+				}
+			},
+			"the base set": {
+				"value": {
+					"name": "tool",
+					"path": "{project}/spawn/bin/tool"
+				}
+			},
+			"covered by a glob": {
+				"value": {
+					"name": "tool",
+					"path": "{project}/spawn/bin/tool"
+				}
+			},
+			"a glob within a glob": {
+				"value": {
+					"name": "tool",
+					"path": "{project}/spawn/bin/tool"
+				}
+			},
+			"env": {
+				"value": {
+					"name": "tool",
+					"path": "{project}/spawn/bin/tool"
+				}
+			},
+			"ungranted": {
+				"value": {
+					"name": "tool",
+					"path": "{project}/spawn/bin/tool"
+				}
+			},
+			"ungranted glob": {
+				"value": {
+					"name": "tool",
+					"path": "{project}/spawn/bin/tool"
+				}
+			},
+			"all": {
+				"value": {
+					"name": "tool",
+					"path": "{project}/spawn/bin/tool"
+				}
+			}
+		}
+	},
+	"spawn_not_granted": {
+		"code": 0,
+		"output": {
+			"program": {
+				"tool": {
+					"program": {
+						"value": {
+							"name": "tool",
+							"path": "{project}/spawn/bin/tool"
+						}
+					},
+					"find": {
+						"value": {
+							"name": "tool",
+							"path": "{project}/spawn/bin/tool"
+						}
+					}
+				},
+				"elf": {
+					"program": {
+						"value": {
+							"name": "elf",
+							"path": "{project}/spawn/bin/elf"
+						}
+					},
+					"find": {
+						"value": {
+							"name": "elf",
+							"path": "{project}/spawn/bin/elf"
+						}
+					}
+				},
+				"./spawn/bin/elf": {
+					"program": {
+						"value": {
+							"name": "./spawn/bin/elf",
+							"path": "{project}/spawn/bin/elf"
+						}
+					},
+					"find": {
+						"value": {
+							"name": "./spawn/bin/elf",
+							"path": "{project}/spawn/bin/elf"
+						}
+					}
+				},
+				"sh": {
+					"program": {
+						"value": {
+							"name": "sh",
+							"path": "string"
+						}
+					},
+					"find": {
+						"value": {
+							"name": "sh",
+							"path": "string"
+						}
+					}
+				}
+			},
+			"narrow": {
+				"value": {
+					"path": "undefined"
+				}
+			}
+		}
 	}
 }

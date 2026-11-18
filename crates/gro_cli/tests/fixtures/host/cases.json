@@ -961,5 +961,250 @@
 				"why": "an op reads its options as data, so a getter is a TypeError where the Node module runs it"
 			}
 		]
+	},
+	{
+		"name": "spawn_error",
+		"module": "spawn_error",
+		"args": [],
+		"differs": [
+			{
+				"at": "/namespace/own/default",
+				"fgro": {"type": "undefined", "writable": true, "enumerable": true, "configurable": false},
+				"why": "a builtin module's namespace has a default export of undefined, where a Node module has none"
+			},
+			{
+				"at": "/guard/frozen",
+				"fgro": true,
+				"why": "the guard is a native function the host makes, frozen, as each of a builtin's functions is, since every importer shares it"
+			},
+			{
+				"at": "/guard/own/length",
+				"fgro": {"type": "number", "writable": false, "enumerable": false, "configurable": false},
+				"why": "the guard is frozen, so its length isn't configurable"
+			},
+			{
+				"at": "/guard/own/name",
+				"fgro": {"type": "string", "writable": false, "enumerable": false, "configurable": false},
+				"why": "the guard is frozen, so its name isn't configurable"
+			},
+			{
+				"at": "/guards/proxy_of_an_error",
+				"fgro": false,
+				"why": "the guard is native and runs no code of a caller's, so it reads no proxy's prototype through its trap, and a proxy is no error of the family"
+			},
+			{
+				"at": "/guards/kind_by_getter",
+				"fgro": false,
+				"why": "the guard is native and runs no code of a caller's, so it reads only a data property's kind, and calls no getter"
+			},
+			{
+				"at": "/guards/named_through_a_proxy",
+				"fgro": false,
+				"why": "the guard is native and runs no code of a caller's, so it reads no name through a proxy on a constructor's chain, and a proxy there is no match"
+			},
+			{
+				"at": "/guards/named_by_a_proxy",
+				"fgro": false,
+				"why": "the guard is native and runs no code of a caller's, so it reads no name of a constructor that is a proxy, and a proxy there is no match"
+			},
+			{
+				"at": "/guards/constructor_by_getter",
+				"fgro": false,
+				"why": "the guard is native and runs no code of a caller's, so it reads only a data property's constructor, and calls no getter"
+			},
+			{
+				"at": "/guards/named_by_getter",
+				"fgro": false,
+				"why": "the guard is native and runs no code of a caller's, so it reads only a data property's name, and calls no getter"
+			},
+			{
+				"at": "/guards/ran",
+				"fgro": [],
+				"why": "the guard is native and runs no code of a caller's: no trap, and no getter"
+			}
+		]
+	},
+	{
+		"name": "spawn_shape",
+		"module": "spawn",
+		"args": ["shape", "{cwd}"],
+		"flags": ["-A"],
+		"env": {"PATH": "{cwd}/spawn/nm/node_modules/.bin:spawn/rel::{cwd}/spawn/dir:{cwd}/spawn/bin/:/usr/bin:/bin", "GRO_A": "a", "GRO_B": "b", "GRO_P_X": "x", "GRO_SECRET": "s"},
+		"differs": [
+			{
+				"at": "/namespace/own/default",
+				"fgro": {"type": "undefined", "writable": true, "enumerable": true, "configurable": false},
+				"why": "a builtin module's namespace has a default export of undefined, where a Node module has none"
+			},
+			{
+				"at": "/prototype/own",
+				"fgro": {
+					"program": {"type": "function", "writable": false, "enumerable": true, "configurable": false},
+					"find": {"type": "function", "writable": false, "enumerable": true, "configurable": false},
+					"program_in": {"type": "function", "writable": false, "enumerable": true, "configurable": false},
+					"find_in": {"type": "function", "writable": false, "enumerable": true, "configurable": false},
+					"narrow": {"type": "function", "writable": false, "enumerable": true, "configurable": false}
+				},
+				"why": "a handle's prototype is the host's null-prototype record of its methods, enumerable as an object literal makes them, with no constructor, so nothing reached from a handle makes another"
+			},
+			{
+				"at": "/program_prototype/own",
+				"fgro": {
+					"run": {"type": "function", "writable": false, "enumerable": true, "configurable": false},
+					"out": {"type": "function", "writable": false, "enumerable": true, "configurable": false},
+					"out_bytes": {"type": "function", "writable": false, "enumerable": true, "configurable": false},
+					"start": {"type": "function", "writable": false, "enumerable": true, "configurable": false}
+				},
+				"why": "a handle's prototype is the host's null-prototype record of its methods, enumerable as an object literal makes them, with no constructor, so nothing reached from a handle makes another"
+			}
+		]
+	},
+	{
+		"name": "spawn_names",
+		"module": "spawn",
+		"args": ["names", "{cwd}"],
+		"flags": ["-A"],
+		"env": {"PATH": "{cwd}/spawn/nm/node_modules/.bin:spawn/rel::{cwd}/spawn/dir:{cwd}/spawn/bin/:/usr/bin:/bin", "GRO_A": "a", "GRO_B": "b", "GRO_P_X": "x", "GRO_SECRET": "s"},
+		"differs": []
+	},
+	{
+		"name": "spawn_names_granted",
+		"module": "spawn",
+		"args": ["names", "{cwd}"],
+		"flags": ["--allow-run=tool,elf,relonly,shadowed,noexec_only,missing,run.cmd,./spawn/bin/tool,spawn/bin/link,./spawn/bin/elf,./spawn/bin/bare,./spawn/bin/noexec,./spawn/bin/text,./spawn/bin/run.cmd,./spawn/bin/RUN.CMD. ,./spawn/bin/missing,./spawn/bin/,./spawn/bin/tool/,./spawn/bin/tool/.,spawn/../spawn/bin/tool,sh"],
+		"env": {"PATH": "{cwd}/spawn/nm/node_modules/.bin:spawn/rel::{cwd}/spawn/dir:{cwd}/spawn/bin/:/usr/bin:/bin", "GRO_A": "a", "GRO_B": "b", "GRO_P_X": "x", "GRO_SECRET": "s"},
+		"differs": []
+	},
+	{
+		"name": "spawn_outside",
+		"module": "spawn",
+		"refused": ["error: spawn refused: not_granted: /bin/sh", "error: spawn refused: not_granted: ../spawn/bin/tool", "error: spawn refused: not_granted: spawn/../../x", "error: a refusal fails the run, whether or not the program caught it"],
+		"args": ["outside", "{cwd}"],
+		"flags": ["-A"],
+		"env": {"PATH": "{cwd}/spawn/nm/node_modules/.bin:spawn/rel::{cwd}/spawn/dir:{cwd}/spawn/bin/:/usr/bin:/bin", "GRO_A": "a", "GRO_B": "b", "GRO_P_X": "x", "GRO_SECRET": "s"},
+		"differs": []
+	},
+	{
+		"name": "spawn_invalid",
+		"module": "spawn",
+		"args": ["invalid", "{cwd}"],
+		"flags": ["-A"],
+		"env": {"PATH": "{cwd}/spawn/nm/node_modules/.bin:spawn/rel::{cwd}/spawn/dir:{cwd}/spawn/bin/:/usr/bin:/bin", "GRO_A": "a", "GRO_B": "b", "GRO_P_X": "x", "GRO_SECRET": "s"},
+		"differs": []
+	},
+	{
+		"name": "spawn_narrow",
+		"module": "spawn",
+		"refused": ["error: spawn refused: not_granted: elf", "error: spawn refused: not_granted: tool", "error: a refusal fails the run, whether or not the program caught it"],
+		"args": ["narrow", "{cwd}"],
+		"flags": ["-A"],
+		"env": {"PATH": "{cwd}/spawn/nm/node_modules/.bin:spawn/rel::{cwd}/spawn/dir:{cwd}/spawn/bin/:/usr/bin:/bin", "GRO_A": "a", "GRO_B": "b", "GRO_P_X": "x", "GRO_SECRET": "s"},
+		"differs": []
+	},
+	{
+		"name": "spawn_receiver",
+		"module": "spawn",
+		"args": ["receiver", "{cwd}"],
+		"flags": ["-A"],
+		"env": {"PATH": "{cwd}/spawn/nm/node_modules/.bin:spawn/rel::{cwd}/spawn/dir:{cwd}/spawn/bin/:/usr/bin:/bin", "GRO_A": "a", "GRO_B": "b", "GRO_P_X": "x", "GRO_SECRET": "s"},
+		"differs": []
+	},
+	{
+		"name": "spawn_forward",
+		"module": "spawn",
+		"args": ["forward", "{cwd}"],
+		"flags": ["-A"],
+		"env": {"PATH": "{cwd}/spawn/nm/node_modules/.bin:spawn/rel::{cwd}/spawn/dir:{cwd}/spawn/bin/:/usr/bin:/bin", "GRO_A": "a", "GRO_B": "b", "GRO_P_X": "x", "GRO_SECRET": "s"},
+		"differs": []
+	},
+	{
+		"name": "spawn_forward_granted",
+		"module": "spawn",
+		"refused": ["error: spawn refused: not_granted: tool", "error: a refusal fails the run, whether or not the program caught it", "hint: add --allow-run-env=GRO_B to grant some of what spawn refused"],
+		"args": ["forward", "{cwd}"],
+		"flags": ["--allow-run=tool", "--allow-run-env=GRO_A,GRO_P_*"],
+		"env": {"PATH": "{cwd}/spawn/nm/node_modules/.bin:spawn/rel::{cwd}/spawn/dir:{cwd}/spawn/bin/:/usr/bin:/bin", "GRO_A": "a", "GRO_B": "b", "GRO_P_X": "x", "GRO_SECRET": "s"},
+		"differs": [
+			{
+				"at": "/ungranted",
+				"fgro": {
+					"threw": {"class": "SpawnError", "message": "not_granted: tool", "kind": "not_granted", "program": "tool", "cause": "tool isn't granted GRO_B to be passed: --allow-run-env names what a program may be passed"}
+				},
+				"why": "fgro's root passes a granted program only the variables --allow-run-env forwards to it, a glob only within one it grants, and the whole environment only under -A, where Node's passes any"
+			},
+			{
+				"at": "/ungranted glob",
+				"fgro": {
+					"threw": {"class": "SpawnError", "message": "not_granted: tool", "kind": "not_granted", "program": "tool", "cause": "tool isn't granted GRO_* to be passed: --allow-run-env names what a program may be passed"}
+				},
+				"why": "fgro's root passes a granted program only the variables --allow-run-env forwards to it, a glob only within one it grants, and the whole environment only under -A, where Node's passes any"
+			},
+			{
+				"at": "/all",
+				"fgro": {
+					"threw": {"class": "SpawnError", "message": "not_granted: tool", "kind": "not_granted", "program": "tool", "cause": "tool can't be passed the whole environment: only a run granted everything passes it"}
+				},
+				"why": "fgro's root passes a granted program only the variables --allow-run-env forwards to it, a glob only within one it grants, and the whole environment only under -A, where Node's passes any"
+			}
+		]
+	},
+	{
+		"name": "spawn_not_granted",
+		"module": "spawn",
+		"refused": ["error: spawn refused: not_granted: elf", "error: spawn refused: not_granted: ./spawn/bin/elf", "error: spawn refused: not_granted: sh", "error: a refusal fails the run, whether or not the program caught it", "hint: add --allow-run=elf,sh to grant some of what spawn refused"],
+		"args": ["not_granted", "{cwd}"],
+		"flags": ["--allow-run=tool"],
+		"env": {"PATH": "{cwd}/spawn/nm/node_modules/.bin:spawn/rel::{cwd}/spawn/dir:{cwd}/spawn/bin/:/usr/bin:/bin", "GRO_A": "a", "GRO_B": "b", "GRO_P_X": "x", "GRO_SECRET": "s"},
+		"differs": [
+			{
+				"at": "/program/elf/program",
+				"fgro": {
+					"threw": {"class": "SpawnError", "message": "not_granted: elf", "kind": "not_granted", "program": "elf", "cause": "elf isn't a program the run grants"}
+				},
+				"why": "fgro's root makes only the programs --allow-run grants, where Node's makes any"
+			},
+			{
+				"at": "/program/elf/find",
+				"fgro": {
+					"threw": {"class": "SpawnError", "message": "not_granted: elf", "kind": "not_granted", "program": "elf", "cause": "elf isn't a program the run grants"}
+				},
+				"why": "fgro's root makes only the programs --allow-run grants, where Node's makes any"
+			},
+			{
+				"at": "/program/.~1spawn~1bin~1elf/program",
+				"fgro": {
+					"threw": {"class": "SpawnError", "message": "not_granted: ./spawn/bin/elf", "kind": "not_granted", "program": "./spawn/bin/elf", "cause": "./spawn/bin/elf isn't a program the run grants"}
+				},
+				"why": "fgro's root makes only the programs --allow-run grants, where Node's makes any"
+			},
+			{
+				"at": "/program/.~1spawn~1bin~1elf/find",
+				"fgro": {
+					"threw": {"class": "SpawnError", "message": "not_granted: ./spawn/bin/elf", "kind": "not_granted", "program": "./spawn/bin/elf", "cause": "./spawn/bin/elf isn't a program the run grants"}
+				},
+				"why": "fgro's root makes only the programs --allow-run grants, where Node's makes any"
+			},
+			{
+				"at": "/program/sh/program",
+				"fgro": {
+					"threw": {"class": "SpawnError", "message": "not_granted: sh", "kind": "not_granted", "program": "sh", "cause": "sh isn't a program the run grants"}
+				},
+				"why": "fgro's root makes only the programs --allow-run grants, where Node's makes any"
+			},
+			{
+				"at": "/program/sh/find",
+				"fgro": {
+					"threw": {"class": "SpawnError", "message": "not_granted: sh", "kind": "not_granted", "program": "sh", "cause": "sh isn't a program the run grants"}
+				},
+				"why": "fgro's root makes only the programs --allow-run grants, where Node's makes any"
+			},
+			{
+				"at": "/narrow",
+				"fgro": {
+					"threw": {"class": "SpawnError", "message": "not_granted: elf", "kind": "not_granted", "program": "elf", "cause": "elf isn't a program the run grants"}
+				},
+				"why": "fgro's root narrows only to the programs --allow-run grants, where Node's narrows to any"
+			}
+		]
 	}
 ]

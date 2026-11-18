@@ -32,6 +32,8 @@
 //!   `SIGTERM` ends it, since a child in a group of its own doesn't get the
 //!   terminal's signals.
 //! - [`exit_now`] ends the process by `_exit`, running none of its teardown.
+//! - [`may_execute`] asks whether the process may execute a file, by
+//!   `access`, as `execve` would judge it.
 //! - [`beneath`] makes the filesystem calls confined beneath a directory
 //!   descriptor, each path resolved by one `openat2` with `RESOLVE_BENEATH`:
 //!   opening, `stat`, listing a directory, and making, removing, and
@@ -53,6 +55,36 @@ use std::ffi::OsString;
 use std::io;
 
 pub mod beneath;
+
+/// Whether the process may execute the file at `path`, by `access(2)`.
+///
+/// It asks with `X_OK`, judged by the process's real user and group, as
+/// Node's `accessSync(path, X_OK)` judges it, symlinks followed. A file it
+/// may run has an execute bit for it, or, for root, any execute bit at all.
+///
+/// # Errors
+///
+/// Returns the call's error but for `EACCES`, which is `false`: `ENOENT`
+/// for nothing at the path, `ENOTDIR`, `ELOOP`, and the like, and
+/// `EINVAL` for a path holding a NUL byte.
+#[expect(unsafe_code, reason = "`access` takes a raw C string")]
+pub fn may_execute(path: &std::path::Path) -> io::Result<bool> {
+    use std::os::unix::ffi::OsStrExt as _;
+    let path = std::ffi::CString::new(path.as_os_str().as_bytes())
+        .map_err(|_| io::Error::from_raw_os_error(libc::EINVAL))?;
+    // SAFETY: `path` is a NUL-terminated string that outlives the call,
+    // which only reads it.
+    let result = unsafe { libc::access(path.as_ptr(), libc::X_OK) };
+    if result == 0 {
+        return Ok(true);
+    }
+    let error = io::Error::last_os_error();
+    if error.raw_os_error() == Some(libc::EACCES) {
+        Ok(false)
+    } else {
+        Err(error)
+    }
+}
 
 /// The lowest descriptor [`close_inherited_fds`] closes, the one above
 /// stderr.

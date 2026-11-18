@@ -59,9 +59,25 @@ pub struct HandleKind {
     /// The kind it extends, whose prototype its prototype's is and whose
     /// brand its handles hold too, if any.
     pub parent: Option<&'static Self>,
-    /// The names of the own data each of its handles holds, beside its
-    /// parent's.
-    pub fields: &'static [&'static str],
+    /// The own data each of its handles holds, beside its parent's.
+    pub fields: &'static [Field],
+}
+
+/// A field of a kind of handle: own data each of its handles holds.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Field {
+    /// Its name.
+    pub name: &'static str,
+    /// The kind of handle its value is, where it's one (or `null`), as
+    /// the Node interface types it; `None` for any other data.
+    pub handle: Option<&'static HandleKind>,
+}
+
+impl Field {
+    /// A field of data that is no handle.
+    pub const fn data(name: &'static str) -> Self {
+        Self { name, handle: None }
+    }
 }
 
 /// The env host module's handles, its `Env`.
@@ -91,7 +107,7 @@ pub const FS_ROOT: HandleKind = HandleKind {
 pub const FS_READ_DIR: HandleKind = HandleKind {
     brand: "@fuzdev/gro/fs.ts#FsReadDir",
     parent: None,
-    fields: &["path"],
+    fields: &[Field::data("path")],
 };
 
 /// The fs host module's directories, its `FsDir`, extending `FsReadDir`.
@@ -119,6 +135,48 @@ pub const FS_LISTING: HandleKind = HandleKind {
     fields: &[],
 };
 
+/// The spawn host module's roots, its `Spawn`: the run's, made from its
+/// grant, and each narrowed from one.
+pub const SPAWN: HandleKind = HandleKind {
+    brand: "@fuzdev/gro/spawn.ts#Spawn",
+    parent: None,
+    fields: &[],
+};
+
+/// The spawn host module's programs, its `SpawnProgram`, each holding the
+/// name it was asked for as its `name` and its pin's real path as its
+/// `path`.
+pub const SPAWN_PROGRAM: HandleKind = HandleKind {
+    brand: "@fuzdev/gro/spawn.ts#SpawnProgram",
+    parent: None,
+    fields: &[Field::data("name"), Field::data("path")],
+};
+
+/// The spawn host module's started children, its `SpawnChild`, each
+/// holding its `pid`, its `closed` promise, its output streams, and its
+/// `stdin`.
+pub const SPAWN_CHILD: HandleKind = HandleKind {
+    brand: "@fuzdev/gro/spawn.ts#SpawnChild",
+    parent: None,
+    fields: &[
+        Field::data("pid"),
+        Field::data("closed"),
+        Field::data("stdout"),
+        Field::data("stderr"),
+        Field {
+            name: "stdin",
+            handle: Some(&SPAWN_STDIN),
+        },
+    ],
+};
+
+/// The spawn host module's children's stdin, its `SpawnStdin`.
+pub const SPAWN_STDIN: HandleKind = HandleKind {
+    brand: "@fuzdev/gro/spawn.ts#SpawnStdin",
+    parent: None,
+    fields: &[],
+};
+
 impl HandleKind {
     /// The kind and each it extends, the nearest first.
     pub fn lineage(&'static self) -> impl Iterator<Item = &'static Self> {
@@ -132,7 +190,7 @@ impl HandleKind {
         lineage.reverse();
         lineage
             .into_iter()
-            .flat_map(|kind| kind.fields.iter().copied())
+            .flat_map(|kind| kind.fields.iter().map(|field| field.name))
             .collect()
     }
 }

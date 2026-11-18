@@ -99,6 +99,18 @@ fn the_table_is_pinned() {
                 Some(Capability::Fs),
                 &["fs"][..],
             ),
+            (
+                "@fuzdev/gro/spawn_error.ts",
+                "builtin:@fuzdev/gro/spawn_error.ts",
+                None,
+                &["SpawnError", "is_spawn_error"][..],
+            ),
+            (
+                "@fuzdev/gro/spawn.ts",
+                "builtin:@fuzdev/gro/spawn.ts",
+                Some(Capability::Spawn),
+                &["spawn"][..],
+            ),
         ]
     );
 }
@@ -287,16 +299,15 @@ fn the_reserved_specifiers_are_pinned() {
             "@fuzdev/gro/fs.js",
             Some(Reserved::JsSpelling(&BUILTINS[9])),
         ),
-        ("@fuzdev/gro/spawn.ts", unbuilt("@fuzdev/gro/spawn")),
-        ("@fuzdev/gro/spawn.js", unbuilt("@fuzdev/gro/spawn")),
-        (
-            "@fuzdev/gro/spawn_error.ts",
-            unbuilt("@fuzdev/gro/spawn_error"),
-        ),
         (
             "@fuzdev/gro/spawn_error.js",
-            unbuilt("@fuzdev/gro/spawn_error"),
+            Some(Reserved::JsSpelling(&BUILTINS[10])),
         ),
+        (
+            "@fuzdev/gro/spawn.js",
+            Some(Reserved::JsSpelling(&BUILTINS[11])),
+        ),
+        ("@fuzdev/gro/spawn.ts", None),
         ("@fuzdev/gro/net.ts", unbuilt("@fuzdev/gro/net")),
         ("@fuzdev/gro/net.js", unbuilt("@fuzdev/gro/net")),
         ("@fuzdev/gro/net_error.ts", unbuilt("@fuzdev/gro/net_error")),

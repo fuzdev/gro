@@ -27,6 +27,9 @@ const env_error = namespace_of('@fuzdev/gro/env_error.ts');
 /** The fs error row's namespace, the same for its errors. */
 const fs_error = namespace_of('@fuzdev/gro/fs_error.ts');
 
+/** The spawn error row's namespace, the same for its errors. */
+const spawn_error = namespace_of('@fuzdev/gro/spawn_error.ts');
+
 /** The project's path, which the run reads and writes beneath. */
 const project = namespace_of('@fuzdev/gro/fs.ts').fs.project.path;
 
@@ -188,7 +191,51 @@ const EXERCISES = new Map([
 			['made.txt', 'copied.txt'],
 			['.', 'tree', { recursive: true }]
 		]
-	]
+	],
+	// a kind and a program, and with them the options of its cause
+	[
+		'@fuzdev/gro/spawn_error.ts SpawnError',
+		[
+			['not_found', 'git'],
+			['not_found', 'git', { __proto__: null, cause: 1 }]
+		]
+	],
+	// an error of the class, of its kind and of another, and one that isn't
+	[
+		'@fuzdev/gro/spawn_error.ts is_spawn_error',
+		[
+			[new spawn_error.SpawnError('not_found', 'git'), 'not_found'],
+			[new spawn_error.SpawnError('not_found', 'git'), 'other'],
+			[{ __proto__: null }]
+		]
+	],
+	// the program the run grants, with options, so a hostile one in their place is read; its
+	// handle's methods, which launch nothing on fgro yet, given no arguments to pass it
+	[
+		'@fuzdev/gro/spawn.ts spawn.program',
+		[['tool', { __proto__: null, pass_env: [], env: { __proto__: null, A: 'a' } }]]
+	],
+	['@fuzdev/gro/spawn.ts spawn.find', [['tool', { __proto__: null, pass_env: [] }]]],
+	// with a hostile array in its place, `narrow` is given the one name `hostile`, which the run
+	// grants and each root here holds, as for `env`
+	['@fuzdev/gro/spawn.ts spawn.narrow', [[['tool', 'hostile']]]],
+	['@fuzdev/gro/spawn.ts spawn.program(arguments 1).run', [[[]]]],
+	['@fuzdev/gro/spawn.ts spawn.program(arguments 1).out', [[[]]]],
+	['@fuzdev/gro/spawn.ts spawn.program(arguments 1).out_bytes', [[[]]]],
+	['@fuzdev/gro/spawn.ts spawn.program(arguments 1).start', [[[]]]],
+	['@fuzdev/gro/spawn.ts spawn.find(arguments 1).run', [[[]]]],
+	['@fuzdev/gro/spawn.ts spawn.find(arguments 1).out', [[[]]]],
+	['@fuzdev/gro/spawn.ts spawn.find(arguments 1).out_bytes', [[[]]]],
+	['@fuzdev/gro/spawn.ts spawn.find(arguments 1).start', [[[]]]],
+	['@fuzdev/gro/spawn.ts spawn.narrow(arguments 1).program', [['tool']]],
+	['@fuzdev/gro/spawn.ts spawn.narrow(arguments 1).find', [['tool']]],
+	['@fuzdev/gro/spawn.ts spawn.narrow(arguments 1).narrow', [[['tool']]]],
+	// a directory and an empty name, refused before the exec roots it would need, which would
+	// fail the run
+	['@fuzdev/gro/spawn.ts spawn.program_in', [[written, '']]],
+	['@fuzdev/gro/spawn.ts spawn.find_in', [[written, '']]],
+	['@fuzdev/gro/spawn.ts spawn.narrow(arguments 1).program_in', [[written, '']]],
+	['@fuzdev/gro/spawn.ts spawn.narrow(arguments 1).find_in', [[written, '']]]
 ]);
 
 /** How far into an export's properties and its calls' results the functions are looked for. */

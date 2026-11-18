@@ -46,19 +46,23 @@ pub mod handle;
 )]
 pub mod later;
 pub mod native;
+pub mod spawn;
 
 use deno_core::error::ModuleLoaderError as JsErrorBox;
 use deno_core::{OpDecl, OpState, op2, v8};
 
-use error_class::{ENV_ERROR, FS_ERROR};
+use error_class::{ENV_ERROR, FS_ERROR, SPAWN_ERROR};
 use exit::{ExitState, NOT_A_CODE, to_exit_code};
 use grant::require_authority;
-use handle::{BLAKE3_HASHER, ENV_HANDLE, FS_DIR, FS_LISTING, FS_READ_DIR, FS_ROOT, FS_TEMP_DIR};
+use handle::{
+    BLAKE3_HASHER, ENV_HANDLE, FS_DIR, FS_LISTING, FS_READ_DIR, FS_ROOT, FS_TEMP_DIR, SPAWN,
+    SPAWN_CHILD, SPAWN_PROGRAM, SPAWN_STDIN,
+};
 use native::native_members;
 use native::{ASYNC_DISPOSE, ASYNC_ITERATOR};
 
 use crate::loader::RefusalLog;
-use crate::{ArgsGrant, EnvGrant, EnvVars, ExitGrant, FsGrant};
+use crate::{ArgsGrant, EnvGrant, EnvVars, ExitGrant, FsGrant, SpawnGrant};
 
 /// What `exit`'s functions throw in a runtime started without the exit
 /// host module's state, which only a runtime made outside a run's start is: a
@@ -97,6 +101,9 @@ pub struct HostData {
     /// whose `fs` grant makes temporary directories
     /// ([`RuntimeOptions::temp_dir`](crate::RuntimeOptions::temp_dir)).
     pub temp_dir: Option<std::path::PathBuf>,
+    /// The run's spawn state, made as it starts, for a run that grants
+    /// `spawn` ([`spawn::SpawnRun`]).
+    pub spawn: Option<std::rc::Rc<spawn::SpawnRun>>,
 }
 
 /// Declares host ops, each an `#[op2]` whose first step is
@@ -624,5 +631,117 @@ native_members! {
         on FS_DIR(handle) throws FS_ERROR(errors)
     {
         fs::writes::symlink(state, scope, handle, path, target, errors)
+    }
+    /// `SpawnError`, the spawn host module's error class, the host's
+    /// ([`error_class::exported_class`]), extending the realm's `Error` the
+    /// namespace op held.
+    value SpawnError(state; scope) for "@fuzdev/gro/spawn_error.ts" class SPAWN_ERROR(family) {
+        error_class::exported_class(state, scope, family)
+    }
+
+    /// `is_spawn_error(error, kind?)`, whether `error` is a `SpawnError`,
+    /// of `kind` when it's given ([`error_class::guard`]).
+    fn is_spawn_error(state; scope, error, kind) for "@fuzdev/gro/spawn_error.ts" {
+        error_class::guard(scope, &SPAWN_ERROR, error, kind)
+    }
+
+    /// `spawn`, the run's root, made of the roots' prototype ([`spawn::root`]).
+    value spawn(state, _granted: SpawnGrant; scope) for "@fuzdev/gro/spawn.ts"
+        handle SPAWN(prototype)
+    {
+        spawn::root(scope, prototype).map(Into::into)
+    }
+
+    /// `spawn.program(name, options?)`, called on `handle` ([`spawn::program`]).
+    fn program(state, _granted: SpawnGrant; scope, name, options) for "@fuzdev/gro/spawn.ts"
+        on SPAWN(handle) throws SPAWN_ERROR(errors)
+    {
+        spawn::program(state, scope, handle, name, options, spawn::Missing::Throws, errors)
+    }
+
+    /// `spawn.find(name, options?)`, called on `handle` ([`spawn::program`]).
+    fn find(state, _granted: SpawnGrant; scope, name, options) for "@fuzdev/gro/spawn.ts"
+        on SPAWN(handle) throws SPAWN_ERROR(errors)
+    {
+        spawn::program(state, scope, handle, name, options, spawn::Missing::Null, errors)
+    }
+
+    /// `spawn.program_in(dir, name, options?)`, called on `handle`
+    /// ([`spawn::program_in`]).
+    fn program_in(state, _granted: SpawnGrant; scope, dir, name, options)
+        for "@fuzdev/gro/spawn.ts" on SPAWN(handle) throws SPAWN_ERROR(errors)
+    {
+        spawn::program_in(state, scope, "program_in", handle, dir, name, options, errors)
+    }
+
+    /// `spawn.find_in(dir, name, options?)`, called on `handle`
+    /// ([`spawn::program_in`]).
+    fn find_in(state, _granted: SpawnGrant; scope, dir, name, options) for "@fuzdev/gro/spawn.ts"
+        on SPAWN(handle) throws SPAWN_ERROR(errors)
+    {
+        spawn::program_in(state, scope, "find_in", handle, dir, name, options, errors)
+    }
+
+    /// `spawn.narrow(names)`, called on `handle` ([`spawn::narrow`]).
+    fn narrow(state, _granted: SpawnGrant; scope, names) for "@fuzdev/gro/spawn.ts"
+        on SPAWN(handle) throws SPAWN_ERROR(errors)
+    {
+        spawn::narrow(state, scope, handle, names, errors)
+    }
+
+    /// `program.run(args, options?)`, not built ([`spawn::unbuilt`]).
+    async run(state, _granted: SpawnGrant; scope, _args, _options) for "@fuzdev/gro/spawn.ts"
+        on SPAWN_PROGRAM(handle)
+    {
+        spawn::unbuilt(state, scope, "run", &SPAWN_PROGRAM, handle)
+    }
+
+    /// `program.out(args, options?)`, not built ([`spawn::unbuilt`]).
+    async out(state, _granted: SpawnGrant; scope, _args, _options) for "@fuzdev/gro/spawn.ts"
+        on SPAWN_PROGRAM(handle)
+    {
+        spawn::unbuilt(state, scope, "out", &SPAWN_PROGRAM, handle)
+    }
+
+    /// `program.out_bytes(args, options?)`, not built ([`spawn::unbuilt`]).
+    async out_bytes(state, _granted: SpawnGrant; scope, _args, _options)
+        for "@fuzdev/gro/spawn.ts" on SPAWN_PROGRAM(handle)
+    {
+        spawn::unbuilt(state, scope, "out_bytes", &SPAWN_PROGRAM, handle)
+    }
+
+    /// `program.start(args, options?)`, not built ([`spawn::unbuilt`]).
+    async start(state, _granted: SpawnGrant; scope, _args, _options) for "@fuzdev/gro/spawn.ts"
+        on SPAWN_PROGRAM(handle)
+    {
+        spawn::unbuilt(state, scope, "start", &SPAWN_PROGRAM, handle)
+    }
+
+    /// `child.kill(signal?)`, not built ([`spawn::unbuilt`]).
+    fn kill(state, _granted: SpawnGrant; scope, [_signal]) for "@fuzdev/gro/spawn.ts"
+        on SPAWN_CHILD(handle)
+    {
+        spawn::unbuilt(state, scope, "kill", &SPAWN_CHILD, handle)
+    }
+
+    /// A child's `[Symbol.asyncDispose]()`, not built ([`spawn::unbuilt`]).
+    async [ASYNC_DISPOSE](state, _granted: SpawnGrant; scope) for "@fuzdev/gro/spawn.ts"
+        on SPAWN_CHILD(handle)
+    {
+        spawn::unbuilt(state, scope, "[Symbol.asyncDispose]", &SPAWN_CHILD, handle)
+    }
+
+    /// `stdin.write(data)`, not built ([`spawn::unbuilt`]).
+    async write(state, _granted: SpawnGrant; scope, _data) for "@fuzdev/gro/spawn.ts"
+        on SPAWN_STDIN(handle)
+    {
+        spawn::unbuilt(state, scope, "write", &SPAWN_STDIN, handle)
+    }
+
+    /// `stdin.close()`, not built ([`spawn::unbuilt`]).
+    async close(state, _granted: SpawnGrant; scope) for "@fuzdev/gro/spawn.ts"
+        on SPAWN_STDIN(handle)
+    {
+        spawn::unbuilt(state, scope, "close", &SPAWN_STDIN, handle)
     }
 }

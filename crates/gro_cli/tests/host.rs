@@ -74,8 +74,9 @@ fn read_json(file: &str) -> Value {
 
 /// A case of the table: its name, its host module, the arguments it's run
 /// with, `fgro run`'s flags before the entry, the environment it's run in,
-/// which holds nothing else, the unix sockets that listen while it runs, by
-/// path relative to the fixtures, which git can't hold, the directory it
+/// which holds nothing else, a `{cwd}` in a value the fixtures' directory,
+/// the unix sockets that listen while it runs, by path relative to the
+/// fixtures, which git can't hold, the directory it
 /// writes in, the values that differ by design on `fgro`, and the lines
 /// `fgro` prints for what its rules refused, which fail the run there,
 /// where Node has no such rule.
@@ -129,6 +130,10 @@ struct Difference {
     /// Why it differs.
     why: String,
 }
+
+/// What a case's argument, or a part of an environment variable's value,
+/// is when it names the fixtures' directory.
+const CWD: &str = "{cwd}";
 
 /// The table's cases.
 fn cases() -> Vec<Case> {
@@ -294,16 +299,21 @@ fn each_case_matches_the_node_implementation_but_for_its_named_differences() {
         args.extend(case.flags.iter().map(String::as_str));
         args.extend(["on_fgro.js", case.module.as_str()]);
         args.extend(case.args.iter().map(|arg| {
-            if arg == "{cwd}" {
+            if arg == CWD {
                 started_in.to_str().unwrap()
             } else {
                 arg.as_str()
             }
         }));
         let mut command = fgro_command(&args);
+        let cwd = started_in.to_str().unwrap();
         command
             .env_clear()
-            .envs(case.env.iter().map(|(name, value)| (name, value)))
+            .envs(
+                case.env
+                    .iter()
+                    .map(|(name, value)| (name, value.replace(CWD, cwd))),
+            )
             .current_dir(&started_in);
         let sockets = Sockets::listen(&started_in, &case.sockets);
         if let Some(scratch) = &case.scratch {
@@ -415,9 +425,13 @@ const ERROR_CLASS_USES: &[&str] = &[
 ];
 
 /// [`ERROR_CLASS_USES`], by each error family's class.
-const ARGUMENT_USES: [(&str, &[&str]); 2] = [
+const ARGUMENT_USES: [(&str, &[&str]); 3] = [
     ("new @fuzdev/gro/env_error.ts EnvError", ERROR_CLASS_USES),
     ("new @fuzdev/gro/fs_error.ts FsError", ERROR_CLASS_USES),
+    (
+        "new @fuzdev/gro/spawn_error.ts SpawnError",
+        ERROR_CLASS_USES,
+    ),
 ];
 
 /// Asserts that each of `touches`, as the patched realm reports a use of a
@@ -542,7 +556,8 @@ const PATCHED_FILES: [&str; 7] = [
 ];
 
 /// A project of the patched realm's fixtures, with `w`, a directory a run
-/// writes ([`GRANT_WRITE`]), and the modules the test writes: from the
+/// writes ([`GRANT_WRITE`]), `bin/tool`, a program it makes
+/// ([`GRANT_RUN`]), and the modules the test writes: from the
 /// builtin table, `modules.js`, importing every row's namespace with its
 /// exports, each marked when its value is the process's own, and
 /// `names.js`, the names to trap; and `skips.js`, the calls to skip, none
@@ -582,6 +597,7 @@ fn patched_project(name: &str) -> Scratch {
     let mut files = vec![
         ("package.json", "{\"type\": \"module\"}\n"),
         ("w/.keep", ""),
+        ("bin/tool", "#!/bin/sh\nexit 0\n"),
         ("modules.js", modules.as_str()),
         ("names.js", names.as_str()),
         ("skips.js", skips.as_str()),
@@ -591,7 +607,9 @@ fn patched_project(name: &str) -> Scratch {
             .into_iter()
             .zip(sources.iter().map(String::as_str)),
     );
-    Scratch::new(name, &files)
+    let project = Scratch::new(name, &files);
+    project.set_mode("bin/tool", 0o755);
+    project
 }
 
 /// The module naming the calls a run skips, `ended`: the ones an earlier
@@ -737,21 +755,40 @@ fn unrandom_temp_names(line: &str) -> String {
     shown
 }
 
+/// The grant to make the program `tool`, a `#!` script in the `bin` of
+/// the project [`patched_project`] makes, which [`run_entry`]'s `PATH`
+/// names, so the spawn root makes a handle of it and its methods get past
+/// their grant, and one named `hostile`, as a hostile array's one name is,
+/// which no `PATH` has; a run that finds neither grants names that are
+/// missing, which a run may.
+const GRANT_RUN: &str = "--allow-run=tool,hostile";
+
 /// The grant to make temporary directories, which the run makes in `tmp`
 /// in the project [`patched_project`] makes, as `TMPDIR` names it.
 const GRANT_TEMP: &str = "--allow-temp";
 
 /// `fgro run` of `entry` in `project`, granted [`GRANT_ENV`],
-/// [`GRANT_WRITE`], and [`GRANT_TEMP`], given two arguments, in an
-/// environment holding only `GRO_PATCHED_SET` and `TMPDIR`: its exit code,
-/// what it reported, and its stderr.
+/// [`GRANT_WRITE`], [`GRANT_TEMP`], and [`GRANT_RUN`], given two
+/// arguments, in an environment holding only `GRO_PATCHED_SET`, `TMPDIR`,
+/// and a `PATH` of the project's `bin`: its exit code, what it reported,
+/// and its stderr.
 fn run_entry(project: &Scratch, entry: &str) -> (Option<i32>, Reports, String) {
-    let mut command = fgro_command(&["run", GRANT_ENV, GRANT_WRITE, GRANT_TEMP, entry, "a", "b c"]);
+    let mut command = fgro_command(&[
+        "run",
+        GRANT_ENV,
+        GRANT_WRITE,
+        GRANT_TEMP,
+        GRANT_RUN,
+        entry,
+        "a",
+        "b c",
+    ]);
     std::fs::create_dir_all(project.0.join("tmp")).unwrap();
     command
         .env_clear()
         .env("GRO_PATCHED_SET", "set")
         .env("TMPDIR", project.0.join("tmp"))
+        .env("PATH", project.0.join("bin"))
         .current_dir(&project.0);
     let output = spawn(command, b"");
     let stdout = String::from_utf8(output.stdout).unwrap();
@@ -1157,11 +1194,11 @@ const FORCED_FILES: [&str; 5] = [
     "static_env_error.js",
 ];
 
-/// `fgro run` of `entry` in `project`, granted [`GRANT_ENV`], in an empty
-/// environment: what it printed, parsed as JSON, once it exited `0` with
-/// nothing on stderr.
+/// `fgro run` of `entry` in `project`, granted [`GRANT_ENV`] and
+/// [`GRANT_RUN`], in an empty environment: what it printed, parsed as
+/// JSON, once it exited `0` with nothing on stderr.
 fn run_printing(project: &Scratch, entry: &str) -> Value {
-    let mut command = fgro_command(&["run", GRANT_ENV, entry]);
+    let mut command = fgro_command(&["run", GRANT_ENV, GRANT_RUN, entry]);
     command.env_clear().current_dir(&project.0);
     let output = spawn(command, b"");
     let stderr = String::from_utf8(output.stderr).unwrap();
@@ -4075,4 +4112,259 @@ fn fs_listings_hold_no_descriptor() {
     assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
     assert_eq!(output.status.code(), Some(0));
     assert_eq!(after, before, "descriptors before and after the listings");
+}
+
+/// The entry of [`spawn_pins_each_granted_program_as_the_run_starts`]:
+/// rewrites `bin/tool` as text, makes `bin/late` a program, then asks for
+/// each, printing what each call made or threw.
+const SPAWN_PINS: &str = "import { spawn } from '@fuzdev/gro/spawn.ts';
+import { fs } from '@fuzdev/gro/fs.ts';
+const bin = await fs.open_dir(`${fs.project.path}/bin`);
+await bin.write('tool', 'not a program\\n');
+await bin.write('late', '#!/bin/sh\\nexit 0\\n', { mode: 0o755 });
+const how = (call) => {
+	try {
+		const made = call();
+		return made === null ? null : made.name;
+	} catch (error) {
+		return `${error.message} (${error.cause.message})`;
+	}
+};
+console.log(JSON.stringify([
+	how(() => spawn.program('./bin/tool')),
+	how(() => spawn.find('./bin/late')),
+]));
+";
+
+/// A confined run pins each program it grants as it starts, before any
+/// module evaluates, so what changes on disk after doesn't change what a
+/// handle is made of: a program rewritten as text is still made, and one
+/// made since is still missing, where an unconfined run, which finds a
+/// program when it's asked for, as Node does, sees each change.
+#[test]
+fn spawn_pins_each_granted_program_as_the_run_starts() {
+    let files = [
+        (
+            "package.json",
+            "{\"name\": \"spawn_pins\", \"type\": \"module\"}\n",
+        ),
+        ("main.js", SPAWN_PINS),
+        ("bin/tool", "#!/bin/sh\nexit 0\n"),
+    ];
+    let run = |flags: &[&str]| {
+        let project = Scratch::new("spawn_pins", &files);
+        project.set_mode("bin/tool", 0o755);
+        let mut args = vec!["run"];
+        args.extend(flags);
+        args.push("main.js");
+        let mut command = fgro_command(&args);
+        command.env_clear().current_dir(&project.0);
+        let output = spawn(command, b"");
+        assert_eq!(String::from_utf8(output.stderr).unwrap(), "", "{flags:?}");
+        assert_eq!(output.status.code(), Some(0), "{flags:?}");
+        let printed: Value = serde_json::from_slice(&output.stdout).unwrap();
+        (printed, project.path("bin/tool"))
+    };
+    let (printed, _) = run(&["--allow-run=./bin/tool,./bin/late", "--allow-write=bin"]);
+    assert_eq!(printed, serde_json::json!(["./bin/tool", null]));
+    let (printed, tool) = run(&["-A"]);
+    assert_eq!(
+        printed,
+        serde_json::json!([
+            format!(
+                "not_executable: ./bin/tool (./bin/tool at {tool} starts with neither #! nor a \
+                 native binary's magic)"
+            ),
+            "./bin/late"
+        ])
+    );
+}
+
+/// The entry of [`spawn_program_in_needs_an_exec_root`]: `program_in` and
+/// `find_in` on the run's root and on a narrowed one, printing what each
+/// threw.
+const SPAWN_PROGRAM_IN: &str = "import { spawn } from '@fuzdev/gro/spawn.ts';
+import { fs } from '@fuzdev/gro/fs.ts';
+const how = (call) => {
+	try {
+		call();
+		return 'made';
+	} catch (error) {
+		return `${error.constructor.name}: ${error.message}`;
+	}
+};
+console.log(JSON.stringify([
+	how(() => spawn.program_in(fs.project, 'bin/tool')),
+	how(() => spawn.find_in(fs.project, 'bin/tool')),
+	how(() => spawn.program_in({ path: fs.project.path }, 'bin/tool')),
+	how(() => spawn.narrow(['tool']).find_in(fs.project, 'bin/tool')),
+]));
+";
+
+/// `program_in` and `find_in` check their directory, a handle `fs` made,
+/// then refuse what no exec root holds, which a run declares none of yet:
+/// in a confined run `not_granted`, listed and failing the run, with no
+/// hint, since no flag grants one; under `-A`, where every directory would
+/// be one, resolving beneath it isn't built. A narrowed root refuses it
+/// either way, as the Node module's does.
+#[test]
+fn spawn_program_in_needs_an_exec_root() {
+    let project = Scratch::new(
+        "spawn_program_in",
+        &[
+            (
+                "package.json",
+                "{\"name\": \"spawn_program_in\", \"type\": \"module\"}\n",
+            ),
+            ("main.js", SPAWN_PROGRAM_IN),
+        ],
+    );
+    let run = |flags: &[&str]| {
+        let mut args = vec!["run"];
+        args.extend(flags);
+        args.push("main.js");
+        let mut command = fgro_command(&args);
+        command.env_clear().current_dir(&project.0);
+        let output = spawn(command, b"");
+        let printed: Value = serde_json::from_slice(&output.stdout).unwrap();
+        (
+            output.status.code(),
+            String::from_utf8(output.stderr).unwrap(),
+            printed,
+        )
+    };
+    let not_granted = "SpawnError: not_granted: bin/tool";
+    let type_error = "TypeError: expected an fs directory handle from this copy of Gro";
+    let (code, stderr, printed) = run(&["--allow-run=tool"]);
+    assert_eq!(
+        printed,
+        serde_json::json!([not_granted, not_granted, type_error, not_granted])
+    );
+    assert_eq!(
+        stderr,
+        "error: spawn refused: not_granted: bin/tool\n\
+         error: a refusal fails the run, whether or not the program caught it\n"
+    );
+    assert_eq!(code, Some(1));
+    let (code, stderr, printed) = run(&["-A"]);
+    assert_eq!(
+        printed,
+        serde_json::json!([
+            "Error: program_in of @fuzdev/gro/spawn.ts isn't built on fgro yet",
+            "Error: find_in of @fuzdev/gro/spawn.ts isn't built on fgro yet",
+            type_error,
+            not_granted
+        ])
+    );
+    assert_eq!(
+        stderr,
+        "error: spawn refused: not_granted: bin/tool\n\
+         error: a refusal fails the run, whether or not the program caught it\n"
+    );
+    assert_eq!(code, Some(1));
+}
+
+/// A run that imports the spawn host module without `--allow-run=` is
+/// refused it, and one granting a program that runs nothing but imports it
+/// pins nothing it can't find: a granted name that's missing is no error
+/// until it's asked for, and then `find` returns `null`.
+#[test]
+fn spawn_needs_its_grant_and_a_missing_grant_is_no_error() {
+    let project = Scratch::new(
+        "spawn_grant",
+        &[
+            (
+                "package.json",
+                "{\"name\": \"spawn_grant\", \"type\": \"module\"}\n",
+            ),
+            (
+                "main.js",
+                "import { spawn } from '@fuzdev/gro/spawn.ts';\n\
+                 console.log(JSON.stringify(spawn.find('gro_no_such_program')));\n",
+            ),
+        ],
+    );
+    let run = |flags: &[&str]| {
+        let mut args = vec!["run"];
+        args.extend(flags);
+        args.push("main.js");
+        let mut command = fgro_command(&args);
+        command.env_clear().current_dir(&project.0);
+        spawn(command, b"")
+    };
+    let refused = run(&[]);
+    assert_eq!(refused.status.code(), Some(1));
+    let stderr = String::from_utf8(refused.stderr).unwrap();
+    assert!(
+        stderr.contains("@fuzdev/gro/spawn.ts") && stderr.contains("spawn"),
+        "{stderr}"
+    );
+    let found = run(&["--allow-run=gro_no_such_program"]);
+    assert_eq!(String::from_utf8(found.stderr).unwrap(), "");
+    assert_eq!(found.status.code(), Some(0));
+    assert_eq!(String::from_utf8(found.stdout).unwrap(), "null\n");
+}
+
+/// The entry of [`a_narrowed_spawn_keeps_the_run_s_pins_and_forwarding`]:
+/// a root narrowed from the run's, asked for a granted program with a
+/// variable `--allow-run-env=` doesn't forward, then with none, after the
+/// program's file is replaced by text.
+const SPAWN_NARROWED: &str = "import { spawn } from '@fuzdev/gro/spawn.ts';
+import { fs } from '@fuzdev/gro/fs.ts';
+const narrowed = spawn.narrow(['tool']);
+const how = (call) => {
+	try {
+		return call().name;
+	} catch (error) {
+		return `${error.message} (${error.cause.message})`;
+	}
+};
+const forwarded = how(() => narrowed.program('tool', { pass_env: ['GRO_SECRET'] }));
+const bin = await fs.open_dir(`${fs.project.path}/bin`);
+await bin.remove('tool');
+await bin.write('tool', 'not a program\\n');
+console.log(JSON.stringify([forwarded, how(() => narrowed.program('tool'))]));
+";
+
+/// A root narrowed in a confined run decides as the run's root does for
+/// what it holds: a program's forwarding is still its grant's, refused and
+/// hinted, since `--allow-run-env=` widens it, and a program is still the
+/// one pinned as the run started, whatever its path holds since.
+#[test]
+fn a_narrowed_spawn_keeps_the_run_s_pins_and_forwarding() {
+    let project = Scratch::new(
+        "spawn_narrowed",
+        &[
+            (
+                "package.json",
+                "{\"name\": \"spawn_narrowed\", \"type\": \"module\"}\n",
+            ),
+            ("main.js", SPAWN_NARROWED),
+            ("bin/tool", "#!/bin/sh\nexit 0\n"),
+        ],
+    );
+    project.set_mode("bin/tool", 0o755);
+    let mut command = fgro_command(&["run", "--allow-run=tool", "--allow-write=bin", "main.js"]);
+    command
+        .env_clear()
+        .env("GRO_SECRET", "s")
+        .env("PATH", project.0.join("bin"))
+        .current_dir(&project.0);
+    let output = spawn(command, b"");
+    let printed: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(
+        printed,
+        serde_json::json!([
+            "not_granted: tool (tool isn't granted GRO_SECRET to be passed: --allow-run-env names \
+             what a program may be passed)",
+            "tool"
+        ])
+    );
+    assert_eq!(
+        String::from_utf8(output.stderr).unwrap(),
+        "error: spawn refused: not_granted: tool\n\
+         error: a refusal fails the run, whether or not the program caught it\n\
+         hint: add --allow-run-env=GRO_SECRET to grant what spawn refused\n"
+    );
+    assert_eq!(output.status.code(), Some(1));
 }

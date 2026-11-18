@@ -51,4 +51,27 @@
 @fuzdev/gro/fs.ts set_times method of @fuzdev/gro/fs.ts#FsDir length 3 async grant fs throws FsError
 @fuzdev/gro/fs.ts set_mode method of @fuzdev/gro/fs.ts#FsDir length 2 async grant fs throws FsError
 @fuzdev/gro/fs.ts symlink method of @fuzdev/gro/fs.ts#FsDir length 2 async grant fs throws FsError
+@fuzdev/gro/spawn_error.ts SpawnError export class SpawnError grant-free
+@fuzdev/gro/spawn_error.ts is_spawn_error export length 2 grant-free
+@fuzdev/gro/spawn.ts spawn export handle @fuzdev/gro/spawn.ts#Spawn grant spawn
+@fuzdev/gro/spawn.ts program method of @fuzdev/gro/spawn.ts#Spawn length 2 grant spawn throws SpawnError
+@fuzdev/gro/spawn.ts find method of @fuzdev/gro/spawn.ts#Spawn length 2 grant spawn throws SpawnError
+@fuzdev/gro/spawn.ts program_in method of @fuzdev/gro/spawn.ts#Spawn length 3 grant spawn throws SpawnError
+@fuzdev/gro/spawn.ts find_in method of @fuzdev/gro/spawn.ts#Spawn length 3 grant spawn throws SpawnError
+@fuzdev/gro/spawn.ts narrow method of @fuzdev/gro/spawn.ts#Spawn length 1 grant spawn throws SpawnError
+@fuzdev/gro/spawn.ts run method of @fuzdev/gro/spawn.ts#SpawnProgram length 2 async grant spawn
+@fuzdev/gro/spawn.ts out method of @fuzdev/gro/spawn.ts#SpawnProgram length 2 async grant spawn
+@fuzdev/gro/spawn.ts out_bytes method of @fuzdev/gro/spawn.ts#SpawnProgram length 2 async grant spawn
+@fuzdev/gro/spawn.ts start method of @fuzdev/gro/spawn.ts#SpawnProgram length 2 async grant spawn
+@fuzdev/gro/spawn.ts kill method of @fuzdev/gro/spawn.ts#SpawnChild length 0 grant spawn
+@fuzdev/gro/spawn.ts [Symbol.asyncDispose] method of @fuzdev/gro/spawn.ts#SpawnChild length 0 async grant spawn
+@fuzdev/gro/spawn.ts write method of @fuzdev/gro/spawn.ts#SpawnStdin length 1 async grant spawn
+@fuzdev/gro/spawn.ts close method of @fuzdev/gro/spawn.ts#SpawnStdin length 0 async grant spawn
 @fuzdev/gro/fs.ts path data of @fuzdev/gro/fs.ts#FsReadDir data grant fs
+@fuzdev/gro/spawn.ts name data of @fuzdev/gro/spawn.ts#SpawnProgram data grant spawn
+@fuzdev/gro/spawn.ts path data of @fuzdev/gro/spawn.ts#SpawnProgram data grant spawn
+@fuzdev/gro/spawn.ts pid data of @fuzdev/gro/spawn.ts#SpawnChild data grant spawn
+@fuzdev/gro/spawn.ts closed data of @fuzdev/gro/spawn.ts#SpawnChild data grant spawn
+@fuzdev/gro/spawn.ts stdout data of @fuzdev/gro/spawn.ts#SpawnChild data grant spawn
+@fuzdev/gro/spawn.ts stderr data of @fuzdev/gro/spawn.ts#SpawnChild data grant spawn
+@fuzdev/gro/spawn.ts stdin data of @fuzdev/gro/spawn.ts#SpawnChild handle @fuzdev/gro/spawn.ts#SpawnStdin grant spawn

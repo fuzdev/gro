@@ -8,13 +8,14 @@
 // A case is a scenario in `cases/` named for its host module, run in a fresh process started
 // in this directory with the case's arguments, a `{cwd}` among them replaced by that
 // directory, and an environment holding the case's `env` and nothing else, never the
-// developer's. It prints one line of JSON and nothing on stderr. Its `flags` are `fgro run`'s,
-// the grants it runs with, and its `refused` the lines `fgro` prints for what its rules refuse,
-// neither of which Node has. Its `sockets` are paths, relative to this directory, where a unix
-// socket listens while it runs, made by its runner here and by `fgro`'s tests alike, since git
-// holds no socket. Its `scratch` is a directory, relative to this one, that its runner here and
-// `fgro`'s tests alike make empty before it runs, but for the symlinks its `links` name, by name
-// with their targets, and remove after, so a case that writes starts from the same tree on both.
+// developer's, each `{cwd}` in a value replaced by that directory too. It prints one line of
+// JSON and nothing on stderr. Its `flags` are `fgro run`'s, the grants it runs with, and its
+// `refused` the lines `fgro` prints for what its rules refuse, neither of which Node has. Its
+// `sockets` are paths, relative to this directory, where a unix socket listens while it runs,
+// made by its runner here and by `fgro`'s tests alike, since git holds no socket. Its `scratch`
+// is a directory, relative to this one, that its runner here and `fgro`'s tests alike make empty
+// before it runs, but for the symlinks its `links` name, by name with their targets, and remove
+// after, so a case that writes starts from the same tree on both.
 
 import { spawnSync } from 'node:child_process';
 import {
@@ -90,9 +91,15 @@ const run = async (test_case) => {
 	const close = await listen(test_case.sockets ?? []);
 	if (test_case.scratch) reset_scratch(test_case.scratch, true);
 	const args = test_case.args.map((arg) => (arg === '{cwd}' ? dir : arg));
+	const env = Object.fromEntries(
+		Object.entries(test_case.env ?? {}).map(([name, value]) => [
+			name,
+			value.replaceAll('{cwd}', dir)
+		])
+	);
 	const result = spawnSync(process.execPath, ['on_node.js', test_case.module, ...args], {
 		cwd: dir,
-		env: { ...test_case.env },
+		env,
 		encoding: 'utf8'
 	});
 	if (test_case.scratch) reset_scratch(test_case.scratch, false);

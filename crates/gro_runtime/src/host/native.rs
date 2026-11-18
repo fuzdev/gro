@@ -1192,9 +1192,12 @@ mod tests {
                 .grant
                 .map_or_else(|| "grant-free".to_owned(), |grant| format!("grant {grant}"));
             for field in kind.fields {
+                let what = field
+                    .handle
+                    .map_or_else(|| "data".to_owned(), |of| format!("handle {}", of.brand));
                 lines.push(format!(
-                    "{module} {field} data of {} data {grant}",
-                    kind.brand
+                    "{module} {} data of {} {what} {grant}",
+                    field.name, kind.brand
                 ));
             }
         }

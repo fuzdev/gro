@@ -11,6 +11,7 @@ use url::Url;
 
 use crate::engine::Engine;
 use crate::host::HostData;
+use crate::host::spawn::SpawnRun;
 use crate::loader::Loader;
 #[cfg(test)]
 use crate::loader::graph::Graph;
@@ -207,6 +208,10 @@ fn run_resolved(
     cwd: &Path,
     loader: &Rc<Loader>,
 ) -> RunOutcome {
+    let project = loader.graph().roots().project().dir.clone();
+    // pinned once the entry has resolved, so a name holding `/` has the
+    // project's root, and before any module evaluates
+    let spawn = SpawnRun::start(&options.authority, &options.spawn_env, &project).map(Rc::new);
     let host = HostState {
         authority: options.authority.clone(),
         data: HostData {
@@ -214,8 +219,9 @@ fn run_resolved(
             cwd: cwd.to_str().map(ToOwned::to_owned),
             runtime_version: options.runtime_version.clone(),
             env: options.env.clone(),
-            project: Some(loader.graph().roots().project().dir.clone()),
+            project: Some(project),
             temp_dir: options.temp_dir.clone(),
+            spawn,
         },
         exit_step: options.exit_step,
     };

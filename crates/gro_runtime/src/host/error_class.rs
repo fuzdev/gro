@@ -148,7 +148,7 @@ impl DeclaredFamily {
 /// Every family the host makes a class of, which a class's native
 /// functions find their own by name in, one for each error row of the
 /// builtin table, as a test holds it.
-const FAMILIES: [&ErrorFamily; 2] = [&ENV_ERROR, &FS_ERROR];
+const FAMILIES: [&ErrorFamily; 3] = [&ENV_ERROR, &FS_ERROR, &SPAWN_ERROR];
 
 /// What a member that needs a family's class throws when the run holds
 /// no realm `Error` to make the class from.
