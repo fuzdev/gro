@@ -655,11 +655,23 @@ mod tests {
 
     /// `TSV_REV` is the commit the resolved `tsv_ts` was published from, as
     /// its registry source's `.cargo_vcs_info.json` records it, so a bump that
-    /// moves `TSV_VERSION` and forgets the commit fails here.
+    /// moves `TSV_VERSION` and forgets the commit fails here. The metadata is
+    /// the host's (`host-tuple`), so cargo reads only the packages a build here
+    /// fetched: with every platform's, it wants the manifests of packages only
+    /// another target uses (wasm's, Windows'), which an offline registry
+    /// filled by this host's build doesn't hold.
     #[test]
     fn the_reported_tsv_rev_is_the_published_commit() {
         let output = std::process::Command::new(env!("CARGO"))
-            .args(["metadata", "--format-version", "1", "--locked", "--offline"])
+            .args([
+                "metadata",
+                "--format-version",
+                "1",
+                "--locked",
+                "--offline",
+                "--filter-platform",
+                "host-tuple",
+            ])
             .current_dir(env!("CARGO_MANIFEST_DIR"))
             .output()
             .unwrap();
