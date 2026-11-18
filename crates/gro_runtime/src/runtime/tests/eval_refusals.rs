@@ -82,6 +82,36 @@ fn eval_refuses_the_refused_ops() {
     }
 }
 
+/// The runtime eval starts (`start_eval_runtime`) has `determinism: deny`
+/// installed, and `fgro run`'s (`start_runtime`) hasn't: `Date.now()`,
+/// which reads the clock through no op, throws the refusal in one and
+/// runs in the other. The start installs it, as the run's
+/// `Determinism` says, and the tests above build their runtimes a step
+/// short of the start.
+#[test]
+fn the_runtime_eval_starts_denies_determinism() {
+    let call = |runtime: &mut JsRuntime| {
+        script_json(
+            runtime,
+            "let result;
+try {
+\tDate.now();
+\tresult = 'ran';
+} catch (error) {
+\tresult = error.message;
+}
+JSON.stringify(result)",
+        )
+    };
+    let eval = on_started_runtime("deny", Mode::Eval, call);
+    let eval = eval.as_str().unwrap();
+    assert!(
+        eval.starts_with("Date.now() is refused in eval (clock): "),
+        "{eval}"
+    );
+    assert_eq!(on_started_runtime("deny", Mode::Run, call), "ran");
+}
+
 /// On each of eval's engines, jitless and with the JIT, a runtime
 /// started from the snapshot refuses as it does on the engine
 /// `fgro run` sets up, which made the snapshot.

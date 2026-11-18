@@ -123,11 +123,51 @@ fn on_runtime<T: Send + 'static>(
     mode: Mode,
     test: impl FnOnce(&mut JsRuntime) -> T + Send + 'static,
 ) -> T {
+    let snapshot = (start == Start::Snapshot).then(child_snapshot);
+    on_made_runtime(
+        &format!("{name}_{start:?}"),
+        move |loader| {
+            let create_params = (mode == Mode::Eval).then(eval_create_params);
+            new_runtime(snapshot, loader, mode, create_params).unwrap()
+        },
+        test,
+    )
+}
+
+/// Runs `test` on the runtime the product starts for `mode`, by
+/// [`start_eval_runtime`] or [`start_runtime`], from source, after the
+/// bootstrap's per-run steps, on the thread and in the directory
+/// [`on_made_runtime`] gives it.
+fn on_started_runtime<T: Send + 'static>(
+    name: &str,
+    mode: Mode,
+    test: impl FnOnce(&mut JsRuntime) -> T + Send + 'static,
+) -> T {
+    on_made_runtime(
+        &format!("{name}_{mode:?}"),
+        move |loader| {
+            let console = ConsoleOptions::default();
+            match mode {
+                Mode::Eval => start_eval_runtime(None, console, loader).unwrap().0,
+                Mode::Run => start_runtime(None, console, HostState::default(), loader).unwrap(),
+            }
+        },
+        test,
+    )
+}
+
+/// Runs `test` on the runtime `make` builds over the loader of an empty
+/// entry in a fresh directory named for `name`, on the engine
+/// [`engine_options`] says, on a thread reserving [`STACK_SIZE`].
+fn on_made_runtime<T: Send + 'static>(
+    name: &str,
+    make: impl FnOnce(Rc<Loader>) -> JsRuntime + Send + 'static,
+    test: impl FnOnce(&mut JsRuntime) -> T + Send + 'static,
+) -> T {
     use crate::resolver::DiskTree;
 
     init_engine(Confinement::Unconfined, &engine_options()).unwrap();
-    let snapshot = (start == Start::Snapshot).then(child_snapshot);
-    let dir = TestDir::on_disk(&format!("{name}_{start:?}"));
+    let dir = TestDir::on_disk(name);
     std::fs::write(dir.path().join("main.mjs"), "").unwrap();
     let cwd = dir.path().to_owned();
     std::thread::Builder::new()
@@ -141,8 +181,7 @@ fn on_runtime<T: Send + 'static>(
                 .build()
                 .unwrap();
             let _entered = tokio.enter();
-            let create_params = (mode == Mode::Eval).then(eval_create_params);
-            let mut runtime = new_runtime(snapshot, loader, mode, create_params).unwrap();
+            let mut runtime = make(loader);
             test(&mut runtime)
         })
         .unwrap()

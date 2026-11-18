@@ -30,7 +30,10 @@
 //! table carries them, made when the snapshot was ([`crate::snapshot`]),
 //! and a runtime that starts without one reads [`source_backing_scripts`],
 //! made once a process. Either way the text is the same, and nothing
-//! registers a script per start.
+//! registers a script per start. No extension declares a backing script
+//! among its lazy scripts, so a module run while a snapshot is made can't
+//! import a builtin: the making fails at the import, as a test in
+//! `process_tests.rs` holds.
 //!
 //! **A first import runs on the importer's stack.** `deno_core` builds a
 //! facade the first time an `import()` names it, inside that call, so the

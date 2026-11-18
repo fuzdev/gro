@@ -8,16 +8,18 @@
 //! [`CHILD_TEST`]; the parent reads its exit status and output.
 //! [`run_test_in_child`] runs any one test of the binary that way.
 
+use std::borrow::Cow;
 use std::cell::Cell;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
-use deno_core::{Extension, OpDecl};
+use deno_core::{Extension, ExtensionFileSource, OpDecl};
 
 use crate::bootstrap::{self, Ops};
 use crate::confine::Confinement;
 use crate::engine::{Engine, EngineError, EngineOptions, init_engine};
+use crate::resolver::BUILTINS;
 use crate::snapshot::{OpFunction, ResidualCode, SnapshotError, make_snapshot, make_snapshot_of};
 use crate::test_support::TestDir;
 use crate::{ConsoleOptions, ConsoleRouting, RuntimeOptions, STACK_SIZE, run_main};
@@ -162,6 +164,28 @@ for (const locale of locales) {
                 "{error}"
             );
         }
+        "snapshot_importing_a_builtin" => {
+            let engine = init_engine(Confinement::Unconfined, &EngineOptions::default()).unwrap();
+            // `deno_core` panics on a failed evaluation while it makes a
+            // snapshot, rather than returning the error
+            let made = std::panic::catch_unwind(move || {
+                make_snapshot_of(engine, extensions_importing_a_builtin)
+            });
+            let failure = match made {
+                Ok(Ok(_)) => panic!("a snapshot was made of a runtime that imported a builtin"),
+                Ok(Err(error)) => error.to_string(),
+                Err(payload) => payload
+                    .downcast_ref::<String>()
+                    .cloned()
+                    .or_else(|| payload.downcast_ref::<&str>().map(|s| (*s).to_owned()))
+                    .unwrap_or_default(),
+            };
+            assert!(
+                failure.contains(bootstrap::BACKING_SPECIFIERS[0])
+                    && failure.contains("cannot be lazy-loaded as it was not included"),
+                "{failure}"
+            );
+        }
         case => panic!("unknown case {case}"),
     }
 }
@@ -193,6 +217,27 @@ fn extensions_merging_a_refused_op() -> Vec<Extension> {
         .find(|extension| extension.name == "gro")
         .unwrap();
     gro.middleware_fn = Some(Box::new(merge));
+    extensions
+}
+
+/// The extensions a snapshot is made from, and one more whose module, run
+/// as the snapshot is made, imports the builtin table's first row.
+fn extensions_importing_a_builtin() -> Vec<Extension> {
+    const ENTRY: &str = "ext:test_builtin_import/main.js";
+    let source = format!(
+        "import * as namespace from '{}';\nglobalThis.namespace = namespace;\n",
+        BUILTINS[0].url
+    );
+    let mut extensions = bootstrap::extensions(Ops::Kept);
+    extensions.push(Extension {
+        name: "test_builtin_import",
+        esm_files: Cow::Owned(vec![ExtensionFileSource::new_computed(
+            ENTRY,
+            source.into(),
+        )]),
+        esm_entry_point: Some(ENTRY),
+        ..Extension::default()
+    });
     extensions
 }
 
@@ -308,6 +353,17 @@ fn the_console_can_write_every_level_to_stderr() {
 #[test]
 fn the_engine_locale_reaches_intl() {
     run_child("locale");
+}
+
+/// No snapshot holds a builtin: a module the snapshot runs can't import
+/// one, since no script the snapshot is made with is a backing script,
+/// which reaches `deno_core` only in a start's table of residual scripts
+/// (`bootstrap`'s module doc), so the making fails at the import, naming
+/// the row's backing script. A builtin's namespace is made from the run's
+/// own state, which no snapshot may carry into every run.
+#[test]
+fn no_snapshot_is_made_of_a_runtime_importing_a_builtin() {
+    run_child("snapshot_importing_a_builtin");
 }
 
 /// No snapshot is made of a runtime where an op eval refuses has its

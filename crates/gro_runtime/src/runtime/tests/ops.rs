@@ -148,33 +148,9 @@ fn the_refused_ops_are_pinned() {
 /// The op functions of the runtime the product starts for `mode`, by
 /// [`start_eval_runtime`] or [`start_runtime`], from source.
 fn started_op_functions(mode: Mode) -> Vec<crate::snapshot::OpFunctions> {
-    use crate::resolver::DiskTree;
-
-    init_engine(Confinement::Unconfined, &engine_options()).unwrap();
-    let dir = TestDir::on_disk(&format!("started_{mode:?}"));
-    std::fs::write(dir.path().join("main.mjs"), "").unwrap();
-    let cwd = dir.path().to_owned();
-    std::thread::Builder::new()
-        .stack_size(STACK_SIZE)
-        .spawn(move || {
-            let (entry, roots) =
-                crate::resolver::resolve_entry(&DiskTree, Path::new("main.mjs"), &cwd).unwrap();
-            let loader = Rc::new(Loader::new(&entry, roots, Recording::Off));
-            let tokio = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .unwrap();
-            let _entered = tokio.enter();
-            let console = ConsoleOptions::default();
-            let runtime = match mode {
-                Mode::Eval => start_eval_runtime(None, console, loader).unwrap().0,
-                Mode::Run => start_runtime(None, console, HostState::default(), loader).unwrap(),
-            };
-            crate::snapshot::op_functions(&runtime)
-        })
-        .unwrap()
-        .join()
-        .unwrap()
+    on_started_runtime("started", mode, |runtime| {
+        crate::snapshot::op_functions(runtime)
+    })
 }
 
 /// The runtime eval starts (`start_eval_runtime`) has the refusal as
