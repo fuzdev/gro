@@ -127,7 +127,8 @@ use crate::snapshot::StartupSnapshot;
 
 pub use crate::host::exit::{Exit, ExitStep};
 pub use crate::loader::refused::{
-    FsNeed, MAX_LISTED_MESSAGE, MAX_LISTED_REFUSALS, NeededGrant, Refusal, Refusals, RefusedBy,
+    FsNeed, MAX_LISTED_MESSAGE, MAX_LISTED_REFUSALS, NameKind, NeededGrant, Refusal, Refusals,
+    RefusedBy,
 };
 pub use crate::report::Report;
 pub use crate::run::{RunError, RunOutcome, StartError, run_main};
@@ -191,6 +192,15 @@ pub struct RuntimeOptions {
     /// directories anywhere. An embedder names it only for a run that
     /// grants it, so a run that doesn't learns nothing of where it is.
     pub temp_dir: Option<PathBuf>,
+    /// The environment variables the spawn host module may hand a child, as
+    /// the embedder read them once, before the run: data, not authority,
+    /// which no member a script calls returns. A program's environment is
+    /// made of them where its handle is made, by the rules of the run's
+    /// `spawn` grant ([`SpawnGrant`]): the base set every child gets, and
+    /// what a program's `pass_env` names and its grant forwards, every
+    /// variable in an unconfined run. So an embedder passes no more than
+    /// those: none for a run that grants no program.
+    pub spawn_env: EnvVars,
 }
 
 /// The console's output: which stream each level writes to, and whether each
@@ -263,6 +273,8 @@ pub struct Grants {
     pub env: Option<EnvGrant>,
     /// The fs host module's.
     pub fs: Option<FsGrant>,
+    /// The spawn host module's.
+    pub spawn: Option<SpawnGrant>,
 }
 
 impl Grants {
@@ -273,6 +285,7 @@ impl Grants {
             Capability::Exit => self.exit.is_some(),
             Capability::Env => self.env.is_some(),
             Capability::Fs => self.fs.is_some(),
+            Capability::Spawn => self.spawn.is_some(),
         }
     }
 }
@@ -347,6 +360,116 @@ pub struct GrantedDir {
     pub id: FileId,
 }
 
+/// The variables every child is given where the embedder read them.
+///
+/// They're in the order a child's environment sets them, `LC_ALL=C` set
+/// between `TERM` and `NO_COLOR`. An embedder reads them for a run that
+/// grants a program ([`RuntimeOptions::spawn_env`]), and a `pass_env`
+/// naming one exactly asks for nothing a child doesn't get.
+pub const CHILD_BASE_ENV: [&str; 6] = ["PATH", "HOME", "TMPDIR", "TERM", "NO_COLOR", "FORCE_COLOR"];
+
+/// The spawn host module's grant: the programs its root handle may make
+/// handles of, each by the name a program asks for, with what each may be
+/// passed of the environment.
+///
+/// A bare name is found on the `PATH` the embedder read for children
+/// ([`RuntimeOptions::spawn_env`]), and a name holding `/` beneath the
+/// project's root, each pinned as the run starts, before any module
+/// evaluates; a name granted that finds nothing then makes `find` return
+/// `null`. A name outside the set is refused, as every handle narrowed from
+/// the root refuses a name outside its own. An unconfined run's root makes
+/// a handle of any name, found when it's asked for, and passes any
+/// variable, whatever this holds.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SpawnGrant {
+    /// The programs granted, by name.
+    pub programs: BTreeMap<String, ProgramGrant>,
+}
+
+/// What one granted program may be passed of the environment beyond the
+/// base set every child gets.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ProgramGrant {
+    /// The variables a program's `pass_env` may name: an exact name
+    /// passes itself, and a `PREFIX_*` glob every name it covers, or a
+    /// glob within it.
+    pub forward: Vec<EnvPattern>,
+}
+
+/// A variable, or the variables of a prefix, that a spawn grant forwards
+/// to a program.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub enum EnvPattern {
+    /// One variable, by its exact name.
+    Exact(String),
+    /// Every variable whose name starts with the prefix, written
+    /// `PREFIX_*`.
+    Prefix(String),
+}
+
+impl EnvPattern {
+    /// The pattern `text` writes: a name, or a prefix followed by its one
+    /// `*`, last.
+    ///
+    /// # Errors
+    ///
+    /// Returns why `text` names no pattern: a fault of its name as a
+    /// variable's ([`env_name_fault`], a `*` allowed), a `*` other than
+    /// the last character, or a `*` with no prefix, which would name every
+    /// variable without saying so.
+    pub fn parse(text: &str) -> Result<Self, EnvPatternFault> {
+        if let Some(fault) = env_name_fault(text, true) {
+            return Err(EnvPatternFault::Name(fault));
+        }
+        match text.find('*') {
+            None => Ok(Self::Exact(text.to_owned())),
+            Some(star) if star + 1 != text.len() => Err(EnvPatternFault::GlobNotLast),
+            Some(0) => Err(EnvPatternFault::GlobAlone),
+            Some(star) => Ok(Self::Prefix(text[..star].to_owned())),
+        }
+    }
+
+    /// Whether the pattern forwards the variable `name`.
+    pub fn covers(&self, name: &str) -> bool {
+        match self {
+            Self::Exact(exact) => exact == name,
+            Self::Prefix(prefix) => name.starts_with(prefix.as_str()),
+        }
+    }
+
+    /// Whether every variable `other` forwards, this one does too.
+    pub fn holds(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Exact(exact), Self::Exact(name)) => exact == name,
+            (Self::Exact(_), Self::Prefix(_)) => false,
+            (Self::Prefix(prefix), Self::Exact(name) | Self::Prefix(name)) => {
+                name.starts_with(prefix.as_str())
+            }
+        }
+    }
+}
+
+impl std::fmt::Display for EnvPattern {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Exact(name) => f.write_str(name),
+            Self::Prefix(prefix) => write!(f, "{prefix}*"),
+        }
+    }
+}
+
+/// Why a string names no [`EnvPattern`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EnvPatternFault {
+    /// It can't name a variable.
+    Name(EnvNameFault),
+    /// It holds a `*` before its last character: a glob ends in its one
+    /// `*`.
+    GlobNotLast,
+    /// It's a `*` alone, with no prefix.
+    GlobAlone,
+}
+
 /// Why a string can't name an environment variable, as the env host
 /// module refuses it.
 ///
@@ -399,6 +522,12 @@ impl EnvVars {
         self.0
             .iter()
             .map(|(name, value)| (name.as_str(), value.as_str()))
+    }
+
+    /// The value of the variable `name`, if it was read.
+    pub fn get(&self, name: &str) -> Option<&str> {
+        self.iter()
+            .find_map(|(read, value)| (read == name).then_some(value))
     }
 }
 

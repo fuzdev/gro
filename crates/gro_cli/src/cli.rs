@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use argh::{CommandInfo, EarlyExit, FromArgs, SubCommand};
 use gro_runtime::confine::Jit;
-use gro_runtime::{EnvNameFault, env_name_fault};
+use gro_runtime::{EnvNameFault, EnvPattern, EnvPatternFault, env_name_fault};
 
 use crate::error::CliError;
 use crate::print::{echo_argument, escape_controls};
@@ -100,6 +100,19 @@ pub const ALLOW_TEMP: &str = "--allow-temp";
 /// `--allow-temp` given a value, which it takes none of.
 const ALLOW_TEMP_VALUE: &str = "--allow-temp=";
 
+/// The option that grants the spawn host module the programs it lists.
+pub const ALLOW_RUN: &str = "--allow-run";
+
+/// `--allow-run`'s spelling with its names, which follow it.
+const ALLOW_RUN_NAMES: &str = "--allow-run=";
+
+/// The option that forwards to the programs `--allow-run` grants the
+/// environment variables it lists, when a program's `pass_env` names them.
+pub const ALLOW_RUN_ENV: &str = "--allow-run-env";
+
+/// `--allow-run-env`'s spelling with its names, which follow it.
+const ALLOW_RUN_ENV_NAMES: &str = "--allow-run-env=";
+
 /// The option that runs unconfined, every grant at its widest.
 pub const ALLOW_ALL: &str = "-A";
 
@@ -108,7 +121,8 @@ fn run_help() -> String {
     [
         &format!(
             "Usage: fgro {RUN} [{ALLOW_ENV}=<names>] [{ALLOW_READ}=<dirs>] [{ALLOW_WRITE}=<dirs>] \
-             [{ALLOW_TEMP}] [{ALLOW_ALL}] [--] <file> [<args...>]"
+             [{ALLOW_TEMP}] [{ALLOW_RUN}=<names>] [{ALLOW_RUN_ENV}=<names>] [{ALLOW_ALL}] [--] \
+             <file> [<args...>]"
         ),
         "",
         RUN_DESCRIPTION,
@@ -137,6 +151,21 @@ fn run_help() -> String {
         "                    directories under the OS's temporary directory, each read",
         "                    and written by the run, with fs.temp_dir; nothing else of",
         "                    that directory",
+        "  --allow-run=<names>",
+        "                    grant the project's modules `@fuzdev/gro/spawn.ts` making",
+        "                    these programs, a comma-separated list of exact names, each",
+        "                    found on PATH, or beneath the project's root when it holds",
+        "                    `/`, and pinned as the run starts; repeatable. Until each",
+        "                    child is boxed, granting any program is close to granting",
+        "                    what -A grants: most can be made to run code by their",
+        "                    arguments or environment, a shell, git, and cargo among",
+        "                    them, and the root's env values set any variable; hand",
+        "                    library code a narrowed root, which refuses env values",
+        "  --allow-run-env=<names>",
+        "                    let the programs --allow-run grants be passed these",
+        "                    environment variables, when a program's pass_env names",
+        "                    them, a comma-separated list of exact names or PREFIX_*",
+        "                    globs; repeatable; only beside --allow-run",
         "  -A                run unconfined: every grant at its widest, to every module,",
         "                    every environment variable and every directory among them",
         "  --help, help      display usage information",
@@ -151,13 +180,19 @@ pub enum RunGrant {
     /// the project's tree and the directories `--allow-read=` lists and
     /// writes those `--allow-write=` lists ([`FlagDirs`]), and `env` for the
     /// names `--allow-env=` listed, when it listed any, and fresh
-    /// temporary directories when `--allow-temp` was given.
+    /// temporary directories when `--allow-temp` was given, and `spawn`
+    /// for the programs `--allow-run=` listed, when it listed any, each
+    /// passed the variables `--allow-run-env=` lists.
     Named {
         /// The environment variables granted, each an exact name.
         env: BTreeSet<String>,
         /// Whether `fs.temp_dir` makes fresh directories under the OS's
         /// temporary directory.
         temp: bool,
+        /// The programs granted, each by the name a program asks for.
+        run: BTreeSet<String>,
+        /// The variables each program granted may be passed.
+        run_env: BTreeSet<EnvPattern>,
     },
     /// `-A`: unconfined, every grant at its widest, the one option that
     /// grants beyond what it names.
@@ -195,10 +230,12 @@ impl RunInvocation {
     /// argh spells it for every command), which asks for the help whatever
     /// follows it; `--allow-env=<names>`, repeatable, its names one set;
     /// `--allow-read=<dirs>` and `--allow-write=<dirs>`, each repeatable,
-    /// its directories one set; `--allow-temp`, which takes no value; and
-    /// `-A`, which grants everything, so names, directories, and
-    /// `--allow-temp` given beside it are checked and add nothing. A file
-    /// starting with `-` comes after `--`.
+    /// its directories one set; `--allow-temp`, which takes no value;
+    /// `--allow-run=<names>` and `--allow-run-env=<names>`, each repeatable,
+    /// its names one set, the second only beside the first; and `-A`, which
+    /// grants everything, so names, directories, and `--allow-temp` given
+    /// beside it are checked and add nothing. A file starting with `-`
+    /// comes after `--`.
     ///
     /// # Errors
     ///
@@ -208,13 +245,18 @@ impl RunInvocation {
     /// nothing, and `--allow-temp` given a value), a name `--allow-env=`
     /// lists that no variable can have
     /// ([`check_env_flag_names`]), a directory `--allow-read=` or
-    /// `--allow-write=` lists that no path can be ([`check_dir_flag`]), or
-    /// no file.
+    /// `--allow-write=` lists that no path can be ([`check_dir_flag`]), a
+    /// name `--allow-run=` lists that names no program it can grant
+    /// ([`check_run_flag_names`]), or one `--allow-run-env=` lists that
+    /// names no variable or glob ([`check_run_env_flag_names`]); then
+    /// `--allow-run-env=` without `--allow-run=`; then no file.
     fn check(args: RunArgs) -> Result<Task, CliError> {
         let mut help = false;
         let mut all = false;
         let mut temp = false;
         let mut env = BTreeSet::new();
+        let mut run = BTreeSet::new();
+        let mut run_env = BTreeSet::new();
         let mut dirs = FlagDirs::default();
         let mut args = args.args.into_iter();
         let file = loop {
@@ -242,10 +284,21 @@ impl RunInvocation {
                 Some(ref arg) if let Some(listed) = arg.strip_prefix(ALLOW_WRITE_DIRS) => {
                     dirs.write.extend(check_dir_flag(DirFlag::Write, listed)?);
                 }
+                Some(arg) if arg == ALLOW_RUN => return Err(CliError::AllowRunBare),
+                Some(ref arg) if let Some(names) = arg.strip_prefix(ALLOW_RUN_NAMES) => {
+                    run.extend(check_run_flag_names(names)?);
+                }
+                Some(arg) if arg == ALLOW_RUN_ENV => return Err(CliError::AllowRunEnvBare),
+                Some(ref arg) if let Some(names) = arg.strip_prefix(ALLOW_RUN_ENV_NAMES) => {
+                    run_env.extend(check_run_env_flag_names(names)?);
+                }
                 Some(arg) if arg.starts_with('-') => return Err(CliError::RunOption(arg)),
                 file => break file,
             }
         };
+        if !run_env.is_empty() && run.is_empty() {
+            return Err(CliError::AllowRunEnvAlone);
+        }
         match (help, file) {
             (true, _) => Ok(Task::Help(run_help())),
             (false, None) => Err(CliError::RunNoFile),
@@ -255,7 +308,12 @@ impl RunInvocation {
                 grant: if all {
                     RunGrant::All
                 } else {
-                    RunGrant::Named { env, temp }
+                    RunGrant::Named {
+                        env,
+                        temp,
+                        run,
+                        run_env,
+                    }
                 },
                 dirs,
             })),
@@ -320,6 +378,167 @@ impl std::fmt::Display for EnvFlagFault {
                 f,
                 "an --allow-env name is exact, never a glob: {}",
                 escape_controls(name)
+            ),
+        }
+    }
+}
+
+/// The names `--allow-run=` lists in `names`, split at each comma, each a
+/// program's name as a program asks for it: not empty, no NUL byte, no
+/// `*`, every name being exact, not absolute, and, holding `/`, not
+/// climbing above the project's root by `..`, which a name holding `/`
+/// resolves beneath. Whether each is found is decided as the run starts.
+///
+/// # Errors
+///
+/// Returns [`CliError::AllowRunName`] for the first name that breaks it.
+fn check_run_flag_names(names: &str) -> Result<Vec<String>, CliError> {
+    names
+        .split(',')
+        .map(|name| {
+            let fault = if name.is_empty() {
+                RunFlagFault::Empty
+            } else if name.contains('\0') {
+                RunFlagFault::Nul
+            } else if name.contains('*') {
+                RunFlagFault::Glob(name.to_owned())
+            } else if name.starts_with('/') {
+                RunFlagFault::Absolute(name.to_owned())
+            } else if name.contains('/') && climbs(name) {
+                RunFlagFault::Climb(name.to_owned())
+            } else {
+                return Ok(name.to_owned());
+            };
+            Err(CliError::AllowRunName(fault))
+        })
+        .collect()
+}
+
+/// Whether `path`, relative, climbs above where it starts by a `..`, its
+/// `.` and `..` resolved by their text.
+fn climbs(path: &str) -> bool {
+    let mut depth = 0_usize;
+    for segment in path.split('/') {
+        match segment {
+            "" | "." => {}
+            ".." => match depth.checked_sub(1) {
+                Some(up) => depth = up,
+                None => return true,
+            },
+            _ => depth += 1,
+        }
+    }
+    false
+}
+
+/// Why a name `--allow-run=` lists can't be granted. A name is echoed,
+/// escaped ([`escape_controls`]): it's a program's, never a value.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RunFlagFault {
+    /// An empty name: a list that's empty, or starts, ends, or doubles a
+    /// comma.
+    Empty,
+    /// A name holding a NUL byte.
+    Nul,
+    /// A name holding a `*`, which names no glob.
+    Glob(String),
+    /// An absolute name.
+    Absolute(String),
+    /// A name holding `/` that climbs above the project's root.
+    Climb(String),
+}
+
+impl std::fmt::Display for RunFlagFault {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Empty => f.write_str(
+                "an --allow-run name is empty: --allow-run=a,b lists names separated by single \
+                 commas",
+            ),
+            Self::Nul => f.write_str("an --allow-run name holds a NUL byte"),
+            Self::Glob(name) => write!(
+                f,
+                "an --allow-run name is exact, never a glob: {}",
+                escape_controls(name)
+            ),
+            Self::Absolute(name) => write!(
+                f,
+                "an --allow-run name is found on PATH, or beneath the project's root when it \
+                 holds /, never absolute: {}",
+                escape_controls(name)
+            ),
+            Self::Climb(name) => write!(
+                f,
+                "an --allow-run name holding / resolves beneath the project's root, and this \
+                 one climbs above it: {}",
+                escape_controls(name)
+            ),
+        }
+    }
+}
+
+/// The patterns `--allow-run-env=` lists in `names`, split at each comma,
+/// each a variable's exact name or a `PREFIX_*` glob ([`EnvPattern`]).
+///
+/// # Errors
+///
+/// Returns [`CliError::AllowRunEnvName`] for the first that names
+/// neither.
+fn check_run_env_flag_names(names: &str) -> Result<Vec<EnvPattern>, CliError> {
+    names
+        .split(',')
+        .map(|name| {
+            EnvPattern::parse(name).map_err(|fault| {
+                CliError::AllowRunEnvName(match fault {
+                    EnvPatternFault::Name(EnvNameFault::Empty) => RunEnvFlagFault::Empty,
+                    EnvPatternFault::Name(EnvNameFault::Nul) => RunEnvFlagFault::Nul,
+                    EnvPatternFault::Name(EnvNameFault::Equals) => RunEnvFlagFault::Equals,
+                    EnvPatternFault::Name(EnvNameFault::Glob) | EnvPatternFault::GlobNotLast => {
+                        RunEnvFlagFault::GlobNotLast(name.to_owned())
+                    }
+                    EnvPatternFault::GlobAlone => RunEnvFlagFault::GlobAlone,
+                })
+            })
+        })
+        .collect()
+}
+
+/// Why a name `--allow-run-env=` lists can't be granted. Only a glob's name
+/// is kept, echoed escaped ([`escape_controls`]): a name holding a `=` is
+/// never echoed, since what follows it can be a value.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RunEnvFlagFault {
+    /// An empty name: a list that's empty, or starts, ends, or doubles a
+    /// comma.
+    Empty,
+    /// A name holding a NUL byte.
+    Nul,
+    /// A name holding a `=`.
+    Equals,
+    /// A `*` before a name's last character.
+    GlobNotLast(String),
+    /// A `*` alone, which would pass every variable without saying so.
+    GlobAlone,
+}
+
+impl std::fmt::Display for RunEnvFlagFault {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Empty => f.write_str(
+                "an --allow-run-env name is empty: --allow-run-env=A,B_* lists names separated \
+                 by single commas",
+            ),
+            Self::Nul => f.write_str("an --allow-run-env name holds a NUL byte"),
+            Self::Equals => {
+                f.write_str("an --allow-run-env name holds a `=`, which no variable's name holds")
+            }
+            Self::GlobNotLast(name) => write!(
+                f,
+                "an --allow-run-env glob ends in its one *, after a prefix: {}",
+                escape_controls(name)
+            ),
+            Self::GlobAlone => f.write_str(
+                "an --allow-run-env glob needs a prefix: * alone would pass every variable",
             ),
         }
     }
@@ -605,8 +824,8 @@ mod tests {
     use std::collections::BTreeSet;
 
     use super::{
-        DirFlag, DirFlagFault, EnvFlagFault, FlagDirs, Invocation, RUN_DESCRIPTION, RunGrant, Task,
-        parse, run_help,
+        DirFlag, DirFlagFault, EnvFlagFault, FlagDirs, Invocation, RUN_DESCRIPTION,
+        RunEnvFlagFault, RunFlagFault, RunGrant, Task, parse, run_help,
     };
     use crate::error::CliError;
 
@@ -631,6 +850,16 @@ mod tests {
         AllowDir(DirFlag, DirFlagFault),
         /// [`CliError::AllowTempValue`].
         AllowTempValue,
+        /// [`CliError::AllowRunBare`].
+        AllowRunBare,
+        /// [`CliError::AllowRunName`].
+        AllowRunName(RunFlagFault),
+        /// [`CliError::AllowRunEnvBare`].
+        AllowRunEnvBare,
+        /// [`CliError::AllowRunEnvName`].
+        AllowRunEnvName(RunEnvFlagFault),
+        /// [`CliError::AllowRunEnvAlone`].
+        AllowRunEnvAlone,
     }
 
     fn run_outcome(args: &[&str]) -> Run {
@@ -646,6 +875,11 @@ mod tests {
             Err(CliError::AllowDirsBare(flag)) => Run::AllowDirsBare(flag),
             Err(CliError::AllowDir(flag, fault)) => Run::AllowDir(flag, fault),
             Err(CliError::AllowTempValue) => Run::AllowTempValue,
+            Err(CliError::AllowRunBare) => Run::AllowRunBare,
+            Err(CliError::AllowRunName(fault)) => Run::AllowRunName(fault),
+            Err(CliError::AllowRunEnvBare) => Run::AllowRunEnvBare,
+            Err(CliError::AllowRunEnvName(fault)) => Run::AllowRunEnvName(fault),
+            Err(CliError::AllowRunEnvAlone) => Run::AllowRunEnvAlone,
             _ => panic!("{args:?} is not one of run's outcomes"),
         }
     }
@@ -663,6 +897,8 @@ mod tests {
         RunGrant::Named {
             env: names.iter().map(|&name| name.to_owned()).collect(),
             temp: false,
+            run: BTreeSet::new(),
+            run_env: BTreeSet::new(),
         }
     }
 
@@ -861,6 +1097,103 @@ mod tests {
                 AllowDir(DirFlag::Write, DirFlagFault::Empty),
             ),
             (&["run", "--allow-write=a"], NoFile),
+            // the run flags: bare, a name no program can be granted by, and
+            // the variables' flag only beside the programs'
+            (
+                &[
+                    "run",
+                    "--allow-run=git",
+                    "--allow-run-env=A,B_*",
+                    "a.js",
+                    "x",
+                ],
+                runs("a.js", &["x"]),
+            ),
+            (&["run", "--allow-run", "a.js"], Run::AllowRunBare),
+            (&["run", "-A", "--allow-run", "a.js"], Run::AllowRunBare),
+            (
+                &["run", "--allow-run=git", "--allow-run-env", "a.js"],
+                Run::AllowRunEnvBare,
+            ),
+            (
+                &["run", "--allow-runs=git", "a.js"],
+                option("--allow-runs=git"),
+            ),
+            (
+                &["run", "--allow-run-envs=A", "a.js"],
+                option("--allow-run-envs=A"),
+            ),
+            (
+                &["run", "--allow-run=", "a.js"],
+                Run::AllowRunName(RunFlagFault::Empty),
+            ),
+            (
+                &["run", "--allow-run=a,", "a.js"],
+                Run::AllowRunName(RunFlagFault::Empty),
+            ),
+            (
+                &["run", "--allow-run=a\0", "a.js"],
+                Run::AllowRunName(RunFlagFault::Nul),
+            ),
+            (
+                &["run", "--allow-run=*", "a.js"],
+                Run::AllowRunName(RunFlagFault::Glob("*".to_owned())),
+            ),
+            (
+                &["run", "--allow-run=git*", "a.js"],
+                Run::AllowRunName(RunFlagFault::Glob("git*".to_owned())),
+            ),
+            (
+                &["run", "--allow-run=/usr/bin/git", "a.js"],
+                Run::AllowRunName(RunFlagFault::Absolute("/usr/bin/git".to_owned())),
+            ),
+            (
+                &["run", "--allow-run=../x/tool", "a.js"],
+                Run::AllowRunName(RunFlagFault::Climb("../x/tool".to_owned())),
+            ),
+            (
+                &["run", "--allow-run=bin/../../tool", "a.js"],
+                Run::AllowRunName(RunFlagFault::Climb("bin/../../tool".to_owned())),
+            ),
+            (
+                &["run", "--allow-run=bin/../tool,./b/./c,..x,a..", "a.js"],
+                runs("a.js", &[]),
+            ),
+            (
+                &["run", "--allow-run=git", "--allow-run-env=", "a.js"],
+                Run::AllowRunEnvName(RunEnvFlagFault::Empty),
+            ),
+            (
+                &["run", "--allow-run=git", "--allow-run-env=A=1", "a.js"],
+                Run::AllowRunEnvName(RunEnvFlagFault::Equals),
+            ),
+            (
+                &["run", "--allow-run=git", "--allow-run-env=A\0", "a.js"],
+                Run::AllowRunEnvName(RunEnvFlagFault::Nul),
+            ),
+            (
+                &["run", "--allow-run=git", "--allow-run-env=*", "a.js"],
+                Run::AllowRunEnvName(RunEnvFlagFault::GlobAlone),
+            ),
+            (
+                &["run", "--allow-run=git", "--allow-run-env=A*B", "a.js"],
+                Run::AllowRunEnvName(RunEnvFlagFault::GlobNotLast("A*B".to_owned())),
+            ),
+            (
+                &["run", "--allow-run=git", "--allow-run-env=A**", "a.js"],
+                Run::AllowRunEnvName(RunEnvFlagFault::GlobNotLast("A**".to_owned())),
+            ),
+            (&["run", "--allow-run-env=A", "a.js"], Run::AllowRunEnvAlone),
+            (
+                &["run", "-A", "--allow-run-env=A", "a.js"],
+                Run::AllowRunEnvAlone,
+            ),
+            (
+                &["run", "--help", "--allow-run-env=A"],
+                Run::AllowRunEnvAlone,
+            ),
+            (&["run", "--allow-run-env=A"], Run::AllowRunEnvAlone),
+            (&["run", "--allow-run-env=A", "--allow-run=git"], NoFile),
         ];
         for (args, expected) in cases {
             assert_eq!(run_outcome(args), expected, "{args:?}");
@@ -886,6 +1219,8 @@ mod tests {
             RunGrant::Named {
                 env: BTreeSet::from(["A", "a", "b", "Ä", " x"].map(ToOwned::to_owned)),
                 temp: false,
+                run: BTreeSet::new(),
+                run_env: BTreeSet::new(),
             }
         );
         assert_eq!(
@@ -893,6 +1228,8 @@ mod tests {
             RunGrant::Named {
                 env: BTreeSet::from(["A".to_owned()]),
                 temp: true,
+                run: BTreeSet::new(),
+                run_env: BTreeSet::new(),
             }
         );
         for args in [
@@ -904,6 +1241,37 @@ mod tests {
         ] {
             assert_eq!(grant(args), RunGrant::All, "{args:?}");
         }
+    }
+
+    /// `--allow-run=` and `--allow-run-env=`, each repeatable, grant the
+    /// names they list, one set each, as written, the variables' as
+    /// patterns; under `-A` they're checked and add nothing.
+    #[test]
+    fn the_run_flags_name_the_programs_and_variables_they_grant() {
+        use gro_runtime::EnvPattern;
+        assert_eq!(
+            grant(&[
+                "--allow-run=git,cargo",
+                "--allow-run-env=CARGO_*,HOME",
+                "--allow-run=./bin/tool,git",
+                "--allow-run-env=RUSTUP_*",
+                "a.js",
+            ]),
+            RunGrant::Named {
+                env: BTreeSet::new(),
+                temp: false,
+                run: BTreeSet::from(["./bin/tool", "cargo", "git"].map(ToOwned::to_owned)),
+                run_env: BTreeSet::from([
+                    EnvPattern::Prefix("CARGO_".to_owned()),
+                    EnvPattern::Exact("HOME".to_owned()),
+                    EnvPattern::Prefix("RUSTUP_".to_owned()),
+                ]),
+            }
+        );
+        assert_eq!(
+            grant(&["--allow-run=git", "-A", "--allow-run-env=A", "a.js"]),
+            RunGrant::All
+        );
     }
 
     /// The directory flags, each repeatable, list their directories as
@@ -1007,6 +1375,63 @@ mod tests {
             message(&["--allow-read=a\0", "a.js"]),
             format!("a --allow-read directory holds a NUL byte{help}")
         );
+        assert_eq!(
+            message(&["--allow-run", "a.js"]),
+            format!("--allow-run takes the programs it grants, as --allow-run=git,cargo{help}")
+        );
+        assert_eq!(
+            message(&["--allow-run=a,,b", "a.js"]),
+            format!(
+                "an --allow-run name is empty: --allow-run=a,b lists names separated by single \
+                 commas{help}"
+            )
+        );
+        assert_eq!(
+            message(&["--allow-run=\u{1b}[2J*", "a.js"]),
+            format!("an --allow-run name is exact, never a glob: \\u{{1b}}[2J*{help}")
+        );
+        assert_eq!(
+            message(&["--allow-run=/bin/sh", "a.js"]),
+            format!(
+                "an --allow-run name is found on PATH, or beneath the project's root when it \
+                 holds /, never absolute: /bin/sh{help}"
+            )
+        );
+        assert_eq!(
+            message(&["--allow-run=../sh", "a.js"]),
+            format!(
+                "an --allow-run name holding / resolves beneath the project's root, and this one \
+                 climbs above it: ../sh{help}"
+            )
+        );
+        assert_eq!(
+            message(&["--allow-run=git", "--allow-run-env", "a.js"]),
+            format!(
+                "--allow-run-env takes the variables it lets programs be passed, as \
+                 --allow-run-env=A,B_*{help}"
+            )
+        );
+        assert_eq!(
+            message(&["--allow-run=git", "--allow-run-env=TOKEN=hunter2", "a.js"]),
+            format!("an --allow-run-env name holds a `=`, which no variable's name holds{help}")
+        );
+        assert_eq!(
+            message(&["--allow-run=git", "--allow-run-env=*", "a.js"]),
+            format!(
+                "an --allow-run-env glob needs a prefix: * alone would pass every variable{help}"
+            )
+        );
+        assert_eq!(
+            message(&["--allow-run=git", "--allow-run-env=A*B", "a.js"]),
+            format!("an --allow-run-env glob ends in its one *, after a prefix: A*B{help}")
+        );
+        assert_eq!(
+            message(&["--allow-run-env=A", "a.js"]),
+            format!(
+                "--allow-run-env lets the programs --allow-run grants be passed variables, and \
+                 no --allow-run grants one{help}"
+            )
+        );
     }
 
     /// `fgro run --help`, written by hand, reads as argh writes the other
@@ -1015,7 +1440,7 @@ mod tests {
     #[test]
     fn run_s_help_reads_as_argh_s() {
         const EXPECTED: &str = "\
-Usage: fgro run [--allow-env=<names>] [--allow-read=<dirs>] [--allow-write=<dirs>] [--allow-temp] [-A] [--] <file> [<args...>]
+Usage: fgro run [--allow-env=<names>] [--allow-read=<dirs>] [--allow-write=<dirs>] [--allow-temp] [--allow-run=<names>] [--allow-run-env=<names>] [-A] [--] <file> [<args...>]
 
 run an ES module (.js, .mjs, .ts, or .mts) from disk
 
@@ -1043,6 +1468,21 @@ Options:
                     directories under the OS's temporary directory, each read
                     and written by the run, with fs.temp_dir; nothing else of
                     that directory
+  --allow-run=<names>
+                    grant the project's modules `@fuzdev/gro/spawn.ts` making
+                    these programs, a comma-separated list of exact names, each
+                    found on PATH, or beneath the project's root when it holds
+                    `/`, and pinned as the run starts; repeatable. Until each
+                    child is boxed, granting any program is close to granting
+                    what -A grants: most can be made to run code by their
+                    arguments or environment, a shell, git, and cargo among
+                    them, and the root's env values set any variable; hand
+                    library code a narrowed root, which refuses env values
+  --allow-run-env=<names>
+                    let the programs --allow-run grants be passed these
+                    environment variables, when a program's pass_env names
+                    them, a comma-separated list of exact names or PREFIX_*
+                    globs; repeatable; only beside --allow-run
   -A                run unconfined: every grant at its widest, to every module,
                     every environment variable and every directory among them
   --help, help      display usage information";

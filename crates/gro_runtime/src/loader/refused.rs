@@ -3,7 +3,8 @@
 //! ([`FailureReason::guards_a_boundary`](super::graph::FailureReason::guards_a_boundary)),
 //! and a host function's call refused for a grant its handle doesn't hold (an
 //! environment variable outside an env handle's names, an `fs` path outside
-//! every root the call may use, or an `fs` op its handle's scope lacks). One
+//! every root the call may use, an `fs` op its handle's scope lacks, or a
+//! program, or a variable to pass one, outside a spawn handle's grant). One
 //! record holds both, so both are listed, cut, and counted alike. A refused
 //! call that a grant of the run would have allowed also records that grant
 //! ([`NeededGrant`]), as data, never parsed from a message, so a report can
@@ -13,7 +14,7 @@
 
 use std::borrow::Cow;
 
-use crate::host::error_class::{ENV_ERROR, FS_ERROR};
+use crate::host::error_class::{ENV_ERROR, FS_ERROR, SPAWN_ERROR};
 
 /// The most refusals listed.
 ///
@@ -45,6 +46,12 @@ pub enum RefusedBy {
     /// with the kind of fs grant that would have allowed it, `None` when
     /// none would.
     Fs(Option<FsNeed>),
+    /// `spawn` refused a call for a program outside the set of the handle
+    /// it was called on, a variable its program's grant doesn't forward,
+    /// or what no grant of the run allows, throwing `SpawnError`
+    /// `not_granted` naming the program. The grant that would have allowed
+    /// it, when one would, is kept apart ([`NeededGrant`]).
+    Spawn,
 }
 
 impl RefusedBy {
@@ -54,6 +61,7 @@ impl RefusedBy {
             Self::Import => "TypeError",
             Self::Env => ENV_ERROR.name,
             Self::Fs(_) => FS_ERROR.name,
+            Self::Spawn => SPAWN_ERROR.name,
         }
     }
 }
@@ -91,19 +99,52 @@ pub enum NotGranted {
 ///
 /// Recorded only where the refusal is the run's own grant's, so granting
 /// it lets the call through: a call refused by `env`'s root handle, which
-/// holds what `--allow-env=` granted the project, and never one refused by
-/// a handle the program narrowed, which no grant widens; an fs reach no
-/// root holds; one that left every root holding it through a symlink,
-/// which the link or the path the program opens lets through, where a
-/// grant of the target's directory needn't; and an op a handle's scope
-/// lacks, a grant of the kind it lacks, unless a root the op's target is
-/// in already grants it, since a handle's scope never widens.
+/// holds what `--allow-env=` granted the project; a program refused by
+/// `spawn`'s, which holds the programs `--allow-run=` granted; a variable
+/// to pass that a granted program's grant doesn't forward, which
+/// `--allow-run-env=` widens whichever root the call was made on; an fs
+/// reach no root holds; one that left every root holding it through a
+/// symlink, which the link or the path the program opens lets through,
+/// where a grant of the target's directory needn't; and an op a handle's
+/// scope lacks, a grant of the kind it lacks, unless a root the op's
+/// target is in already grants it, since a handle's scope never widens.
+/// Never a name refused by a handle the program narrowed, which no grant
+/// widens.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NeededGrant {
     /// An environment variable to read, by its name.
     Env(String),
     /// An fs grant, by its kind.
     Fs(FsNeed),
+    /// A program to run, by the name it was asked for.
+    Run(String),
+    /// A variable to forward to a granted program, by its name, or the
+    /// glob a program's `pass_env` gave.
+    RunEnv(String),
+}
+
+impl NeededGrant {
+    /// The kind of name it is, when it's one.
+    const fn name_kind(&self) -> Option<NameKind> {
+        match self {
+            Self::Env(_) => Some(NameKind::Env),
+            Self::Run(_) => Some(NameKind::Run),
+            Self::RunEnv(_) => Some(NameKind::RunEnv),
+            Self::Fs(_) => None,
+        }
+    }
+}
+
+/// A kind of grant needed by name, each bounded on its own in a record
+/// ([`Refusals::needed`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NameKind {
+    /// An environment variable to read ([`NeededGrant::Env`]).
+    Env,
+    /// A program to run ([`NeededGrant::Run`]).
+    Run,
+    /// A variable to forward to a program ([`NeededGrant::RunEnv`]).
+    RunEnv,
 }
 
 /// The kind of fs grant a refused call needed, which a listed fs refusal
@@ -160,14 +201,14 @@ pub struct Refusals {
     pub unlisted: u64,
     /// The grants that would have allowed the refused calls that one
     /// would have, distinct, in the order each was first needed: every fs
-    /// kind, and the first [`MAX_LISTED_REFUSALS`] environment variables,
-    /// each of a name at most [`MAX_LISTED_MESSAGE`] bytes long. Kept apart
-    /// from `listed`, so the refusal that is the run's uncaught error,
-    /// which isn't listed, still has its grant here.
+    /// kind, and, of each kind of name ([`NameKind`]), the first
+    /// [`MAX_LISTED_REFUSALS`], each at most [`MAX_LISTED_MESSAGE`] bytes
+    /// long. Kept apart from `listed`, so the refusal that is the run's
+    /// uncaught error, which isn't listed, still has its grant here.
     pub needed: Vec<NeededGrant>,
-    /// Whether a refused call needed a variable `needed` doesn't name,
-    /// past its bound or longer than a name it keeps.
-    pub more_names: bool,
+    /// Each kind of name a refused call needed one of that `needed`
+    /// doesn't name, past its bound or longer than a name it keeps, once.
+    pub more_names: Vec<NameKind>,
 }
 
 impl Refusals {
@@ -236,21 +277,27 @@ impl Refusals {
     }
 
     /// Keeps `needed` among the grants the refused calls needed, unless
-    /// it's kept already: an fs kind always, there being few, and a
-    /// variable while there's room for its name and it's short enough to
-    /// keep, else marks that there are more.
+    /// it's kept already: an fs kind always, there being few, and a name
+    /// while there's room for its kind's and it's short enough to keep,
+    /// else marks that there are more of its kind.
     fn need(&mut self, needed: NeededGrant) {
         if self.needed.contains(&needed) {
             return;
         }
-        if let NeededGrant::Env(name) = &needed {
+        if let (
+            Some(kind),
+            NeededGrant::Env(name) | NeededGrant::Run(name) | NeededGrant::RunEnv(name),
+        ) = (needed.name_kind(), &needed)
+        {
             let names = self
                 .needed
                 .iter()
-                .filter(|kept| matches!(kept, NeededGrant::Env(_)))
+                .filter(|kept| kept.name_kind() == Some(kind))
                 .count();
             if names == MAX_LISTED_REFUSALS || name.len() > MAX_LISTED_MESSAGE {
-                self.more_names = true;
+                if !self.more_names.contains(&kind) {
+                    self.more_names.push(kind);
+                }
                 return;
             }
         }
@@ -295,8 +342,8 @@ fn cut(message: &str) -> Cow<'_, str> {
 #[cfg(test)]
 mod tests {
     use super::{
-        FsNeed, MAX_LISTED_MESSAGE, MAX_LISTED_REFUSALS, NeededGrant, NotGranted, Refusals,
-        RefusedBy,
+        FsNeed, MAX_LISTED_MESSAGE, MAX_LISTED_REFUSALS, NameKind, NeededGrant, NotGranted,
+        Refusals, RefusedBy,
     };
 
     /// A name a narrowed env handle refused, which no grant would allow.
@@ -565,30 +612,30 @@ mod tests {
         refused.record_not_granted(NARROWED, "NARROWED");
         refused.record_not_granted(fs(None), "/n");
         assert!(refused.needed.is_empty());
-        assert!(!refused.more_names);
+        assert!(refused.more_names.is_empty());
         refused.record_not_granted(ROOT, "B");
         refused.record_not_granted(ROOT, "A");
         refused.record_not_granted(ROOT, "B");
         refused.unlist("EnvError", "not_granted: A");
         assert_eq!(refused.needed, [needs("B"), needs("A")]);
-        assert!(!refused.more_names);
+        assert!(refused.more_names.is_empty());
         // one exactly the bound long is kept, one longer marks more
         let longest = "L".repeat(MAX_LISTED_MESSAGE);
         refused.record_not_granted(ROOT, &longest);
-        assert!(!refused.more_names);
+        assert!(refused.more_names.is_empty());
         refused.record_not_granted(ROOT, &format!("{longest}M"));
-        assert!(refused.more_names);
+        assert_eq!(refused.more_names, [NameKind::Env]);
         assert_eq!(refused.needed.len(), 3);
         let mut refused = Refusals::default();
         for i in 0..MAX_LISTED_REFUSALS {
             refused.record_not_granted(ROOT, &format!("N{i}"));
         }
-        assert!(!refused.more_names);
+        assert!(refused.more_names.is_empty());
         // a kept one again past the bound is no more
         refused.record_not_granted(ROOT, "N0");
-        assert!(!refused.more_names);
+        assert!(refused.more_names.is_empty());
         refused.record_not_granted(ROOT, "X");
-        assert!(refused.more_names);
+        assert_eq!(refused.more_names, [NameKind::Env]);
         assert_eq!(refused.needed.len(), MAX_LISTED_REFUSALS);
         assert_eq!(refused.needed[0], needs("N0"));
         // the fs kinds past the variables' bound, each once
@@ -615,7 +662,7 @@ mod tests {
         for i in 0..MAX_LISTED_REFUSALS {
             refused.record_not_granted(ROOT, &format!("N{i}"));
         }
-        assert!(!refused.more_names);
+        assert!(refused.more_names.is_empty());
         assert_eq!(refused.needed.len(), MAX_LISTED_REFUSALS + 1);
     }
 }

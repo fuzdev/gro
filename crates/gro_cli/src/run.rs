@@ -5,6 +5,7 @@
 //! [`exit_code`] is the one place the run's exit code is decided, however
 //! the run ended.
 
+use std::collections::BTreeSet;
 use std::ffi::OsString;
 use std::path::Path;
 
@@ -14,13 +15,15 @@ use gro_runtime::file_id::FileId;
 use gro_runtime::phases::{self, Phase};
 use gro_runtime::resolver::normalize;
 use gro_runtime::{
-    ArgsGrant, Authority, EnvGrant, EnvVars, Exit, ExitGrant, FsGrant, FsNeed, GrantedDir, Grants,
-    NeededGrant, Refusal, Refusals, RefusedBy, RunOutcome, RuntimeOptions, env_name_fault,
+    ArgsGrant, Authority, CHILD_BASE_ENV, EnvGrant, EnvPattern, EnvVars, Exit, ExitGrant, FsGrant,
+    FsNeed, GrantedDir, Grants, NameKind, NeededGrant, ProgramGrant, Refusal, Refusals, RefusedBy,
+    RunOutcome, RuntimeOptions, SpawnGrant, env_name_fault,
 };
 
 use crate::EXIT_FAILURE;
 use crate::cli::{
-    ALLOW_ENV, ALLOW_READ, ALLOW_TEMP, ALLOW_WRITE, DirFlag, FlagDirs, RunGrant, RunInvocation,
+    ALLOW_ENV, ALLOW_READ, ALLOW_RUN, ALLOW_RUN_ENV, ALLOW_TEMP, ALLOW_WRITE, DirFlag, FlagDirs,
+    RunGrant, RunInvocation,
 };
 use crate::color;
 use crate::error::{CliError, DirFault};
@@ -233,14 +236,16 @@ fn report_refused(refused: &Refusals) {
 }
 
 /// A listed refusal's line, escaped ([`escape_controls`]): `error:
-/// import() refused: <message>`, `error: env refused: <message>`, or
-/// `error: fs refused <need>: <message>`, the need in its hint's words.
+/// import() refused: <message>`, `error: env refused: <message>`, `error:
+/// spawn refused: <message>`, or `error: fs refused <need>: <message>`,
+/// the need in its hint's words.
 /// `src/docs/run.md` §Errors and exit codes states the rules.
 fn refusal_line(refusal: &Refusal) -> String {
     let message = escape_controls(&refusal.message);
     match refusal.by {
         RefusedBy::Import => format!("error: import() refused: {message}"),
         RefusedBy::Env => format!("error: env refused: {message}"),
+        RefusedBy::Spawn => format!("error: spawn refused: {message}"),
         RefusedBy::Fs(need) => {
             let need = match need {
                 Some(FsNeed::Read) => "a read",
@@ -257,18 +262,32 @@ fn refusal_line(refusal: &Refusal) -> String {
 
 /// The hint lines saying what grants the refused calls' needs
 /// (`refused.needed`), made of that data, never of a listed message: one
-/// for `--allow-env=` naming each variable that's a [`hint_name`], then
-/// each fs line once, fixed text naming no path. `src/docs/run.md`
-/// §Errors and exit codes states the rules.
+/// for `--allow-env=` naming each variable that's a [`hint_name`], one for
+/// `--allow-run=` naming each program that's a [`hint_program`], and one
+/// for `--allow-run-env=` naming each variable that's a [`hint_name`], a
+/// glob never, each saying `some of what` when it can't show every name
+/// of its kind; then each fs line once, fixed text naming no path.
+/// `src/docs/run.md` §Errors and exit codes states the rules.
 fn grant_hints(refused: &Refusals) -> Vec<String> {
     let mut names: Vec<&str> = Vec::new();
-    let mut some_env = refused.more_names;
+    let mut programs: Vec<&str> = Vec::new();
+    let mut forwarded: Vec<&str> = Vec::new();
+    let more = |kind: NameKind| refused.more_names.contains(&kind);
+    let (mut some_env, mut some_run, mut some_run_env) = (
+        more(NameKind::Env),
+        more(NameKind::Run),
+        more(NameKind::RunEnv),
+    );
     let (mut read, mut link, mut write, mut open_dir, mut temp) =
         (false, false, false, false, false);
     for needed in &refused.needed {
         match needed {
             NeededGrant::Env(name) if hint_name(name) => names.push(name),
             NeededGrant::Env(_) => some_env = true,
+            NeededGrant::Run(name) if hint_program(name) => programs.push(name),
+            NeededGrant::Run(_) => some_run = true,
+            NeededGrant::RunEnv(name) if hint_name(name) => forwarded.push(name),
+            NeededGrant::RunEnv(_) => some_run_env = true,
             NeededGrant::Fs(FsNeed::Read) => read = true,
             NeededGrant::Fs(FsNeed::LinkTarget) => link = true,
             NeededGrant::Fs(FsNeed::Write) => write = true,
@@ -277,12 +296,18 @@ fn grant_hints(refused: &Refusals) -> Vec<String> {
         }
     }
     let mut hints = Vec::new();
-    if !names.is_empty() {
-        let what = if some_env { "some of what" } else { "what" };
-        hints.push(format!(
-            "hint: add {ALLOW_ENV}={} to grant {what} env refused",
-            names.join(",")
-        ));
+    for (flag, listed, some, refused_by) in [
+        (ALLOW_ENV, names, some_env, "env"),
+        (ALLOW_RUN, programs, some_run, "spawn"),
+        (ALLOW_RUN_ENV, forwarded, some_run_env, "spawn"),
+    ] {
+        if !listed.is_empty() {
+            let what = if some { "some of what" } else { "what" };
+            hints.push(format!(
+                "hint: add {flag}={} to grant {what} {refused_by} refused",
+                listed.join(",")
+            ));
+        }
     }
     if read {
         hints.push(format!(
@@ -323,6 +348,20 @@ fn hint_name(name: &str) -> bool {
     !name.is_empty() && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
 }
 
+/// Whether the hint names the program `name`: a plain name, of ASCII
+/// letters, digits, `.`, `_`, `+`, and `-`, starting with a letter or a
+/// digit, so a shell passes it as printed, it's never taken for a flag,
+/// and it's never `.` or `..`; a name holding `/` is a path, which the
+/// hint leaves to its reader.
+fn hint_program(name: &str) -> bool {
+    name.bytes()
+        .next()
+        .is_some_and(|b| b.is_ascii_alphanumeric())
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"._+-".contains(&b))
+}
+
 /// Where `fgro run` reads the environment variables it hands the runtime:
 /// the process's environment ([`ProcessEnvironment`]), or a test's.
 trait Environment {
@@ -347,7 +386,8 @@ impl Environment for ProcessEnvironment {
 
 /// The options `run`'s runtime starts with: the authority its flags grant
 /// ([`authority`]), `fs` among them, and the environment variables that
-/// authority reaches, read from `environment` now, once ([`env_vars`]);
+/// authority reaches, read from `environment` now, once ([`env_vars`]),
+/// and those a child may be passed ([`spawn_env`]);
 /// the OS's temporary directory when the authority makes temporary
 /// directories, read from `environment` too, resolved against `cwd`
 /// ([`temp_dir`]), by its real path now ([`real_temp_dir`]); the exit step
@@ -363,9 +403,16 @@ fn runtime_options(
         run.grant,
         RunGrant::All | RunGrant::Named { temp: true, .. }
     );
+    let env = env_vars(&run.grant, environment);
+    let spawn_env = match &run.grant {
+        // the same read, every variable
+        RunGrant::All => env.clone(),
+        RunGrant::Named { run, run_env, .. } => spawn_env(run, run_env, environment),
+    };
     RuntimeOptions {
         authority: authority(&run.grant, fs),
-        env: env_vars(&run.grant, environment),
+        env,
+        spawn_env,
         temp_dir: temp.then(|| real_temp_dir(&cwd.join(temp_dir(environment)))),
         exit_step: Some(exit_now),
         snapshot: STARTUP_SNAPSHOT,
@@ -380,17 +427,77 @@ fn runtime_options(
 /// project's own modules granted the args host module, the exit host
 /// module, the fs host module, reading the project's tree and the
 /// directories `fs` grants as it grants them, and, when `--allow-env=`
-/// named any variable, the env host module with those names.
+/// named any variable, the env host module with those names, and, when
+/// `--allow-run=` named any program, the spawn host module with those
+/// programs, each forwarded what `--allow-run-env=` lists.
 fn authority(grant: &RunGrant, fs: FsGrant) -> Authority {
     match grant {
         RunGrant::All => Authority::Unconfined,
-        RunGrant::Named { env, temp } => Authority::Confined(Grants {
+        RunGrant::Named {
+            env,
+            temp,
+            run,
+            run_env,
+        } => Authority::Confined(Grants {
             args: Some(ArgsGrant {}),
             exit: Some(ExitGrant {}),
             env: (!env.is_empty()).then(|| EnvGrant { names: env.clone() }),
             fs: Some(FsGrant { temp: *temp, ..fs }),
+            spawn: (!run.is_empty()).then(|| SpawnGrant {
+                programs: run
+                    .iter()
+                    .map(|name| {
+                        let program = ProgramGrant {
+                            forward: run_env.iter().cloned().collect(),
+                        };
+                        (name.clone(), program)
+                    })
+                    .collect(),
+            }),
         }),
     }
+}
+
+/// The environment variables a confined run's children may be passed,
+/// read from `environment`: none when `run` grants no program; else the
+/// base set every child is given ([`CHILD_BASE_ENV`]), then each exact
+/// name `run_env` lists, each asked for by name, and, only when it lists
+/// a glob, every variable a glob covers, from the whole environment's
+/// listing, each whose name the env host module could ask for. A value
+/// that isn't UTF-8 is decoded with U+FFFD in place of each invalid
+/// sequence, as Node reads one.
+fn spawn_env(
+    run: &BTreeSet<String>,
+    run_env: &BTreeSet<EnvPattern>,
+    environment: &impl Environment,
+) -> EnvVars {
+    if run.is_empty() {
+        return EnvVars::default();
+    }
+    let exact = run_env.iter().filter_map(|pattern| match pattern {
+        EnvPattern::Exact(name) => Some(name.as_str()),
+        EnvPattern::Prefix(_) => None,
+    });
+    let mut read: Vec<(String, OsString)> = CHILD_BASE_ENV
+        .into_iter()
+        .chain(exact)
+        .filter_map(|name| Some((name.to_owned(), environment.var(name)?)))
+        .collect();
+    if run_env
+        .iter()
+        .any(|pattern| matches!(pattern, EnvPattern::Prefix(_)))
+    {
+        read.extend(environment.vars().into_iter().filter_map(|(name, value)| {
+            let name = name.into_string().ok()?;
+            let globbed = run_env
+                .iter()
+                .any(|pattern| matches!(pattern, EnvPattern::Prefix(_)) && pattern.covers(&name));
+            (globbed && env_name_fault(&name, true).is_none()).then_some((name, value))
+        }));
+    }
+    read.into_iter()
+        .map(|(name, value)| (name, value.to_string_lossy().into_owned()))
+        .collect()
 }
 
 /// The OS's temporary directory, as Node's `os.tmpdir()` names it, read
@@ -702,9 +809,11 @@ mod tests {
                 exit: Some(gro_runtime::ExitGrant {}),
                 env: None,
                 fs: Some(FsGrant::default()),
+                spawn: None,
             })
         );
         assert_eq!(options.env, gro_runtime::EnvVars::default());
+        assert_eq!(options.spawn_env, gro_runtime::EnvVars::default());
         assert!(environment.asked.borrow().is_empty());
         assert!(!environment.listed.get());
         let cli_step: gro_runtime::ExitStep = exit_now;
@@ -739,6 +848,7 @@ mod tests {
                     names: ["A", "B", "C"].map(ToOwned::to_owned).into(),
                 }),
                 fs: Some(FsGrant::default()),
+                spawn: None,
             })
         );
         assert_eq!(*environment.asked.borrow(), ["A", "B", "C"]);
@@ -830,7 +940,11 @@ mod tests {
         let hints = |needed: &[NeededGrant], more_names: bool| {
             grant_hints(&Refusals {
                 needed: needed.to_vec(),
-                more_names,
+                more_names: if more_names {
+                    vec![gro_runtime::NameKind::Env]
+                } else {
+                    Vec::new()
+                },
                 ..Refusals::default()
             })
         };
@@ -892,6 +1006,81 @@ mod tests {
         );
     }
 
+    /// The spawn hints name the programs a shell passes as printed, never
+    /// a path or a name a shell or the CLI would read otherwise, and the
+    /// variables to forward as env's rule names them, never a glob, each
+    /// line `some of what` when it can't show every name of its kind, in
+    /// the order env, programs, variables, then fs.
+    #[test]
+    fn the_spawn_hints_name_plain_programs_and_variables() {
+        use gro_runtime::{FsNeed, NameKind, NeededGrant, Refusals};
+
+        use super::grant_hints;
+
+        let hints = |needed: &[NeededGrant], more_names: &[NameKind]| {
+            grant_hints(&Refusals {
+                needed: needed.to_vec(),
+                more_names: more_names.to_vec(),
+                ..Refusals::default()
+            })
+        };
+        let run = |name: &str| NeededGrant::Run(name.to_owned());
+        let run_env = |name: &str| NeededGrant::RunEnv(name.to_owned());
+        assert_eq!(
+            hints(
+                &[
+                    NeededGrant::Fs(FsNeed::Temp),
+                    run_env("CARGO_HOME"),
+                    run("git"),
+                    NeededGrant::Env("HOME".to_owned()),
+                    run("c++"),
+                    run("x.py"),
+                    run("a_b-1"),
+                ],
+                &[]
+            ),
+            [
+                "hint: add --allow-env=HOME to grant what env refused",
+                "hint: add --allow-run=git,c++,x.py,a_b-1 to grant what spawn refused",
+                "hint: add --allow-run-env=CARGO_HOME to grant what spawn refused",
+                "hint: add --allow-temp to grant what fs refused",
+            ]
+        );
+        for unshown in [
+            "./bin/tool",
+            "-x",
+            ".",
+            "..",
+            ".hidden",
+            "_x",
+            "+x",
+            "a b",
+            "$(x)",
+            "a;b",
+            "é",
+            "a*",
+        ] {
+            assert_eq!(
+                hints(&[run(unshown), run("git")], &[]),
+                ["hint: add --allow-run=git to grant some of what spawn refused"],
+                "{unshown}"
+            );
+            assert!(hints(&[run(unshown)], &[]).is_empty(), "{unshown}");
+        }
+        assert_eq!(
+            hints(&[run_env("CARGO_*"), run_env("A")], &[]),
+            ["hint: add --allow-run-env=A to grant some of what spawn refused"]
+        );
+        assert!(hints(&[run_env("CARGO_*")], &[]).is_empty());
+        assert_eq!(
+            hints(&[run("git"), run_env("A")], &[NameKind::Run]),
+            [
+                "hint: add --allow-run=git to grant some of what spawn refused",
+                "hint: add --allow-run-env=A to grant what spawn refused",
+            ]
+        );
+    }
+
     /// A listed refusal's line names what refused it, and for `fs` the
     /// kind of grant it needed in the words of that kind's hint, or that it
     /// needed none, its message escaped.
@@ -935,6 +1124,10 @@ mod tests {
             line(RefusedBy::Import, "cannot resolve 'ext:x'"),
             "error: import() refused: cannot resolve 'ext:x'"
         );
+        assert_eq!(
+            line(RefusedBy::Spawn, "not_granted: git\u{1b}[2K"),
+            "error: spawn refused: not_granted: git\\u{1b}[2K"
+        );
     }
 
     /// A flag's directory is noted when its real path isn't its text,
@@ -969,6 +1162,98 @@ mod tests {
             note(DirFlag::Read, "l\u{1b}[2K", "/r\u{202e}"),
             Some("note: --allow-read=l\\u{1b}[2K grants /r\\u{202e}".to_owned())
         );
+    }
+
+    /// `--allow-run=` grants the spawn host module its programs, each
+    /// forwarded what `--allow-run-env=` lists, and the run reads for
+    /// children the base set and each exact name, by name, the whole
+    /// environment's listing only when a glob is granted, keeping what a
+    /// glob covers; a run granting no program reads none of it, and `-A`
+    /// hands children what it reads for `env`, everything.
+    #[test]
+    fn allow_run_grants_its_programs_and_reads_only_what_children_may_get() {
+        use gro_runtime::{EnvPattern, ProgramGrant, SpawnGrant};
+
+        let vars: &[(&[u8], &[u8])] = &[
+            (b"PATH", b"/bin"),
+            (b"HOME", b"/h"),
+            (b"CARGO_HOME", b"/c\xff"),
+            (b"CARGO\xff", b"x"),
+            (b"XCARGO_HOME", b"x"),
+            (b"SECRET", b"s"),
+            (b"TOKEN", b"t"),
+        ];
+        let run = invocation(&[
+            "--allow-run=git,cargo",
+            "--allow-run-env=TOKEN,UNSET",
+            "a.js",
+        ]);
+        let environment = TestEnvironment::of(vars);
+        let options = runtime_options(&run, &environment, FsGrant::default(), Path::new("/w"));
+        let forward = vec![
+            EnvPattern::Exact("TOKEN".to_owned()),
+            EnvPattern::Exact("UNSET".to_owned()),
+        ];
+        let program = ProgramGrant { forward };
+        let gro_runtime::Authority::Confined(grants) = options.authority else {
+            panic!("a run without -A is confined");
+        };
+        assert_eq!(
+            grants.spawn,
+            Some(SpawnGrant {
+                programs: [
+                    ("cargo".to_owned(), program.clone()),
+                    ("git".to_owned(), program),
+                ]
+                .into(),
+            })
+        );
+        assert_eq!(
+            *environment.asked.borrow(),
+            [
+                "PATH",
+                "HOME",
+                "TMPDIR",
+                "TERM",
+                "NO_COLOR",
+                "FORCE_COLOR",
+                "TOKEN",
+                "UNSET"
+            ]
+        );
+        assert!(!environment.listed.get());
+        let read: Vec<(&str, &str)> = options.spawn_env.iter().collect();
+        assert_eq!(read, [("PATH", "/bin"), ("HOME", "/h"), ("TOKEN", "t")]);
+        assert_eq!(options.env, gro_runtime::EnvVars::default());
+
+        let run = invocation(&["--allow-run=git", "--allow-run-env=CARGO_*", "a.js"]);
+        let environment = TestEnvironment::of(vars);
+        let options = runtime_options(&run, &environment, FsGrant::default(), Path::new("/w"));
+        assert!(environment.listed.get());
+        let read: Vec<(&str, &str)> = options.spawn_env.iter().collect();
+        assert_eq!(
+            read,
+            [
+                ("PATH", "/bin"),
+                ("HOME", "/h"),
+                ("CARGO_HOME", "/c\u{fffd}")
+            ]
+        );
+
+        // the variables' flag names nothing without a program, so a run
+        // granting no program reads nothing for children
+        let run = invocation(&["--allow-env=HOME", "a.js"]);
+        let environment = TestEnvironment::of(vars);
+        let options = runtime_options(&run, &environment, FsGrant::default(), Path::new("/w"));
+        assert_eq!(*environment.asked.borrow(), ["HOME"]);
+        assert_eq!(options.spawn_env, gro_runtime::EnvVars::default());
+
+        let run = invocation(&["--allow-run=git", "-A", "a.js"]);
+        let environment = TestEnvironment::of(vars);
+        let options = runtime_options(&run, &environment, FsGrant::default(), Path::new("/w"));
+        assert_eq!(options.authority, gro_runtime::Authority::Unconfined);
+        assert_eq!(options.spawn_env, options.env);
+        assert_eq!(options.spawn_env.iter().count(), 6);
     }
 
     /// The variables' `Debug` names them and prints no value.

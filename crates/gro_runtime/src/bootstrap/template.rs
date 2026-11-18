@@ -95,19 +95,25 @@ const _: () = {
 /// importer's grant, a JS expression over the script's `__bootstrap`: the
 /// one place a builtin's scope comes from. Every inner level is called
 /// with `undefined` today. A grant-free module has no grant to scope, and
-/// neither `args` nor `exit` scopes anything. `env` does, but one origin
-/// holds it, the project, every module of a confined run's that may import
-/// it (an unconfined run's are given every grant whole), so the host makes
-/// its root handle from the run's grant, which carries its scope natively,
-/// and every method decides from the handle it's called on, never from the
-/// run's grants. An instance per origin hands the origin's scope here, a
-/// native value the host gives back to the namespace op, which keys the
-/// origin's namespace by it and makes the origin's root from it.
+/// neither `args` nor `exit` scopes anything. `env`, `fs`, and `spawn` do,
+/// but one origin holds each, the project, every module of a confined
+/// run's that may import it (an unconfined run's are given every grant
+/// whole), so the host makes each one's root from the run's grant, which
+/// carries its scope natively, and every method decides from the handle
+/// it's called on, never from the run's grants. An instance per origin
+/// hands the origin's scope here, a native value the host gives back to the
+/// namespace op, which keys the origin's namespace by it and makes the
+/// origin's root from it.
 const fn scope_argument(grant: Option<Capability>) -> &'static str {
     match grant {
-        None | Some(Capability::Args | Capability::Exit | Capability::Env | Capability::Fs) => {
-            "undefined"
-        }
+        None
+        | Some(
+            Capability::Args
+            | Capability::Exit
+            | Capability::Env
+            | Capability::Fs
+            | Capability::Spawn,
+        ) => "undefined",
     }
 }
 

@@ -105,6 +105,14 @@ pub const FS_ERROR: ErrorFamily = ErrorFamily {
     brand: "@fuzdev/gro/fs_error.ts#FsError",
 };
 
+/// The spawn host module's errors: `SpawnError`, which `spawn`'s handles
+/// throw.
+pub const SPAWN_ERROR: ErrorFamily = ErrorFamily {
+    name: "SpawnError",
+    target: "program",
+    brand: "@fuzdev/gro/spawn_error.ts#SpawnError",
+};
+
 /// A family a native member declares, `throws FAMILY(name)` or, for an
 /// error row's class, `class FAMILY(name)` in `native_members!`, handed to
 /// the member's body under that name: what throwing the family's error

@@ -39,6 +39,8 @@ pub enum Capability {
     Env,
     /// The fs host module's: the directories its root reaches.
     Fs,
+    /// The spawn host module's: the programs its root makes handles of.
+    Spawn,
 }
 
 impl fmt::Display for Capability {
@@ -48,6 +50,7 @@ impl fmt::Display for Capability {
             Self::Exit => "exit",
             Self::Env => "env",
             Self::Fs => "fs",
+            Self::Spawn => "spawn",
         })
     }
 }

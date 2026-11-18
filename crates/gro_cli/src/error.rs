@@ -10,7 +10,9 @@ use gro_runtime::prices::PricesError;
 use gro_runtime::snapshot::SnapshotError;
 use thiserror::Error;
 
-use crate::cli::{DirFlag, DirFlagFault, EnvFlagFault, MAKE_SNAPSHOT};
+use crate::cli::{
+    DirFlag, DirFlagFault, EnvFlagFault, MAKE_SNAPSHOT, RunEnvFlagFault, RunFlagFault,
+};
 use crate::print::{echo_argument, escape_controls, stderr_line};
 use crate::{EXIT_FAILURE, EXIT_USAGE};
 
@@ -78,6 +80,34 @@ pub enum CliError {
          Run fgro run --help for more information."
     )]
     AllowTempValue,
+    /// `run --allow-run` with no names, which grants none.
+    #[error(
+        "--allow-run takes the programs it grants, as --allow-run=git,cargo\n\
+         Run fgro run --help for more information."
+    )]
+    AllowRunBare,
+    /// `run --allow-run=` listing a name it can't grant.
+    #[error("{0}\nRun fgro run --help for more information.")]
+    AllowRunName(RunFlagFault),
+    /// `run --allow-run-env` with no names, which passes none.
+    #[error(
+        "--allow-run-env takes the variables it lets programs be passed, as \
+         --allow-run-env=A,B_*\n\
+         Run fgro run --help for more information."
+    )]
+    AllowRunEnvBare,
+    /// `run --allow-run-env=` listing a name that names no variable or
+    /// glob.
+    #[error("{0}\nRun fgro run --help for more information.")]
+    AllowRunEnvName(RunEnvFlagFault),
+    /// `run --allow-run-env=` without `--allow-run=`, which grants no
+    /// program to pass a variable to.
+    #[error(
+        "--allow-run-env lets the programs --allow-run grants be passed variables, and no \
+         --allow-run grants one\n\
+         Run fgro run --help for more information."
+    )]
+    AllowRunEnvAlone,
     /// `run --allow-read=` or `--allow-write=` listing a path that names
     /// nothing.
     #[error(
@@ -210,6 +240,11 @@ impl CliError {
             | Self::AllowDirsBare(_)
             | Self::AllowTempValue
             | Self::AllowDir(..)
+            | Self::AllowRunBare
+            | Self::AllowRunName(_)
+            | Self::AllowRunEnvBare
+            | Self::AllowRunEnvName(_)
+            | Self::AllowRunEnvAlone
             | Self::NoDir { .. }
             | Self::TimeoutZero
             | Self::DriverWithExport
