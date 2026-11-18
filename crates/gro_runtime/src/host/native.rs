@@ -61,7 +61,8 @@
 //! made anywhere in the code of the crates linked into the binary
 //! (`gro_runtime`, `gro_cli`, `gro_v8`, `gro_sys`) but here and the error
 //! classes (`error_class.rs`), read from the source by the type every native
-//! callback names and by each API that makes one; one on a member that
+//! callback names and by each API that makes one, or on a promise's
+//! resolver made anywhere but here and `later.rs`; one on a member that
 //! runs without its grant or without an authority, or whose body ran before
 //! its refusal; one on a value made with no authority or without its
 //! grant; one on a member whose grant isn't its row's; one on the
@@ -86,7 +87,10 @@
 //! values among them, made after every kind whose record holds none, so a
 //! value can be a handle of one (`fs.project`), and the export declared a
 //! handle of the kind is that record. A member declared `async` returns a
-//! promise the host settles before returning it ([`settle`]).
+//! promise the host settles before returning it ([`settle`]), and one
+//! declared `later` returns one pending, which the host settles in a later
+//! turn, once the member's work, on a thread or a task of the event loop's
+//! runtime, has its result (`later.rs`, which owns the rules).
 //!
 //! A member can be keyed by a well-known symbol in place of a name,
 //! declared `fn [ASYNC_ITERATOR](..)` ([`WellKnownSymbol`]): its record
@@ -106,10 +110,11 @@
 //! What the form doesn't have yet: the table of native state behind a
 //! handle (`blake3.rs`'s hashers, with the weak reference that drops an
 //! entry) lifted into `handle.rs` for every kind that holds native state,
-//! which `fs`'s handles and listings, holding plain data, don't; a member
-//! whose promise settles in a later turn ([`settle`] settles before it
-//! returns), which an iterator that waits (`watch`'s), a child's exit, and
-//! an op moved off the thread need.
+//! which `fs`'s handles and listings, holding plain data, don't; and, for a
+//! `later` member, a call's work cancelled with its promise settled early,
+//! an `AbortSignal` read natively, an entry left uncounted so it doesn't
+//! hold the event loop open (Node's `unref`), and a bounded pool for work
+//! moved off the thread in place of a thread a call.
 
 use std::cell::RefCell;
 
@@ -385,6 +390,16 @@ pub fn op_state(isolate: &v8::Isolate) -> std::rc::Rc<RefCell<OpState>> {
 /// included, so it never throws to its caller, as an `async` function of
 /// the Node module's doesn't; else fulfilled with its body's value.
 ///
+/// A member written `later name(..)` returns a promise the host settles in
+/// a later turn: its body, after the same check, ends with
+/// [`later::defer`](super::later::defer) or
+/// [`later::defer_task`](super::later::defer_task), which make the promise
+/// and hand its settler to the member's work, and its value is an
+/// `Option<later::Deferred<'s>>`, the promise as made, `None` when it threw
+/// before deferring, which rejects the promise it returns as an `async`
+/// member's does ([`later::settle_later`](super::later::settle_later)). To
+/// the table and its pins it's `async`: JS sees the same function.
+///
 /// A member written `value name(state[, granted: Grant]; scope) for
 /// "specifier"` is an export the host makes once, with the namespace, after
 /// the same check, or, written `on KIND`, a value of the record a kind
@@ -480,15 +495,21 @@ macro_rules! native_members {
     (@symbol [$symbol:ident]) => {
         Some($symbol)
     };
+    (@result later) => {
+        Option<$crate::host::later::Deferred<'s>>
+    };
+    (@result $what:ident) => {
+        Option<deno_core::v8::Local<'s, deno_core::v8::Value>>
+    };
     (
-        @body $name:expr, $module:literal, $state:ident,
+        @body $what:ident $name:expr, $module:literal, $state:ident,
         [$($granted:ident: $grant:ty)?], $scope:ident, [$($arg:ident)*],
         [$($receiver:ident)?], [$($family:ident($declared:ident))?], $body:block
     ) => {{
         fn body<'s>(
             $scope: &mut deno_core::v8::PinScope<'s, '_>,
             args: &deno_core::v8::FunctionCallbackArguments<'s>,
-        ) -> Option<deno_core::v8::Local<'s, deno_core::v8::Value>> {
+        ) -> native_members!(@result $what) {
             let state = $crate::host::native::op_state($scope);
             let Ok(state) = state.try_borrow() else {
                 $crate::host::throw_error($scope, $crate::host::native::STATE_BUSY);
@@ -528,7 +549,7 @@ macro_rules! native_members {
                     mut result: deno_core::v8::ReturnValue<'s, deno_core::v8::Value>,
                 ) {
                     let body = native_members!(
-                        @body $name, $module, $state, [$($granted: $grant)?], $scope,
+                        @body fn $name, $module, $state, [$($granted: $grant)?], $scope,
                         [$($arg)* $($optional)*], [$($($receiver)?)?],
                         [$($family($declared))?], $body
                     );
@@ -558,11 +579,43 @@ macro_rules! native_members {
                     mut result: deno_core::v8::ReturnValue<'s, deno_core::v8::Value>,
                 ) {
                     let body = native_members!(
-                        @body $name, $module, $state, [$($granted: $grant)?], $scope,
+                        @body async $name, $module, $state, [$($granted: $grant)?], $scope,
                         [$($arg)* $($optional)*], [$($($receiver)?)?],
                         [$($family($declared))?], $body
                     );
                     if let Some(promise) = $crate::host::native::settle(scope, |scope| body(scope, &args)) {
+                        result.set(promise.into());
+                    }
+                }
+                deno_core::v8::MapFnTo::map_fn_to(callback)
+            },
+        }
+    };
+    (
+        @member later [$($doc:literal)*] $name:expr, $module:literal, $state:ident,
+        [$($granted:ident: $grant:ty)?], $scope:ident, [$($arg:ident)*], [$($optional:ident)*],
+        [$($kind:ident $(($receiver:ident))?)?], [], [$($family:ident($declared:ident))?], [],
+        $body:block
+    ) => {
+        $crate::host::native::Member::Function {
+            length: <[&str]>::len(&[$(stringify!($arg)),*]),
+            #[cfg(test)]
+            asynchronous: true,
+            callback: || {
+                $(#[doc = $doc])*
+                fn callback<'s>(
+                    scope: &mut deno_core::v8::PinScope<'s, '_>,
+                    args: deno_core::v8::FunctionCallbackArguments<'s>,
+                    mut result: deno_core::v8::ReturnValue<'s, deno_core::v8::Value>,
+                ) {
+                    let body = native_members!(
+                        @body later $name, $module, $state, [$($granted: $grant)?], $scope,
+                        [$($arg)* $($optional)*], [$($($receiver)?)?],
+                        [$($family($declared))?], $body
+                    );
+                    if let Some(promise) =
+                        $crate::host::later::settle_later(scope, |scope| body(scope, &args))
+                    {
                         result.set(promise.into());
                     }
                 }
@@ -1025,13 +1078,22 @@ pub mod probe {
 
     /// The probe's function, as the host makes a member's.
     pub fn function<'s>(scope: &v8::PinScope<'s, '_>) -> Option<v8::Local<'s, v8::Function>> {
+        function_of(scope, &NATIVE_MEMBERS[0])
+    }
+
+    /// `member`'s function, as the host makes a member's, for a test's
+    /// own table; `None` for a value.
+    pub fn function_of<'s>(
+        scope: &v8::PinScope<'s, '_>,
+        member: &super::NativeMember,
+    ) -> Option<v8::Local<'s, v8::Function>> {
         let super::Member::Function {
             length, callback, ..
-        } = NATIVE_MEMBERS[0].member
+        } = member.member
         else {
             return None;
         };
-        super::function(scope, NATIVE_MEMBERS[0].name, length, callback)
+        super::function(scope, member.name, length, callback)
     }
 
     native_members! {
@@ -1263,10 +1325,19 @@ mod tests {
 
     /// Each line of `source` that names a maker of [`MAKERS`].
     fn makers_in(source: &str) -> Vec<&str> {
+        named_in(source, &MAKERS)
+    }
+
+    /// What makes a promise the host settles natively, as source names it:
+    /// its resolver, however the path is spelled.
+    const RESOLVERS: [&str; 1] = ["PromiseResolver"];
+
+    /// Each line of `source`, but a comment, that names a word of `names`.
+    fn named_in<'a>(source: &'a str, names: &[&str]) -> Vec<&'a str> {
         source
             .lines()
             .filter(|line| !line.trim_start().starts_with("//"))
-            .filter(|line| MAKERS.iter().any(|maker| line.contains(maker)))
+            .filter(|line| names.iter().any(|name| line.contains(name)))
             .collect()
     }
 
@@ -1316,10 +1387,13 @@ mod tests {
     /// `gro_v8`, `gro_sys`) makes a native function, or a native callback JS
     /// can reach, but this module, from the table, and the error classes
     /// (`error_class.rs`): a function a row's namespace or a handle held
-    /// that was made elsewhere would skip the form's check. A test's own
-    /// code, in a `tests` module's file, may make one. Read from the
-    /// source, as no build can tell, and every spelling the reader must
-    /// catch is held below.
+    /// that was made elsewhere would skip the form's check. Nor does any
+    /// make a promise's resolver but this module, whose `async` members
+    /// settle before they return, and `later.rs`, whose `later` members
+    /// settle in a later turn: a promise the host settled otherwise would
+    /// follow neither's rules. A test's own code, in a `tests` module's
+    /// file, may make either. Read from the source, as no build can tell,
+    /// and every spelling the reader must catch is held below.
     #[test]
     fn no_native_function_is_made_outside_the_form() {
         let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -1335,17 +1409,42 @@ mod tests {
             rust_files(&dir, &mut files);
         }
         let allowed = [src.join("host/native.rs"), src.join("host/error_class.rs")];
+        let resolving = [src.join("host/native.rs"), src.join("host/later.rs")];
         let mut found = Vec::new();
         for file in files {
-            if allowed.contains(&file) || is_tests(&file) {
+            if is_tests(&file) {
                 continue;
             }
             let source = std::fs::read_to_string(&file).unwrap();
-            for line in makers_in(&source) {
+            let mut named = Vec::new();
+            if !allowed.contains(&file) {
+                named.extend(makers_in(&source));
+            }
+            if !resolving.contains(&file) {
+                named.extend(named_in(&source, &RESOLVERS));
+            }
+            for line in named {
                 found.push(format!("{}: {}", file.display(), line.trim()));
             }
         }
         assert_eq!(found, [""; 0]);
+        // the two that settle promises make their resolvers, so the scan reads them
+        for file in &resolving {
+            let source = std::fs::read_to_string(file).unwrap();
+            assert!(
+                !named_in(&source, &RESOLVERS).is_empty(),
+                "{}",
+                file.display()
+            );
+        }
+        for spelled in [
+            "let resolver = v8::PromiseResolver::new(scope)?;",
+            "use deno_core::v8::PromiseResolver as Made; Made::new(scope)",
+            "pending: HashMap<u64, v8::Global<v8::PromiseResolver>>,",
+        ] {
+            assert_eq!(named_in(spelled, &RESOLVERS).len(), 1, "{spelled}");
+        }
+        assert_eq!(named_in("// v8::PromiseResolver::new", &RESOLVERS).len(), 0);
         // the reader finds each maker, and not one in a comment
         let made = "let f = v8::Function::builder(callback).build(scope);\n// v8::Function::new\n";
         assert_eq!(makers_in(made).len(), 1);

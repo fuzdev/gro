@@ -223,7 +223,9 @@ pending never woke.
 A post after the register finds the waker, and one before the check is
 found by it; one between the two wakes the event loop once more than it
 needs, which costs a turn. An upgrade whose `poll_inner` registers before
-it checks drops this hunk.
+it checks drops this hunk. `gro_runtime`'s
+`a_post_after_a_turn_that_ran_every_posted_task_wakes_the_event_loop`
+holds it; the ignored stress test races the window itself.
 
 Reportable upstream: yes, as a lost wakeup.
 
@@ -272,3 +274,20 @@ Reportable upstream: yes, as a lost wakeup.
    `a_first_import_short_of_stack_is_built_from_the_event_loop` sweeps first
    imports up from near the stack's limit and fails on an import that
    doesn't get the module.
+8. For `deno_core`, check what the later form
+   (`crates/gro_runtime/src/host/later.rs`) takes from it: the
+   `ExternalOpsTracker` in `OpState`, whose count keeps the event loop
+   pending (`EventLoopPendingState::is_pending`) and keeps a top-level
+   `await` from reading as stalled; the `V8CrossThreadTaskSpawner` it puts
+   in each runtime's `OpState`; `dispatch_task_spawner`'s drain of that
+   spawner's queue, up to three times a poll with a microtask checkpoint
+   after each and then a wake, which the module doc's busy delivery rests
+   on; and the patch above that registers the queue's waker first.
+   `gro_runtime`'s `host::later` tests fail on the first two
+   (`a_top_level_await_waits_for_a_later_settlement` on the stalled-await
+   check), and
+   `a_post_after_a_turn_that_ran_every_posted_task_wakes_the_event_loop`
+   fails on the patch's loss. The ignored stress test
+   `a_herd_of_threads_posting_at_once_never_leaves_the_event_loop_asleep`
+   (`cargo test -p gro_runtime --lib -- --ignored a_herd_of_threads`)
+   catches it only by chance, a few rounds in ten thousand.

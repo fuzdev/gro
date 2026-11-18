@@ -44,7 +44,9 @@ serde_json = { version = "1", features = ["float_roundtrip"] }
 # a socket of a family std can't make, for the box's tests (tokio's already)
 socket2 = "0.6.5"
 thiserror = "2"
-tokio = { version = "1", features = ["rt"] }
+# rt: the event loop's runtime; time and net: what a later member's work
+# waits on as a task on it, a timer or a descriptor its reactor watches
+tokio = { version = "1", features = ["rt", "time", "net"] }
 # TypeScript's type strip, in process. Its parser's depth limits make input
 # past them a parse error, not a stack overflow, on a thread of its
 # `STACK_SIZE`. Without default features: the strip needs none of tsv's

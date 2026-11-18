@@ -329,7 +329,10 @@ miss there, and the contracts no one module doc owns:
     `native_members!` declares, the first time a run asks for the row's
     namespace through the one op, `op_gro_namespace`, which knows the row by
     the script that calls it. No host op is a `deno_core` async op: an
-    `async` member returns a promise the host settled before returning it.
+    `async` member returns a promise the host settled before returning it,
+    and a `later` member one the host settles in a later turn, counted
+    while pending so the event loop waits (`host/later.rs`'s module doc has
+    the rules).
   - A first `import()` of a builtin short of stack is built from the event
     loop (`loader/headroom.rs`), and both levels of a backing script stay safe
     to end at any call and to run again (`bootstrap.rs`'s module doc has the
@@ -409,8 +412,9 @@ miss there, and the contracts no one module doc owns:
   `bootstrap::UNGATED_OPS`.
 - The same choke point for native members: each is declared through
   `native_members!`, whose callback checks the grant first and hands the
-  body each argument unconverted, and no native function is made outside
-  `native.rs` and `error_class.rs`; source-scanning tests hold both
+  body each argument unconverted, no native function is made outside
+  `native.rs` and `error_class.rs`, and no promise resolver outside
+  `native.rs` and `later.rs`; source-scanning tests hold them
   (`host/native.rs`'s module doc lists them). `tests/native_members.txt`
   pins the table as `op_names.txt` pins the ops.
 - `bootstrap::REFUSED_OPS` lists the ops eval refuses. Of `deno_web`'s ops

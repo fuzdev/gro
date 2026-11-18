@@ -19,10 +19,12 @@
 //! on the bootstrap's ungated list, and each host op refuses a runtime with
 //! no authority.
 //!
-//! Nothing the host serves is a `deno_core` async op: not the host op, and
-//! not an `async` member, whose promise the host makes and settles before
-//! returning it (`native::settle`), so nothing of a call is left to the
-//! event loop.
+//! Nothing the host serves is a `deno_core` async op: not the host op, not
+//! an `async` member, whose promise the host makes and settles before
+//! returning it (`native::settle`), so nothing of the call is left to the
+//! event loop, and not a `later` member, whose promise the host settles in
+//! a later turn through `deno_core`'s task queue, counted while it's
+//! pending so the event loop waits for it (`later.rs`).
 //!
 //! The loader refuses an ungranted builtin at link time already, and every
 //! builtin in an eval, so a refusal here is the second check, for a path to
@@ -35,6 +37,14 @@ pub mod exit;
 pub mod fs;
 mod grant;
 pub mod handle;
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "no shipped member is declared `later` yet; the form's tests declare theirs"
+    )
+)]
+pub mod later;
 pub mod native;
 
 use deno_core::error::ModuleLoaderError as JsErrorBox;
