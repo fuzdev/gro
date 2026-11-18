@@ -222,6 +222,17 @@ a relative or absolute import never leaves the importer's root, enters `node_mod
 or enters another root nested in it, and `"exports"` targets and self-references stay inside their package.
 [resolver](resolver.md#departures-from-node) has the rules.
 
+## pin
+
+In `spawn`, what a granted program's name resolves to, held for the run so a later change on disk never changes which file a handle runs:
+the file found (on `PATH` for a bare name, beneath the [project root](#project-root) for one holding `/`), its identity, and its real path,
+and for a native binary a descriptor on it, which it runs by; a script keeps none and runs by the path it was found at.
+A pin holds the file's identity, not its content: a file rewritten in place is still the file pinned and runs as rewritten,
+while one replaced, removed, or made at its path since isn't seen.
+`fgro run` pins each program `--allow-run=` names as the run starts, before any module evaluates, a name that finds nothing included;
+under `-A`, and on Node, a name is pinned when a handle is made of it ([host modules](host_modules.md#spawn-on-fgro)).
+It isn't a release binary's hash pin, the hash a caller checks an `fgro` file against ([eval](eval.md#the-envelope)).
+
 ## policy file
 
 The committed record of the grants accepted in review, designed and provisionally named `gro.policy.json`.

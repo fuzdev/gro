@@ -276,9 +276,9 @@ Crates:
   maps the commands to their docs
 - `gro_sys` - the raw system calls the safe std API lacks (descriptors, the
   environment, `RLIMIT_DATA`, the default thread stack, a thread's stack
-  start, `wait4`, process groups, `_exit`, and the filesystem calls confined
-  beneath a directory descriptor by `openat2`, in `beneath`), each behind a
-  safe API
+  start, `wait4`, process groups, `_exit`, `access`, and the filesystem
+  calls confined beneath a directory descriptor by `openat2`, in
+  `beneath`), each behind a safe API
 - `gro_v8` - the V8 boundary: the calls rusty_v8 exposes only as `unsafe`,
   behind a safe API (eval's recording `ArrayBuffer` allocator,
   `record_array_buffers`, and `PendingArrayBuffer`, an `ArrayBuffer`'s bytes
@@ -454,22 +454,26 @@ miss there, and the contracts no one module doc owns:
   address with another op's (`snapshot.rs`'s module doc has why).
 - `gro_runtime` reads no environment variable but the `phases` feature's
   `GRO_PHASES_FILE` and the `prices` feature's `GRO_PRICES_OFF`; `fgro`
-  decides color and passes it in, as it passes the working directory and
-  its own name and version, and the variables `--allow-env=` grants (every
+  decides color and passes it in, as it passes the working directory and its
+  own name and version, and the variables `--allow-env=` grants (every
   variable under `-A`), which `gro_cli/src/run.rs` reads once as the run
   starts (`env_vars`, through its `Environment` seam) and hands in as
-  `RuntimeOptions::env`, and the directories `--allow-read=` and
+  `RuntimeOptions::env`, and, for a run that grants a program, the variables
+  a child may be given (`spawn_env`: the base set and what
+  `--allow-run-env=` names, the whole environment listed only when it grants
+  a glob, everything under `-A`), handed in as `RuntimeOptions::spawn_env`,
+  which no member returns, and the directories `--allow-read=` and
   `--allow-write=` grant, each resolved against the working directory and
-  checked to be a directory as the run starts (`fs_grant`), handed in as
-  the `fs` grant's paths, each with its real path then and the identity
-  of the directory there, and, for a run that grants `fs.temp_dir`, the
-  OS's temporary directory, read from `TMPDIR`, `TMP`, or `TEMP` as
-  Node's `os.tmpdir()` reads it, handed in by its real path then (where
-  it can't be resolved then, its path with `.` and `..` resolved by
-  their text) as `RuntimeOptions::temp_dir`. The host asks the OS for the process's id,
-  `pid`, when a run first imports the module. The `phases` and `prices` features (on
-  `gro_cli`, enabling `gro_runtime`'s) are off in the binary that ships;
-  without them nothing reads the variables.
+  checked to be a directory as the run starts (`fs_grant`), handed in as the
+  `fs` grant's paths, each with its real path then and the identity of the
+  directory there, and, for a run that grants `fs.temp_dir`, the OS's
+  temporary directory, read from `TMPDIR`, `TMP`, or `TEMP` as Node's
+  `os.tmpdir()` reads it, handed in by its real path then (where it can't be
+  resolved then, its path with `.` and `..` resolved by their text) as
+  `RuntimeOptions::temp_dir`. The host asks the OS for the process's id,
+  `pid`, when a run first imports the module. The `phases` and `prices`
+  features (on `gro_cli`, enabling `gro_runtime`'s) are off in the binary
+  that ships; without them nothing reads the variables.
 - A run's or an eval's runtime is handed back when it's over
   (`SpentRuntime`), and every command exits through `end` in
   `crates/gro_cli/src/main.rs` but for eval's out-of-memory backstop. A host

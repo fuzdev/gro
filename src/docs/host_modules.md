@@ -23,7 +23,7 @@ This table is the one list of what's on `fgro`: the other runtime docs link here
 | module               | what it reaches                         | on `fgro`               |
 | -------------------- | --------------------------------------- | ----------------------- |
 | `fs.ts`              | the filesystem, through handles         | built, the `fs` grant   |
-| `spawn.ts`           | programs, as child processes            | not yet                 |
+| `spawn.ts`           | programs, as child processes            | handles, no launch yet  |
 | `net.ts`             | the network, by host                    | not yet                 |
 | `watch.ts`           | changes under a directory handle        | not yet                 |
 | `env.ts`             | the environment                         | built, the `env` grant  |
@@ -38,7 +38,7 @@ This table is the one list of what's on `fgro`: the other runtime docs link here
 | `blake3.ts`          | nothing: BLAKE3 hashing over bytes      | built, no grant         |
 | `env_error.ts`       | nothing: `env`'s error class            | built, no grant         |
 | `fs_error.ts`        | nothing: `fs`'s error class             | built, no grant         |
-| `spawn_error.ts`     | nothing: `spawn`'s error class          | not yet                 |
+| `spawn_error.ts`     | nothing: `spawn`'s error class          | built, no grant         |
 | `net_error.ts`       | nothing: `net`'s error class            | not yet                 |
 | `stdio_error.ts`     | nothing: the streams' error class       | not yet                 |
 
@@ -509,6 +509,47 @@ so the pin and environment fixed at `program()` carry across restarts.
 
 The module's TSDoc has each op's contract.
 
+### spawn on fgro
+
+On `fgro`, `@fuzdev/gro/spawn.ts` is a builtin module with the Node module's members, each of the same `length`, its handles frozen,
+and `@fuzdev/gro/spawn_error.ts` is a grant-free one, `SpawnError` and `is_spawn_error` the runtime's own ([error classes](#error-classes-on-fgro)).
+`spawn` needs the `spawn` grant, which `fgro run --allow-run=` gives the project's own modules for the programs it names, and `-A` gives every module for every program ([run](run.md#usage)).
+Built: the root and its narrowed roots, `program`, `find`, and `narrow`, program handles with their `name` and `path`,
+and `program_in` and `find_in` up to their check of the directory.
+Not built: starting a child. A program's `run`, `out`, `out_bytes`, and `start` check their receiver and reject with a plain `Error` saying so,
+and the `SpawnChild` and `SpawnStdin` kinds, which only `start` makes, have their methods declared the same way, so the module's shape is the Node module's.
+How it's built is in the module docs of `crates/gro_runtime/src/host/spawn.rs` and `spawn/pins.rs`.
+
+- Until each child is held in a box of its own ([native requirements](#native-requirements)), granting any program is close to granting what `-A` grants:
+  most programs can be made to run code by their arguments or environment, a shell, git, and cargo among them,
+  and the root's `env` values set any variable for a program, `LD_PRELOAD` and `PATH` among them.
+  Hand library code a narrowed root, which refuses `env` values.
+- The run's root makes only the programs `--allow-run=` names, each by the name a program asks for, and any other name is `not_granted`, where Node's root makes any;
+  under `-A` it makes any, as Node's does.
+- Each granted name is pinned as the run starts, once the entry has resolved and before any module evaluates, by the Node module's rules,
+  a bare name walked on the `PATH` `fgro` read for children, a name holding `/` beneath the project's root,
+  its first bytes read through a descriptor on the file it found, which a native binary's pin keeps to run by,
+  while a script's keeps none and is run by the path it was found at:
+  a call meets what the start found, a fault included, where Node resolves at the call.
+  A pin holds the file's identity, not its content: a file rewritten in place, as `fs`'s `write` rewrites one, is still the file pinned and runs as rewritten,
+  while one replaced, removed, or made at its path since the start isn't seen.
+  A granted name that finds nothing is no error until it's asked for, and then `find` returns `null`. Under `-A` a name is resolved when it's asked for, as on Node.
+- A child's environment is built when its handle is made, from what `fgro` read for children as the run started, never from the process:
+  the base set, then what `pass_env` names, then `env`'s values, and every `PATH` a child gets keeps only its absolute entries,
+  the base set's, one `pass_env: 'all'` passes, and one `env` sets alike, where Node passes `PATH` as it is.
+  A root lets `pass_env` name only what `--allow-run-env=` forwards: an exact name a pattern covers, a glob only within a glob the flag grants,
+  and an exact name of the base set, which every child is given anyway.
+  Anything else, `pass_env: 'all'` among it, is `not_granted`; under `-A` any variable passes, `'all'` included.
+  `env`'s values are set at the run's root, as on Node, and a narrowed root refuses them.
+- `program_in` and `find_in` take a directory beneath an exec root the run declares, and a run declares none yet,
+  so in a confined run each is `not_granted` once its directory, name, and options are checked, and under `-A`, where every directory would be one, resolving beneath it isn't built.
+- A refusal by the run's root names its program in the listed refusal and, for a plain name or variable, the flag that grants it in a hint ([run](run.md#errors-and-exit-codes));
+  a narrowed root refuses what the Node module's does (a name outside its set, `env`, `pass_env: 'all'`, and a glob) with no hint, since no flag widens it,
+  and a variable its program's grant doesn't forward with the `--allow-run-env=` hint, since the flag widens the program's grant.
+- A name, an argument, and an option are read as the values they are, converting nothing: an option given through a getter or a proxy is a `TypeError`,
+  and an array element given through one reads as none, where the Node module runs it.
+- A handle's prototype is the host's record of its methods, enumerable, with no `constructor`, where Node's is a class's.
+
 ## The process modules
 
 ```ts
@@ -667,7 +708,7 @@ a string, a boxed number, a thenable, and an object with a `Symbol.toPrimitive` 
 the realm's own `TypeError` whatever the global of that name has become, and no property of the value is read.
 The code set is the run's state, kept by the host, not the module's.
 Nothing is flushed, because nothing is buffered: on `fgro` the console is the only writer to stdout and stderr so far.
-On Node, `exit` also runs the spawn module's child cleanup; `fgro` has no spawn module yet.
+On Node, `exit` also runs the spawn module's child cleanup; `fgro` starts no child yet.
 
 #### env on fgro
 

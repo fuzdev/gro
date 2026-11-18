@@ -84,7 +84,7 @@ like `@fuzdev/gro/args.ts` ([host modules](host_modules.md#the-modules) lists th
 The table is checked before any package lookup, matching the specifier exactly,
 so a builtin module reads no `package.json` and wins over an installed package or a self-reference of that name;
 the `.js` spelling of a builtin module's specifier (`@fuzdev/gro/args.js`), and the specifier of a host module not built on `fgro` yet
-(like `@fuzdev/gro/spawn.ts`, each one [host modules](host_modules.md#the-modules) marks not yet,
+(like `@fuzdev/gro/net.ts`, each one [host modules](host_modules.md#the-modules) marks not yet,
 with its `.js` spelling), are refused the same way, naming the one to import
 or that the module isn't on `fgro` yet, never looked up as a package, so none of them changes meaning when its builtin module lands.
 `@fuzdev/gro/process.ts` and `@fuzdev/gro/process_error.ts`, each with its `.js` spelling, are refused the same way:
