@@ -1385,15 +1385,20 @@ mod tests {
     }
 
     /// What a module's code can make a value of a type with out of sight
-    /// of a line naming the type: `Self`, a child module, a macro, and an
-    /// included source.
-    const BUILDERS: [&str; 6] = [
+    /// of a line naming the type: `Self`, a child module, a macro, an
+    /// included source, a derive, written plainly or under a `cfg_attr`,
+    /// and a numbered field, which a struct literal through an alias the
+    /// module didn't write names.
+    const BUILDERS: [&str; 9] = [
         "Self",
         "mod",
         "macro_rules",
         "include",
         "include_str",
         "include_bytes",
+        "derive",
+        "cfg_attr",
+        "0",
     ];
 
     /// Each line of `source`, but a comment, that names `type_name` or a
@@ -1423,7 +1428,11 @@ mod tests {
     /// its test maker's `cfg` held, each of the two files counted up to
     /// its tests module, which ends the file. The
     /// crates linked with this one are read too, though none can name the
-    /// type while `host` is private to this crate.
+    /// type while `host` is private to this crate. The form's own file
+    /// makes one on its macro's line alone, from the macro's `$family`, and
+    /// defines no other macro; outside it, only `host/mod.rs` reaches the
+    /// form, by its one invocation and its import, so no code calls the
+    /// arm that makes one, under the form's name or another.
     #[test]
     fn no_family_is_declared_outside_the_form() {
         const MAKER: &str = "of_member_declaration";
@@ -1447,6 +1456,22 @@ mod tests {
         }
         let form = src.join("host/native.rs");
         let own = src.join("host/error_class.rs");
+        let invoking = src.join("host/mod.rs");
+        let code_lines = |code: &str, holds: &dyn Fn(&str) -> bool| -> Vec<String> {
+            code.lines()
+                .map(str::trim)
+                .filter(|line| !line.starts_with("//") && holds(line))
+                .map(ToOwned::to_owned)
+                .collect()
+        };
+        // a line that reaches the form's arms: an invocation, an import, or
+        // a rename of it, or its arm that makes one
+        let reaches_form = |line: &str| {
+            line.contains("@declared")
+                || ["!", " as", ";", ",", "}"]
+                    .iter()
+                    .any(|after| line.contains(&format!("native_members{after}")))
+        };
         let mut found = Vec::new();
         for file in files {
             let source = std::fs::read_to_string(&file).unwrap();
@@ -1456,11 +1481,32 @@ mod tests {
                 // the module's tests, which end the file
                 let code = code_before_tests(&source, &file);
                 assert_eq!(declared_in(code), 1, "{}", file.display());
-            } else if made > 0 && !is_tests(&file) {
+            } else if file == invoking {
+                // the one invocation, and its import, under the form's name
+                assert_eq!(
+                    code_lines(&source, &reaches_form),
+                    ["use native::native_members;", "native_members! {"]
+                );
+            } else if (made > 0 || !code_lines(&source, &reaches_form).is_empty())
+                && !is_tests(&file)
+            {
                 found.push(file.display().to_string());
             }
         }
         assert_eq!(found, [""; 0]);
+        // the form makes one in the macro alone, from the family a member
+        // declares, which only a macro's own `$family` names, and defines
+        // no other macro, which could carry the line elsewhere
+        let source = std::fs::read_to_string(&form).unwrap();
+        let code = code_before_tests(&source, &form);
+        assert_eq!(
+            code_lines(code, &|line| line.contains(MAKER)),
+            ["$crate::host::error_class::DeclaredFamily::of_member_declaration(&$family);"]
+        );
+        assert_eq!(
+            code_lines(code, &|line| line.contains("macro_rules")),
+            ["macro_rules! native_members {"]
+        );
         // the type's own module names it, or `Self`, in its declaration,
         // its two makers, and the three parameters that take one alone, and
         // has no child module, macro, or included source: a constructor, a
@@ -1471,15 +1517,20 @@ mod tests {
         assert_eq!(
             naming_in(code, "DeclaredFamily"),
             [
+                "#[derive(Debug, PartialEq, Eq)]",
+                "#[derive(Debug, Clone, Copy)]",
                 "pub struct DeclaredFamily(&'static ErrorFamily);",
                 "impl DeclaredFamily {",
                 "pub const fn of_member_declaration(family: &'static ErrorFamily) -> Self {",
                 "Self(family)",
                 "pub const fn for_test(family: &'static ErrorFamily) -> Self {",
                 "Self(family)",
+                "self.0",
+                "#[derive(Default)]",
                 "family: DeclaredFamily,",
                 "family: DeclaredFamily,",
                 "family: DeclaredFamily,",
+                "let (kind, target, options) = (args.get(0), args.get(1), args.get(2));",
             ]
         );
         // its derives make none, and its second maker is a test's alone
@@ -1498,6 +1549,10 @@ mod tests {
             "macro_rules! built {",
             "mod made;",
             "include!(\"made.rs.in\");",
+            "#[derive(Default)]",
+            "#[cfg_attr(all(), derive(Default))]",
+            "pub const MADE: Witness = Witness { 0: &ENV_ERROR };",
+            "0: &ENV_ERROR,",
         ] {
             assert_eq!(naming_in(spelled, "DeclaredFamily"), [spelled], "{spelled}");
         }
