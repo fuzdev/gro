@@ -123,8 +123,12 @@ A source-phase import of a builtin module (`import source`, `import.source()`) i
 
 ## Departures from Node
 
-Otherwise the resolver follows Node's algorithm.
-Where it departs, it departs on purpose, and always toward failing closed:
+Otherwise the resolver follows Node's algorithm, held to it by a differential:
+Node resolves the cases in `crates/gro_runtime/tests/fixtures/resolution/cases.json` to `expected.json` there
+(`node oracle.js --write`, checked by Gro's own tests under Node), and the resolver's test resolves each the same,
+but a case where `fgro` departs by design, which declares why and what `fgro` does instead: the refusal, or the URL it resolves to.
+Where it departs, it departs on purpose. Most departures refuse what Node loads;
+the condition set can pick another target than Node's, and `.ts` inside `node_modules` loads where Node refuses it:
 
 - **Every module stays inside its root** (origin containment), checked on its real path, after every symlink.
   A relative or absolute specifier resolves only inside the importer's root:
@@ -226,7 +230,10 @@ Where it departs, it departs on purpose, and always toward failing closed:
 - **A `.ts` file is always an ES module,** where Node reads `"type"` and the code and may run it as CommonJS;
   `.cts` is refused.
 - **A scoped name with an empty, `.`, or `..` segment is refused,** where Node accepts it.
-- **No other condition matches:** not `node` or `require` (Node's), nor `browser` or `svelte`; the set grows only by a decision.
+- **No other condition matches:** not `node`, `module-sync`, or `require` (Node's), nor `browser` or `svelte`,
+  so where a target lists `node` or `module-sync` ahead of `gro`, `import`, and `default`, or `gro` ahead of Node's,
+  `fgro` picks another file than Node does;
+  the set grows only by a decision.
 - **A pattern's match can't hide a `..` behind a tab or a line break** (`.\t.`), which URL parsing drops,
   where Node substitutes it unchecked and loads what it names outside the package.
 - **A pattern's match can't make an empty segment the target doesn't have:**

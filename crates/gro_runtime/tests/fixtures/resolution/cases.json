@@ -1,0 +1,150 @@
+{
+	"files": {
+		"package.json": "{\"name\": \"app\", \"type\": \"module\", \"exports\": {\".\": \"./src/index.js\", \"./sub/*\": \"./src/sub/*\", \"./cond\": {\"browser\": \"./src/browser.js\", \"import\": \"./src/import.js\", \"default\": \"./src/default.js\"}}, \"imports\": {\"#lib/*\": \"./src/lib/*\", \"#lib/special/*\": \"./src/routes/*\", \"#exact\": \"./src/lib/a.js\", \"#/x\": \"./src/lib/a.js\", \"#star/*/end.js\": \"./src/lib/*.js\", \"#cond\": {\"browser\": \"./src/lib/b.js\", \"import\": \"./src/lib/a.js\", \"default\": \"./src/lib/b.js\"}, \"#cond_default\": {\"browser\": \"./src/lib/a.js\", \"default\": \"./src/lib/b.js\"}, \"#arr\": [\"../bad.js\", \"./src/lib/a.js\"], \"#null\": null, \"#dep\": \"dep\", \"#dep/*\": \"dep/*\", \"#up\": \"../outside.js\", \"#abs\": \"/outside.js\", \"#nm\": \"./node_modules/dep/index.js\", \"#dotdot\": \"./src/../src/lib/a.js\", \"#encoded\": \"./src/%2e%2e/src/lib/a.js\", \"#empty_segment\": \"./src//lib/a.js\", \"#missing\": \"./src/lib/missing.js\", \"#arr_dep\": [\"dep\", \"./src/lib/a.js\"], \"#tab_empty\": \"./src/\\t/lib/a.js\", \"#bs_empty\": \"./src/\\\\lib/a.js\", \"#nm_star/*\": \"./node_*\", \"#cond_node\": {\"node\": \"./src/lib/b.js\", \"import\": \"./src/lib/a.js\"}, \"#cond_gro\": {\"gro\": \"./src/lib/b.js\", \"default\": \"./src/lib/a.js\"}, \"#cond_sync\": {\"module-sync\": \"./src/lib/b.js\", \"default\": \"./src/lib/a.js\"}, \"#to_empty\": \"\", \"#to_dot\": \".\", \"#to_dot_x\": \".x\", \"#to_hash\": \"#exact\", \"#arr_hash\": [\"#exact\", \"./src/lib/a.js\"], \"#arr_dot_x\": [\".x\", \"./src/lib/a.js\"], \"#arr_empty_seg\": [\"./src//lib/a.js\", \"./src/lib/b.js\"]}}",
+		"src/main.mjs": "",
+		"src/rel.js": "export default 'rel';\n",
+		"src/index.js": "export default 'index';\n",
+		"src/import.js": "export default 'import';\n",
+		"src/sub/s.js": "export default 's';\n",
+		"src/lib/a.js": "export default 'a';\n",
+		"src/lib/b.js": "export default 'b';\n",
+		"src/lib/foo.js": "export default 'foo';\n",
+		"src/lib/nested/c.js": "export default 'c';\n",
+		"src/routes/r.js": "export default 'r';\n",
+		"sub/package.json": "{\"type\": \"module\"}",
+		"sub/m.mjs": "",
+		"node_modules/dep/package.json": "{\"name\": \"dep\", \"version\": \"1.0.0\", \"type\": \"module\", \"exports\": {\".\": \"./index.js\", \"./*\": \"./lib/*\"}, \"imports\": {\"#internal\": \"./lib/i.js\", \"#internal/*\": \"./lib/*\"}}",
+		"node_modules/dep/probe.mjs": "",
+		"node_modules/dep/index.js": "export default 'dep';\n",
+		"node_modules/dep/lib/i.js": "export default 'internal';\n",
+		"node_modules/dep/lib/x.js": "export default 'x';\n",
+		"inner/package.json": "{\"type\": \"module\", \"imports\": {\"#here\": \"./h.js\", \"#up_link\": \"./link.js\"}}",
+		"inner/probe.mjs": "",
+		"inner/h.js": "export default 'h';\n"
+	},
+	"links": {
+		"inner/link.js": "../src/lib/a.js"
+	},
+	"cases": [
+		{ "importer": "src/main.mjs", "specifier": "#lib/a.js" },
+		{ "importer": "src/main.mjs", "specifier": "#lib/nested/c.js" },
+		{ "importer": "src/main.mjs", "specifier": "#lib/special/r.js" },
+		{ "importer": "src/main.mjs", "specifier": "#lib/a.js?q=1" },
+		{ "importer": "src/main.mjs", "specifier": "#exact" },
+		{ "importer": "src/main.mjs", "specifier": "#/x" },
+		{ "importer": "src/main.mjs", "specifier": "#star/foo/end.js" },
+		{ "importer": "src/main.mjs", "specifier": "#cond" },
+		{ "importer": "src/main.mjs", "specifier": "#cond_default" },
+		{ "importer": "src/main.mjs", "specifier": "#arr" },
+		{ "importer": "src/main.mjs", "specifier": "#null", "fgro": "ImportNotDefined" },
+		{ "importer": "src/main.mjs", "specifier": "#nope", "fgro": "ImportNotDefined" },
+		{ "importer": "src/main.mjs", "specifier": "#star/end.js", "fgro": "ImportNotDefined" },
+		{ "importer": "src/main.mjs", "specifier": "#", "fgro": "InvalidImportSpecifier" },
+		{ "importer": "src/main.mjs", "specifier": "#lib/", "fgro": "InvalidImportSpecifier" },
+		{ "importer": "src/main.mjs", "specifier": "#up", "fgro": "InvalidTarget" },
+		{ "importer": "src/main.mjs", "specifier": "#abs", "fgro": "InvalidTarget" },
+		{ "importer": "src/main.mjs", "specifier": "#nm", "fgro": "InvalidTarget" },
+		{ "importer": "src/main.mjs", "specifier": "#dotdot", "fgro": "InvalidTarget" },
+		{ "importer": "src/main.mjs", "specifier": "#encoded", "fgro": "InvalidTarget" },
+		{ "importer": "src/main.mjs", "specifier": "#lib/nested/../a.js", "fgro": "InvalidSubpath" },
+		{ "importer": "src/main.mjs", "specifier": "#lib/%2e%2e/a.js", "fgro": "InvalidSubpath" },
+		{ "importer": "src/main.mjs", "specifier": "#to_empty", "fgro": "InvalidTarget" },
+		{ "importer": "src/main.mjs", "specifier": "#to_dot", "fgro": "InvalidTarget" },
+		{ "importer": "src/main.mjs", "specifier": "#to_dot_x", "fgro": "InvalidTarget" },
+		{ "importer": "src/main.mjs", "specifier": "#to_hash", "fgro": "InvalidTarget" },
+		{ "importer": "src/main.mjs", "specifier": "#arr_hash", "fgro": "InvalidTarget" },
+		{ "importer": "src/main.mjs", "specifier": "#arr_dot_x", "fgro": "InvalidTarget" },
+		{
+			"importer": "src/main.mjs",
+			"specifier": "#arr_empty_seg",
+			"fgro": "InvalidTarget",
+			"departure": "an \"imports\" target can't have an empty segment, which Node loads with a deprecation warning, never falling back past it in an array"
+		},
+		{ "importer": "src/main.mjs", "specifier": "#missing", "fgro": "ImportTarget" },
+		{ "importer": "src/main.mjs", "specifier": "#lib/a", "fgro": "ImportTarget" },
+		{
+			"importer": "src/main.mjs",
+			"specifier": "#dep",
+			"fgro": "ImportsPackage",
+			"departure": "a target naming a package is refused with its name to import it by"
+		},
+		{
+			"importer": "src/main.mjs",
+			"specifier": "#dep/x.js",
+			"fgro": "ImportsPackage",
+			"departure": "a target naming a package is refused with its name to import it by"
+		},
+		{
+			"importer": "src/main.mjs",
+			"specifier": "#empty_segment",
+			"fgro": "InvalidTarget",
+			"departure": "an \"imports\" target can't have an empty segment, which Node loads with a deprecation warning"
+		},
+		{
+			"importer": "src/main.mjs",
+			"specifier": "#arr_dep",
+			"fgro": "ImportsPackage",
+			"departure": "a target naming a package is refused with its name to import it by, wherever an array reaches it, which Node resolves and never falls back past"
+		},
+		{
+			"importer": "src/main.mjs",
+			"specifier": "#tab_empty",
+			"fgro": "InvalidTarget",
+			"departure": "an \"imports\" target can't have an empty segment, which Node loads with a deprecation warning"
+		},
+		{
+			"importer": "src/main.mjs",
+			"specifier": "#bs_empty",
+			"fgro": "InvalidTarget",
+			"departure": "an \"imports\" target can't have an empty segment, which Node loads with a deprecation warning"
+		},
+		{
+			"importer": "src/main.mjs",
+			"specifier": "#nm_star/modules/dep/index.js",
+			"fgro": "InvalidSubpath",
+			"departure": "a pattern's match can't spell a node_modules segment with an \"imports\" target around it, where Node checks the two apart"
+		},
+		{
+			"importer": "src/main.mjs",
+			"specifier": "#cond_node",
+			"fgro_url": "src/lib/a.js",
+			"departure": "fgro matches the conditions gro, import, and default, not Node's node and module-sync"
+		},
+		{
+			"importer": "src/main.mjs",
+			"specifier": "#cond_gro",
+			"fgro_url": "src/lib/b.js",
+			"departure": "fgro matches the conditions gro, import, and default, not Node's node and module-sync"
+		},
+		{
+			"importer": "src/main.mjs",
+			"specifier": "#cond_sync",
+			"fgro_url": "src/lib/a.js",
+			"departure": "fgro matches the conditions gro, import, and default, not Node's node and module-sync"
+		},
+		{ "importer": "inner/probe.mjs", "specifier": "#here" },
+		{
+			"importer": "inner/probe.mjs",
+			"specifier": "#up_link",
+			"fgro": "ImportTarget",
+			"departure": "a target stays inside its importer's root on its real path, where Node checks only the target's text"
+		},
+		{ "importer": "sub/m.mjs", "specifier": "#exact", "fgro": "ImportNotDefined" },
+		{ "importer": "sub/m.mjs", "specifier": "#lib/a.js", "fgro": "ImportNotDefined" },
+		{ "importer": "node_modules/dep/probe.mjs", "specifier": "#internal" },
+		{ "importer": "node_modules/dep/probe.mjs", "specifier": "#internal/x.js" },
+		{ "importer": "node_modules/dep/probe.mjs", "specifier": "#exact", "fgro": "ImportNotDefined" },
+		{ "importer": "src/main.mjs", "specifier": "app" },
+		{ "importer": "src/main.mjs", "specifier": "app/sub/s.js" },
+		{ "importer": "src/main.mjs", "specifier": "app/cond" },
+		{ "importer": "src/main.mjs", "specifier": "app/nope.js", "fgro": "NotExported" },
+		{ "importer": "src/main.mjs", "specifier": "dep" },
+		{ "importer": "src/main.mjs", "specifier": "dep/x.js" },
+		{ "importer": "src/main.mjs", "specifier": "dep/missing.js", "fgro": "Target" },
+		{ "importer": "src/main.mjs", "specifier": "dep/a/../x.js", "fgro": "InvalidSubpath" },
+		{ "importer": "src/main.mjs", "specifier": "nope", "fgro": "PackageNotFound" },
+		{ "importer": "src/main.mjs", "specifier": "./rel.js" },
+		{ "importer": "src/main.mjs", "specifier": "./nope.js", "fgro": "NotFound" },
+		{ "importer": "src/main.mjs", "specifier": "./rel", "fgro": "NoExtension" }
+	]
+}

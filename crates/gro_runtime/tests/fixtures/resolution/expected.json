@@ -1,0 +1,422 @@
+[
+	{
+		"importer": "src/main.mjs",
+		"specifier": "#lib/a.js",
+		"node": {
+			"url": "src/lib/a.js"
+		}
+	},
+	{
+		"importer": "src/main.mjs",
+		"specifier": "#lib/nested/c.js",
+		"node": {
+			"url": "src/lib/nested/c.js"
+		}
+	},
+	{
+		"importer": "src/main.mjs",
+		"specifier": "#lib/special/r.js",
+		"node": {
+			"url": "src/routes/r.js"
+		}
+	},
+	{
+		"importer": "src/main.mjs",
+		"specifier": "#lib/a.js?q=1",
+		"node": {
+			"url": "src/lib/a.js?q=1"
+		}
+	},
+	{
+		"importer": "src/main.mjs",
+		"specifier": "#exact",
+		"node": {
+			"url": "src/lib/a.js"
+		}
+	},
+	{
+		"importer": "src/main.mjs",
+		"specifier": "#/x",
+		"node": {
+			"url": "src/lib/a.js"
+		}
+	},
+	{
+		"importer": "src/main.mjs",
+		"specifier": "#star/foo/end.js",
+		"node": {
+			"url": "src/lib/foo.js"
+		}
+	},
+	{
+		"importer": "src/main.mjs",
+		"specifier": "#cond",
+		"node": {
+			"url": "src/lib/a.js"
+		}
+	},
+	{
+		"importer": "src/main.mjs",
+		"specifier": "#cond_default",
+		"node": {
+			"url": "src/lib/b.js"
+		}
+	},
+	{
+		"importer": "src/main.mjs",
+		"specifier": "#arr",
+		"node": {
+			"url": "src/lib/a.js"
+		}
+	},
+	{
+		"importer": "src/main.mjs",
+		"specifier": "#null",
+		"node": {
+			"error": "ERR_PACKAGE_IMPORT_NOT_DEFINED"
+		}
+	},
+	{
+		"importer": "src/main.mjs",
+		"specifier": "#nope",
+		"node": {
+			"error": "ERR_PACKAGE_IMPORT_NOT_DEFINED"
+		}
+	},
+	{
+		"importer": "src/main.mjs",
+		"specifier": "#star/end.js",
+		"node": {
+			"error": "ERR_PACKAGE_IMPORT_NOT_DEFINED"
+		}
+	},
+	{
+		"importer": "src/main.mjs",
+		"specifier": "#",
+		"node": {
+			"error": "ERR_INVALID_MODULE_SPECIFIER"
+		}
+	},
+	{
+		"importer": "src/main.mjs",
+		"specifier": "#lib/",
+		"node": {
+			"error": "ERR_INVALID_MODULE_SPECIFIER"
+		}
+	},
+	{
+		"importer": "src/main.mjs",
+		"specifier": "#up",
+		"node": {
+			"error": "ERR_INVALID_PACKAGE_TARGET"
+		}
+	},
+	{
+		"importer": "src/main.mjs",
+		"specifier": "#abs",
+		"node": {
+			"error": "ERR_INVALID_PACKAGE_TARGET"
+		}
+	},
+	{
+		"importer": "src/main.mjs",
+		"specifier": "#nm",
+		"node": {
+			"error": "ERR_INVALID_PACKAGE_TARGET"
+		}
+	},
+	{
+		"importer": "src/main.mjs",
+		"specifier": "#dotdot",
+		"node": {
+			"error": "ERR_INVALID_PACKAGE_TARGET"
+		}
+	},
+	{
+		"importer": "src/main.mjs",
+		"specifier": "#encoded",
+		"node": {
+			"error": "ERR_INVALID_PACKAGE_TARGET"
+		}
+	},
+	{
+		"importer": "src/main.mjs",
+		"specifier": "#lib/nested/../a.js",
+		"node": {
+			"error": "ERR_INVALID_MODULE_SPECIFIER"
+		}
+	},
+	{
+		"importer": "src/main.mjs",
+		"specifier": "#lib/%2e%2e/a.js",
+		"node": {
+			"error": "ERR_INVALID_MODULE_SPECIFIER"
+		}
+	},
+	{
+		"importer": "src/main.mjs",
+		"specifier": "#to_empty",
+		"node": {
+			"error": "ERR_MODULE_NOT_FOUND"
+		}
+	},
+	{
+		"importer": "src/main.mjs",
+		"specifier": "#to_dot",
+		"node": {
+			"error": "ERR_INVALID_MODULE_SPECIFIER"
+		}
+	},
+	{
+		"importer": "src/main.mjs",
+		"specifier": "#to_dot_x",
+		"node": {
+			"error": "ERR_INVALID_MODULE_SPECIFIER"
+		}
+	},
+	{
+		"importer": "src/main.mjs",
+		"specifier": "#to_hash",
+		"node": {
+			"error": "ERR_MODULE_NOT_FOUND"
+		}
+	},
+	{
+		"importer": "src/main.mjs",
+		"specifier": "#arr_hash",
+		"node": {
+			"error": "ERR_MODULE_NOT_FOUND"
+		}
+	},
+	{
+		"importer": "src/main.mjs",
+		"specifier": "#arr_dot_x",
+		"node": {
+			"error": "ERR_INVALID_MODULE_SPECIFIER"
+		}
+	},
+	{
+		"importer": "src/main.mjs",
+		"specifier": "#arr_empty_seg",
+		"node": {
+			"url": "src/lib/a.js"
+		}
+	},
+	{
+		"importer": "src/main.mjs",
+		"specifier": "#missing",
+		"node": {
+			"error": "ERR_MODULE_NOT_FOUND"
+		}
+	},
+	{
+		"importer": "src/main.mjs",
+		"specifier": "#lib/a",
+		"node": {
+			"error": "ERR_MODULE_NOT_FOUND"
+		}
+	},
+	{
+		"importer": "src/main.mjs",
+		"specifier": "#dep",
+		"node": {
+			"url": "node_modules/dep/index.js"
+		}
+	},
+	{
+		"importer": "src/main.mjs",
+		"specifier": "#dep/x.js",
+		"node": {
+			"url": "node_modules/dep/lib/x.js"
+		}
+	},
+	{
+		"importer": "src/main.mjs",
+		"specifier": "#empty_segment",
+		"node": {
+			"url": "src/lib/a.js"
+		}
+	},
+	{
+		"importer": "src/main.mjs",
+		"specifier": "#arr_dep",
+		"node": {
+			"url": "node_modules/dep/index.js"
+		}
+	},
+	{
+		"importer": "src/main.mjs",
+		"specifier": "#tab_empty",
+		"node": {
+			"url": "src/lib/a.js"
+		}
+	},
+	{
+		"importer": "src/main.mjs",
+		"specifier": "#bs_empty",
+		"node": {
+			"url": "src/lib/a.js"
+		}
+	},
+	{
+		"importer": "src/main.mjs",
+		"specifier": "#nm_star/modules/dep/index.js",
+		"node": {
+			"url": "node_modules/dep/index.js"
+		}
+	},
+	{
+		"importer": "src/main.mjs",
+		"specifier": "#cond_node",
+		"node": {
+			"url": "src/lib/b.js"
+		}
+	},
+	{
+		"importer": "src/main.mjs",
+		"specifier": "#cond_gro",
+		"node": {
+			"url": "src/lib/a.js"
+		}
+	},
+	{
+		"importer": "src/main.mjs",
+		"specifier": "#cond_sync",
+		"node": {
+			"url": "src/lib/b.js"
+		}
+	},
+	{
+		"importer": "inner/probe.mjs",
+		"specifier": "#here",
+		"node": {
+			"url": "inner/h.js"
+		}
+	},
+	{
+		"importer": "inner/probe.mjs",
+		"specifier": "#up_link",
+		"node": {
+			"url": "src/lib/a.js"
+		}
+	},
+	{
+		"importer": "sub/m.mjs",
+		"specifier": "#exact",
+		"node": {
+			"error": "ERR_PACKAGE_IMPORT_NOT_DEFINED"
+		}
+	},
+	{
+		"importer": "sub/m.mjs",
+		"specifier": "#lib/a.js",
+		"node": {
+			"error": "ERR_PACKAGE_IMPORT_NOT_DEFINED"
+		}
+	},
+	{
+		"importer": "node_modules/dep/probe.mjs",
+		"specifier": "#internal",
+		"node": {
+			"url": "node_modules/dep/lib/i.js"
+		}
+	},
+	{
+		"importer": "node_modules/dep/probe.mjs",
+		"specifier": "#internal/x.js",
+		"node": {
+			"url": "node_modules/dep/lib/x.js"
+		}
+	},
+	{
+		"importer": "node_modules/dep/probe.mjs",
+		"specifier": "#exact",
+		"node": {
+			"error": "ERR_PACKAGE_IMPORT_NOT_DEFINED"
+		}
+	},
+	{
+		"importer": "src/main.mjs",
+		"specifier": "app",
+		"node": {
+			"url": "src/index.js"
+		}
+	},
+	{
+		"importer": "src/main.mjs",
+		"specifier": "app/sub/s.js",
+		"node": {
+			"url": "src/sub/s.js"
+		}
+	},
+	{
+		"importer": "src/main.mjs",
+		"specifier": "app/cond",
+		"node": {
+			"url": "src/import.js"
+		}
+	},
+	{
+		"importer": "src/main.mjs",
+		"specifier": "app/nope.js",
+		"node": {
+			"error": "ERR_PACKAGE_PATH_NOT_EXPORTED"
+		}
+	},
+	{
+		"importer": "src/main.mjs",
+		"specifier": "dep",
+		"node": {
+			"url": "node_modules/dep/index.js"
+		}
+	},
+	{
+		"importer": "src/main.mjs",
+		"specifier": "dep/x.js",
+		"node": {
+			"url": "node_modules/dep/lib/x.js"
+		}
+	},
+	{
+		"importer": "src/main.mjs",
+		"specifier": "dep/missing.js",
+		"node": {
+			"error": "ERR_MODULE_NOT_FOUND"
+		}
+	},
+	{
+		"importer": "src/main.mjs",
+		"specifier": "dep/a/../x.js",
+		"node": {
+			"error": "ERR_INVALID_MODULE_SPECIFIER"
+		}
+	},
+	{
+		"importer": "src/main.mjs",
+		"specifier": "nope",
+		"node": {
+			"error": "ERR_MODULE_NOT_FOUND"
+		}
+	},
+	{
+		"importer": "src/main.mjs",
+		"specifier": "./rel.js",
+		"node": {
+			"url": "src/rel.js"
+		}
+	},
+	{
+		"importer": "src/main.mjs",
+		"specifier": "./nope.js",
+		"node": {
+			"error": "ERR_MODULE_NOT_FOUND"
+		}
+	},
+	{
+		"importer": "src/main.mjs",
+		"specifier": "./rel",
+		"node": {
+			"error": "ERR_MODULE_NOT_FOUND"
+		}
+	}
+]

@@ -5,6 +5,7 @@ mod containment;
 mod exports;
 mod identity;
 mod imports;
+mod node_differential;
 mod packages;
 mod project_by_name;
 mod specifier;
