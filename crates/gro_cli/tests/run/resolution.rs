@@ -393,6 +393,89 @@ fn packages_resolve_through_their_exports() {
     );
 }
 
+/// `#` specifiers resolve through the nearest `package.json`'s `"imports"`:
+/// the project's `#lib/*` and `#routes/*`, one inside a module they map to,
+/// `import.meta.resolve`'s, and an installed package's own. A wrong
+/// extension is named with the specifier that would load, a mapping to a
+/// package is refused with its name, and a subdirectory's type marker
+/// hides the project's mappings, as in Node.
+#[test]
+fn hash_imports_resolve_through_the_nearest_imports() {
+    let fixtures = temp_fixtures(
+        "hash_imports",
+        &[
+            (
+                "package.json",
+                r##"{"name": "hash_imports", "type": "module", "imports": {"#lib/*": "./src/lib/*", "#routes/*": "./src/routes/*", "#dep": "dep"}}"##,
+            ),
+            (
+                "main.ts",
+                "import {a} from '#lib/a.ts';\n\
+                 import {r} from '#routes/r.js';\n\
+                 import dep from 'dep';\n\
+                 const resolved = import.meta.resolve('#lib/a.ts');\n\
+                 console.log(a, r, dep, resolved === new URL('./src/lib/a.ts', import.meta.url).href);\n",
+            ),
+            (
+                "src/lib/a.ts",
+                "import {b} from '#lib/nested/b.ts';\nexport const a: string = `a${b}`;\n",
+            ),
+            ("src/lib/nested/b.ts", "export const b = 'b';\n"),
+            ("src/routes/r.js", "export const r = 'r';\n"),
+            (
+                "node_modules/dep/package.json",
+                r##"{"name": "dep", "type": "module", "exports": "./i.js", "imports": {"#internal": "./lib/i.js"}}"##,
+            ),
+            (
+                "node_modules/dep/i.js",
+                "import i from '#internal';\nexport default `dep ${i}`;\n",
+            ),
+            ("node_modules/dep/lib/i.js", "export default 'internal';\n"),
+            ("wrong_extension.ts", "import '#lib/a.js';\n"),
+            ("to_package.js", "import '#dep';\n"),
+            ("sub/package.json", r#"{"type": "module"}"#),
+            ("sub/hidden.js", "import '#lib/a.ts';\n"),
+        ],
+    );
+    let run = run_in(&fixtures, "main.ts");
+    assert_eq!(run.code, 0, "{}", run.stderr);
+    assert_eq!(run.stdout, "ab r dep internal true\n");
+    let root = fixtures.0.display();
+    let run = run_in(&fixtures, "wrong_extension.ts");
+    assert_eq!(run.code, 1);
+    assert_eq!(
+        run.stderr,
+        format!(
+            "error: cannot resolve '#lib/a.js' from file://{root}/wrong_extension.ts: the \
+             \"imports\" of {root}/package.json map it to {root}/src/lib/a.js: no such file, but \
+             '#lib/a.ts' exists; write the real extension\n"
+        )
+    );
+    let run = run_in(&fixtures, "to_package.js");
+    assert_eq!(run.code, 1);
+    assert_eq!(
+        run.stderr,
+        format!(
+            "error: cannot resolve '#dep' from file://{root}/to_package.js: the \"imports\" \
+             target \"dep\" for '#dep' names a package or a builtin module, and a # specifier \
+             maps only to a file in the directory of its package.json. Fix: import 'dep' by its \
+             name\n"
+        )
+    );
+    let run = run_in(&fixtures, "sub/hidden.js");
+    assert_eq!(run.code, 1);
+    assert_eq!(
+        run.stderr,
+        format!(
+            "error: cannot resolve '#lib/a.ts' from file://{root}/sub/hidden.js: a # specifier \
+             resolves through the \"imports\" of the nearest package.json above its importer, \
+             {root}/sub/package.json, which has none, and one in a subdirectory hides those \
+             above it, as in Node. Fix: add the mapping to its \"imports\", or import the file \
+             by a relative path\n"
+        )
+    );
+}
+
 #[test]
 fn package_refusals_name_the_reason_and_a_fix() {
     let fixtures = temp_fixtures(

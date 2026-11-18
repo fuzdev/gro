@@ -3,7 +3,7 @@
 use std::io;
 use std::path::{Path, PathBuf};
 
-use serde_json::Value;
+use serde_json::{Map, Value};
 
 use super::error::ResolveErrorKind;
 use super::tree::{Entry, MAX_PACKAGE_JSON_SIZE, ReadRefusal, SourceTree};
@@ -24,6 +24,8 @@ pub struct ConsultedFile {
 pub enum PackageField {
     /// `"exports"`: a package's, or a self-reference's.
     Exports,
+    /// `"imports"`: a `#` specifier's.
+    Imports,
     /// Its keys, which say whether it is a type marker the walk for the
     /// project root passes or the root it ends at: any key but `"type"` and
     /// `"sideEffects"` makes it the root.
@@ -38,8 +40,9 @@ pub enum PackageField {
 
 impl PackageField {
     /// Every field, in order.
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 6] = [
         Self::Exports,
+        Self::Imports,
         Self::Keys,
         Self::Name,
         Self::Type,
@@ -111,7 +114,7 @@ pub(super) struct PackageJson {
     /// Its real path.
     pub(super) path: PathBuf,
     /// Its fields, in the file's key order.
-    fields: serde_json::Map<String, Value>,
+    fields: Map<String, Value>,
 }
 
 // each field is read through the method that records it, so the record is
@@ -138,6 +141,13 @@ impl PackageJson {
         self.fields
             .get("exports")
             .filter(|exports| !exports.is_null())
+    }
+
+    /// Its `"imports"`, unless absent or not an object, which Node reads as
+    /// none.
+    pub(super) fn imports(&self, consulted: &mut Consulted) -> Option<&Map<String, Value>> {
+        consulted.add(&self.path, PackageField::Imports);
+        self.fields.get("imports").and_then(Value::as_object)
     }
 
     /// Whether it only marks its directory's module type: every key is

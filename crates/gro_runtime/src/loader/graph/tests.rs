@@ -4,7 +4,8 @@
 
 use super::*;
 use crate::resolver::{
-    BUILTINS, Origin, PackageField, PackageFields, Reserved, SPLIT_MODULES, TargetFault, UrlFault,
+    BUILTINS, MapField, Origin, PackageField, PackageFields, Reserved, SPLIT_MODULES, TargetFault,
+    UrlFault,
 };
 
 fn package(dir: &str, name: &str) -> Root {
@@ -469,11 +470,19 @@ fn the_refusals_by_rule_are_the_ones_that_guard_the_run() {
             "%00".to_owned(),
         ))),
         FailureReason::Resolve(ResolveErrorKind::InvalidTarget {
+            field: MapField::Exports,
             key: "./x.js".to_owned(),
             target: "\"../x.js\"".to_owned(),
             reason: TargetFault::NotRelative,
         }),
+        FailureReason::Resolve(ResolveErrorKind::InvalidTarget {
+            field: MapField::Imports,
+            key: "#x".to_owned(),
+            target: "\"./a//x.js\"".to_owned(),
+            reason: TargetFault::EmptySegment,
+        }),
         FailureReason::Resolve(ResolveErrorKind::InvalidSubpath {
+            field: MapField::Exports,
             key: "./*".to_owned(),
             matched: "../x.js".to_owned(),
         }),
@@ -491,7 +500,7 @@ fn the_refusals_by_rule_are_the_ones_that_guard_the_run() {
         // the loads that can't happen, each one that skipped resolution
         FailureReason::Load(LoadFailure::NoLocalPath),
         FailureReason::Load(LoadFailure::Format(ResolveErrorKind::Remote)),
-        // an `"exports"` target by what refused it
+        // an `"exports"` or `"imports"` target by what refused it
         FailureReason::Resolve(ResolveErrorKind::Target {
             path: path(),
             error: Box::new(ResolveErrorKind::IntoNodeModules {
@@ -499,16 +508,36 @@ fn the_refusals_by_rule_are_the_ones_that_guard_the_run() {
                 root: path(),
             }),
         }),
+        FailureReason::Resolve(ResolveErrorKind::ImportTarget {
+            package_json: path(),
+            path: path(),
+            error: Box::new(ResolveErrorKind::OutsideRoot {
+                path: path(),
+                root: path(),
+                package: None,
+            }),
+        }),
     ];
     let nothing_there = [
         FailureReason::Resolve(ResolveErrorKind::NodeBuiltin),
         FailureReason::Resolve(ResolveErrorKind::Registry),
-        FailureReason::Resolve(ResolveErrorKind::PackageImport),
+        FailureReason::Resolve(ResolveErrorKind::InvalidImportSpecifier),
+        FailureReason::Resolve(ResolveErrorKind::NoImportScope { stopped_at: None }),
+        FailureReason::Resolve(ResolveErrorKind::ImportNotDefined {
+            package_json: path(),
+            defined: None,
+        }),
+        FailureReason::Resolve(ResolveErrorKind::ImportsPackage {
+            key: "#dep".to_owned(),
+            target: "\"dep\"".into(),
+            specifier: "dep".into(),
+        }),
         FailureReason::Resolve(ResolveErrorKind::NotFound { ts_sibling: None }),
         FailureReason::Resolve(ResolveErrorKind::NoExtension { suggestion: None }),
         FailureReason::Resolve(ResolveErrorKind::UnsupportedExtension(".json".to_owned())),
         FailureReason::Resolve(ResolveErrorKind::CommonJs),
         FailureReason::Resolve(ResolveErrorKind::NoMatchingCondition {
+            field: MapField::Exports,
             subpath: ".".to_owned(),
             unmatched: Vec::new(),
         }),
@@ -516,6 +545,11 @@ fn the_refusals_by_rule_are_the_ones_that_guard_the_run() {
             url::ParseError::EmptyHost,
         ))),
         FailureReason::Resolve(ResolveErrorKind::Target {
+            path: path(),
+            error: Box::new(ResolveErrorKind::NotFound { ts_sibling: None }),
+        }),
+        FailureReason::Resolve(ResolveErrorKind::ImportTarget {
+            package_json: path(),
             path: path(),
             error: Box::new(ResolveErrorKind::NotFound { ts_sibling: None }),
         }),

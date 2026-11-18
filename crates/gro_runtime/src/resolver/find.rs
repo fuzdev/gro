@@ -15,7 +15,8 @@ const SUGGESTED_EXTENSIONS: [&str; 4] = ["ts", "js", "mjs", "mts"];
 /// containment) before anything about it is read, and checks that it loads: its format
 /// by name, and a `.js` file's `"type"`. Returns its real path and its
 /// identity. `hint` is the specifier for the messages' suggestions, unset
-/// for a package's target, whose messages name the path instead.
+/// for a target whose path doesn't end in the specifier's text (a
+/// package's), whose messages name the path instead.
 pub(super) fn find_module(
     tree: &impl SourceTree,
     path: &Path,
@@ -86,11 +87,13 @@ pub(super) fn find_module(
     Ok((real_path, id))
 }
 
-/// Splits a specifier into its path and its query-and-fragment suffix.
+/// Splits a specifier into its path and its query-and-fragment suffix. A
+/// `#` specifier's leading `#` begins its path, not a fragment.
 fn split_suffix(specifier: &str) -> (&str, &str) {
-    specifier
+    let start = usize::from(specifier.starts_with('#'));
+    specifier[start..]
         .find(['?', '#'])
-        .map_or((specifier, ""), |index| specifier.split_at(index))
+        .map_or((specifier, ""), |index| specifier.split_at(start + index))
 }
 
 /// The specifier with `.{extension}` appended to its path.

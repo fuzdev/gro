@@ -183,7 +183,8 @@ Each bullet marks what's built; anything unmarked past the omissions is designed
 - **Strict ESM resolution, no legacy algorithm** (built). Relative and absolute specifiers
   resolve as URLs with mandatory extensions, with no probing, no directory index, and no `main`.
   Bare specifiers resolve through a package's `exports` with a fixed condition set
-  (`gro`, `import`, `default`), walking `node_modules`, and `imports` for `#` subpaths comes later.
+  (`gro`, `import`, `default`), walking `node_modules`, and `#` specifiers through the nearest `package.json`'s `imports`,
+  to files only.
   A package without `exports`, or one that's CommonJS, fails loudly with the reason and the fix.
   Code comes from files on disk only, never `https:`, `jsr:`, or `npm:` imports,
   and Gro never pre-bundles a project's dependencies.
@@ -353,7 +354,7 @@ where the host modules and grants land with their first consumer.
       and a startup snapshot
 - [x] TypeScript by tsv's type strip, in process
 - [x] strict package resolution, through `node_modules` by `"exports"` up to the project root,
-      with `"type": "module"` (`#` imports come later)
+      with `"type": "module"`, and `#` imports to files
 - [x] origin containment in the resolver ([resolver](resolver.md#departures-from-node)),
       keeping every module inside its project's or package's root,
       and the loader reading only the file the resolver found

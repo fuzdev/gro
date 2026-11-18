@@ -7,21 +7,23 @@ use crate::limits::HEAP_BACKSTOP;
 use crate::support::Scratch;
 use crate::{eval, eval_long, fixtures, memory_heavy_turn};
 
-/// The files of a project with a self-reference, a scoped package with
-/// another nested in its own `node_modules`, and a package linked into its
-/// `node_modules` from `lib/` beside it, which [`graph_project`] writes.
-const GRAPH_FILES: [(&str, &str); 11] = [
+/// The files of a project with a self-reference, a `#` import, a scoped
+/// package with another nested in its own `node_modules`, and a package
+/// linked into its `node_modules` from `lib/` beside it, which
+/// [`graph_project`] writes.
+const GRAPH_FILES: [(&str, &str); 12] = [
     (
         "project/package.json",
-        r#"{"name": "app", "type": "module", "exports": {"./self.js": "./src/self.js"}}"#,
+        r##"{"name": "app", "type": "module", "exports": {"./self.js": "./src/self.js"}, "imports": {"#lib/*": "./src/lib/*"}}"##,
     ),
     (
         "project/src/config.ts",
         "import {a} from './a.js';\nimport './a.js?x#y';\nimport {s} from 'app/self.js';\n\
-         import {v} from '@sc/pkg';\nimport {l} from 'lnk/l.js';\n\
-         export default {a, s, v, l} as const;\n",
+         import {h} from '#lib/h.ts';\nimport {v} from '@sc/pkg';\nimport {l} from 'lnk/l.js';\n\
+         export default {a, s, h, v, l} as const;\n",
     ),
     ("project/src/a.js", "export const a = 'a';\n"),
+    ("project/src/lib/h.ts", "export const h: string = 'h';\n"),
     ("project/src/self.js", "export const s = 'self';\n"),
     (
         "project/node_modules/@sc/pkg/package.json",
@@ -121,12 +123,20 @@ fn expected_graph() -> Value {
                 "origin": project,
                 "format": "typescript",
                 "imports": [
+                    import("#lib/h.ts", "project:src/lib/h.ts"),
                     import("./a.js", "project:src/a.js"),
                     import("./a.js?x#y", "project:src/a.js?x#y"),
                     import("@sc/pkg", "project:node_modules/@sc/pkg/i.js"),
                     import("app/self.js", "project:src/self.js"),
                     import("lnk/l.js", "linked:../lib/l.js"),
                 ],
+            },
+            {
+                "id": "project:src/lib/h.ts",
+                "blake3": file("project/src/lib/h.ts"),
+                "origin": project,
+                "format": "typescript",
+                "imports": [],
             },
             {
                 "id": "project:src/self.js",
@@ -138,7 +148,8 @@ fn expected_graph() -> Value {
         ],
         // each once, with every field a resolution read of it: a package's
         // exports and version, a `.js` module's scope's type, a
-        // self-reference's exports and name, and the keys of the walk's
+        // self-reference's exports and name, a `#` import's imports, and the
+        // keys of the walk's
         "consulted": [
             consulted(
                 "linked:../lib/package.json",
@@ -158,7 +169,7 @@ fn expected_graph() -> Value {
             consulted(
                 "project:package.json",
                 "project/package.json",
-                &["exports", "keys", "name", "type"],
+                &["exports", "imports", "keys", "name", "type"],
             ),
         ],
         // the source directory's own package.json, on the walks up from it,
@@ -183,7 +194,7 @@ fn the_graph_dump_names_every_file_by_its_path() {
     let scratch = graph_project("graph");
     let config = scratch.path("project/src/config.ts");
     let run = eval(&[&config, "--graph"]);
-    run.assert_value(&json!({"a": "a", "s": "self", "v": 2, "l": "linked"}));
+    run.assert_value(&json!({"a": "a", "s": "self", "h": "h", "v": 2, "l": "linked"}));
     let keys: Vec<&str> = run
         .envelope
         .as_object()
@@ -240,6 +251,7 @@ fn the_graph_dump_names_every_file_by_its_path() {
             "project:package.json",
             "project:src/a.js",
             "project:src/config.ts",
+            "project:src/lib/h.ts",
             "project:src/node_modules/@sc/pkg",
             "project:src/node_modules/lnk",
             "project:src/package.json",

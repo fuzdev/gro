@@ -98,6 +98,14 @@ fn exports_resolve_as_node_does() {
         ("t/nested/x\\", Err(&["InvalidSubpath"])),
         // a match's edge `/` beside no `/` in the target makes no empty segment
         ("t/pre/x", Ok(format!("{t}/lib/x.js"))),
+        // a match may spell a segment with an `"exports"` target around it,
+        // as in Node: containment refuses the nested package, and the `..`
+        // stays inside the package
+        (
+            "t/nm_star/modules/q/x.js",
+            Err(&["Target", "IntoNodeModules"]),
+        ),
+        ("t/pct_star/e%2e/lib/a.js", Ok(format!("{t}/lib/a.js"))),
         // the target's own empty segment stays, as in Node
         ("t/gap/a", Ok(format!("{t}/lib/a.js"))),
         ("t/", Err(&["NotExported"])),

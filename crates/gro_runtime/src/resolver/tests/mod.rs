@@ -4,6 +4,7 @@ mod builtins;
 mod containment;
 mod exports;
 mod identity;
+mod imports;
 mod packages;
 mod project_by_name;
 mod specifier;
@@ -205,6 +206,8 @@ pub(super) fn packages() -> MemoryTree {
                     "./nested/*": "./lib/*/x.js",
                     "./pre*": "./lib*.js",
                     "./gap/*": "./lib//*.js",
+                    "./nm_star/*": "./node_*",
+                    "./pct_star/*": "./lib/%2*",
                     "./tab": "./.\t./escape.js",
                     "./query_up": "./..?x",
                     "./fragment_up": "./..#x",
@@ -227,6 +230,7 @@ pub(super) fn packages() -> MemoryTree {
         ("/w/proj/node_modules/t/only_ts.ts", ""),
         ("/w/proj/node_modules/t/cjs.cjs", ""),
         ("/w/proj/node_modules/t/lib/a.js", ""),
+        ("/w/proj/node_modules/t/node_modules/q/x.js", ""),
         ("/w/proj/node_modules/t/lib/x.js", ""),
         ("/w/proj/node_modules/t/lib/a/b.js", ""),
         ("/w/proj/node_modules/t/lib/x/x.js", ""),

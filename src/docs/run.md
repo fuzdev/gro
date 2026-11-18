@@ -153,7 +153,8 @@ The binary embeds the commit, so a dirty tree (a changed file, or an untracked o
   Each refusal is a `TypeError`, a static import's included, where the language specifies a `SyntaxError` (Node's is a `TypeError` too).
 - Refused with the reason are
   any other extension (`.cjs`, which is CommonJS; `.json` and `.wasm`, not yet: JSON modules and WASM's ES module integration come later), `.cts`, `.tsx`, declaration files, Svelte modules,
-  `node:`, `npm:`, `jsr:`, `https:`, every other scheme but `file:`, and `#` imports (the last comes later).
+  `node:`, `npm:`, `jsr:`, `https:`, every other scheme but `file:`, and a `#` import that maps to a package or builtin module rather than a file
+  ([resolver](resolver.md#imports)).
   The host's own modules (`ext:`) and the builtin modules' URLs (`builtin:`) are among the refused schemes:
   none loads into user code by a static `import`, `import()`, or `import.meta.resolve`.
   A Node built-in's bare name, like `fs`, fails as a package that isn't installed.

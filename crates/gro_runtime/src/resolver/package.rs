@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use url::Url;
 
 use super::error::{PackageSearchBound, ResolveErrorKind};
-use super::exports::resolve_exports;
+use super::exports::{resolve_exports, resolve_imports};
 use super::roots::{Origin, Root, Roots};
 use super::tree::{Entry, SourceTree};
 use super::walk::{
@@ -39,16 +39,68 @@ pub(super) fn parse_package_name(specifier: &str) -> Result<(&str, String), Reso
     Ok((name, format!(".{rest}")))
 }
 
-/// What a bare specifier names: the URL its package's `"exports"` give, not
-/// yet checked to exist, and the root it must stay inside.
+/// What a bare or `#` specifier names: the URL its package's `"exports"`
+/// or `"imports"` give, not yet checked to exist, and the root it must stay
+/// inside.
 pub(super) struct Package {
-    /// The `"exports"` target's URL.
+    /// The target's URL.
     pub(super) url: Url,
-    /// The package's root, or for a self-reference the importer's.
+    /// The package's root, or for a self-reference or a `#` specifier the
+    /// importer's.
     pub(super) root: Root,
-    /// For a self-reference, its package's real directory, which the module
-    /// must stay inside too.
+    /// For a self-reference or a `#` specifier, the directory its
+    /// `package.json` was found in, which the module must stay inside too.
     pub(super) scope_dir: Option<PathBuf>,
+}
+
+/// What a `#` specifier names through the `"imports"` of the nearest
+/// `package.json` above its importer.
+pub(super) struct Mapped {
+    /// The target's URL, inside the importer's root and the directory of
+    /// the `package.json`, its `scope_dir`.
+    pub(super) package: Package,
+    /// The `package.json` whose `"imports"` map it.
+    pub(super) package_json: PathBuf,
+    /// Whether the target's path ends in the specifier's text after the
+    /// key's `*`.
+    pub(super) ends_in_match: bool,
+}
+
+/// Resolves the `#` specifier `specifier`, imported by the module at
+/// `importer_path` inside `importer_root`, through the `"imports"` of the
+/// nearest `package.json` at or above its directory, the package scope a
+/// self-reference reads. The target keeps the importer's root, and stays
+/// inside the directory that `package.json` was found in too.
+pub(super) fn resolve_import(
+    tree: &impl SourceTree,
+    specifier: &str,
+    importer_path: &Path,
+    importer_root: &Root,
+    consulted: &mut Consulted,
+) -> Result<Mapped, ResolveErrorKind> {
+    let importer_dir = importer_path.parent().unwrap_or(importer_path);
+    let scope = match package_scope(tree, importer_dir)? {
+        Walk::Found(scope) => scope,
+        Walk::NotFound { stopped_at } => {
+            return Err(ResolveErrorKind::NoImportScope { stopped_at });
+        }
+    };
+    let Some(imports) = scope.imports(consulted) else {
+        return Err(ResolveErrorKind::ImportNotDefined {
+            package_json: scope.path,
+            defined: None,
+        });
+    };
+    let import = resolve_imports(&scope.dir, &scope.path, imports, specifier)?;
+    Ok(Mapped {
+        package: Package {
+            url: import.url,
+            root: importer_root.clone(),
+            scope_dir: Some(scope.dir),
+        },
+        package_json: scope.path,
+        ends_in_match: import.ends_in_match,
+    })
 }
 
 /// Resolves a bare specifier, imported by the module at `importer_path`

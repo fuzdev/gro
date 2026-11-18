@@ -4,8 +4,8 @@
 > packages by `"exports"` only, and the deliberate departures from Node's algorithm
 
 > **status**: built for relative, absolute, and bare specifiers through `"exports"`,
-> with every module contained in its project's or package's root, and for the builtin modules;
-> `"imports"` for `#` subpaths comes later.
+> `#` specifiers through `"imports"` to files,
+> with every module contained in its project's or package's root, and for the builtin modules.
 
 The runtime resolves modules with its own strict algorithm, not Node's.
 Bridging on the legacy algorithm would let code work on Gro by accident of legacy resolution
@@ -39,10 +39,10 @@ A linked package's real path has no `node_modules` in it, so only its admission 
 - **Relative and absolute** specifiers resolve as URLs with mandatory extensions:
   no probing, no directory index, no `main`.
 - **Bare** specifiers resolve through a package's `"exports"` with a fixed condition set
-  (`gro`, `import`, `default`, matched in the package's own key order, Node's algorithm),
-  and `"imports"` for `#` subpaths (not built yet).
+  (`gro`, `import`, `default`, matched in the package's own key order, Node's algorithm).
   The package is found by self-reference or in `node_modules`, walking up from the importer's real path
   to its project root.
+- **`#`** specifiers resolve through the `"imports"` of the nearest `package.json` ([imports](#imports)).
 - **Files on disk only,** but for the builtin modules. No `https:`, `jsr:`, or `npm:` imports,
   and Gro never pre-bundles a project's dependencies.
 - **Refused, with the reason and a fix where there is one:** a package without `"exports"` (no `main`),
@@ -51,6 +51,31 @@ A linked package's real path has no `node_modules` in it, so only its admission 
   (`.cts`, `.tsx`, declaration files, and Svelte modules).
   The fix for a package is a version with an ESM build,
   an ESM bundle of it vendored into the project, or running it on Node.
+
+## Imports
+
+A `#` specifier (`#lib/x.ts`) resolves through the `"imports"` of the nearest `package.json`
+at or above the importer's real directory, the one a self-reference reads,
+the search ending at a `node_modules` directory and at a world-writable one.
+That's the nearest one, as in Node, so a `package.json` in a subdirectory, a type marker included, hides the `"imports"` of those above it.
+`#` alone and a specifier ending in `/` are refused, as in Node; `#/x` is a specifier like any other.
+
+- **Matching** is Node's: an `"imports"` that is a JSON object (anything else maps nothing),
+  an exact key first, then the most specific single-`*` pattern;
+  a target's conditions are the `"exports"` set, matched in the package's key order,
+  with arrays as fallbacks past an invalid target and `null` as not mapped.
+- **A target is a file:** a path starting with `./`, with no `.`, `..`, or `node_modules` segment,
+  percent-encoded or not, and no empty segment, which a pattern's match can't add either.
+  A target that names a package or builtin module (`"#dep": "dep"`, `"#fs": "fs"`) is refused with the fix,
+  to import it by its name, wherever an array reaches it, which Node resolves and never falls back past;
+  one starting with `../` or `/`, a URL, or text that names no package (`.x`, a `#` specifier) is refused, as in Node,
+  and as in Node, an array falls back past the first three but not past text that names no package.
+- **It stays inside** the directory of the `package.json` that maps it and the importer's root, on its real path,
+  as a self-reference's target does ([departures](#departures-from-node)),
+  so the module keeps the importer's origin, and an installed package's own `#` imports resolve inside it.
+- **Refused with the fix:** no `package.json` above the importer, one with no `"imports"` or no mapping for the specifier,
+  and a target that doesn't load, named with the specifier that would where a pattern's match ends the path
+  (`#lib/a.js` naming `#lib/a.ts` when only that exists).
 
 ## Builtin modules
 
@@ -172,7 +197,7 @@ Where it departs, it departs on purpose, and always toward failing closed:
   a `package.json` at the project root, with the package installed in the `node_modules` beside it.
   Its relative imports still resolve.
 - **A world-writable directory ends every walk up, and no `package.json` or `node_modules` in it is read:**
-  not its `package.json` (as a project root, a `"type"` scope, or a self-reference's scope),
+  not its `package.json` (as a project root, a `"type"` scope, or the scope a self-reference or a `#` specifier reads),
   and not its `node_modules`.
   A package the search finds through one is refused, naming the directory and the fix (remove its other-write bit):
   the `node_modules` it is installed in, its scope's directory (`@scope`), or its own root,
@@ -190,7 +215,7 @@ Where it departs, it departs on purpose, and always toward failing closed:
   The importer's own directory counts,
   so a module directly in `/tmp` runs with relative imports only, and a `.js` file there has no `"type"` scope.
   Node reads them all, so a `package.json` or `node_modules` any user can plant in `/tmp`
-  would supply packages, or a self-reference, to every module below it.
+  would supply packages, a self-reference, or `#` mappings to every module below it.
 - **Every `package.json` the walk passes outside `node_modules` is read,** to tell a marker from a bound,
   so one that isn't valid (not a JSON object, a `"name"` or `"type"` that isn't a string,
   over 16 MiB, or a special file) fails the import, where Node never reads it.
@@ -209,4 +234,13 @@ Where it departs, it departs on purpose, and always toward failing closed:
   (`pkg/x/` through `"./*": "./lib/*/index.js"` is `lib/x//index.js`), or an empty segment inside it,
   is refused naming the pattern and the match,
   where Node substitutes it, with a deprecation warning for the trailing `/` (DEP0155), and loads what it names.
-  A target's own empty segment (`./lib//a.js`) still loads, as in Node.
+  An `"exports"` target's own empty segment (`./lib//a.js`) still loads, as in Node.
+- **An `"imports"` target can't have an empty segment of its own either** (`./lib//a.js`, or a trailing `/`),
+  where Node loads it with a deprecation warning.
+  A target with an empty segment is refused wherever an array reaches it, never fallen back past.
+- **A pattern's match can't spell a `.`, `..`, or `node_modules` segment with an `"imports"` target around it**
+  (`"./node_*"` matched by `modules`, `"./%2*"` by `e%2e`), where Node checks the two apart and loads what they name.
+- **An `"imports"` target naming a package or builtin module is refused,** where Node resolves it as a bare specifier
+  from the `package.json`'s directory: the fix is to import it by its name.
+- **An `"imports"` target stays inside its `package.json`'s directory and the importer's root on its real path,**
+  where Node checks only the target's text.

@@ -33,8 +33,38 @@ pub enum ResolveErrorKind {
     Remote,
     /// Any other scheme that isn't `file:`.
     UnsupportedScheme(String),
-    /// A `#` package import.
-    PackageImport,
+    /// A `#` specifier that names no mapping: `#` alone, or one ending in
+    /// `/`, as Node refuses them.
+    InvalidImportSpecifier,
+    /// A `#` specifier from a module with no `package.json` at or above its
+    /// directory, below any `node_modules` and any world-writable directory,
+    /// whose `"imports"` it would resolve through.
+    NoImportScope {
+        /// The world-writable directory the search stopped at, reading
+        /// nothing in it; unset when it reached the filesystem's root or a
+        /// `node_modules` directory.
+        stopped_at: Option<PathBuf>,
+    },
+    /// A `#` specifier the nearest `package.json` above its importer doesn't
+    /// map: it has no `"imports"` object, no key matches, or the target is
+    /// `null` or has no conditions.
+    ImportNotDefined {
+        /// The nearest `package.json`'s real path.
+        package_json: PathBuf,
+        /// Its `"imports"` keys, unset when it has no `"imports"` object.
+        defined: Option<Vec<String>>,
+    },
+    /// A `#` specifier whose `"imports"` target names a package or a builtin
+    /// module rather than a file: not a URL, and, a pattern's match
+    /// substituted, a valid package name not starting with `#`.
+    ImportsPackage {
+        /// The `"imports"` key that matched.
+        key: String,
+        /// The target, as JSON.
+        target: Box<str>,
+        /// What the target names, a pattern's match substituted.
+        specifier: Box<str>,
+    },
     /// A specifier the builtin table reserves without serving: the `.js`
     /// spelling of a builtin module's, a host module's not built yet, a
     /// module's whose members are modules of their own, or a respelling of
@@ -112,15 +142,20 @@ pub enum ResolveErrorKind {
     /// The subpath's target is conditional, and none of its conditions is in
     /// [`CONDITIONS`], or each one that is holds only unmatched conditions.
     NoMatchingCondition {
-        /// The subpath, `.` or `./…`.
+        /// The field the target is in.
+        field: MapField,
+        /// The subpath, `.` or `./…`, or the `#` specifier.
         subpath: String,
         /// The conditions that didn't match, in the package's order, a
         /// nested one after its matched parent and a dot (`gro.browser`).
         unmatched: Vec<String>,
     },
-    /// The `"exports"` target the subpath selected is invalid.
+    /// The `"exports"` or `"imports"` target the subpath selected is
+    /// invalid.
     InvalidTarget {
-        /// The `"exports"` key that matched.
+        /// The field the target is in.
+        field: MapField,
+        /// The key that matched.
         key: String,
         /// The target, as JSON.
         target: String,
@@ -128,11 +163,15 @@ pub enum ResolveErrorKind {
         reason: TargetFault,
     },
     /// The part of the subpath a pattern's `*` matched has a `.`, `..`, or
-    /// `node_modules` segment, or substituted into the target, it makes an
+    /// `node_modules` segment, or in `"imports"` spells one with the target
+    /// around it, or substituted into the target, it makes an
     /// empty segment the target doesn't have (as a subpath ending in `/`
-    /// does before a `/` in the target) or leaves the package's directory.
+    /// does before a `/` in the target) or leaves the directory of the
+    /// `package.json`.
     InvalidSubpath {
-        /// The `"exports"` pattern that matched.
+        /// The field the pattern is in.
+        field: MapField,
+        /// The pattern that matched.
         key: String,
         /// The part its `*` matched.
         matched: String,
@@ -141,6 +180,16 @@ pub enum ResolveErrorKind {
     /// `error`.
     Target {
         /// The file the package's `"exports"` name.
+        path: PathBuf,
+        /// Why it doesn't load.
+        error: Box<Self>,
+    },
+    /// The `"imports"` of `package_json` map a `#` specifier to `path`, and
+    /// loading it fails with `error`.
+    ImportTarget {
+        /// The `package.json` whose `"imports"` map it.
+        package_json: PathBuf,
+        /// The file they map it to.
         path: PathBuf,
         /// Why it doesn't load.
         error: Box<Self>,
@@ -319,15 +368,42 @@ pub struct PackageSearchBound {
     pub above: Option<PathBuf>,
 }
 
-/// Why an `"exports"` target is invalid.
+/// The field of a `package.json` that maps specifiers to targets.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MapField {
+    /// `"exports"`, a package's subpaths.
+    Exports,
+    /// `"imports"`, the `#` specifiers of the modules below it.
+    Imports,
+}
+
+impl fmt::Display for MapField {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Exports => "exports",
+            Self::Imports => "imports",
+        })
+    }
+}
+
+/// Why an `"exports"` or `"imports"` target is invalid.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TargetFault {
-    /// It doesn't start with `./`: a bare name, an absolute path, `../`, or a
-    /// URL.
+    /// It doesn't start with `./`: a bare name, an absolute path, `../`, or
+    /// a URL. An `"imports"` target naming a package is
+    /// [`ResolveErrorKind::ImportsPackage`] instead, and one naming nothing
+    /// is [`TargetFault::NamesNothing`].
     NotRelative,
+    /// An `"imports"` target that doesn't start with `./`, `../`, or `/`,
+    /// isn't a URL, and, a pattern's match substituted, names no package
+    /// (`""`, `.`, `.x`, `@x`, a `#` specifier). Node resolves it
+    /// as a bare specifier, never as a target, so an array doesn't fall back past it.
+    NamesNothing,
     /// It has a `.`, `..`, or `node_modules` segment, percent-encoded or not.
     Segment,
-    /// It resolves outside the package's directory.
+    /// An `"imports"` target has an empty segment: a `//`, or a trailing `/`.
+    EmptySegment,
+    /// It resolves outside the directory of its `package.json`.
     Outside,
     /// It isn't a string, an array, an object, or `null`.
     NotATarget,
@@ -365,7 +441,7 @@ impl ResolveErrorKind {
     /// there is a missing file or package, a malformed specifier or package,
     /// a format or feature `fgro` doesn't load (a `.cts` file or a `.js` one
     /// outside `"type": "module"`, JSX, an unsupported extension, `node:`, a
-    /// registry, `#` imports), or a failed read: the
+    /// registry, a `#` specifier mapped to a package), or a failed read: the
     /// same for every importer, and what probing for an optional dependency
     /// meets. A rule's refusal of an `import()` fails an `fgro run` even when
     /// the program catches it.
@@ -385,10 +461,15 @@ impl ResolveErrorKind {
             | Self::InNoPackage(_)
             | Self::RootConflict { .. }
             | Self::ReadOutsideBox(_) => true,
-            Self::Target { error, .. } => error.guards_a_boundary(),
+            Self::Target { error, .. } | Self::ImportTarget { error, .. } => {
+                error.guards_a_boundary()
+            }
             Self::NodeBuiltin
             | Self::Registry
-            | Self::PackageImport
+            | Self::InvalidImportSpecifier
+            | Self::NoImportScope { .. }
+            | Self::ImportNotDefined { .. }
+            | Self::ImportsPackage { .. }
             | Self::Empty
             | Self::InvalidUrl(
                 UrlFault::Join(_)
@@ -453,9 +534,66 @@ impl fmt::Display for ResolveErrorKind {
                 f,
                 "the scheme '{scheme}:' is not supported; only files on disk (file: URLs) load"
             ),
-            Self::PackageImport => f.write_str(
-                "it is a # package import; package.json \"imports\" are not supported yet. \
-                 Fix: import the file by a relative path",
+            Self::InvalidImportSpecifier => f.write_str(
+                "it is not a valid # specifier: '#' alone and a specifier ending in '/' map to \
+                 nothing, as in Node. Fix: import a module the package.json's \"imports\" map, \
+                 like '#lib/x.ts'",
+            ),
+            Self::NoImportScope { stopped_at } => {
+                f.write_str(
+                    "a # specifier resolves through the \"imports\" of the nearest package.json \
+                     above its importer, and ",
+                )?;
+                match stopped_at {
+                    Some(stopped_at) => write!(
+                        f,
+                        "the search for one stopped at {}, which is world-writable, so nothing in \
+                         it or above it is read",
+                        stopped_at.display()
+                    )?,
+                    None => f.write_str("none is above it")?,
+                }
+                f.write_str(
+                    ". Fix: add a package.json with \"imports\" above it, or import the file by \
+                     a relative path",
+                )
+            }
+            Self::ImportNotDefined {
+                package_json,
+                defined: None,
+            } => write!(
+                f,
+                "a # specifier resolves through the \"imports\" of the nearest package.json above \
+                 its importer, {}, which has none, and one in a subdirectory hides those above it, \
+                 as in Node. Fix: add the mapping to its \"imports\", or import the file by a \
+                 relative path",
+                package_json.display()
+            ),
+            Self::ImportNotDefined {
+                package_json,
+                defined: Some(defined),
+            } => {
+                write!(
+                    f,
+                    "it is not mapped by the \"imports\" of {} ",
+                    package_json.display()
+                )?;
+                if defined.is_empty() {
+                    f.write_str("(its \"imports\" are empty)")?;
+                } else {
+                    write!(f, "(imports: {})", defined.join(", "))?;
+                }
+                f.write_str(". Fix: import a specifier it maps, or add one to its \"imports\"")
+            }
+            Self::ImportsPackage {
+                key,
+                target,
+                specifier,
+            } => write!(
+                f,
+                "the \"imports\" target {target} for '{key}' names a package or a builtin module, \
+                 and a # specifier maps only to a file in the directory of its package.json. Fix: \
+                 import '{specifier}' by its name"
             ),
             Self::Reserved(Reserved::JsSpelling(builtin)) => write!(
                 f,
@@ -601,39 +739,83 @@ impl fmt::Display for ResolveErrorKind {
                     ". Fix: import an exported subpath, or add one to the package's \"exports\"",
                 )
             }
-            Self::NoMatchingCondition { subpath, unmatched } => write!(
-                f,
-                "no condition matches for subpath '{subpath}': the package's conditions [{}] \
-                 don't, and only {} are matched. Fix: add a \"gro\" or \"import\" condition \
-                 before the others",
-                unmatched.join(", "),
-                CONDITIONS.join(", ")
-            ),
+            Self::NoMatchingCondition {
+                field,
+                subpath,
+                unmatched,
+            } => {
+                match field {
+                    MapField::Exports => write!(f, "no condition matches for subpath '{subpath}'")?,
+                    MapField::Imports => {
+                        write!(f, "no condition matches for '{subpath}' in \"imports\"")?;
+                    }
+                }
+                write!(
+                    f,
+                    ": the package's conditions [{}] don't, and only {} are matched. Fix: add a \
+                     \"gro\" or \"import\" condition before the others",
+                    unmatched.join(", "),
+                    CONDITIONS.join(", ")
+                )
+            }
             Self::InvalidTarget {
+                field,
                 key,
                 target,
                 reason,
             } => {
-                write!(f, "the \"exports\" target {target} for '{key}' is invalid: ")?;
-                f.write_str(match reason {
-                    TargetFault::NotRelative => "a target must start with './'",
-                    TargetFault::Segment => {
+                write!(f, "the \"{field}\" target {target} for '{key}' is invalid: ")?;
+                f.write_str(match (reason, field) {
+                    (TargetFault::NotRelative | TargetFault::NamesNothing, _) => {
+                        "a target must start with './'"
+                    }
+                    (TargetFault::Segment, _) => {
                         "a target can't have a '.', '..', or 'node_modules' segment, \
                          percent-encoded or not"
                     }
-                    TargetFault::Outside => "it leaves the package's directory",
-                    TargetFault::NotATarget => {
+                    (TargetFault::EmptySegment, _) => {
+                        "a target can't have an empty segment ('//' or a trailing '/')"
+                    }
+                    (TargetFault::Outside, MapField::Exports) => "it leaves the package's directory",
+                    (TargetFault::Outside, MapField::Imports) => {
+                        "it leaves the directory of its package.json"
+                    }
+                    (TargetFault::NotATarget, _) => {
                         "a target is a string, an array, an object of conditions, or null"
                     }
                 })?;
-                f.write_str(". Fix: use a version of the package whose \"exports\" are valid")
+                match field {
+                    MapField::Exports => f.write_str(
+                        ". Fix: use a version of the package whose \"exports\" are valid",
+                    ),
+                    MapField::Imports => f.write_str(
+                        ". Fix: correct the target, or for an installed package, use a version \
+                         whose \"imports\" are valid",
+                    ),
+                }
             }
-            Self::InvalidSubpath { key, matched } => write!(
+            Self::InvalidSubpath {
+                field: MapField::Exports,
+                key,
+                matched,
+            } => write!(
                 f,
                 "the part of the subpath the pattern '{key}' matches, '{matched}', has a '.', \
                  '..', or 'node_modules' segment, percent-encoded or not, makes an empty \
                  segment in the target, or takes the target out of the package's directory, and \
                  a pattern never substitutes those. Fix: import the module by its plain subpath"
+            ),
+            Self::InvalidSubpath {
+                field: MapField::Imports,
+                key,
+                matched,
+            } => write!(
+                f,
+                "the part of it the \"imports\" pattern '{key}' matches, '{matched}', has a '.', \
+                 '..', or 'node_modules' segment or spells one with the target around it, \
+                 percent-encoded or not, makes an empty segment in the target, or takes the target \
+                 out of the directory of its package.json, and a pattern never substitutes those. \
+                 Fix: import the module by its plain path"
             ),
             Self::Target { path, error } => {
                 let path = path.display();
@@ -674,6 +856,67 @@ impl fmt::Display for ResolveErrorKind {
                         real.display()
                     ),
                     error => write!(f, "the package exports it as {path}: {error}"),
+                }
+            }
+            Self::ImportTarget {
+                package_json,
+                path,
+                error,
+            } => {
+                let mapped = format!(
+                    "the \"imports\" of {} map it to {}",
+                    package_json.display(),
+                    path.display()
+                );
+                match &**error {
+                    Self::OutsideRoot {
+                        path: real,
+                        root,
+                        package,
+                    } => {
+                        write!(
+                            f,
+                            "{mapped}, which resolves to {}, outside {}, and a # specifier's \
+                             target stays inside the directory of the package.json that maps it \
+                             and inside its importer's root. ",
+                            real.display(),
+                            root.display()
+                        )?;
+                        match package {
+                            Some(_) => f.write_str(
+                                "Fix: use a version of the package whose \"imports\" stay inside \
+                                 it",
+                            ),
+                            None => write!(
+                                f,
+                                "Fix: map it to a file inside {}, or import the file by name if \
+                                 it is a package's",
+                                root.display()
+                            ),
+                        }
+                    }
+                    Self::IntoNodeModules { path: real, root } => write!(
+                        f,
+                        "{mapped}, which resolves to {}, inside node_modules below {}, which only \
+                         a bare specifier reaches, through the package's \"exports\". Fix: \
+                         import it by name",
+                        real.display(),
+                        root.display()
+                    ),
+                    Self::IntoPackageRoot { path: real, root } => {
+                        write!(f, "{mapped}, which resolves to {}, inside {root}", real.display())?;
+                        match &root.origin {
+                            Origin::Package { name, .. } => write!(
+                                f,
+                                ", which only a bare specifier reaches, through its \"exports\". \
+                                 Fix: import it by name ('{name}' or a subpath it exports)"
+                            ),
+                            Origin::Project => {
+                                f.write_str(", which a package's modules never reach")
+                            }
+                        }
+                    }
+                    error => write!(f, "{mapped}: {error}"),
                 }
             }
             Self::NoExtension { suggestion } => {

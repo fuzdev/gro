@@ -1,12 +1,14 @@
-//! A package's `"exports"`, Node's `PACKAGE_EXPORTS_RESOLVE`, over parsed JSON.
+//! A package's `"exports"` and `"imports"`, Node's `PACKAGE_EXPORTS_RESOLVE`
+//! and `PACKAGE_IMPORTS_RESOLVE`, over parsed JSON.
 
 use std::path::Path;
 
-use serde_json::Value;
+use serde_json::{Map, Value};
 use url::Url;
 
 use super::CONDITIONS;
-use super::error::{ResolveErrorKind, TargetFault, UrlFault};
+use super::error::{MapField, ResolveErrorKind, TargetFault, UrlFault};
+use super::package::parse_package_name;
 
 /// What a target in `"exports"` resolved to.
 pub(super) enum Target {
@@ -19,11 +21,13 @@ pub(super) enum Target {
     Unmatched,
 }
 
-/// The package and the `"exports"` key a target is resolved for.
+/// The package and the key a target is resolved for.
 struct TargetContext<'a> {
-    /// The package's directory, as a URL.
+    /// Which field the key is in.
+    field: MapField,
+    /// The directory of the `package.json`, as a URL.
     root: &'a Url,
-    /// The `"exports"` key that matched.
+    /// The key that matched.
     key: &'a str,
     /// What a pattern key's `*` matched.
     matched: Option<&'a str>,
@@ -39,12 +43,6 @@ pub(super) fn resolve_exports(
     exports: &Value,
     subpath: &str,
 ) -> Result<Url, ResolveErrorKind> {
-    let invalid = |reason: &str| ResolveErrorKind::InvalidPackageJson {
-        path: package_json.to_owned(),
-        reason: reason.to_owned(),
-    };
-    let root = Url::from_directory_path(root)
-        .map_err(|()| ResolveErrorKind::InvalidUrl(UrlFault::NoLocalPath))?;
     // a string, an array, or an object of conditions alone is the main entry
     let entries: Vec<(&str, &Value)> = match exports {
         Value::String(_) | Value::Array(_) => vec![(".", exports)],
@@ -53,9 +51,12 @@ pub(super) fn resolve_exports(
             for key in map.keys() {
                 let is_condition = key.is_empty() || !key.starts_with('.');
                 if *conditional.get_or_insert(is_condition) != is_condition {
-                    return Err(invalid(
-                        "\"exports\" cannot mix keys starting with '.' with keys that don't",
-                    ));
+                    return Err(ResolveErrorKind::InvalidPackageJson {
+                        path: package_json.to_owned(),
+                        reason: "\"exports\" cannot mix keys starting with '.' with keys that \
+                                 don't"
+                            .to_owned(),
+                    });
                 }
             }
             if conditional == Some(true) {
@@ -73,27 +74,83 @@ pub(super) fn resolve_exports(
         package_json: package_json.to_owned(),
         exported: entries.iter().map(|(key, _)| (*key).to_owned()).collect(),
     };
-
-    let Some((key, target, matched)) = select_export(&entries, subpath) else {
+    let Some(selected) = select_entry(&entries, subpath) else {
         return Err(not_exported());
     };
+    resolve_selected(MapField::Exports, root, package_json, selected, subpath)?
+        .ok_or_else(not_exported)
+}
+
+/// What a `#` specifier's `"imports"` mapping names.
+pub(super) struct Import {
+    /// The target's URL, not yet checked to exist.
+    pub(super) url: Url,
+    /// Whether the specifier's text after the key's `*` ends the target's
+    /// path, as in `"#lib/*": "./src/lib/*"`, so a message can suggest a
+    /// specifier for a file that exists.
+    pub(super) ends_in_match: bool,
+}
+
+/// Resolves the `#` specifier `specifier` through the `"imports"` of the
+/// `package.json` at `package_json`, in `root`, Node's
+/// `PACKAGE_IMPORTS_RESOLVE` once the package scope is found. Only a
+/// target that is a path starting with `./` resolves, with no empty
+/// segment; one naming a package or a builtin is refused.
+pub(super) fn resolve_imports(
+    root: &Path,
+    package_json: &Path,
+    imports: &Map<String, Value>,
+    specifier: &str,
+) -> Result<Import, ResolveErrorKind> {
+    let entries: Vec<(&str, &Value)> = imports
+        .iter()
+        .map(|(key, value)| (key.as_str(), value))
+        .collect();
+    let not_defined = || ResolveErrorKind::ImportNotDefined {
+        package_json: package_json.to_owned(),
+        defined: Some(entries.iter().map(|(key, _)| (*key).to_owned()).collect()),
+    };
+    let Some(selected @ (key, target, _)) = select_entry(&entries, specifier) else {
+        return Err(not_defined());
+    };
+    let ends_in_match =
+        key.ends_with('*') && target.as_str().is_some_and(|target| target.ends_with('*'));
+    let url = resolve_selected(MapField::Imports, root, package_json, selected, specifier)?
+        .ok_or_else(not_defined)?;
+    Ok(Import { url, ends_in_match })
+}
+
+/// Resolves `subpath` through the entry of `field` it selected, its key, its
+/// target, and what a pattern key's `*` matched: the URL the target names,
+/// or `None` when the target is `null` or holds no conditions.
+fn resolve_selected(
+    field: MapField,
+    root: &Path,
+    package_json: &Path,
+    (key, target, matched): (&str, &Value, Option<&str>),
+    subpath: &str,
+) -> Result<Option<Url>, ResolveErrorKind> {
+    let root = Url::from_directory_path(root)
+        .map_err(|()| ResolveErrorKind::InvalidUrl(UrlFault::NoLocalPath))?;
     let context = TargetContext {
+        field,
         root: &root,
         key,
         matched,
         package_json,
     };
     match resolve_target(&context, target)? {
-        Target::Url(url) => Ok(url),
-        Target::Null => Err(not_exported()),
+        Target::Url(url) => Ok(Some(url)),
+        Target::Null => Ok(None),
         Target::Unmatched => {
             let mut unmatched = Vec::new();
             unmatched_conditions(target, "", &mut unmatched);
-            // no conditions at all (`{}`) is no export, as Node words it
+            // no conditions at all (`{}`) is no mapping, as Node words it
             if unmatched.is_empty() {
-                return Err(not_exported());
+                return Ok(None);
             }
             Err(ResolveErrorKind::NoMatchingCondition {
+                field,
                 subpath: subpath.to_owned(),
                 unmatched,
             })
@@ -127,11 +184,11 @@ fn unmatched_conditions(target: &Value, prefix: &str, unmatched: &mut Vec<String
     }
 }
 
-/// The `"exports"` entry `subpath` selects, with what a pattern key's `*`
-/// matched: the exact key, unless the subpath has a `*` or ends in `/`, else
-/// the most specific single-`*` pattern by [`pattern_key_compare`]. An exact
-/// key is never passed over for a pattern, even when its target is `null`.
-fn select_export<'a>(
+/// The entry `subpath` selects, with what a pattern key's `*` matched: the
+/// exact key, unless the subpath has a `*` or ends in `/`, else the most
+/// specific single-`*` pattern by [`pattern_key_compare`]. An exact key is
+/// never passed over for a pattern, even when its target is `null`.
+fn select_entry<'a>(
     entries: &[(&'a str, &'a Value)],
     subpath: &'a str,
 ) -> Option<(&'a str, &'a Value, Option<&'a str>)> {
@@ -178,9 +235,12 @@ pub(super) fn pattern_key_compare(a: &str, b: &str) -> std::cmp::Ordering {
     b.len().cmp(&a.len())
 }
 
-/// Resolves one `"exports"` target, Node's `PACKAGE_TARGET_RESOLVE`. File
-/// existence isn't checked, so an array falls back past an invalid target,
-/// never past a missing file.
+/// Resolves one target, Node's `PACKAGE_TARGET_RESOLVE`. File existence
+/// isn't checked, so an array falls back past an invalid target, never past
+/// a missing file, nor past an `"imports"` target naming a package or
+/// nothing, which Node resolves or refuses as a bare specifier. An
+/// `"imports"` target with an empty segment is refused wherever an array
+/// reaches it, never fallen back past.
 fn resolve_target(context: &TargetContext<'_>, target: &Value) -> Result<Target, ResolveErrorKind> {
     match target {
         Value::String(target) => resolve_target_string(context, target).map(Target::Url),
@@ -192,7 +252,16 @@ fn resolve_target(context: &TargetContext<'_>, target: &Value) -> Result<Target,
                     Ok(Target::Url(url)) => return Ok(Target::Url(url)),
                     Ok(Target::Unmatched) => {}
                     Ok(Target::Null) => last = Some(Ok(())),
-                    Err(error @ ResolveErrorKind::InvalidTarget { .. }) => last = Some(Err(error)),
+                    Err(
+                        error @ ResolveErrorKind::InvalidTarget {
+                            reason:
+                                TargetFault::NotRelative
+                                | TargetFault::Segment
+                                | TargetFault::Outside
+                                | TargetFault::NotATarget,
+                            ..
+                        },
+                    ) => last = Some(Err(error)),
                     Err(error) => return Err(error),
                 }
             }
@@ -206,7 +275,7 @@ fn resolve_target(context: &TargetContext<'_>, target: &Value) -> Result<Target,
             if conditions.keys().any(|key| is_array_index(key)) {
                 return Err(ResolveErrorKind::InvalidPackageJson {
                     path: context.package_json.to_owned(),
-                    reason: "\"exports\" cannot have numeric keys".to_owned(),
+                    reason: format!("\"{}\" cannot have numeric keys", context.field),
                 });
             }
             for (condition, target) in conditions {
@@ -221,6 +290,7 @@ fn resolve_target(context: &TargetContext<'_>, target: &Value) -> Result<Target,
         }
         Value::Null => Ok(Target::Null),
         Value::Bool(_) | Value::Number(_) => Err(ResolveErrorKind::InvalidTarget {
+            field: context.field,
             key: context.key.to_owned(),
             target: target.to_string(),
             reason: TargetFault::NotATarget,
@@ -259,21 +329,47 @@ fn js_number_string(number: f64) -> String {
 
 /// Resolves a string target, refusing one that could leave the package:
 /// it must start with `./`, and neither it nor what a pattern's `*` matched
-/// may have a `.`, `..`, or `node_modules` segment.
+/// may have a `.`, `..`, or `node_modules` segment, nor, in `"imports"`,
+/// the two together. An `"imports"` target may have no empty segment
+/// either, and one Node would resolve as a bare specifier (not `../`, `/`,
+/// or a URL) is refused as the package or builtin module it names, a
+/// pattern's match substituted, or as naming nothing when that isn't a
+/// package name or starts with `#`.
 fn resolve_target_string(
     context: &TargetContext<'_>,
     target: &str,
 ) -> Result<Url, ResolveErrorKind> {
     let invalid = |reason| ResolveErrorKind::InvalidTarget {
+        field: context.field,
         key: context.key.to_owned(),
         target: Value::from(target).to_string(),
         reason,
     };
     let Some(rest) = target.strip_prefix("./") else {
+        if context.field == MapField::Imports
+            && !target.starts_with("../")
+            && !target.starts_with('/')
+            && Url::parse(target).is_err()
+        {
+            let specifier = context
+                .matched
+                .map_or_else(|| target.to_owned(), |matched| target.replace('*', matched));
+            if specifier.starts_with('#') || parse_package_name(&specifier).is_err() {
+                return Err(invalid(TargetFault::NamesNothing));
+            }
+            return Err(ResolveErrorKind::ImportsPackage {
+                key: context.key.to_owned(),
+                target: Value::from(target).to_string().into(),
+                specifier: specifier.into(),
+            });
+        }
         return Err(invalid(TargetFault::NotRelative));
     };
     if has_invalid_segment(rest) {
         return Err(invalid(TargetFault::Segment));
+    }
+    if context.field == MapField::Imports && has_empty_segment(rest) {
+        return Err(invalid(TargetFault::EmptySegment));
     }
     let inside = |url: &Url| url.path().starts_with(context.root.path());
     let unsubstituted = context
@@ -287,10 +383,15 @@ fn resolve_target_string(
         return Ok(unsubstituted);
     };
     let invalid_subpath = || ResolveErrorKind::InvalidSubpath {
+        field: context.field,
         key: context.key.to_owned(),
         matched: matched.to_owned(),
     };
-    if has_invalid_segment(matched) {
+    // a match spells no `.`, `..`, or `node_modules` segment, alone or, in
+    // `"imports"`, with the target around it (`modules` into `./node_*`)
+    if has_invalid_segment(matched)
+        || (context.field == MapField::Imports && has_invalid_segment(&rest.replace('*', matched)))
+    {
         return Err(invalid_subpath());
     }
     // every `*` in the target, substituted before parsing, so a `?` or `#` in
@@ -334,6 +435,17 @@ pub(super) fn has_invalid_segment(path: &str) -> bool {
         let decoded = percent_decode(segment);
         decoded == b"." || decoded == b".." || decoded.eq_ignore_ascii_case(b"node_modules")
     })
+}
+
+/// Whether `path` has an empty segment, a trailing `/` included, split at
+/// `/` and `\\` after removing tabs and line breaks, as URL parsing reads
+/// it.
+fn has_empty_segment(path: &str) -> bool {
+    let path: String = path
+        .chars()
+        .filter(|char| !matches!(char, '\t' | '\n' | '\r'))
+        .collect();
+    path.split(['/', '\\']).any(str::is_empty)
 }
 
 /// `segment` with each `%XX` escape decoded to its byte.

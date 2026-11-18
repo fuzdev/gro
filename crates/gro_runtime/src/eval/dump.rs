@@ -137,6 +137,8 @@ pub struct DumpConsulted {
 pub enum DumpField {
     /// `"exports"`: a package's, or a self-reference's.
     Exports,
+    /// `"imports"`: a `#` specifier's.
+    Imports,
     /// Its keys, which say whether it is a type marker the walk for the
     /// project root passes or the root it ends at.
     Keys,
@@ -345,6 +347,7 @@ fn dump_consulted(graph: &Graph, ids: &mut Ids<'_>) -> Result<Vec<DumpConsulted>
                 .iter()
                 .map(|field| match field {
                     PackageField::Exports => DumpField::Exports,
+                    PackageField::Imports => DumpField::Imports,
                     PackageField::Keys => DumpField::Keys,
                     PackageField::Name => DumpField::Name,
                     PackageField::Type => DumpField::Type,

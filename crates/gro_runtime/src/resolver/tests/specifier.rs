@@ -279,9 +279,21 @@ fn schemes() {
     );
 }
 
+/// `#` alone and a `#` specifier ending in `/` map to nothing, as in Node,
+/// refused before anything is read; `#/x` is a specifier like any other.
 #[test]
-fn package_imports_and_empty() {
-    assert_eq!(kind("#lib/a.js"), ResolveErrorKind::PackageImport);
+fn invalid_import_specifiers_and_empty() {
+    for specifier in ["#", "#lib/", "#/"] {
+        assert_eq!(
+            kind(specifier),
+            ResolveErrorKind::InvalidImportSpecifier,
+            "{specifier}"
+        );
+    }
+    assert!(matches!(
+        kind("#/x"),
+        ResolveErrorKind::ImportNotDefined { .. }
+    ));
     assert_eq!(kind(""), ResolveErrorKind::Empty);
 }
 

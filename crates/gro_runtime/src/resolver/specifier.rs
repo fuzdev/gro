@@ -14,10 +14,13 @@ pub(super) enum Request<'a> {
     Url(Url),
     /// A bare specifier, which names a package.
     Package(&'a str),
+    /// A `#` specifier, which the nearest `package.json`'s `"imports"` map.
+    Import(&'a str),
 }
 
 /// Parses a specifier, refusing every form but relative and absolute `file:`
-/// ones and bare ones.
+/// ones, bare ones, and `#` ones: a `#` specifier is `#` and more, not
+/// ending in `/`, as Node reads it (`#/x` included).
 pub(super) fn parse_specifier<'a>(
     specifier: &'a str,
     importer: &Url,
@@ -47,7 +50,10 @@ pub(super) fn parse_specifier<'a>(
         return Err(ResolveErrorKind::Empty);
     }
     if specifier.starts_with('#') {
-        return Err(ResolveErrorKind::PackageImport);
+        if specifier == "#" || specifier.ends_with('/') {
+            return Err(ResolveErrorKind::InvalidImportSpecifier);
+        }
+        return Ok(Request::Import(specifier));
     }
     Ok(Request::Package(specifier))
 }

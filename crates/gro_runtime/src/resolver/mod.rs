@@ -30,6 +30,12 @@
 //!   matched in the package's key order from [`CONDITIONS`], arrays as
 //!   fallbacks, and every target checked to start with `./` and stay inside
 //!   the package by its path.
+//! - **`"imports"` is Node's `PACKAGE_IMPORTS_RESOLVE`** over the same
+//!   matching, read from the nearest `package.json` at or above the
+//!   importer's real directory (the package scope a self-reference reads),
+//!   with stricter targets: a `./` path with no empty segment either, and
+//!   one naming a package refused. The target keeps the importer's root,
+//!   inside the directory that `package.json` was found in too.
 //! - **The package search** tries the importer's own package first (a
 //!   self-reference, when its `package.json` has `"exports"` and its name
 //!   matches; its root is the importer's), then `node_modules/<name>` in each
@@ -55,8 +61,10 @@
 //! and [`ResolveErrorKind::IntoPackageRoot`], a package's bare import of the
 //! project's own modules with [`ResolveErrorKind::PackageImportsProject`],
 //! the project root's bound with
-//! [`ResolveErrorKind::NoProjectRoot`], and a world-writable directory with
-//! [`ResolveErrorKind::WorldWritablePackage`].
+//! [`ResolveErrorKind::NoProjectRoot`], a world-writable directory with
+//! [`ResolveErrorKind::WorldWritablePackage`], an `"imports"` target naming
+//! a package with [`ResolveErrorKind::ImportsPackage`], and one with an
+//! empty segment with [`TargetFault::EmptySegment`].
 
 mod builtin;
 mod entry;
@@ -80,7 +88,9 @@ pub use builtin::{
 };
 pub(crate) use builtin::{builtin_rows, builtin_url};
 pub use entry::{EntryBound, normalize, resolve_entry, resolve_entry_with_bound};
-pub use error::{PackageSearchBound, ResolveError, ResolveErrorKind, TargetFault, UrlFault};
+pub use error::{
+    MapField, PackageSearchBound, ResolveError, ResolveErrorKind, TargetFault, UrlFault,
+};
 pub use format::{ModuleFormat, module_format};
 pub use roots::{Origin, Root, Roots};
 pub(crate) use tree::read_checked;
@@ -92,7 +102,7 @@ use url::Url;
 use crate::file_id::FileId;
 
 use find::find_module;
-use package::resolve_package;
+use package::{Package, resolve_import, resolve_package};
 use roots::{contain, written_into_node_modules};
 use specifier::{Request, parse_specifier, url_to_path};
 use walk::Consulted;
@@ -142,8 +152,9 @@ pub enum Resolved {
 /// root, never into a `node_modules` segment below it, by its real path or
 /// as written, and never into another admitted root nested in it. A bare
 /// one's real path stays inside its package's real root, and a
-/// self-reference's inside its package's directory and the importer's root
-/// both, and a package's module never reaches the project's root by one.
+/// self-reference's or a `#` specifier's inside the directory of the
+/// `package.json` that maps it and the importer's root both, and a
+/// package's module never reaches the project's root by a bare one.
 /// The result names the root it is inside, which a caller admits for a
 /// package; nothing is admitted here. A bare specifier the builtin table
 /// names is that builtin, whoever imports it, and one it reserves is
@@ -241,36 +252,84 @@ pub(crate) fn resolve_from(
                     project: package.root.dir,
                 }));
             }
-            let name = package.root.installed_name();
-            let check = |real: &Path| {
-                if let Some(scope_dir) = &package.scope_dir {
-                    // the name is the importer root's, so only when the scope is that root
-                    contain(
-                        real,
-                        scope_dir,
-                        name.filter(|_| *scope_dir == package.root.dir),
-                        roots,
-                    )?;
-                }
-                contain(real, &package.root.dir, name, roots)
-            };
-            let found = match find_module(tree, &path, None, &mut consulted, check) {
-                Ok(found) => found,
-                // the tree's failure, not the target's
-                Err(kind) if !kind.is_refusal() => return Err(error(kind)),
-                // the error names the file, not the specifier
-                Err(kind) => {
-                    return Err(error(ResolveErrorKind::Target {
-                        path,
-                        error: Box::new(kind),
-                    }));
-                }
-            };
-            to_resolution(found, &package.url, package.root, consulted)
-                .map(Resolved::Module)
-                .map_err(error)
+            find_target(
+                tree,
+                package,
+                path,
+                None,
+                roots,
+                consulted,
+                |path, error| ResolveErrorKind::Target { path, error },
+            )
+            .map(Resolved::Module)
+            .map_err(error)
+        }
+        Request::Import(specifier) => {
+            let importer_path = importer_path(importer).map_err(error)?;
+            let mapped = resolve_import(
+                tree,
+                specifier,
+                &importer_path,
+                importer_root,
+                &mut consulted,
+            )
+            .map_err(error)?;
+            let path = url_to_path(&mapped.package.url).map_err(error)?;
+            // the suggestions in the specifier's terms only where its text ends the path
+            let hint = mapped.ends_in_match.then_some(specifier);
+            let package_json = mapped.package_json;
+            find_target(
+                tree,
+                mapped.package,
+                path,
+                hint,
+                roots,
+                consulted,
+                |path, error| ResolveErrorKind::ImportTarget {
+                    package_json,
+                    path,
+                    error,
+                },
+            )
+            .map(Resolved::Module)
+            .map_err(error)
         }
     }
+}
+
+/// Finds the module at `path`, the target `package` names, inside its root
+/// and its `package.json`'s directory, and resolves it there. A refusal of
+/// the file is `wrap`ped with its path, since the specifier didn't name it.
+fn find_target(
+    tree: &impl SourceTree,
+    package: Package,
+    path: PathBuf,
+    hint: Option<&str>,
+    roots: &Roots,
+    mut consulted: Consulted,
+    wrap: impl FnOnce(PathBuf, Box<ResolveErrorKind>) -> ResolveErrorKind,
+) -> Result<Resolution, ResolveErrorKind> {
+    let name = package.root.installed_name();
+    let check = |real: &Path| {
+        if let Some(scope_dir) = &package.scope_dir {
+            // the name is the importer root's, so only when the scope is that root
+            contain(
+                real,
+                scope_dir,
+                name.filter(|_| *scope_dir == package.root.dir),
+                roots,
+            )?;
+        }
+        contain(real, &package.root.dir, name, roots)
+    };
+    let found = match find_module(tree, &path, hint, &mut consulted, check) {
+        Ok(found) => found,
+        // the tree's failure, not the target's
+        Err(kind) if !kind.is_refusal() => return Err(kind),
+        // the error names the file, not the specifier
+        Err(kind) => return Err(wrap(path, Box::new(kind))),
+    };
+    to_resolution(found, &package.url, package.root, consulted)
 }
 
 /// The real path of the module at `importer`.
