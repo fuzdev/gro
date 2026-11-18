@@ -6,8 +6,8 @@ use url::Url;
 use super::{from_entry, resolve, roots};
 use crate::resolver::test_tree::MemoryTree;
 use crate::resolver::{
-    ConsultedFile, FileRole, Origin, ResolveErrorKind, Root, Roots, resolve_entry,
-    written_into_node_modules,
+    ConsultedFile, Origin, PackageField, PackageFields, ResolveErrorKind, Root, Roots,
+    resolve_entry, written_into_node_modules,
 };
 
 /// A project at `/p` with `bar` and `foo` installed, `foo` with a
@@ -447,7 +447,7 @@ fn an_entry_inside_node_modules_runs_as_its_package() {
         entry.files_consulted,
         [ConsultedFile {
             path: PathBuf::from("/p/node_modules/foo/package.json"),
-            role: FileRole::Version,
+            fields: PackageFields::of([PackageField::Version]),
         }]
     );
     // a project's entry reads the walk for its project root
@@ -456,7 +456,7 @@ fn an_entry_inside_node_modules_runs_as_its_package() {
         project_entry.files_consulted,
         [ConsultedFile {
             path: PathBuf::from("/p/package.json"),
-            role: FileRole::SearchBound,
+            fields: PackageFields::of([PackageField::Keys]),
         }]
     );
     assert_eq!(roots.project().dir, Path::new("/p"));

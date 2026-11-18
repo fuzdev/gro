@@ -75,10 +75,9 @@ fn expected_graph() -> Value {
     let file = |path: &str| hex(graph_file(path));
     let project = json!({"kind": "project"});
     let import = |specifier: &str, resolved: &str| json!({"specifier": specifier, "resolved": resolved, "reach": "static"});
-    let consulted =
-        |id: &str, path: &str, role: &str| json!({"id": id, "blake3": file(path), "role": role});
+    let consulted = |id: &str, path: &str, fields: &[&str]| json!({"id": id, "blake3": file(path), "fields": fields});
     json!({
-        "graph_version": 1,
+        "graph_version": 2,
         "roots": ["project:src/config.ts"],
         "modules": [
             {
@@ -137,27 +136,30 @@ fn expected_graph() -> Value {
                 "imports": [],
             },
         ],
+        // each once, with every field a resolution read of it: a package's
+        // exports and version, a `.js` module's scope's type, a
+        // self-reference's exports and name, and the keys of the walk's
         "consulted": [
-            consulted("linked:../lib/package.json", "lib/package.json", "exports"),
-            consulted("linked:../lib/package.json", "lib/package.json", "package_scope"),
+            consulted(
+                "linked:../lib/package.json",
+                "lib/package.json",
+                &["exports", "type", "version"],
+            ),
             consulted(
                 "project:node_modules/@sc/pkg/node_modules/nested/package.json",
                 "project/node_modules/@sc/pkg/node_modules/nested/package.json",
-                "exports",
+                &["exports", "version"],
             ),
             consulted(
                 "project:node_modules/@sc/pkg/package.json",
                 "project/node_modules/@sc/pkg/package.json",
-                "exports",
+                &["exports", "name", "type", "version"],
             ),
             consulted(
-                "project:node_modules/@sc/pkg/package.json",
-                "project/node_modules/@sc/pkg/package.json",
-                "package_scope",
+                "project:package.json",
+                "project/package.json",
+                &["exports", "keys", "name", "type"],
             ),
-            consulted("project:package.json", "project/package.json", "exports"),
-            consulted("project:package.json", "project/package.json", "package_scope"),
-            consulted("project:package.json", "project/package.json", "search_bound"),
         ],
         // the source directory's own package.json, on the walks up from it,
         // and its node_modules entries, on the package searches from it
@@ -380,8 +382,7 @@ fn the_graph_dump_of_refused_and_failed_runs() {
     assert_eq!(
         graph["consulted"],
         json!([
-            {"id": "project:package.json", "blake3": hash("package.json"), "role": "package_scope"},
-            {"id": "project:package.json", "blake3": hash("package.json"), "role": "search_bound"},
+            {"id": "project:package.json", "blake3": hash("package.json"), "fields": ["keys", "type"]},
         ])
     );
     assert_eq!(graph["absent"], json!([]));

@@ -71,8 +71,8 @@ pub(super) fn find_module(
         .is_some_and(|extension| extension == "js")
     {
         let dir = real_path.parent().unwrap_or(&real_path);
-        match package_scope(tree, dir, consulted)? {
-            Walk::Found(scope) if scope.string("type") == Some("module") => {}
+        match package_scope(tree, dir)? {
+            Walk::Found(scope) if scope.is_module_type(consulted) => {}
             Walk::Found(scope) => {
                 return Err(ResolveErrorKind::NotModuleType {
                     package_json: scope.path,

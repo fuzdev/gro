@@ -17,8 +17,9 @@
 //! - **Edges**: each import that resolved and was admitted, by its importer,
 //!   its specifier as written, and how it was reached ([`Reach`]), to the
 //!   URL it resolved to. `import.meta.resolve` adds none: it imports nothing.
-//! - **Consulted files**: every metadata file a resolution read, the entry's
-//!   and `import.meta.resolve`'s included, each once per role, and, in
+//! - **Consulted files**: every `package.json` a resolution read, the
+//!   entry's and `import.meta.resolve`'s included, each once with the
+//!   fields every resolution read of it, and, in
 //!   [`Graph::reads`], each read once per run with the hash of its bytes.
 //! - **Absent paths**: each path a resolution went on past finding nothing
 //!   of the kind it looked for ([`Reads::absent`]), since a resolution that
@@ -28,7 +29,7 @@
 //!   from a message. A site keeps each distinct failure once, in the order
 //!   each first happened.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, HashMap};
 use std::io;
 use std::ops::Bound;
 use std::path::{Path, PathBuf};
@@ -39,8 +40,8 @@ use url::Url;
 use super::reads::{Reads, RecordingTree};
 use crate::file_id::FileId;
 use crate::resolver::{
-    self, Builtin, ConsultedFile, ModuleFormat, Origin, Resolution, ResolveError, ResolveErrorKind,
-    Resolved, Root, Roots, SourceTree,
+    self, Builtin, ConsultedFile, ModuleFormat, Origin, PackageFields, Resolution, ResolveError,
+    ResolveErrorKind, Resolved, Root, Roots, SourceTree,
 };
 
 /// How much a graph records beyond what loading needs.
@@ -79,7 +80,7 @@ pub struct Graph {
     /// See [`Graph::edges`].
     edges: BTreeMap<Edge, Url>,
     /// See [`Graph::consulted`].
-    consulted: BTreeSet<ConsultedFile>,
+    consulted: BTreeMap<PathBuf, PackageFields>,
     /// See [`Graph::reads`].
     reads: Reads,
     /// See [`Graph::failures`].
@@ -368,7 +369,7 @@ impl Graph {
             roots,
             records: HashMap::new(),
             edges: BTreeMap::new(),
-            consulted: BTreeSet::new(),
+            consulted: BTreeMap::new(),
             reads: Reads::default(),
             failures: BTreeMap::new(),
             paths: None,
@@ -471,9 +472,9 @@ impl Graph {
         &self.edges
     }
 
-    /// Every metadata file the graph's resolutions read, at its real path,
-    /// once per role, recording in full.
-    pub const fn consulted(&self) -> &BTreeSet<ConsultedFile> {
+    /// Every `package.json` the graph's resolutions read, at its real path,
+    /// with the fields they read of it, recording in full.
+    pub const fn consulted(&self) -> &BTreeMap<PathBuf, PackageFields> {
         &self.consulted
     }
 
@@ -530,11 +531,15 @@ impl Graph {
         self.recording.is_full()
     }
 
-    /// Adds `files` to the files consulted, each kept once, recording in
-    /// full; otherwise `files` is never iterated.
+    /// Adds `files` to the files consulted, each kept once with the fields
+    /// read of it in every resolution, recording in full; otherwise `files`
+    /// is never iterated.
     pub fn consult(&mut self, files: impl IntoIterator<Item = ConsultedFile>) {
         if self.is_full() {
-            self.consulted.extend(files);
+            for file in files {
+                let fields = self.consulted.entry(file.path).or_default();
+                *fields = fields.union(file.fields);
+            }
         }
     }
 

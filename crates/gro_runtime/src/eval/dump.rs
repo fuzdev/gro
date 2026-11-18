@@ -23,12 +23,14 @@ use serde::Serialize;
 use url::Url;
 
 use crate::loader::graph::{Graph, Reach};
-use crate::resolver::{FileRole, ModuleFormat, Origin};
+use crate::resolver::{ModuleFormat, Origin, PackageField};
 
-/// The dump's version, its first field. It moves with any change to its
-/// shape that a reader must know about: a new field, a new id prefix, or a
-/// new value of `origin.kind`, `format`, `reach`, or `role`.
-pub const GRAPH_VERSION: u32 = 1;
+/// The dump's version, its first field.
+///
+/// It moves with any change to its shape that a reader must know about: a
+/// new field, a new id prefix, or a new value of `origin.kind`, `format`,
+/// `reach`, or a consulted file's `fields`.
+pub const GRAPH_VERSION: u32 = 2;
 
 /// The module graph of a run, as the envelope's `graph` writes it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -39,7 +41,7 @@ pub struct GraphDump {
     pub roots: Vec<String>,
     /// Every module the run resolved, by id.
     pub modules: Vec<DumpModule>,
-    /// Every `package.json` a resolution read, by id, then role.
+    /// Every `package.json` a resolution read, by id.
     pub consulted: Vec<DumpConsulted>,
     /// Every path a resolution went on past, finding nothing of the kind it
     /// looked for: a `package.json` with no file there, on a walk up, or a
@@ -122,23 +124,27 @@ pub struct DumpConsulted {
     pub id: String,
     /// The BLAKE3 hash of the bytes of its one read in the run, in hex.
     pub blake3: String,
-    /// What it was read for.
-    pub role: DumpRole,
+    /// The fields the run's resolutions read of it, each once, in order:
+    /// what their outcomes depended on, beside the file being a valid
+    /// `package.json`.
+    pub fields: Vec<DumpField>,
 }
 
-/// What a `package.json` was read for, the resolver's [`FileRole`].
+/// A field of a `package.json` a resolution read, the resolver's
+/// [`PackageField`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub enum DumpRole {
-    /// A package's, for its `"exports"`.
+pub enum DumpField {
+    /// `"exports"`: a package's, or a self-reference's.
     Exports,
-    /// The nearest above a module, for its `"type"`, or above an importer,
-    /// for a self-reference.
-    PackageScope,
-    /// One on the walk for the project root, which bounds the
-    /// `node_modules` search.
-    SearchBound,
-    /// The package's an entry inside `node_modules` is in, for its version.
+    /// Its keys, which say whether it is a type marker the walk for the
+    /// project root passes or the root it ends at.
+    Keys,
+    /// `"name"`: a self-reference's.
+    Name,
+    /// `"type"`: a `.js` module's.
+    Type,
+    /// `"version"`: a package's origin's.
     Version,
 }
 
@@ -323,27 +329,32 @@ fn dump_modules(graph: &Graph, ids: &mut Ids<'_>) -> Result<Vec<DumpModule>, Dum
     Ok(modules)
 }
 
-/// Every file `graph` consulted, with the hash of its one read, in id
-/// order, then role order.
+/// Every file `graph` consulted, with the hash of its one read and the
+/// fields read of it, in id order.
 fn dump_consulted(graph: &Graph, ids: &mut Ids<'_>) -> Result<Vec<DumpConsulted>, DumpError> {
     let mut consulted = Vec::with_capacity(graph.consulted().len());
-    for file in graph.consulted() {
+    for (path, fields) in graph.consulted() {
         let hash = graph
             .reads()
-            .hash(&file.path)
-            .ok_or_else(|| DumpError::Unread(file.path.clone()))?;
+            .hash(path)
+            .ok_or_else(|| DumpError::Unread(path.clone()))?;
         consulted.push(DumpConsulted {
-            id: ids.path_id(&file.path)?,
+            id: ids.path_id(path)?,
             blake3: hash.to_hex().to_string(),
-            role: match file.role {
-                FileRole::Exports => DumpRole::Exports,
-                FileRole::PackageScope => DumpRole::PackageScope,
-                FileRole::SearchBound => DumpRole::SearchBound,
-                FileRole::Version => DumpRole::Version,
-            },
+            fields: fields
+                .iter()
+                .map(|field| match field {
+                    PackageField::Exports => DumpField::Exports,
+                    PackageField::Keys => DumpField::Keys,
+                    PackageField::Name => DumpField::Name,
+                    PackageField::Type => DumpField::Type,
+                    PackageField::Version => DumpField::Version,
+                })
+                .collect(),
         });
     }
-    consulted.sort_by(|a, b| (&a.id, a.role).cmp(&(&b.id, b.role)));
+    // one entry per path, and one path has one id
+    consulted.sort_by(|a, b| a.id.cmp(&b.id));
     Ok(consulted)
 }
 
@@ -518,7 +529,7 @@ mod tests {
         let project = json!({"kind": "project"});
         let static_import = |specifier: &str, resolved: &str| json!({"specifier": specifier, "resolved": resolved, "reach": "static"});
         let expected = json!({
-            "graph_version": 1,
+            "graph_version": 2,
             "roots": ["project:src/main.ts"],
             "modules": [
                 {
@@ -582,13 +593,13 @@ mod tests {
                 },
             ],
             "consulted": [
-                {"id": "linked:../q/package.json", "blake3": file("q/package.json"), "role": "exports"},
-                {"id": "project:node_modules/@sc/pkg/node_modules/nested/package.json", "blake3": file("p/node_modules/@sc/pkg/node_modules/nested/package.json"), "role": "exports"},
-                {"id": "project:node_modules/@sc/pkg/package.json", "blake3": file("p/node_modules/@sc/pkg/package.json"), "role": "exports"},
-                {"id": "project:node_modules/@sc/pkg/package.json", "blake3": file("p/node_modules/@sc/pkg/package.json"), "role": "package_scope"},
-                {"id": "project:package.json", "blake3": file("p/package.json"), "role": "exports"},
-                {"id": "project:package.json", "blake3": file("p/package.json"), "role": "package_scope"},
-                {"id": "project:package.json", "blake3": file("p/package.json"), "role": "search_bound"},
+                // a package's for its exports and its origin's version
+                {"id": "linked:../q/package.json", "blake3": file("q/package.json"), "fields": ["exports", "version"]},
+                {"id": "project:node_modules/@sc/pkg/node_modules/nested/package.json", "blake3": file("p/node_modules/@sc/pkg/node_modules/nested/package.json"), "fields": ["exports", "version"]},
+                // and as its module's scope, for a self-reference of the name it doesn't have
+                {"id": "project:node_modules/@sc/pkg/package.json", "blake3": file("p/node_modules/@sc/pkg/package.json"), "fields": ["exports", "name", "version"]},
+                // the walk for the root, the self-reference, and the `.js` modules' type
+                {"id": "project:package.json", "blake3": file("p/package.json"), "fields": ["exports", "keys", "name", "type"]},
             ],
             // each subdirectory's own package.json on each walk up, and
             // its node_modules entry on each search
@@ -691,7 +702,7 @@ mod tests {
                 .consulted
                 .iter()
                 .any(|file| file.id == "project:src/package.json"
-                    && file.role == DumpRole::SearchBound
+                    && file.fields == [DumpField::Keys]
                     && file.blake3 == hash(r#"{"type": "module"}"#))
         );
     }
@@ -727,7 +738,7 @@ mod tests {
     }
 
     /// A builtin module recorded in the graph, which eval's loader never
-    /// records, has no dump: `graph_version` 1 has no shape for one. It's
+    /// records, has no dump, which has no shape for one. It's
     /// recorded as a run's loader links one, with the edge to it, which
     /// would otherwise fail first as a URL with no path.
     #[test]

@@ -49,8 +49,8 @@ use url::Url;
 
 use self::dump::dump_graph;
 pub use self::dump::{
-    DumpConsulted, DumpError, DumpFormat, DumpImport, DumpLocal, DumpModule, DumpOrigin, DumpReach,
-    DumpRole, GRAPH_VERSION, GraphDump,
+    DumpConsulted, DumpError, DumpField, DumpFormat, DumpImport, DumpLocal, DumpModule, DumpOrigin,
+    DumpReach, GRAPH_VERSION, GraphDump,
 };
 pub use self::envelope::{
     Access, DENO_CORE_VERSION, DynamicImport, EVAL_PROTOCOL, Entry, Envelope, ErrorKind, EvalError,

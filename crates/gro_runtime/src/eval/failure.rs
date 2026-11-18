@@ -18,7 +18,7 @@ use crate::report::{report, report_js};
 /// when only a bug in the host could have made the dump's failure: a
 /// consulted file with no read of it recorded, whose graph would name a
 /// file with no hash, or a builtin module recorded, which eval never
-/// imports and `graph_version` 1 has no shape for. Either fails the eval
+/// imports and the dump has no shape for. Either fails the eval
 /// rather than write a graph partial or none under a value. A path no id
 /// can name is the documented `null`, failing nothing.
 pub(super) fn dumped(dump: Result<GraphDump, DumpError>) -> (GraphField, Option<EvalError>) {

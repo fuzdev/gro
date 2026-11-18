@@ -3,7 +3,9 @@
 //! which failures are refusals by rule.
 
 use super::*;
-use crate::resolver::{BUILTINS, FileRole, Origin, Reserved, SPLIT_MODULES, TargetFault, UrlFault};
+use crate::resolver::{
+    BUILTINS, Origin, PackageField, PackageFields, Reserved, SPLIT_MODULES, TargetFault, UrlFault,
+};
 
 fn package(dir: &str, name: &str) -> Root {
     Root {
@@ -234,39 +236,47 @@ fn a_root_that_skips_the_scan_conflicts_with_nothing() {
     }
 }
 
-fn consulted(path: &str, role: FileRole) -> ConsultedFile {
+fn consulted(path: &str, fields: &[PackageField]) -> ConsultedFile {
     ConsultedFile {
         path: PathBuf::from(path),
-        role,
+        fields: PackageFields::of(fields.iter().copied()),
     }
 }
 
 /// The entry's consulted files are the graph's first, and the union
-/// keeps each file once per role.
+/// keeps each file once, with the fields every resolution read of it.
 #[test]
 fn the_consulted_files_are_a_union_from_the_entry_on() {
+    use PackageField::{Exports, Keys, Type, Version};
     let project = Root {
         dir: PathBuf::from("/a"),
         origin: Origin::Project,
     };
     let mut entry = resolution("/a/main.js", &project);
-    entry.files_consulted = vec![
-        consulted("/a/package.json", FileRole::SearchBound),
-        consulted("/a/package.json", FileRole::PackageScope),
-    ];
+    entry.files_consulted = vec![consulted("/a/package.json", &[Keys, Type])];
     let mut graph = Graph::new(&entry, Roots::new(project.dir), Recording::Full);
+    let fields = |fields: &[PackageField]| PackageFields::of(fields.iter().copied());
     assert_eq!(
         graph.consulted,
-        BTreeSet::from([
-            consulted("/a/package.json", FileRole::SearchBound),
-            consulted("/a/package.json", FileRole::PackageScope),
-        ])
+        BTreeMap::from([(PathBuf::from("/a/package.json"), fields(&[Keys, Type]))])
     );
     graph.consult([
-        consulted("/a/package.json", FileRole::PackageScope),
-        consulted("/a/node_modules/b/package.json", FileRole::Exports),
+        consulted("/a/package.json", &[Exports]),
+        consulted("/a/node_modules/b/package.json", &[Exports, Version]),
     ]);
-    assert_eq!(graph.consulted.len(), 3);
+    assert_eq!(
+        graph.consulted,
+        BTreeMap::from([
+            (
+                PathBuf::from("/a/package.json"),
+                fields(&[Exports, Keys, Type])
+            ),
+            (
+                PathBuf::from("/a/node_modules/b/package.json"),
+                fields(&[Exports, Version])
+            ),
+        ])
+    );
 }
 
 /// An edge and a load each keep their first record, and a site keeps
@@ -359,7 +369,7 @@ fn recording_off_keeps_only_what_loading_needs() {
         origin: Origin::Project,
     };
     let mut entry = resolution("/a/main.ts", &project);
-    entry.files_consulted = vec![consulted("/a/package.json", FileRole::SearchBound)];
+    entry.files_consulted = vec![consulted("/a/package.json", &[PackageField::Keys])];
     let mut graph = Graph::new(&entry, Roots::new(project.dir.clone()), Recording::Off);
     assert!(!graph.is_full());
     graph.admit(&resolution("/a/b/c.ts", &project)).unwrap();
@@ -370,7 +380,7 @@ fn recording_off_keeps_only_what_loading_needs() {
     );
     let main = entry.url;
     let c = Url::from_file_path("/a/b/c.ts").unwrap();
-    graph.consult([consulted("/a/package.json", FileRole::PackageScope)]);
+    graph.consult([consulted("/a/package.json", &[PackageField::Type])]);
     graph.link(&main, "./b/c.ts", Reach::Static, &c);
     graph.load(
         &c,

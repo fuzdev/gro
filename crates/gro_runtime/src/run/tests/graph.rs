@@ -46,12 +46,12 @@ const PACKAGE_JSON: (&str, &str) = ("package.json", r#"{"name": "fixture", "type
 /// and records.
 #[test]
 fn a_run_records_its_graph() {
-    use std::collections::{BTreeMap, BTreeSet};
+    use std::collections::BTreeMap;
 
     use url::Url;
 
     use crate::loader::graph::{Edge, Failure, FailureReason, FailureSite, Loaded, Reach, Reached};
-    use crate::resolver::{ConsultedFile, FileRole, ModuleFormat, ResolveErrorKind};
+    use crate::resolver::{ModuleFormat, PackageField, PackageFields, ResolveErrorKind};
 
     const MAIN: &str = "import {a} from './a.ts';
 let caught = false;
@@ -143,17 +143,13 @@ if (a !== 1 || d !== 4) throw new Error('wrong values');
         graph.failures()
     );
 
-    let package_json = dir.join("package.json");
-    let consulted = |role| ConsultedFile {
-        path: package_json.clone(),
-        role,
-    };
+    // the walk for the project root read its keys, a `.js` module its "type"
     assert_eq!(
         *graph.consulted(),
-        BTreeSet::from([
-            consulted(FileRole::SearchBound),
-            consulted(FileRole::PackageScope),
-        ])
+        BTreeMap::from([(
+            dir.join("package.json"),
+            PackageFields::of([PackageField::Keys, PackageField::Type]),
+        )])
     );
 
     // off, the same roots and records, with nothing else

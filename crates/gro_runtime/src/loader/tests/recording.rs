@@ -5,7 +5,7 @@ use std::collections::BTreeSet;
 
 use super::super::graph::{Edge, FailureSite, Loaded, StripFailure};
 use super::*;
-use crate::resolver::{ConsultedFile, FileRole, ResolveErrorKind};
+use crate::resolver::{PackageField, PackageFields, ResolveErrorKind};
 
 fn url(path: &str) -> Url {
     Url::from_file_path(path).unwrap()
@@ -27,11 +27,17 @@ fn site(specifier: &str, importer: Option<&str>, reached: Reached) -> FailureSit
     }
 }
 
-fn consulted(path: &str, role: FileRole) -> ConsultedFile {
-    ConsultedFile {
-        path: PathBuf::from(path),
-        role,
-    }
+/// A graph's consulted files, each with its fields.
+fn consulted(files: &[(&str, &[PackageField])]) -> BTreeMap<PathBuf, PackageFields> {
+    files
+        .iter()
+        .map(|&(path, fields)| {
+            (
+                PathBuf::from(path),
+                PackageFields::of(fields.iter().copied()),
+            )
+        })
+        .collect()
 }
 
 /// The one failure at a site.
@@ -66,27 +72,28 @@ fn each_import_is_one_edge_per_reach() {
 }
 
 /// The entry's consulted files are in the graph from the start, and every
-/// resolution's join them once each, `import.meta.resolve`'s and a
-/// refused admission's included.
+/// resolution's join them once each, with the fields of every read of
+/// each, `import.meta.resolve`'s and a refused admission's included.
 #[test]
 fn the_consulted_files_are_the_union_of_every_resolution() {
+    use PackageField::{Exports, Keys, Version};
     let tree = tree();
     let loader = new_loader(&tree);
-    let search_bound = consulted("/p/package.json", FileRole::SearchBound);
+    // the walk for the project root
     assert_eq!(
         *graph(&loader).consulted(),
-        BTreeSet::from([search_bound.clone()])
+        consulted(&[("/p/package.json", &[Keys])])
     );
     // read without admitting anything
     loader
         .resolve_reached(&tree, "bar", MAIN, Reached::MetaResolve)
         .unwrap();
-    // the importer's scope, for a self-reference, then the package's
-    let scope = consulted("/p/package.json", FileRole::PackageScope);
-    let bar = consulted("/p/node_modules/bar/package.json", FileRole::Exports);
+    // the importer's scope, for a self-reference, then the package's, for
+    // its exports and its origin's version
+    let bar = ("/p/node_modules/bar/package.json", &[Exports, Version][..]);
     assert_eq!(
         *graph(&loader).consulted(),
-        BTreeSet::from([search_bound.clone(), scope.clone(), bar.clone()])
+        consulted(&[("/p/package.json", &[Exports, Keys]), bar])
     );
     loader.resolve_reached(&tree, "bar", MAIN, STATIC).unwrap();
     loader
@@ -96,10 +103,13 @@ fn the_consulted_files_are_the_union_of_every_resolution() {
     loader
         .resolve_reached(&tree, "lnk/x.ts", MAIN, STATIC)
         .unwrap_err();
-    let lnk = consulted("/p/packages/lnk/package.json", FileRole::Exports);
     assert_eq!(
         *graph(&loader).consulted(),
-        BTreeSet::from([search_bound, scope, bar, lnk])
+        consulted(&[
+            ("/p/package.json", &[Exports, Keys]),
+            bar,
+            ("/p/packages/lnk/package.json", &[Exports, Version]),
+        ])
     );
 }
 
@@ -170,8 +180,8 @@ fn a_consulted_file_is_read_once_and_each_path_passed_is_absent() {
     assert!(
         graph
             .consulted()
-            .iter()
-            .all(|file| graph.reads().hash(&file.path).is_some())
+            .keys()
+            .all(|path| graph.reads().hash(path).is_some())
     );
     assert_eq!(
         graph.reads().absent(),

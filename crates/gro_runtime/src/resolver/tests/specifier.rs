@@ -4,8 +4,8 @@ use url::Url;
 
 use super::{from_entry, importer, kind, ok, resolve, tree};
 use crate::resolver::{
-    ConsultedFile, FileRole, ModuleFormat, Origin, ResolveErrorKind, Root, Roots, UrlFault,
-    module_format, resolve_entry,
+    ConsultedFile, ModuleFormat, Origin, PackageField, PackageFields, ResolveErrorKind, Root,
+    Roots, UrlFault, module_format, resolve_entry,
 };
 
 #[test]
@@ -60,7 +60,7 @@ fn record() {
         resolution.files_consulted,
         [ConsultedFile {
             path: PathBuf::from("/p/package.json"),
-            role: FileRole::PackageScope
+            fields: PackageFields::of([PackageField::Type]),
         }]
     );
     let resolution = from_entry(&tree(), "./typed.ts", &importer()).unwrap();

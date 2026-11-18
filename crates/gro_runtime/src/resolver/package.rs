@@ -9,8 +9,8 @@ use super::exports::resolve_exports;
 use super::roots::{Origin, Root, Roots};
 use super::tree::{Entry, SourceTree};
 use super::walk::{
-    Consulted, FileRole, Walk, find_bound, in_node_modules, is_world_writable, lookup,
-    package_scope, read_package_json,
+    Consulted, Walk, find_bound, in_node_modules, is_world_writable, lookup, package_scope,
+    read_package_json,
 };
 
 /// Splits a bare specifier into its package name and its subpath (`.` or
@@ -68,13 +68,12 @@ pub(super) fn resolve_package(
     // a self-reference: the importer's own package, by its name, resolved from
     // the directory the package.json was found in (the importer's real one),
     // not the file's real path, which a symlinked package.json moves
-    let scope = package_scope(tree, importer_dir, consulted)?;
+    let scope = package_scope(tree, importer_dir)?;
     let scope = scope.found();
     if let Some(scope) = scope
-        && let Some(exports) = scope.exports()
-        && scope.string("name") == Some(name)
+        && let Some(exports) = scope.exports(consulted)
+        && scope.name(consulted) == Some(name)
     {
-        consulted.add(&scope.path, FileRole::Exports);
         let url = resolve_exports(&scope.dir, &scope.path, exports, &subpath)?;
         return Ok(Package {
             url,
@@ -96,17 +95,17 @@ pub(super) fn resolve_package(
     let (node_modules, package_dir, root) =
         find_in_node_modules(tree, name, importer_dir, &bound_dir, bound_package_json)?;
     check_holders(tree, name, importer_dir, &bound_dir, &node_modules, &root)?;
-    let package_json = read_package_json(tree, &root, FileRole::Exports, consulted)?
-        .ok_or(ResolveErrorKind::NoPackageJson(package_dir))?;
+    let package_json =
+        read_package_json(tree, &root)?.ok_or(ResolveErrorKind::NoPackageJson(package_dir))?;
     let exports = package_json
-        .exports()
+        .exports(consulted)
         .ok_or_else(|| ResolveErrorKind::NoExports(package_json.path.clone()))?;
     let url = resolve_exports(&root, &package_json.path, exports, &subpath)?;
     // one directory under two names keeps its first admission's origin
     let origin = roots.get(&root).map_or_else(
         || Origin::Package {
             name: name.to_owned(),
-            version: package_json.string("version").map(str::to_owned),
+            version: package_json.version(consulted).map(str::to_owned),
             linked: !in_node_modules(&root),
         },
         |admitted| admitted.origin.clone(),

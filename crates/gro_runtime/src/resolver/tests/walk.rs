@@ -8,7 +8,7 @@ use super::{MODULE, from_entry, package, packages, resolve, roots};
 use crate::file_id::FileId;
 use crate::resolver::test_tree::MemoryTree;
 use crate::resolver::{
-    ConsultedFile, DiskTree, Entry, EntryBound, FileRole, MAX_PACKAGE_JSON_SIZE,
+    ConsultedFile, DiskTree, Entry, EntryBound, MAX_PACKAGE_JSON_SIZE, PackageField, PackageFields,
     PackageSearchBound, ResolveErrorKind, SourceTree, resolve_entry, resolve_entry_with_bound,
 };
 use crate::test_support::TestDir;
@@ -65,30 +65,24 @@ fn the_search_ends_at_a_package_json_that_is_not_a_type_marker() {
          /w/proj/package.json is not searched (npm and yarn workspaces, which install at \
          their root, aren't supported yet). Fix: install it into /w/proj/imports/node_modules"
     );
-    // the marker is the scope, read once and consulted in both roles, and the
-    // walk reads every package.json up to the bound before any node_modules,
-    // even when the package is installed below it
+    // the marker is the scope, read once for a self-reference's exports and
+    // the walk's keys, and the walk reads every package.json up to the bound
+    // before any node_modules, even when the package is installed below it
+    let consulted = |path: &str, fields: &[PackageField]| ConsultedFile {
+        path: PathBuf::from(path),
+        fields: PackageFields::of(fields.iter().copied()),
+    };
     assert_eq!(
         from("file:///w/proj/dist/esm/x.js", "t")
             .unwrap()
-            .files_consulted[..4],
+            .files_consulted[..3],
         [
-            ConsultedFile {
-                path: PathBuf::from("/w/proj/dist/esm/package.json"),
-                role: FileRole::PackageScope
-            },
-            ConsultedFile {
-                path: PathBuf::from("/w/proj/dist/esm/package.json"),
-                role: FileRole::SearchBound
-            },
-            ConsultedFile {
-                path: PathBuf::from("/w/proj/dist/package.json"),
-                role: FileRole::SearchBound
-            },
-            ConsultedFile {
-                path: PathBuf::from("/w/proj/package.json"),
-                role: FileRole::SearchBound
-            },
+            consulted(
+                "/w/proj/dist/esm/package.json",
+                &[PackageField::Exports, PackageField::Keys]
+            ),
+            consulted("/w/proj/dist/package.json", &[PackageField::Keys]),
+            consulted("/w/proj/package.json", &[PackageField::Keys]),
         ]
     );
     // a named nested project ends it, with the workspace's root above unsearched
@@ -233,12 +227,25 @@ fn package_json_reads() {
         package("./bom/x.js").unwrap().url.as_str(),
         "file:///w/proj/bom/x.js"
     );
-    // one too large is refused by its size
+    // a duplicated key keeps its last value, as `JSON.parse` does
     let mut tree = packages();
+    tree.files.insert(
+        "/w/proj/dup/package.json",
+        r#"{"type": "commonjs", "type": "module"}"#,
+    );
+    tree.files.insert("/w/proj/dup/x.js", "");
+    let importer = Url::parse("file:///w/proj/main.js").unwrap();
+    assert_eq!(
+        from_entry(&tree, "./dup/x.js", &importer)
+            .unwrap()
+            .url
+            .as_str(),
+        "file:///w/proj/dup/x.js"
+    );
+    // one too large is refused by its size
     let large = "x".repeat(usize::try_from(MAX_PACKAGE_JSON_SIZE).unwrap() + 1);
     tree.files
         .insert("/w/proj/node_modules/large/package.json", large.leak());
-    let importer = Url::parse("file:///w/proj/main.js").unwrap();
     let error = from_entry(&tree, "large", &importer).unwrap_err();
     assert_eq!(
         error.kind,
@@ -358,11 +365,14 @@ fn a_world_writable_directory_ends_every_walk() {
         resolution.url.as_str(),
         "file:///shared/proj/node_modules/bar/i.mjs"
     );
-    // the bound's read is recorded in its role
-    assert!(resolution.files_consulted.contains(&ConsultedFile {
-        path: PathBuf::from("/shared/proj/package.json"),
-        role: FileRole::SearchBound,
-    }));
+    // the bound's read is recorded with the keys the walk read
+    assert!(
+        resolution
+            .files_consulted
+            .iter()
+            .any(|file| file.path == Path::new("/shared/proj/package.json")
+                && file.fields.contains(PackageField::Keys))
+    );
     assert!(
         resolution
             .files_consulted

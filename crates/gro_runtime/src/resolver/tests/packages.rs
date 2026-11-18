@@ -3,10 +3,13 @@ use std::path::{Path, PathBuf};
 use url::Url;
 
 use super::{from_entry, package, packages};
-use crate::resolver::{ConsultedFile, FileRole, Origin, PackageSearchBound, ResolveErrorKind};
+use crate::resolver::{
+    ConsultedFile, Origin, PackageField, PackageFields, PackageSearchBound, ResolveErrorKind,
+};
 
 #[test]
 fn package_origins_and_consulted_files() {
+    use PackageField::{Exports, Keys, Name, Type, Version};
     let resolution = package("t").unwrap();
     assert_eq!(
         resolution.root.origin,
@@ -16,26 +19,26 @@ fn package_origins_and_consulted_files() {
             linked: false
         }
     );
-    let consulted = |files: &[(&str, FileRole)]| {
+    let consulted = |files: &[(&str, &[PackageField])]| {
         files
             .iter()
-            .map(|&(path, role)| ConsultedFile {
+            .map(|&(path, fields)| ConsultedFile {
                 path: PathBuf::from(path),
-                role,
+                fields: PackageFields::of(fields.iter().copied()),
             })
             .collect::<Vec<_>>()
     };
-    // the importer's scope (a self-reference's), the same file as the bound, the
-    // package's exports, then the module's scope, the same file in another role
+    // each file once, in the order first read: the importer's scope, for a
+    // self-reference of another name and then as the bound, and the
+    // package's, for its exports and its version and then as its `.js`
+    // module's scope
     assert_eq!(
         resolution.files_consulted,
         consulted(&[
-            ("/w/proj/package.json", FileRole::PackageScope),
-            ("/w/proj/package.json", FileRole::SearchBound),
-            ("/w/proj/node_modules/t/package.json", FileRole::Exports),
+            ("/w/proj/package.json", &[Exports, Keys, Name]),
             (
                 "/w/proj/node_modules/t/package.json",
-                FileRole::PackageScope
+                &[Exports, Type, Version]
             ),
         ])
     );
@@ -50,7 +53,7 @@ fn package_origins_and_consulted_files() {
     );
     // the real paths, not the symlink's
     assert_eq!(
-        resolution.files_consulted[2].path,
+        resolution.files_consulted[1].path,
         Path::new("/w/linked/package.json")
     );
     // a nested layout's real root is inside node_modules, so it isn't linked
@@ -68,10 +71,7 @@ fn package_origins_and_consulted_files() {
     assert_eq!(resolution.root.origin, Origin::Project);
     assert_eq!(
         resolution.files_consulted,
-        consulted(&[
-            ("/w/proj/package.json", FileRole::PackageScope),
-            ("/w/proj/package.json", FileRole::Exports),
-        ])
+        consulted(&[("/w/proj/package.json", &[Exports, Name, Type])])
     );
 }
 

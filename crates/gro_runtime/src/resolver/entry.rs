@@ -10,7 +10,7 @@ use super::find::find_module;
 use super::package::parse_package_name;
 use super::roots::{Origin, Root, Roots};
 use super::tree::SourceTree;
-use super::walk::{Consulted, FileRole, Walk, find_bound, read_package_json};
+use super::walk::{Consulted, Walk, find_bound, read_package_json};
 
 /// Resolves the entry module at `path`, relative to `cwd`, returning it and
 /// the roots its graph starts with.
@@ -160,12 +160,12 @@ pub(super) fn entry_roots(
         return Err(ResolveErrorKind::InNoPackage(real_path.to_owned()));
     };
     let package_dir: PathBuf = real_path.components().take(last + 1 + length).collect();
-    let package_json = read_package_json(tree, &package_dir, FileRole::Version, consulted)?
+    let package_json = read_package_json(tree, &package_dir)?
         .ok_or_else(|| ResolveErrorKind::NoPackageJson(package_dir.clone()))?;
     let root = Root {
         origin: Origin::Package {
             name,
-            version: package_json.string("version").map(str::to_owned),
+            version: package_json.version(consulted).map(str::to_owned),
             linked: false,
         },
         dir: package_dir,

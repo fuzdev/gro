@@ -422,7 +422,7 @@ each module it resolved, each `package.json` a resolution read, and each path a 
 
 ```json
 "graph": {
-	"graph_version": 1,
+	"graph_version": 2,
 	"roots": ["project:src/config.ts"],
 	"modules": [
 		{
@@ -433,7 +433,7 @@ each module it resolved, each `package.json` a resolution read, and each path a 
 			"imports": [{"specifier": "@x/lib", "resolved": "linked:../lib/index.js", "reach": "static"}]
 		}
 	],
-	"consulted": [{"id": "project:package.json", "blake3": "…", "role": "search_bound"}],
+	"consulted": [{"id": "project:package.json", "blake3": "…", "fields": ["keys", "type"]}],
 	"absent": ["project:src/node_modules/@x/lib", "project:src/package.json"],
 	"local": {
 		"project": "/abs/project",
@@ -451,20 +451,20 @@ The path is joined by `/`, with `%`, `?`, and `#` percent-encoded,
 and a module's query and fragment join its id as its URL has them (`project:src/a.js?x#y`),
 so an import with a query or fragment is a module of its own, as it is to V8.
 The package's name and version are only in `origin`.
-Eval imports no [builtin module](glossary.md#builtin-module), so none links in an eval, and `graph_version` 1 has no `builtin:` id and no `builtin` origin; an eval that links one names it by those, under a new `graph_version`.
+Eval imports no [builtin module](glossary.md#builtin-module), so none links in an eval, and the dump has no `builtin:` id and no `builtin` origin; an eval that links one names it by those, under a new `graph_version`.
 Absolute paths are only in `local`.
 Every array is sorted, so the dump is a function of what was read, not of the order the run reached it in.
 
 | field                | what                                                                                                                           |
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `graph_version`      | `1`; it changes with any change to the dump a reader must know about, such as a new field, id prefix, origin, format, reach, or role |
+| `graph_version`      | `2`; it changes with any change to the dump a reader must know about, such as a new field, id prefix, origin, format, reach, or consulted field |
 | `roots`              | the module the graph loads from: the entry alone (the driver, which has no file, is named by `entry.driver_blake3`)           |
 | `modules`            | each module the run resolved, by id                                                                                            |
 | `modules[].blake3`   | the BLAKE3 of the bytes read for it, before any type strip, in hex; `null` if it didn't load, which only a failed run leaves |
 | `modules[].origin`   | `{"kind": "project"}`, or `{"kind": "package", name, version, linked}`: the name it was first imported by, its `package.json` `"version"` (`null` when that isn't a string), and whether its real root is outside every `node_modules` |
 | `modules[].format`   | `javascript`, run as read, or `typescript`, stripped of its types; `null` if it didn't load                                     |
 | `modules[].imports`  | each import of it that resolved, `{specifier, resolved, reach}`, by specifier then reach: the specifier as written, the id of the module it resolved to, and `static` or `dynamic` (eval refuses every `import()` before resolving it, so none is `dynamic` yet) |
-| `consulted`          | each `package.json` a resolution read, `{id, blake3, role}`, by id then role, once per role: `exports` (a package's, for its `"exports"`), `package_scope` (the nearest above a module, for its `"type"`, or above an importer, for a self-reference), `search_bound` (one on the walk up for the project root), `version` (the package's an entry inside `node_modules` is in, which eval refuses, so none appears yet) |
+| `consulted`          | each `package.json` a resolution read, `{id, blake3, fields}`, by id, once: `fields` is the sorted set of what the run's resolutions read of it, `exports` (a package's, or a self-reference's from the nearest above an importer), `keys` (whether it holds more than `"type"` and `"sideEffects"`, read on the walk up for the project root, which a type marker doesn't end), `name` (a self-reference's), `type` (the nearest above a `.js` module), `version` (a package's, its origin's) |
 | `absent`             | each path a resolution went on past finding nothing of the kind it looked for, by id: a `package.json` on a walk up, with no file there, and a package in a `node_modules` the search passed, with no directory there; each is the path as looked up |
 | `local.project`      | P's absolute path                                                                                                              |
 | `local.box`          | the [box](#the-box)'s roots, P first, then the link closure                                                                     |
@@ -472,6 +472,11 @@ Every array is sorted, so the dump is a function of what was read, not of the or
 
 Each `package.json` is read once per run ([resolver](resolver.md#departures-from-node)),
 so a consulted file's `blake3` is the hash of the bytes every resolution in the run parsed.
+Its `fields` are what the resolutions' outcomes depended on beside the file itself:
+every read refuses a special file (a FIFO, a socket, or a device) and one over 16 MiB,
+skips a leading byte order mark, parses the whole file, keeping a duplicated key's last value,
+and refuses one that isn't a JSON object or has a `"name"` or `"type"` that isn't a string,
+so a reader that compares a changed file by its fields rather than its hash holds it to those rules too.
 
 What the run depended on is `modules` and `consulted` by id and hash and `absent` by id:
 a file edited, added in a directory a walk or the package search passed, or moved under a link

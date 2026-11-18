@@ -8,47 +8,96 @@ use serde_json::Value;
 use super::error::ResolveErrorKind;
 use super::tree::{Entry, MAX_PACKAGE_JSON_SIZE, ReadRefusal, SourceTree};
 
-/// A metadata file resolution read.
+/// A `package.json` resolution read, and the fields it read of it.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ConsultedFile {
     /// Its real path.
     pub path: PathBuf,
-    /// What it was read for.
-    pub role: FileRole,
+    /// The fields its resolutions read, each once.
+    pub fields: PackageFields,
 }
 
-/// What a consulted file was read for.
+/// A field of a `package.json` that resolution reads, or for
+/// [`PackageField::Keys`], its set of keys. Ordered by name, as a dump
+/// writes them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum FileRole {
-    /// A package's `package.json`, for its `"exports"`.
+pub enum PackageField {
+    /// `"exports"`: a package's, or a self-reference's.
     Exports,
-    /// The nearest `package.json` above a module, for its `"type"`, or above
-    /// an importer, for a self-reference's `"name"` and `"exports"`.
-    PackageScope,
-    /// A `package.json` on the walk for the project root that bounds the
-    /// `node_modules` search, or for the entry's project root, read to tell
-    /// a type marker, which the walk passes, from the root it ends at, which
-    /// is always read.
-    SearchBound,
-    /// The `package.json` of the package an entry inside `node_modules` is
-    /// in, for its `"version"`, its origin's.
+    /// Its keys, which say whether it is a type marker the walk for the
+    /// project root passes or the root it ends at: any key but `"type"` and
+    /// `"sideEffects"` makes it the root.
+    Keys,
+    /// `"name"`: a self-reference's.
+    Name,
+    /// `"type"`: a `.js` module's.
+    Type,
+    /// `"version"`: a package's origin's.
     Version,
 }
 
-/// The files a resolution read, each `(path, role)` once.
+impl PackageField {
+    /// Every field, in order.
+    pub const ALL: [Self; 5] = [
+        Self::Exports,
+        Self::Keys,
+        Self::Name,
+        Self::Type,
+        Self::Version,
+    ];
+
+    /// Its bit in a [`PackageFields`].
+    const fn bit(self) -> u8 {
+        1 << self as u8
+    }
+}
+
+/// A set of [`PackageField`]s.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct PackageFields(u8);
+
+impl PackageFields {
+    /// The set of `fields`.
+    pub fn of(fields: impl IntoIterator<Item = PackageField>) -> Self {
+        fields
+            .into_iter()
+            .fold(Self::default(), |set, field| Self(set.0 | field.bit()))
+    }
+
+    /// Whether `field` is in it.
+    pub const fn contains(self, field: PackageField) -> bool {
+        self.0 & field.bit() != 0
+    }
+
+    /// The fields of both.
+    #[must_use]
+    pub const fn union(self, other: Self) -> Self {
+        Self(self.0 | other.0)
+    }
+
+    /// Its fields, in order.
+    pub fn iter(self) -> impl Iterator<Item = PackageField> {
+        PackageField::ALL
+            .into_iter()
+            .filter(move |field| self.contains(*field))
+    }
+}
+
+/// The `package.json` files a resolution read, each once, with the fields
+/// it read of each.
 #[derive(Debug, Default)]
 pub(super) struct Consulted(pub(super) Vec<ConsultedFile>);
 
 impl Consulted {
-    pub(super) fn add(&mut self, path: &Path, role: FileRole) {
-        if !self
-            .0
-            .iter()
-            .any(|file| file.path == path && file.role == role)
-        {
+    /// Records that `field` of the `package.json` at `path` was read.
+    fn add(&mut self, path: &Path, field: PackageField) {
+        let fields = PackageFields::of([field]);
+        if let Some(file) = self.0.iter_mut().find(|file| file.path == path) {
+            file.fields = file.fields.union(fields);
+        } else {
             self.0.push(ConsultedFile {
                 path: path.to_owned(),
-                role,
+                fields,
             });
         }
     }
@@ -65,14 +114,27 @@ pub(super) struct PackageJson {
     fields: serde_json::Map<String, Value>,
 }
 
+// each field is read through the method that records it, so the record is
+// what decided the resolution
 impl PackageJson {
-    /// The field `key`, unless absent or not a string.
-    pub(super) fn string(&self, key: &str) -> Option<&str> {
-        self.fields.get(key).and_then(Value::as_str)
+    /// Its `"name"`, unless absent.
+    pub(super) fn name(&self, consulted: &mut Consulted) -> Option<&str> {
+        self.string(PackageField::Name, "name", consulted)
+    }
+
+    /// Whether its `"type"` is `"module"`.
+    pub(super) fn is_module_type(&self, consulted: &mut Consulted) -> bool {
+        self.string(PackageField::Type, "type", consulted) == Some("module")
+    }
+
+    /// Its `"version"`, unless absent or not a string.
+    pub(super) fn version(&self, consulted: &mut Consulted) -> Option<&str> {
+        self.string(PackageField::Version, "version", consulted)
     }
 
     /// Its `"exports"`, unless absent or `null`.
-    pub(super) fn exports(&self) -> Option<&Value> {
+    pub(super) fn exports(&self, consulted: &mut Consulted) -> Option<&Value> {
+        consulted.add(&self.path, PackageField::Exports);
         self.fields
             .get("exports")
             .filter(|exports| !exports.is_null())
@@ -80,10 +142,17 @@ impl PackageJson {
 
     /// Whether it only marks its directory's module type: every key is
     /// `"type"` or `"sideEffects"`, which the empty object satisfies.
-    fn is_type_marker(&self) -> bool {
+    fn is_type_marker(&self, consulted: &mut Consulted) -> bool {
+        consulted.add(&self.path, PackageField::Keys);
         self.fields
             .keys()
             .all(|key| matches!(key.as_str(), "type" | "sideEffects"))
+    }
+
+    /// The field `key`, `field`, unless absent or not a string.
+    fn string(&self, field: PackageField, key: &str, consulted: &mut Consulted) -> Option<&str> {
+        consulted.add(&self.path, field);
+        self.fields.get(key).and_then(Value::as_str)
     }
 }
 
@@ -121,8 +190,9 @@ fn read_error(path: &Path, error: &io::Error) -> ResolveErrorKind {
     }
 }
 
-/// Reads `dir`'s `package.json`, when it has one. A leading byte order mark
-/// is skipped, as Node skips it. A `"name"` or `"type"` that isn't a string
+/// Reads `dir`'s `package.json`, when it has one, recording none of its
+/// fields: the caller records each it reads ([`Consulted`]). A leading byte
+/// order mark is skipped, as Node skips it. A `"name"` or `"type"` that isn't a string
 /// makes it invalid, as it does in Node, and so does a `package.json` that
 /// is a special file (a FIFO, a socket, or a device) when it is looked up,
 /// which isn't opened; one swapped in after the lookup is opened without
@@ -130,8 +200,6 @@ fn read_error(path: &Path, error: &io::Error) -> ResolveErrorKind {
 pub(super) fn read_package_json(
     tree: &impl SourceTree,
     dir: &Path,
-    role: FileRole,
-    consulted: &mut Consulted,
 ) -> Result<Option<PackageJson>, ResolveErrorKind> {
     let path = dir.join("package.json");
     let (path, id) = match lookup(tree, &path)? {
@@ -161,7 +229,6 @@ pub(super) fn read_package_json(
         }
         Err(error) => return Err(read_error(&path, &error)),
     };
-    consulted.add(&path, role);
     let json = bytes.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(&bytes);
     let fields = match serde_json::from_slice(json) {
         Ok(Value::Object(fields)) => fields,
@@ -219,7 +286,6 @@ pub(super) fn is_world_writable(
 pub(super) fn package_scope(
     tree: &impl SourceTree,
     dir: &Path,
-    consulted: &mut Consulted,
 ) -> Result<Walk<PackageJson>, ResolveErrorKind> {
     for dir in dir.ancestors() {
         if dir.file_name().is_some_and(|name| name == "node_modules") {
@@ -230,8 +296,7 @@ pub(super) fn package_scope(
                 stopped_at: Some(dir.to_owned()),
             });
         }
-        if let Some(package_json) = read_package_json(tree, dir, FileRole::PackageScope, consulted)?
-        {
+        if let Some(package_json) = read_package_json(tree, dir)? {
             return Ok(Walk::Found(package_json));
         }
     }
@@ -262,11 +327,10 @@ pub(super) fn find_bound(
         // any package.json but a type marker ends the walk, the scope's read once
         let package_json = match scope {
             Some(scope) if scope.dir == dir => {
-                consulted.add(&scope.path, FileRole::SearchBound);
-                (!scope.is_type_marker()).then(|| scope.path.clone())
+                (!scope.is_type_marker(consulted)).then(|| scope.path.clone())
             }
-            _ => read_package_json(tree, dir, FileRole::SearchBound, consulted)?
-                .filter(|package_json| !package_json.is_type_marker())
+            _ => read_package_json(tree, dir)?
+                .filter(|package_json| !package_json.is_type_marker(consulted))
                 .map(|package_json| package_json.path),
         };
         if let Some(package_json) = package_json {

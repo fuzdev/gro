@@ -96,7 +96,7 @@ use package::resolve_package;
 use roots::{contain, written_into_node_modules};
 use specifier::{Request, parse_specifier, url_to_path};
 use walk::Consulted;
-pub use walk::{ConsultedFile, FileRole};
+pub use walk::{ConsultedFile, PackageField, PackageFields};
 
 /// The conditions a package's `"exports"` match, in no order of their own:
 /// the first key in the package's order that is one of these wins.
@@ -116,8 +116,8 @@ pub struct Resolution {
     /// the package's for any other bare one.
     pub root: Root,
     /// The `package.json` files read to resolve it, at their real paths, each
-    /// once per role. A relative specifier to a `.mjs` or TypeScript file
-    /// reads none.
+    /// once, with the fields read of it. A relative specifier to a `.mjs` or
+    /// TypeScript file reads none.
     pub files_consulted: Vec<ConsultedFile>,
 }
 
