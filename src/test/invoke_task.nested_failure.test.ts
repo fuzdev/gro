@@ -7,7 +7,7 @@ import { format } from 'node:util';
 
 import { invoke_task } from '#lib/invoke_task.ts';
 import { create_empty_gro_config } from '#lib/gro_config.ts';
-import { SilentError } from '#lib/task.ts';
+import { SilentError } from '#lib/task_error.ts';
 import { create_mock_module_graph } from './test_helpers.ts';
 import { create_project_fs_paths } from './fs_test_helpers.ts';
 
@@ -42,7 +42,7 @@ const write_nested = (inner_throw: string): string => {
 	const outer = join(dir, 'outer.task.ts');
 	writeFileSync(
 		inner,
-		`import {TaskError} from '${join(process.cwd(), 'src/lib/task.ts')}';
+		`import {TaskError} from '${join(process.cwd(), 'src/lib/task_error.ts')}';
 export const task = {run: () => {${inner_throw}}};\n`
 	);
 	writeFileSync(

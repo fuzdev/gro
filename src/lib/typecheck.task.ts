@@ -19,7 +19,8 @@ import { create_fs_paths } from './fs_paths.ts';
 import { paths } from './paths.ts';
 import { spawn } from './spawn.ts';
 import { project_has_sveltekit_app, sveltekit_sync } from './sveltekit_helpers.ts';
-import { TaskError, type Task } from './task.ts';
+import type { Task } from './task.ts';
+import { TaskError } from './task_error.ts';
 
 /** @nodocs */
 export const Args = s.object({

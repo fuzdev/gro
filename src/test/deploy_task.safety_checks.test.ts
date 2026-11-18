@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 import { task as deploy_task, DEPLOY_CLONE_CONFIG_KEY, type Args } from '#lib/deploy.task.ts';
-import { TaskError } from '#lib/task.ts';
+import { TaskError } from '#lib/task_error.ts';
 
 import {
 	create_mock_deploy_task_context,

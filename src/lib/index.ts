@@ -5,4 +5,6 @@ export type { Plugin } from './plugin.ts';
 /** @nodocs */
 export type { Gen, GenContext } from './gen.ts';
 /** @nodocs */
-export { type Task, type TaskContext, TaskError } from './task.ts';
+export type { Task, TaskContext } from './task.ts';
+/** @nodocs */
+export { TaskError } from './task_error.ts';

@@ -7,7 +7,8 @@ import { format } from 'node:util';
 
 import { invoke_task } from '#lib/invoke_task.ts';
 import { create_empty_gro_config, type GroConfig } from '#lib/gro_config.ts';
-import { SilentError, type TaskContext } from '#lib/task.ts';
+import type { TaskContext } from '#lib/task.ts';
+import { SilentError } from '#lib/task_error.ts';
 import type { FsPaths } from '#lib/fs_paths.ts';
 import { create_project_fs_paths } from './fs_test_helpers.ts';
 

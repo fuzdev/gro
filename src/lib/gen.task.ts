@@ -4,7 +4,8 @@ import { plural } from '@fuzdev/fuz_util/string.ts';
 import * as s from '@fuzdev/fuz_schema/schema.ts';
 import { meta } from '@fuzdev/fuz_schema/meta.ts';
 
-import { is_task_error, TaskError, type Task } from './task.ts';
+import type { Task } from './task.ts';
+import { is_task_error, TaskError } from './task_error.ts';
 import { run_gen } from './run_gen.ts';
 import { RawInputPath, to_input_paths } from './input_path.ts';
 import { format_file } from './format_file.ts';

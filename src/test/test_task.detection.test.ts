@@ -2,7 +2,7 @@ import { test, assert, vi, beforeEach } from 'vitest';
 import type { PackageJson } from '@fuzdev/fuz_util/package_json.ts';
 
 import { task } from '#lib/test.task.ts';
-import { is_task_error } from '#lib/task.ts';
+import { is_task_error } from '#lib/task_error.ts';
 
 import { create_mock_task_context } from './test_helpers.ts';
 import { get_mock_spawn } from './spawn_mocks.ts';

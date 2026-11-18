@@ -30,7 +30,7 @@ import type {
 	SpawnProgram,
 	SpawnProgramOptions
 } from './spawn.ts';
-import { TaskError } from './task.ts';
+import { TaskError } from './task_error.ts';
 
 /**
  * The host variables a `git` that only reads the local repo needs beyond the base set.

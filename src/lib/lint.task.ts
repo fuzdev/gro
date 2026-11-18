@@ -5,7 +5,8 @@ import { has_forwarded_flag, to_forwarded_argv, to_raw_rest_args } from './task_
 import { find_cli, spawn_cli, spawn_result_is_ok, to_spawn_result_message } from './cli.ts';
 import { spawn } from './spawn.ts';
 import { args } from './args.ts';
-import { TaskError, type Task } from './task.ts';
+import type { Task } from './task.ts';
+import { TaskError } from './task_error.ts';
 
 const ESLINT_CLI = 'eslint';
 

@@ -16,9 +16,9 @@ import {
 	load_task,
 	TASK_FILE_SUFFIX_TS,
 	TASK_FILE_SUFFIXES,
-	TaskError,
 	to_task_path
 } from './task.ts';
+import { TaskError } from './task_error.ts';
 
 /**
  * The project's own tasks by normalized path, empty until augmented by a generated file.

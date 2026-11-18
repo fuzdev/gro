@@ -3,7 +3,8 @@ import type { PackageJson } from '@fuzdev/fuz_util/package_json.ts';
 
 import { task as check_task, type Args } from '#lib/check.task.ts';
 import { paths } from '#lib/paths.ts';
-import { is_task_error, type TaskContext } from '#lib/task.ts';
+import type { TaskContext } from '#lib/task.ts';
+import { is_task_error } from '#lib/task_error.ts';
 import { fs } from '#lib/fs.ts';
 import type { FsSearchResult } from '#lib/fs_search.ts';
 

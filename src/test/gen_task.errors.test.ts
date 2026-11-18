@@ -3,7 +3,7 @@ import { test, assert, vi } from 'vitest';
 import { task, type Args } from '#lib/gen.task.ts';
 import type { GenResults } from '#lib/gen.ts';
 import { run_gen } from '#lib/run_gen.ts';
-import { TaskError } from '#lib/task.ts';
+import { TaskError } from '#lib/task_error.ts';
 
 import { create_mock_task_context } from './test_helpers.ts';
 

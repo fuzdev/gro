@@ -2,7 +2,7 @@ import { describe, test, expect, assert, vi, afterEach } from 'vitest';
 import { args_parse } from '@fuzdev/fuz_util/args.ts';
 
 import { Args, task } from '#lib/upgrade.task.ts';
-import { TaskError } from '#lib/task.ts';
+import { TaskError } from '#lib/task_error.ts';
 import { install_with_cache_healing_or_throw } from '#lib/npm_install_helpers.ts';
 import { get_mock_spawn } from './spawn_mocks.ts';
 import { create_mock_task_context } from './test_helpers.ts';

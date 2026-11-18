@@ -54,7 +54,7 @@ errors and exit codes. Where it lives:
   (how `gro run` passes on its script's code) from the CLI-invoked task's
   failure
 - Errors - `TaskError` suppresses the stack, `SilentError` exits silently;
-  `is_task_error` / `is_silent_error` (`task.ts`) match subclasses and other
+  `is_task_error` / `is_silent_error` match subclasses and other
   copies of Gro, where `instanceof` misses
 - Typed `invoke_task` - `InvokeTask` checks literals against `TaskRegistry`
   (`task_registry.ts`); builtins from the generated `GroBuiltinTasks`

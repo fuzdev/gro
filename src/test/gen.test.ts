@@ -12,7 +12,7 @@ import {
 	type GenInputs
 } from '#lib/gen.ts';
 import { paths } from '#lib/paths.ts';
-import { is_task_error } from '#lib/task.ts';
+import { is_task_error } from '#lib/task_error.ts';
 import { create_empty_gro_config } from '#lib/gro_config.ts';
 import { create_project_fs_paths } from './fs_test_helpers.ts';
 

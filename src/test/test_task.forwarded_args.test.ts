@@ -2,7 +2,7 @@ import { describe, test, expect, vi, afterEach } from 'vitest';
 
 import { task } from '#lib/test.task.ts';
 import { SpawnError } from '#lib/spawn_error.ts';
-import { is_task_error } from '#lib/task.ts';
+import { is_task_error } from '#lib/task_error.ts';
 import { create_mock_task_context } from './test_helpers.ts';
 import { get_mock_spawn } from './spawn_mocks.ts';
 import { set_mock_args } from './args_mocks.ts';

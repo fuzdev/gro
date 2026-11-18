@@ -1,7 +1,8 @@
 import * as s from '@fuzdev/fuz_schema/schema.ts';
 import { meta } from '@fuzdev/fuz_schema/meta.ts';
 
-import { TaskError, type Task } from './task.ts';
+import type { Task } from './task.ts';
+import { TaskError } from './task_error.ts';
 import { clean_fs } from './clean_fs.ts';
 import { fs } from './fs.ts';
 import { create_fs_paths } from './fs_paths.ts';

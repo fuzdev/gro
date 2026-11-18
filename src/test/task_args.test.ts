@@ -15,7 +15,7 @@ import {
 	to_raw_rest_args,
 	to_task_args
 } from '#lib/task_args.ts';
-import { TaskError } from '#lib/task.ts';
+import { TaskError } from '#lib/task_error.ts';
 import {
 	to_removed_builtin_prefix_message,
 	to_task_path_without_verb_message

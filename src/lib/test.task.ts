@@ -10,7 +10,8 @@ import { spawn } from './spawn.ts';
 import { args } from './args.ts';
 import { cwd } from './cwd.ts';
 import { create_fs_paths } from './fs_paths.ts';
-import { TaskError, type Task } from './task.ts';
+import type { Task } from './task.ts';
+import { TaskError } from './task_error.ts';
 import { project_has_vitest, TEST_FILE_PATTERN } from './vitest_helpers.ts';
 
 const TEST_TASK_NAME = 'test';

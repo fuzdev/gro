@@ -21,7 +21,7 @@ import {
 	to_git_program
 } from '#lib/git.ts';
 import type { SpawnOutput, SpawnProgram, SpawnResult } from '#lib/spawn.ts';
-import { TaskError } from '#lib/task.ts';
+import { TaskError } from '#lib/task_error.ts';
 
 import { create_mock_spawn } from './spawn_mocks.ts';
 

@@ -14,12 +14,9 @@ import {
 import { run_task } from './run_task.ts';
 import {
 	is_builtin_task_name,
-	is_silent_error,
-	is_task_error,
 	is_task_path,
 	is_task_path_input,
 	load_task,
-	SilentError,
 	to_builtin_task_id,
 	to_task_command,
 	to_task_path,
@@ -27,6 +24,7 @@ import {
 	TASK_VERB,
 	type TaskModuleMeta
 } from './task.ts';
+import { is_silent_error, is_task_error, SilentError } from './task_error.ts';
 import {
 	TASK_PATH_SUFFIX_RULE,
 	find_task_file_for_input,

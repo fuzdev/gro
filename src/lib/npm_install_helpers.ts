@@ -2,7 +2,7 @@ import type { Logger } from '@fuzdev/fuz_util/log.ts';
 import { styleText as st } from 'node:util';
 import { dirname, join } from 'node:path';
 
-import { TaskError } from './task.ts';
+import { TaskError } from './task_error.ts';
 import { gro_paths } from './paths.ts';
 import { spawn_result_is_ok, to_spawn_result_message } from './cli.ts';
 import type { Spawn, SpawnProgram, SpawnProgramOptions } from './spawn.ts';

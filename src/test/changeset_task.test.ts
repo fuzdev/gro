@@ -4,7 +4,7 @@ import { join } from 'node:path';
 
 import { task as changeset_task, type Args } from '#lib/changeset.task.ts';
 import { fs, type FsDir } from '#lib/fs.ts';
-import { TaskError } from '#lib/task.ts';
+import { TaskError } from '#lib/task_error.ts';
 import type { SpawnResult } from '#lib/spawn.ts';
 
 import { create_mock_task_context } from './test_helpers.ts';

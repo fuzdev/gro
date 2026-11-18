@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { gro_plugin_server } from '#lib/gro_plugin_server.ts';
 import type { PluginContext } from '#lib/plugin.ts';
 import type { ModuleGraph } from '#lib/module_graph.ts';
-import { TaskError } from '#lib/task.ts';
+import { TaskError } from '#lib/task_error.ts';
 import { paths } from '#lib/paths.ts';
 
 import { create_mock_logger } from './test_helpers.ts';

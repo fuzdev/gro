@@ -13,7 +13,7 @@ import type {
 	SpawnStartOptions
 } from './spawn.ts';
 import { is_spawn_error, type SpawnError } from './spawn_error.ts';
-import { TaskError } from './task.ts';
+import { TaskError } from './task_error.ts';
 import { format_error_detail } from './error_detail.ts';
 
 const LOCAL_BIN_PREFIX = `${NODE_MODULES_DIRNAME}/.bin/`;

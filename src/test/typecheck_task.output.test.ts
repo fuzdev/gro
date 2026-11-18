@@ -2,7 +2,7 @@ import { describe, test, assert, vi, afterEach } from 'vitest';
 import { create_deferred, wait } from '@fuzdev/fuz_util/async.ts';
 
 import type { SpawnResult } from '#lib/spawn.ts';
-import { is_task_error } from '#lib/task.ts';
+import { is_task_error } from '#lib/task_error.ts';
 import { task } from '#lib/typecheck.task.ts';
 
 import { create_mock_child, create_mock_stream, get_mock_spawn } from './spawn_mocks.ts';

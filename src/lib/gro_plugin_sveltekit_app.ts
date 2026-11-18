@@ -10,7 +10,7 @@ import {
 import { VITE_CLI } from './constants.ts';
 import type { Plugin } from './plugin.ts';
 import { spawn, type SpawnChild } from './spawn.ts';
-import { TaskError } from './task.ts';
+import { TaskError } from './task_error.ts';
 
 export interface GroPluginSveltekitAppOptions {
 	/**

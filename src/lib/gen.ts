@@ -17,7 +17,8 @@ import {
 	type ResolvedInputFile,
 	type ResolvedInputPath
 } from './input_path.ts';
-import { TaskError, type InvokeTask } from './task.ts';
+import type { InvokeTask } from './task.ts';
+import { TaskError } from './task_error.ts';
 import type { FsOpenedPath, FsPaths } from './fs_paths.ts';
 
 export const GEN_FILE_PATTERN_TEXT = 'gen';

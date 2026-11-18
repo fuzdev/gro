@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 
 import { task as deploy_task, DEPLOY_CLONE_CONFIG_KEY } from '#lib/deploy.task.ts';
 import { FsError } from '#lib/fs_error.ts';
-import { TaskError } from '#lib/task.ts';
+import { TaskError } from '#lib/task_error.ts';
 
 import {
 	create_mock_deploy_task_context,

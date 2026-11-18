@@ -13,7 +13,7 @@ import {
 	type NpmCommandResult,
 	type NpmCommandRunner
 } from '#lib/npm_install_helpers.ts';
-import { TaskError } from '#lib/task.ts';
+import { TaskError } from '#lib/task_error.ts';
 import type { FsPaths } from '#lib/fs_paths.ts';
 import { create_project_fs_paths } from './fs_test_helpers.ts';
 import { create_mock_spawn, type MockSpawn } from './spawn_mocks.ts';

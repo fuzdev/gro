@@ -1,6 +1,7 @@
 import { argv_parse, type Args } from '@fuzdev/fuz_util/args.ts';
 
-import { is_task_path, is_task_path_input, TASK_VERB, TaskError, to_task_path } from './task.ts';
+import { is_task_path, is_task_path_input, TASK_VERB, to_task_path } from './task.ts';
+import { TaskError } from './task_error.ts';
 import {
 	is_removed_builtin_prefix,
 	to_removed_builtin_prefix_message,

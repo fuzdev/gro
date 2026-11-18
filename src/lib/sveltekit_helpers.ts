@@ -23,7 +23,7 @@ import {
 	LIB_PATH
 } from './constants.ts';
 import { package_json_has_dependency, package_json_load } from './package_json.ts';
-import { TaskError } from './task.ts';
+import { TaskError } from './task_error.ts';
 import type { FsPaths } from './fs_paths.ts';
 import type { Spawn, SpawnProgram } from './spawn.ts';
 

@@ -5,7 +5,8 @@ import { meta } from '@fuzdev/fuz_schema/meta.ts';
 
 import { resolve_gro_module_path, spawn_with_loader, to_signal_exit_code } from './gro_helpers.ts';
 import { env } from './env.ts';
-import { TaskError, type Task } from './task.ts';
+import type { Task } from './task.ts';
+import { TaskError } from './task_error.ts';
 import { fs } from './fs.ts';
 import { create_fs_paths } from './fs_paths.ts';
 import { spawn, type SpawnResult } from './spawn.ts';

@@ -3,7 +3,8 @@ import * as s from '@fuzdev/fuz_schema/schema.ts';
 import { meta } from '@fuzdev/fuz_schema/meta.ts';
 import { join, resolve } from 'node:path';
 
-import { is_silent_error, TaskError, type Task } from './task.ts';
+import type { Task } from './task.ts';
+import { is_silent_error, TaskError } from './task_error.ts';
 import {
 	git_check_clean_workspace,
 	git_checkout,

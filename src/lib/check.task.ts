@@ -3,7 +3,8 @@ import { meta } from '@fuzdev/fuz_schema/meta.ts';
 import { plural } from '@fuzdev/fuz_util/string.ts';
 import { styleText as st } from 'node:util';
 
-import { TaskError, to_task_command, type Task } from './task.ts';
+import { to_task_command, type Task } from './task.ts';
+import { TaskError } from './task_error.ts';
 import { to_forwarded_args_by_command, to_forwarded_argv, to_raw_rest_args } from './task_args.ts';
 import { VITEST_CLI } from './constants.ts';
 import { is_fs_error } from './fs_error.ts';

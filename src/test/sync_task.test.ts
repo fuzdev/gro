@@ -1,7 +1,8 @@
 import { describe, test, assert, vi, beforeEach } from 'vitest';
 
 import { task as sync_task, type Args } from '#lib/sync.task.ts';
-import { TaskError, type TaskContext } from '#lib/task.ts';
+import type { TaskContext } from '#lib/task.ts';
+import { TaskError } from '#lib/task_error.ts';
 import { fs } from '#lib/fs.ts';
 import { stderr } from '#lib/stderr.ts';
 

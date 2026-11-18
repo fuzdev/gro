@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import { task, type Args } from '#lib/gen.task.ts';
 import { find_genfiles } from '#lib/gen.ts';
 import { SOURCE_DIRNAME } from '#lib/constants.ts';
-import { TaskError } from '#lib/task.ts';
+import { TaskError } from '#lib/task_error.ts';
 
 import { create_mock_task_context } from './test_helpers.ts';
 

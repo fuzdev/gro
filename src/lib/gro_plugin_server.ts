@@ -9,7 +9,7 @@ import { fs } from './fs.ts';
 import { create_fs_paths } from './fs_paths.ts';
 import { load_env_file } from './env_files.ts';
 import { resolve_gro_module_path, spawn_with_loader_args } from './gro_helpers.ts';
-import { TaskError } from './task.ts';
+import { TaskError } from './task_error.ts';
 import { start_watched_server, type WatchedServer } from './internal/server_restarts.ts';
 import { format_error_detail } from './error_detail.ts';
 

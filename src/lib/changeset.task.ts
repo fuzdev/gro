@@ -4,7 +4,8 @@ import { styleText as st } from 'node:util';
 import type { WrittenConfig } from '@changesets/types';
 import { join } from 'node:path';
 
-import { TaskError, type Task } from './task.ts';
+import type { Task } from './task.ts';
+import { TaskError } from './task_error.ts';
 import {
 	GitOrigin,
 	git_check_fully_staged_workspace,

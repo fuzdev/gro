@@ -8,7 +8,7 @@ import { invoke_task } from '#lib/invoke_task.ts';
 import { run_task } from '#lib/run_task.ts';
 import type { GroConfig } from '#lib/gro_config.ts';
 import { log_error_reasons } from '#lib/task_logging.ts';
-import { SilentError } from '#lib/task.ts';
+import { SilentError } from '#lib/task_error.ts';
 import {
 	to_removed_builtin_prefix_message,
 	to_task_path_without_verb_message

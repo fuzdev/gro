@@ -434,7 +434,7 @@ and `gro dev | head` keeps running until signalled.
 An uncaught error waits a few seconds at most for its output to be accepted before exiting,
 though after a child that inherits stdio, a write past the pipe's buffer can still block on the reader.
 
-To test a caught error, use `is_task_error` and `is_silent_error` from `@fuzdev/gro/task.ts`
+To test a caught error, use `is_task_error` and `is_silent_error` from `@fuzdev/gro/task_error.ts`
 rather than `instanceof`: they match subclasses and errors from other copies of Gro,
 like a project's own install beside a global one.
 

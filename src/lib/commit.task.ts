@@ -4,7 +4,8 @@ import { meta } from '@fuzdev/fuz_schema/meta.ts';
 import { spawn_result_is_ok } from './cli.ts';
 import { GitOrigin, git_push, to_git_program } from './git.ts';
 import { spawn } from './spawn.ts';
-import { TaskError, type Task } from './task.ts';
+import type { Task } from './task.ts';
+import { TaskError } from './task_error.ts';
 
 /** @nodocs */
 export const Args = s.object({

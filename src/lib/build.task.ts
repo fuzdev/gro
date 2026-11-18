@@ -2,7 +2,8 @@ import * as s from '@fuzdev/fuz_schema/schema.ts';
 import { meta } from '@fuzdev/fuz_schema/meta.ts';
 import { styleText as st } from 'node:util';
 
-import { TaskError, type Task } from './task.ts';
+import type { Task } from './task.ts';
+import { TaskError } from './task_error.ts';
 import { Plugins, to_plugin_context } from './plugin.ts';
 import { clean_fs } from './clean_fs.ts';
 import {

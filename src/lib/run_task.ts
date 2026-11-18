@@ -9,13 +9,8 @@ import type { GroConfig } from './gro_config.ts';
 import type { FsPaths } from './fs_paths.ts';
 import type { invoke_task as base_invoke_task } from './invoke_task.ts';
 import { load_default_svelte_config } from './svelte_config.ts';
-import {
-	is_silent_error,
-	is_task_error,
-	TaskError,
-	type InvokeTaskContextOptions,
-	type TaskModuleMeta
-} from './task.ts';
+import type { InvokeTaskContextOptions, TaskModuleMeta } from './task.ts';
+import { is_silent_error, is_task_error, TaskError } from './task_error.ts';
 import { log_task_help } from './task_logging.ts';
 import { is_fs_error } from './fs_error.ts';
 import { is_net_error } from './net_error.ts';

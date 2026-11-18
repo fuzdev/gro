@@ -5,7 +5,8 @@ import { format_directory } from './format_directory.ts';
 import { fs } from './fs.ts';
 import { create_fs_paths } from './fs_paths.ts';
 import { paths } from './paths.ts';
-import { TaskError, type Task } from './task.ts';
+import type { Task } from './task.ts';
+import { TaskError } from './task_error.ts';
 
 /** @nodocs */
 export const Args = s.object({

@@ -14,7 +14,8 @@ import {
 	package_json_load,
 	type PackageJsonDep
 } from './package_json.ts';
-import { TaskError, type Task } from './task.ts';
+import type { Task } from './task.ts';
+import { TaskError } from './task_error.ts';
 import { fs } from './fs.ts';
 import { create_fs_paths, type FsPaths } from './fs_paths.ts';
 import { spawn } from './spawn.ts';

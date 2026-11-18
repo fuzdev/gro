@@ -5,7 +5,7 @@ import { gro_plugin_gen, type GroPluginGenOptions } from '#lib/gro_plugin_gen.ts
 import type { FileChange, ModuleGraph } from '#lib/module_graph.ts';
 import type { PluginContext } from '#lib/plugin.ts';
 import { SpawnError } from '#lib/spawn_error.ts';
-import { is_task_error, SilentError } from '#lib/task.ts';
+import { is_task_error, SilentError } from '#lib/task_error.ts';
 import { find_genfiles, is_gen_path } from '#lib/gen.ts';
 import { load_module } from '#lib/modules.ts';
 

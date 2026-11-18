@@ -13,7 +13,7 @@ import {
 } from '#lib/cli.ts';
 import type { Spawn } from '#lib/spawn.ts';
 import { SpawnError, type SpawnErrorKind } from '#lib/spawn_error.ts';
-import { is_task_error } from '#lib/task.ts';
+import { is_task_error } from '#lib/task_error.ts';
 
 import { create_mock_spawn } from './spawn_mocks.ts';
 import { create_mock_logger } from './test_helpers.ts';

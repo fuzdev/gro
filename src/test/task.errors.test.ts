@@ -1,6 +1,6 @@
 import { describe, test, assert } from 'vitest';
 
-import { is_silent_error, is_task_error, SilentError, TaskError } from '#lib/task.ts';
+import { is_silent_error, is_task_error, SilentError, TaskError } from '#lib/task_error.ts';
 
 // stand-ins for the classes from another copy of Gro, which a task module can load
 type ErrorClass = new (message?: string) => Error;

@@ -4,7 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { task as publish_task, type Args } from '#lib/publish.task.ts';
-import { TaskError, type TaskContext } from '#lib/task.ts';
+import type { TaskContext } from '#lib/task.ts';
+import { TaskError } from '#lib/task_error.ts';
 import { stderr } from '#lib/stderr.ts';
 
 import { create_mock_task_context } from './test_helpers.ts';
