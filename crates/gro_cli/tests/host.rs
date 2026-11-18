@@ -1359,8 +1359,9 @@ console.log(JSON.stringify(ended));
 /// into `/proc`, a FIFO, and a directory beside it: every escape from a
 /// handle is `outside_root` and every reach past the project's root
 /// `not_granted`, recorded and failing the run, listed in order, a
-/// symlink out of the root among them, the hints naming each flag and no
-/// path, a write through `fs.project` the directory to open after its
+/// symlink out of the root among them, needing the link kept within its
+/// root or its target opened, the hints naming each flag and no path, a
+/// write through `fs.project` the directory to open after its
 /// grant, never the project's; a FIFO is stat'd as `other` without
 /// waiting for a writer, and isn't a directory; a cloned, look-alike,
 /// other row's, or read-only handle is refused before anything is read;
@@ -1406,11 +1407,12 @@ fn fs_refuses_every_escape_and_forgery() {
             "error: fs refused a read: not_granted: {out}\n\
              error: fs refused a read: not_granted: {out}/missing\n\
              error: fs refused a read: not_granted: {root}/../fs_outside_of_it\n\
-             error: fs refused a read: not_granted: {root}/to_outside\n\
-             error: fs refused a read: not_granted: {root}/to_outside/f.txt\n\
+             error: fs refused a symlink leaving its root: not_granted: {root}/to_outside\n\
+             error: fs refused a symlink leaving its root: not_granted: {root}/to_outside/f.txt\n\
              error: fs refused a write: not_granted: {root}/new.txt\n\
              error: a refusal fails the run, whether or not the program caught it\n\
              {HINT_READ}\n\
+             {HINT_LINK}\n\
              {HINT_WRITE}\n"
         ),
         "{stdout}"
@@ -1530,9 +1532,10 @@ console.log(JSON.stringify(ended));
 /// `fs.project`, whose handles never write, whatever root inside it is
 /// written. The flag through a symlink is noted with its real path as the
 /// run starts. Every refusal is listed with the kind of grant it needed
-/// and fails the run, and the hints name each flag a refusal needed and,
-/// for a write a root already grants, a handle to open instead, never a
-/// path.
+/// and fails the run, and the hints name each flag a refusal needed,
+/// for a write a root already grants a handle to open instead, and for a
+/// symlink out of its root the link kept within it or its target opened,
+/// never a path.
 #[test]
 fn fs_roots_by_flag_scope_their_handles() {
     let project = Scratch::new(
@@ -1627,10 +1630,11 @@ fn fs_roots_by_flag_scope_their_handles() {
              error: fs refused a read: not_granted: {w}/sub/g.txt\n\
              error: fs refused what the run grants: not_granted: {p}/out/x.txt\n\
              error: fs refused a write: not_granted: {p}/x.txt\n\
-             error: fs refused a read: not_granted: {r}/abs\n\
-             error: fs refused a read: not_granted: {p}/to_r\n\
+             error: fs refused a symlink leaving its root: not_granted: {r}/abs\n\
+             error: fs refused a symlink leaving its root: not_granted: {p}/to_r\n\
              error: a refusal fails the run, whether or not the program caught it\n\
              {HINT_READ}\n\
+             {HINT_LINK}\n\
              {HINT_WRITE}\n\
              {HINT_OPEN_DIR}\n"
         )
@@ -3155,6 +3159,152 @@ const HINT_WRITE: &str = "hint: add --allow-write naming the directory to grant 
 /// on a directory a root already grants it in.
 const HINT_OPEN_DIR: &str = "hint: the run grants what fs refused: \
                              open the directory with fs.open_dir and use that handle";
+
+/// The hint after an fs refusal of a path that left every root holding it
+/// through a symlink whose target leaves the root by its text.
+const HINT_LINK: &str = "hint: fs refused a symlink leaving its root \
+                         (an absolute target, or a .. above the root, even one leading back in): \
+                         make the link relative within its root, \
+                         or open its target's directory by its own path with fs.open_dir";
+
+/// The script [`fs_a_symlink_out_of_its_root_hints_the_link_or_its_target`]
+/// runs: `fs.real_path` of an absolute symlink to a file inside its root,
+/// uncaught; or each call it names, caught, printing what it returned or
+/// its error's kind: that `real_path`, one of a relative symlink climbing
+/// above the root and back in, `fs.open_dir` of an absolute directory
+/// symlink, a path through it, and a `..` after it; the two fixes the
+/// hint names, a relative symlink within the root and the target's
+/// directory opened by its own path; and a path no root holds.
+const FS_LINK_OUT: &str = "import { fs } from '@fuzdev/gro/fs.ts';
+import { args } from '@fuzdev/gro/args.ts';
+const [d, ...names] = args;
+const calls = {
+\tabsolute: () => fs.real_path(`${d}/repos.toml`),
+\tclimbing: () => fs.real_path(`${d}/climbing.toml`),
+\tdir: async () => (await fs.open_dir(`${d}/linked`)).path,
+\tthrough: () => fs.real_path(`${d}/linked/repos.toml`),
+\tdot_dot: async () => (await fs.open_dir(`${d}/linked/..`)).path,
+\trelative: () => fs.real_path(`${d}/relative.toml`),
+\ttarget: async () => (await fs.open_dir(`${d}/inner`)).read_text('repos.toml'),
+\tunheld: () => fs.real_path('/no_such_directory_of_the_test'),
+};
+if (names.length === 0) await calls.absolute();
+for (const name of names) {
+\ttry {
+\t\tconsole.log(JSON.stringify(await calls[name]()));
+\t} catch (error) {
+\t\tconsole.log(error.kind);
+\t}
+}
+";
+
+/// A path that left every root holding it through a symlink whose target
+/// leaves the root by its text, an absolute one to a file inside the root,
+/// a relative one climbing above it and back in, or an absolute directory
+/// symlink, opened, walked through, or before a `..`, is still
+/// `not_granted`, listed as a symlink leaving its root, and its hint names
+/// the two fixes and no flag: a grant of the target's directory still
+/// refuses it, and each fix the hint names reads the target. Beside a
+/// path no root holds, each kind is listed in order and each hint printed
+/// once, the read's first; an uncaught one prints the hint too.
+#[test]
+fn fs_a_symlink_out_of_its_root_hints_the_link_or_its_target() {
+    let project = Scratch::new(
+        "fs_link_out",
+        &[
+            (
+                "package.json",
+                "{\"name\": \"fs_link_out\", \"type\": \"module\"}\n",
+            ),
+            ("main.js", FS_LINK_OUT),
+        ],
+    );
+    let dir = Scratch::new("fs_link_out_d", &[("inner/repos.toml", "inner")]);
+    let d = dir.0.display().to_string();
+    let name = dir.0.file_name().unwrap().to_str().unwrap();
+    let link = |target: &str, at: &str| std::os::unix::fs::symlink(target, dir.0.join(at)).unwrap();
+    link(&format!("{d}/inner/repos.toml"), "repos.toml");
+    link(&format!("../{name}/inner/repos.toml"), "climbing.toml");
+    link(&format!("{d}/inner"), "linked");
+    link("inner/repos.toml", "relative.toml");
+    let run = |flags: &[&str], names: &[&str]| {
+        let args = [&["run"][..], flags, &["main.js", &d], names].concat();
+        let mut command = fgro_command(&args);
+        command.env_clear().current_dir(&project.0);
+        let output = spawn(command, b"");
+        (
+            output.status.code(),
+            String::from_utf8(output.stdout).unwrap(),
+            String::from_utf8(output.stderr).unwrap(),
+        )
+    };
+    let read_d = format!("--allow-read={d}");
+    // each refusal listed by its need: a path beneath `d`, through a link,
+    // a symlink leaving its root, and an absolute one, held by no root, a read
+    let refused = |paths: &[&str], hints: &[&str]| {
+        let mut stderr = String::new();
+        for path in paths {
+            let (need, path) = match path.strip_prefix('/') {
+                Some(_) => ("a read", (*path).to_owned()),
+                None => ("a symlink leaving its root", format!("{d}/{path}")),
+            };
+            writeln!(stderr, "error: fs refused {need}: not_granted: {path}").unwrap();
+        }
+        stderr.push_str("error: a refusal fails the run, whether or not the program caught it\n");
+        for hint in hints {
+            stderr.push_str(hint);
+            stderr.push('\n');
+        }
+        (Some(1), "not_granted\n".repeat(paths.len()), stderr)
+    };
+    assert_eq!(
+        run(
+            &[&read_d],
+            &["absolute", "climbing", "dir", "through", "dot_dot"]
+        ),
+        refused(
+            &[
+                "repos.toml",
+                "climbing.toml",
+                "linked",
+                "linked/repos.toml",
+                "linked/.."
+            ],
+            &[HINT_LINK]
+        )
+    );
+    // a grant of the target's directory holds no path through the link
+    assert_eq!(
+        run(&[&format!("{read_d},{d}/inner")], &["absolute", "through"]),
+        refused(&["repos.toml", "linked/repos.toml"], &[HINT_LINK])
+    );
+    // each fix the hint names reads the target
+    assert_eq!(
+        run(&[&read_d], &["relative", "target"]),
+        (
+            Some(0),
+            format!("\"{d}/inner/repos.toml\"\n\"inner\"\n"),
+            String::new()
+        )
+    );
+    assert_eq!(
+        run(&[&read_d], &["absolute", "unheld"]),
+        refused(
+            &["repos.toml", "/no_such_directory_of_the_test"],
+            &[HINT_READ, HINT_LINK]
+        )
+    );
+    let (code, stdout, stderr) = run(&[&read_d], &[]);
+    assert_eq!((code, stdout.as_str()), (Some(1), ""), "{stderr}");
+    assert!(
+        stderr.starts_with(&format!(
+            "error: Uncaught (in promise) FsError: not_granted: {d}/repos.toml\n"
+        )),
+        "{stderr}"
+    );
+    assert!(stderr.ends_with(&format!("\n{HINT_LINK}\n")), "{stderr}");
+    assert!(!stderr.contains("error: fs refused"), "{stderr}");
+}
 
 /// The script [`fs_hints_name_the_flag_and_no_path`] runs: a reach outside
 /// every root by each path given.

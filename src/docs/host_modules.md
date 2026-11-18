@@ -187,6 +187,8 @@ How each part is built is in the module docs of `crates/gro_runtime/src/host/fs.
   and a path that climbs above a root and back in reaches what Node's does.
   One outside every root is `not_granted`, also when nothing is there, and so is one through an absolute symlink,
   even to a path inside its root, or a relative one whose target climbs above its root, even back into it, both of which Node follows.
+  A relative target that stays within the root is followed, and the target opened by its own path is reached when a root holds it;
+  a grant of the target's directory alone never lets the path through the link, since a root holds a path by its text, not by where a link leads.
   A directory granted inside another refuses nothing the other reached.
   The symlinks before each `..` are counted apart, so a path with more than Linux's 40 across its `..`s resolves where Node's is a loop (`io_error`).
   A root is matched by its real path and by each path it was granted as (but one holding a `..`),

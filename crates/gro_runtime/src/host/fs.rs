@@ -289,13 +289,23 @@ impl Failure {
         }
     }
 
-    /// `not_granted` about `path`, which no root the call may use reaches:
-    /// none holds it by its text, or it leaves each that does through a
-    /// symlink, so a grant to read lets the call through.
+    /// `not_granted` about `path`, which no root the call may use holds by
+    /// its text, so a grant to read lets the call through.
     fn unreached(path: &str) -> Self {
         Self::NotGranted {
             path: path.to_owned(),
             need: Some(FsNeed::Read),
+        }
+    }
+
+    /// `not_granted` about `path`, which left a root holding it by its text
+    /// through a symlink whose target leaves the root by its text: the link
+    /// kept within its root, or its target opened by its own path, lets the
+    /// call through, where a grant of the target's directory needn't.
+    fn left_by_link(path: &str) -> Self {
+        Self::NotGranted {
+            path: path.to_owned(),
+            need: Some(FsNeed::LinkTarget),
         }
     }
 

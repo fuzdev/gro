@@ -244,6 +244,7 @@ fn refusal_line(refusal: &Refusal) -> String {
         RefusedBy::Fs(need) => {
             let need = match need {
                 Some(FsNeed::Read) => "a read",
+                Some(FsNeed::LinkTarget) => "a symlink leaving its root",
                 Some(FsNeed::Write) => "a write",
                 Some(FsNeed::OpenDir) => "what the run grants",
                 Some(FsNeed::Temp) => "a temporary directory",
@@ -262,12 +263,14 @@ fn refusal_line(refusal: &Refusal) -> String {
 fn grant_hints(refused: &Refusals) -> Vec<String> {
     let mut names: Vec<&str> = Vec::new();
     let mut some_env = refused.more_names;
-    let (mut read, mut write, mut open_dir, mut temp) = (false, false, false, false);
+    let (mut read, mut link, mut write, mut open_dir, mut temp) =
+        (false, false, false, false, false);
     for needed in &refused.needed {
         match needed {
             NeededGrant::Env(name) if hint_name(name) => names.push(name),
             NeededGrant::Env(_) => some_env = true,
             NeededGrant::Fs(FsNeed::Read) => read = true,
+            NeededGrant::Fs(FsNeed::LinkTarget) => link = true,
             NeededGrant::Fs(FsNeed::Write) => write = true,
             NeededGrant::Fs(FsNeed::OpenDir) => open_dir = true,
             NeededGrant::Fs(FsNeed::Temp) => temp = true,
@@ -285,6 +288,15 @@ fn grant_hints(refused: &Refusals) -> Vec<String> {
         hints.push(format!(
             "hint: add {ALLOW_READ} naming the directory to grant what fs refused"
         ));
+    }
+    if link {
+        hints.push(
+            "hint: fs refused a symlink leaving its root \
+             (an absolute target, or a .. above the root, even one leading back in): \
+             make the link relative within its root, \
+             or open its target's directory by its own path with fs.open_dir"
+                .to_owned(),
+        );
     }
     if write {
         hints.push(format!(
@@ -807,8 +819,8 @@ mod tests {
     /// env, one line a flag: env's first, naming the variables a shell
     /// passes as printed, `some of what` when it can't show every one, a
     /// need past the record's bound included, and no line when it can show
-    /// none; then each fs line once, read, write, then a handle to open,
-    /// each fixed text naming no path.
+    /// none; then each fs line once, read, a symlink out of its root,
+    /// write, then a handle to open, each fixed text naming no path.
     #[test]
     fn the_hints_name_env_s_variables_and_fs_s_kinds() {
         use gro_runtime::{FsNeed, NeededGrant, Refusals};
@@ -828,12 +840,17 @@ mod tests {
                      then open it with fs.open_dir and write through that handle";
         let open_dir = "hint: the run grants what fs refused: \
                         open the directory with fs.open_dir and use that handle";
+        let link = "hint: fs refused a symlink leaving its root \
+                    (an absolute target, or a .. above the root, even one leading back in): \
+                    make the link relative within its root, \
+                    or open its target's directory by its own path with fs.open_dir";
         assert!(hints(&[], false).is_empty());
         assert_eq!(
             hints(
                 &[
                     NeededGrant::Fs(FsNeed::OpenDir),
                     NeededGrant::Fs(FsNeed::Write),
+                    NeededGrant::Fs(FsNeed::LinkTarget),
                     env("HOME"),
                     NeededGrant::Fs(FsNeed::Read),
                     env("A_1"),
@@ -843,11 +860,13 @@ mod tests {
             [
                 "hint: add --allow-env=HOME,A_1 to grant what env refused",
                 read,
+                link,
                 write,
                 open_dir,
             ]
         );
         assert_eq!(hints(&[NeededGrant::Fs(FsNeed::Read)], false), [read]);
+        assert_eq!(hints(&[NeededGrant::Fs(FsNeed::LinkTarget)], false), [link]);
         assert_eq!(hints(&[NeededGrant::Fs(FsNeed::Write)], false), [write]);
         assert_eq!(
             hints(&[NeededGrant::Fs(FsNeed::OpenDir)], false),
@@ -891,6 +910,10 @@ mod tests {
         assert_eq!(
             line(RefusedBy::Fs(Some(FsNeed::Read)), "not_granted: /r"),
             "error: fs refused a read: not_granted: /r"
+        );
+        assert_eq!(
+            line(RefusedBy::Fs(Some(FsNeed::LinkTarget)), "not_granted: /l"),
+            "error: fs refused a symlink leaving its root: not_granted: /l"
         );
         assert_eq!(
             line(RefusedBy::Fs(Some(FsNeed::Write)), "not_granted: /w"),

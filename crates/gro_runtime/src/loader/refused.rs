@@ -85,17 +85,19 @@ pub enum NotGranted {
 ///
 /// An environment variable, by the name an embedder's flag lists; a kind
 /// of fs grant, by kind alone, since a path a program chose, shown back,
-/// can name another directory than the one the refusal needed; or a handle
-/// on a directory the run already grants.
+/// can name another directory than the one the refusal needed; a handle
+/// on a directory the run already grants; or a symlink kept within its
+/// root, or its target opened by its own path.
 ///
 /// Recorded only where the refusal is the run's own grant's, so granting
 /// it lets the call through: a call refused by `env`'s root handle, which
 /// holds what `--allow-env=` granted the project, and never one refused by
 /// a handle the program narrowed, which no grant widens; an fs reach no
-/// root holds, a step out of its root through a symlink among them; and
-/// an op a handle's scope lacks, a grant of the kind it lacks, unless a
-/// root the op's target is in already grants it, since a handle's scope
-/// never widens.
+/// root holds; one that left every root holding it through a symlink,
+/// which the link or the path the program opens lets through, where a
+/// grant of the target's directory needn't; and an op a handle's scope
+/// lacks, a grant of the kind it lacks, unless a root the op's target is
+/// in already grants it, since a handle's scope never widens.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NeededGrant {
     /// An environment variable to read, by its name.
@@ -110,6 +112,13 @@ pub enum NeededGrant {
 pub enum FsNeed {
     /// A directory to read.
     Read,
+    /// A symlink kept within its root, or its target opened by its own
+    /// path: a reach left every root holding it by its text through a
+    /// symlink whose target leaves the root by its text, an absolute one or
+    /// one climbing above the root by `..`, which a grant of the target's
+    /// directory needn't let through, since a root holds a path by its
+    /// text.
+    LinkTarget,
     /// A directory to write, through a handle `fs.open_dir` makes on it
     /// once it's granted: a handle made from another root never gains the
     /// scope.
@@ -453,8 +462,10 @@ mod tests {
         for need in [
             None,
             Some(FsNeed::Read),
+            Some(FsNeed::LinkTarget),
             Some(FsNeed::Write),
             Some(FsNeed::OpenDir),
+            Some(FsNeed::Temp),
         ] {
             assert_eq!(RefusedBy::Fs(need).error(), "FsError");
         }

@@ -248,7 +248,11 @@ and reads `some of what env refused` when it can't name them all: past 8 names, 
 (a comma, which separates the flag's names, a glob, a space, a quote, a shell's `$`, a control character, a lookalike letter).
 With no name it can show, there's no hint line, so a run whose first 8 refused names all fall outside these characters prints none.
 After it come the hints for `fs`, each once when a refusal needed it, in this order, each fixed text that names no path:
-`hint: add --allow-read naming the directory to grant what fs refused`, for a reach outside every root, a step out of its root through a symlink included, or a read through a handle that doesn't read;
+`hint: add --allow-read naming the directory to grant what fs refused`, for a reach outside every root or a read through a handle that doesn't read;
+`hint: fs refused a symlink leaving its root (an absolute target, or a .. above the root, even one leading back in): make the link relative within its root, or open its target's directory by its own path with fs.open_dir`,
+for a reach that left every root holding its path through a symlink whose target leaves the root by its text ([host modules](host_modules.md#fs-on-fgro)),
+which a grant of the target's directory needn't let through, since a root holds a path by its text, not by where a link leads
+(a target in no root needs that grant before its directory opens, which a read refusal of it then hints);
 `hint: add --allow-write naming the directory to grant what fs refused, then open it with fs.open_dir and write through that handle`, for a write through a handle that doesn't write,
 since a handle never gains what its root lacked, so `fs.project` writes nothing, whatever is granted inside it;
 and, when a root already grants what was refused, holding by its text the path a read reads or each path a write writes (a copy's `to`, a rename's `from` and `to`), `hint: the run grants what fs refused: open the directory with fs.open_dir and use that handle`,
@@ -257,7 +261,7 @@ and `hint: add --allow-temp to grant what fs refused`, for an `fs.temp_dir` the 
 A copy is refused naming the path it writes, its `to`, and judged by it, so a copy into a directory written from outside it hints the handle to open, which writes the copy but can't name its source: the program reads through one handle and writes through the other.
 A walk opens the names before a `..` first, so `fs.real_path('/usr/../etc')` needs `/usr` granted as well as `/etc`.
 An fs refusal's `<need>` is the kind of grant it needed, in its hint's words:
-`a read`, `a write`, `what the run grants` (a handle to open), `a temporary directory`, or `what no grant allows`,
+`a read`, `a symlink leaving its root`, `a write`, `what the run grants` (a handle to open), `a temporary directory`, or `what no grant allows`,
 for a `remove` or `rename`, through a handle that doesn't write, of a path that is, or holds, a root's directory by its text, which the rule keeping each root's directory in place refuses whatever the run grants ([host modules](host_modules.md#fs-on-fgro)),
 so a hint pairs with the listed refusals of its kind or with none listed, never with another kind's,
 and two refusals of one path that needed different kinds are two lines.

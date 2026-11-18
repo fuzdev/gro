@@ -22,7 +22,11 @@
 //! naming `/`, which resolves an absolute path as the kernel does.
 //! Such a refusal is recorded in the run's record of refusals as it's
 //! thrown, with what would have allowed it ([`FsNeed`]), which fails
-//! the run whatever the program does with the error: a grant to read; and
+//! the run whatever the program does with the error: a grant to read, for
+//! a path no root holds by its text; for one that left every root holding
+//! it through a symlink, the link kept within its root or its target
+//! opened by its own path, since a grant of the target's directory needn't
+//! hold the link's path; and
 //! for an op a handle's scope lacks, a handle `fs.open_dir` makes on a root
 //! that grants it, since a grant never widens the handle that refused it,
 //! or, with no such root, a grant of what the scope lacked. A need names
@@ -87,7 +91,7 @@ pub(super) fn reach<'r>(
         let entry = sys::open_in_root(fd, root.handle_base().to_owned(), rel, step, root.whole());
         let found = entry.map_err(|error| {
             if sys::is_escape(&error) {
-                Failure::unreached(path)
+                Failure::left_by_link(path)
             } else if matches!(step, sys::Opened::Directory)
                 && error.kind() == std::io::ErrorKind::NotADirectory
             {
@@ -131,7 +135,8 @@ pub(super) fn reach<'r>(
 ///
 /// The root's place, the root, and the entry's real path beneath it; a
 /// `TypeError` naming `what` for a path that isn't absolute, and
-/// `not_granted` for one whose names no root holds at any step.
+/// `not_granted` for one whose names no root holds at any step, or that
+/// left every root holding them, `open`'s refusal of the last.
 fn walk<'r>(
     roots: &'r [Root],
     view: &View,
@@ -147,15 +152,16 @@ fn walk<'r>(
         )));
     }
     let mut step = |names: &[String], dir: bool, step: sys::Opened| {
+        let mut left = None;
         for (index, root, rel) in find_roots(roots, view, names, dir, need) {
             match open(root, rel, step) {
                 Ok(beneath) => return Ok((index, root, beneath)),
                 // it left this root by a symlink, so the next may hold it
-                Err(Failure::NotGranted { .. }) => {}
+                Err(failure @ Failure::NotGranted { .. }) => left = Some(failure),
                 Err(failure) => return Err(failure),
             }
         }
-        Err(Failure::unreached(path))
+        Err(left.unwrap_or_else(|| Failure::unreached(path)))
     };
     // a trailing `/` or `/.` asks for a directory, as the kernel reads it
     let dir = path.ends_with('/') || path.ends_with("/.");
@@ -313,7 +319,7 @@ mod tests {
                                     cause: None,
                                 });
                             }
-                            "out" => return Err(Failure::unreached(path)),
+                            "out" => return Err(Failure::left_by_link(path)),
                             name => real.push(name),
                         }
                     }
@@ -394,13 +400,14 @@ mod tests {
         );
     }
 
-    /// A refused walk names the path as asked and needs a grant to read,
-    /// whatever step it was refused at: a directory step's, the names
-    /// before a `..` included, an entry's, or one that leaves the roots
-    /// holding it through a symlink; a root that holds the names but
-    /// doesn't do what's needed changes nothing.
+    /// A refused walk names the path as asked, whatever step it was
+    /// refused at, a directory step's, the names before a `..` included, or
+    /// an entry's: one no root holds needs a grant to read, a root that
+    /// holds the names but doesn't do what's needed changing nothing; one
+    /// that left every root holding it through a symlink needs the link
+    /// kept within its root or its target opened, the open's refusal.
     #[test]
-    fn a_refused_walk_needs_a_grant_to_read() {
+    fn a_refused_walk_needs_a_grant_to_read_or_a_link_kept_in_its_root() {
         let roots = Table::of([root("/p"), scoped("/w", &[], Scope::WRITE)]);
         let needed = |path: &str, opened: sys::Opened, need: Scope| match walk(
             roots.roots(),
@@ -410,7 +417,7 @@ mod tests {
             opened,
             need,
             |_, rel, _| match rel.as_str() {
-                "out" => Err(Failure::unreached(path)),
+                "out" | "out/" => Err(Failure::left_by_link(path)),
                 "." => Ok(String::new()),
                 _ => Ok(rel),
             },
@@ -434,10 +441,22 @@ mod tests {
             ("/p/../etc", directory, Scope::ALL),
             ("/", entry, Scope::READ),
             ("/w/a/f.txt", entry, Scope::READ),
-            ("/p/out", directory, Scope::ALL),
-            ("/p/out", entry, Scope::READ),
+            ("/w/out", entry, Scope::READ),
         ] {
             assert_eq!(needed(path, opened, need), Some(FsNeed::Read), "{path}");
+        }
+        for (path, opened, need) in [
+            ("/p/out", directory, Scope::ALL),
+            ("/p/out/", directory, Scope::ALL),
+            ("/p/out", entry, Scope::READ),
+            ("/p/out/..", entry, Scope::READ),
+            ("/p/out/../a", directory, Scope::ALL),
+        ] {
+            assert_eq!(
+                needed(path, opened, need),
+                Some(FsNeed::LinkTarget),
+                "{path}"
+            );
         }
     }
 
@@ -538,8 +557,8 @@ mod tests {
     /// A step that leaves the longest root holding it by a symlink is opened
     /// beneath the next longest, so a root inside another refuses nothing
     /// the outer one reaches, and the entry is the outer root's; one that
-    /// leaves every root is `not_granted`, and any other failure ends the
-    /// walk at the first root.
+    /// leaves every root is `not_granted`, needing the link kept within its
+    /// root, and any other failure ends the walk at the first root.
     #[test]
     fn a_step_out_of_an_inner_root_falls_back_to_the_outer() {
         let roots = Table::of([root("/p"), root("/p/in")]);
@@ -557,7 +576,7 @@ mod tests {
                     match (root.handle_base(), rel.as_str()) {
                         // `up`, a symlink to `../x`, leaves `/p/in` into
                         // `/p`, and `out` leaves both
-                        ("/p/in", "up") | (_, "in/out" | "out") => Err(Failure::unreached(path)),
+                        ("/p/in", "up") | (_, "in/out" | "out") => Err(Failure::left_by_link(path)),
                         ("/p", "in/up") => Ok("x".to_owned()),
                         (_, "missing") => Err(Failure::Fs {
                             kind: FsErrorKind::NotFound,
@@ -571,7 +590,13 @@ mod tests {
             (
                 result
                     .map(|(index, _, beneath)| (index, beneath))
-                    .map_err(shown),
+                    .map_err(|failure| {
+                        let need = match &failure {
+                            Failure::NotGranted { need, .. } => *need,
+                            _ => None,
+                        };
+                        (shown(failure), need)
+                    }),
                 opens,
             )
         };
@@ -585,14 +610,17 @@ mod tests {
         assert_eq!(
             walked("/p/in/out"),
             (
-                Err(("not_granted".to_owned(), "/p/in/out".to_owned())),
+                Err((
+                    ("not_granted".to_owned(), "/p/in/out".to_owned()),
+                    Some(FsNeed::LinkTarget)
+                )),
                 vec!["/p/in:out".to_owned(), "/p:in/out".to_owned()]
             )
         );
         assert_eq!(
             walked("/p/in/missing"),
             (
-                Err(("not_found".to_owned(), "/p/in/missing".to_owned())),
+                Err((("not_found".to_owned(), "/p/in/missing".to_owned()), None)),
                 vec!["/p/in:missing".to_owned()]
             )
         );
