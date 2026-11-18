@@ -4,20 +4,18 @@
  *
  * It resolves a path's symlinks through the `Fs` it's given, `fs.real_path` and a handle's
  * `read_link`, so building an `FsPaths` grants nothing beyond what that `Fs` holds.
- * It's internal: code gets the boundary as an `FsPaths` built from the root `Fs`.
+ * It reads nothing of the process: the working directory and `$HOME` it protects are the root's
+ * to pass. It's internal: code gets the boundary as an `FsPaths` built from the root `Fs`.
  *
  * @module
  */
 
-import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
-
 import type { Fs, FsCopyOptions, FsDir, FsRemoveOptions } from '../fs.ts';
 import { FsError, is_fs_error } from '../fs_error.ts';
 import { fs_search, type FsSearchOptions, type FsSearchResult } from '../fs_search.ts';
-import type { FsOpenedPath, FsPaths } from '../fs_paths.ts';
-import { to_checked_cwd } from './cwd.ts';
+import type { FsOpenedPath, FsPaths, FsPathsOptions } from '../fs_paths.ts';
 import { create_record } from './records.ts';
-import { env } from '../env.ts';
+import { posix_basename, posix_dirname, posix_join, posix_resolve } from './posix_path.ts';
 
 // the most symlinks one resolution follows, Linux's own limit
 const MAX_SYMLINKS = 40;
@@ -58,50 +56,45 @@ const to_real_path = async (fs: Fs, path: string, links = { count: 0 }): Promise
 	} catch (error) {
 		if (!is_missing_error(error)) throw error;
 	}
-	const parent = dirname(path);
+	const parent = posix_dirname(path);
 	if (parent === path) return path;
 	const parent_real = await to_real_path(fs, parent, links);
-	const name = basename(path);
+	const name = posix_basename(path);
 	// the parent is real, so the entry is missing, or a symlink whose target is
 	const target = await read_link_target(fs, parent_real, name);
-	if (target === null) return join(parent_real, name);
+	if (target === null) return posix_join(parent_real, name);
 	if (++links.count > MAX_SYMLINKS) throw to_loop_error(path);
-	return to_real_path(fs, resolve(parent_real, target), links);
+	return to_real_path(fs, posix_resolve(parent_real, target), links);
 };
-
-// read once, when the module loads; an unset, empty, or relative `HOME` protects nothing
-const HOME = env.get('HOME');
-
-// the process's working directory, the project Gro runs in, protected whatever project
-// an `FsPaths` is over, read once when the module loads, as `fs.project` is
-const CWD = to_checked_cwd();
-
-const protected_dirs_cache: Map<string, Promise<Array<string>>> = new Map();
 
 /**
  * The directories no removal or emptying may touch, beside `/` and their ancestors:
- * the `FsPaths`' project, the process's working directory when the module loaded,
- * and `$HOME` as given and as its real path. Resolved once per project,
- * with the first `fs` given.
+ * the project, the working directory as given, and `$HOME` as given and as its real path.
  * @param fs - the fs root, which resolves `$HOME`'s real path
  * @param project_path - the project directory's absolute real path
+ * @param options - the working directory, absolute, and `$HOME`, which protects nothing
+ * when it's `undefined`, empty, or relative
+ * @throws `FsError` - as `fs.real_path` throws for `$HOME`, unless it's missing
  */
-export const to_protected_dirs = (fs: Fs, project_path: string): Promise<Array<string>> => {
-	let dirs = protected_dirs_cache.get(project_path);
-	if (dirs === undefined) {
-		dirs = (async () => {
-			const found = project_path === CWD ? [CWD] : [CWD, project_path];
-			if (HOME && isAbsolute(HOME)) {
-				const home = resolve(HOME);
-				found.push(home);
-				const home_real = await fs.real_path(home).catch(() => null);
-				if (home_real !== null && home_real !== home) found.push(home_real);
-			}
-			return found;
-		})();
-		protected_dirs_cache.set(project_path, dirs);
+export const to_protected_dirs = async (
+	fs: Fs,
+	project_path: string,
+	{ cwd, home }: FsPathsOptions
+): Promise<Array<string>> => {
+	const cwd_path = posix_resolve('/', cwd);
+	const found = project_path === cwd_path ? [cwd_path] : [cwd_path, project_path];
+	if (typeof home === 'string' && home.startsWith('/')) {
+		const home_path = posix_resolve('/', home);
+		found.push(home_path);
+		// a missing `$HOME` has no real path to protect; any other failure, like the runtime's
+		// `not_granted`, fails the removal before it acts, never protecting less
+		const home_real = await fs.real_path(home_path).catch((error: unknown) => {
+			if (is_missing_error(error)) return null;
+			throw error;
+		});
+		if (home_real !== null && home_real !== home_path) found.push(home_real);
 	}
-	return dirs;
+	return found;
 };
 
 /**
@@ -142,10 +135,24 @@ const to_opened_path = (dir: FsDir, path: string): FsOpenedPath =>
  * lexically, before any symlink is followed. `FsPaths` documents each op.
  * @param fs - the fs root, whose `project` a path beneath the project is relative to,
  * whose `open_dir` opens every other directory, and whose `real_path` resolves symlinks
+ * @param options - the working directory and `$HOME`, read when this is called,
+ * whose protected directories are resolved at the first removal or emptying
  * @param to_absolute - resolves a path as given to an absolute, normalized one
+ * @throws `TypeError` - when `options.cwd` isn't an absolute path
  */
-export const create_fs_boundary = (fs: Fs, to_absolute: (path: string) => string): FsPaths => {
+export const create_fs_boundary = (
+	fs: Fs,
+	options: FsPathsOptions,
+	to_absolute: (path: string) => string
+): FsPaths => {
 	const { project } = fs;
+	const { cwd, home } = options;
+	if (typeof cwd !== 'string' || !cwd.startsWith('/')) {
+		throw new TypeError(`an \`FsPaths\` takes an absolute \`cwd\`, not ${JSON.stringify(cwd)}`);
+	}
+	let protected_dirs: Promise<Array<string>> | undefined;
+	const get_protected_dirs = (): Promise<Array<string>> =>
+		(protected_dirs ??= to_protected_dirs(fs, project.path, { cwd, home }));
 
 	const to_project_relative = (real: string): string | null => {
 		const project_path = project.path;
@@ -162,14 +169,14 @@ export const create_fs_boundary = (fs: Fs, to_absolute: (path: string) => string
 			return to_opened_path(project, relative && relative + suffix);
 		}
 		if (real === '/') return to_opened_path(await fs.open_dir('/'), '');
-		let dir_path = dirname(real);
+		let dir_path = posix_dirname(real);
 		for (;;) {
 			const rest = real.slice(dir_path === '/' ? 1 : dir_path.length + 1);
 			try {
 				return to_opened_path(await fs.open_dir(dir_path), rest + suffix);
 			} catch (error) {
 				if (!is_fs_error(error, 'not_found') || dir_path === '/') throw error;
-				dir_path = dirname(dir_path);
+				dir_path = posix_dirname(dir_path);
 			}
 		}
 	};
@@ -206,8 +213,8 @@ export const create_fs_boundary = (fs: Fs, to_absolute: (path: string) => string
 			await project.copy(from_relative, to_relative, options);
 			return;
 		}
-		let common = dirname(real_from);
-		while (common !== '/' && !real_to.startsWith(common + '/')) common = dirname(common);
+		let common = posix_dirname(real_from);
+		while (common !== '/' && !real_to.startsWith(common + '/')) common = posix_dirname(common);
 		const dir = await fs.open_dir(common);
 		const start = common === '/' ? 1 : common.length + 1;
 		await dir.copy(real_from.slice(start), real_to.slice(start), options);
@@ -216,8 +223,8 @@ export const create_fs_boundary = (fs: Fs, to_absolute: (path: string) => string
 	const empty_dir_path = async (path: string): Promise<void> => {
 		const opened = await open_dir_path(path);
 		if (opened === null) return;
-		const target = opened.path ? join(opened.dir.path, opened.path) : opened.dir.path;
-		if (is_protected_dir(target, await to_protected_dirs(fs, project.path))) {
+		const target = opened.path ? posix_join(opened.dir.path, opened.path) : opened.dir.path;
+		if (is_protected_dir(target, await get_protected_dirs())) {
 			throw new FsError('io_error', to_absolute(path), {
 				cause: new Error(
 					`${to_refusal_subject(path, target)} is ${PROTECTED_DIRS_TEXT}, which can't be emptied`
@@ -241,14 +248,14 @@ export const create_fs_boundary = (fs: Fs, to_absolute: (path: string) => string
 
 	const remove_path = async (path: string, options?: FsRemoveOptions): Promise<void> => {
 		const resolved = to_absolute(path);
-		const name = basename(resolved);
+		const name = posix_basename(resolved);
 		if (!name) {
 			throw new FsError('io_error', resolved, { cause: new Error("the root can't be removed") });
 		}
-		const parent = await open_path(dirname(resolved));
+		const parent = await open_path(posix_dirname(resolved));
 		const entry = parent.path ? parent.path + '/' + name : name;
-		const target = join(parent.dir.path, entry);
-		if (is_protected_dir(target, await to_protected_dirs(fs, project.path))) {
+		const target = posix_join(parent.dir.path, entry);
+		if (is_protected_dir(target, await get_protected_dirs())) {
 			throw new FsError('io_error', resolved, {
 				cause: new Error(
 					`${to_refusal_subject(path, target)} is ${PROTECTED_DIRS_TEXT}, which can't be removed`

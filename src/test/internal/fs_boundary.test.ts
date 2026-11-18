@@ -19,13 +19,14 @@ import {
 	assert_fs_error_rejects,
 	create_fs_sandbox,
 	remove_fs_sandbox,
+	to_fs_paths_options,
 	type FsSandbox
 } from '../fs_test_helpers.ts';
 import { assert_rejects_type } from '../test_helpers.ts';
 
 /*
 
-The boundary's resolution, through `create_fs_paths(fs)`.
+The boundary's resolution, through `create_fs_paths`.
 Hermetic: the cwd moves to a sandbox project and the modules reload,
 so `fs.project` is the sandbox, and no destructive op can reach the repo.
 `process.chdir` needs Vitest's default `forks` pool.
@@ -65,9 +66,9 @@ beforeEach(async () => {
 		open_path: fs_open_path,
 		remove_path: fs_remove_path,
 		search_path: fs_search_path
-	} = create_fs_paths(fs));
+	} = create_fs_paths(fs, to_fs_paths_options()));
 	const { to_protected_dirs } = await import('#lib/internal/fs_boundary.ts');
-	fs_protected_dirs = () => to_protected_dirs(fs, fs.project.path);
+	fs_protected_dirs = () => to_protected_dirs(fs, fs.project.path, to_fs_paths_options());
 	({ is_protected_dir } = await import('#lib/internal/fs_boundary.ts'));
 	assert.strictEqual(fs.project.path, project);
 });
@@ -160,17 +161,20 @@ describe('the resolution', () => {
 		symlinkSync(join(sandbox.outside, 'missing'), join(sandbox.root, 'dangling'));
 		const resolved: Array<string> = [];
 		const opened: Array<string> = [];
-		const paths = create_fs_paths({
-			...fs,
-			real_path: async (path) => {
-				resolved.push(path);
-				return fs.real_path(path);
+		const paths = create_fs_paths(
+			{
+				...fs,
+				real_path: async (path) => {
+					resolved.push(path);
+					return fs.real_path(path);
+				},
+				open_dir: async (path) => {
+					opened.push(path);
+					return fs.open_dir(path);
+				}
 			},
-			open_dir: async (path) => {
-				opened.push(path);
-				return fs.open_dir(path);
-			}
-		});
+			to_fs_paths_options()
+		);
 		const result = await paths.open_path(join(sandbox.root, 'dangling/x.txt'));
 		assert.strictEqual(result.dir.path, sandbox.outside);
 		assert.strictEqual(result.path, 'missing/x.txt');
@@ -178,12 +182,15 @@ describe('the resolution', () => {
 		// the dangling link read through a handle on its directory
 		assert.include(opened, sandbox.root);
 		const { FsError } = await import('#lib/fs_error.ts');
-		const refusing = create_fs_paths({
-			...fs,
-			real_path: async (path) => {
-				throw new FsError('permission_denied', path);
-			}
-		});
+		const refusing = create_fs_paths(
+			{
+				...fs,
+				real_path: async (path) => {
+					throw new FsError('permission_denied', path);
+				}
+			},
+			to_fs_paths_options()
+		);
 		await assert_fs_error_rejects(
 			refusing.open_path(join(sandbox.root, 'x.txt')),
 			'permission_denied'

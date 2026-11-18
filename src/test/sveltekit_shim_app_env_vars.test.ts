@@ -68,11 +68,13 @@ const ENV_FILES_MODULE_SPECIFIER = 'file:///gro/env_files.ts';
 const FS_MODULE_SPECIFIER = 'file:///gro/fs.ts';
 const FS_PATHS_MODULE_SPECIFIER = 'file:///gro/fs_paths.ts';
 const ENV_MODULE_SPECIFIER = 'file:///gro/env.ts';
+const CWD_MODULE_SPECIFIER = 'file:///gro/cwd.ts';
 const specifiers = {
 	env_files_module_specifier: ENV_FILES_MODULE_SPECIFIER,
 	fs_module_specifier: FS_MODULE_SPECIFIER,
 	fs_paths_module_specifier: FS_PATHS_MODULE_SPECIFIER,
-	env_module_specifier: ENV_MODULE_SPECIFIER
+	env_module_specifier: ENV_MODULE_SPECIFIER,
+	cwd_module_specifier: CWD_MODULE_SPECIFIER
 };
 
 describe('render_sveltekit_shim_app_env_vars', () => {
@@ -113,7 +115,7 @@ describe('render_sveltekit_shim_app_env_vars', () => {
 	});
 
 	// the rendered module is the root of its env read, its fs and env reach visible in its imports
-	test('imports the fs and env host modules and builds the `FsPaths` it reads through', () => {
+	test('imports the fs, env, and cwd host modules and builds the `FsPaths` it reads through', () => {
 		const source = render_sveltekit_shim_app_env_vars({
 			visibility: 'private',
 			entry: { id: '/project/src/env.ts', variables: { A: {} } },
@@ -128,6 +130,12 @@ describe('render_sveltekit_shim_app_env_vars', () => {
 		);
 		expect(source).toContain(
 			`import {env as __gro_host_env} from ${JSON.stringify(ENV_MODULE_SPECIFIER)};`
+		);
+		expect(source).toContain(
+			`import {cwd as __gro_cwd} from ${JSON.stringify(CWD_MODULE_SPECIFIER)};`
+		);
+		expect(source).toContain(
+			"__gro_create_fs_paths(__gro_fs, {cwd: __gro_cwd(), home: __gro_host_env.get('HOME')})"
 		);
 	});
 

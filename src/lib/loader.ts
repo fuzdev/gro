@@ -67,6 +67,7 @@ const env_files_module_url = to_sibling_url('env_files');
 const fs_module_url = to_sibling_url('fs');
 const env_module_url = to_sibling_url('env');
 const fs_paths_module_url = to_sibling_url('fs_paths');
+const cwd_module_url = to_sibling_url('cwd');
 /**
  * Set while the loader imports a project's `src/env.ts` for its declarations.
  * The hooks thread's own imports run through these hooks inside that async context,
@@ -140,6 +141,7 @@ export const load: LoadHook = async (url, context, nextLoad) => {
 			fs_module_specifier: fs_module_url,
 			fs_paths_module_specifier: fs_paths_module_url,
 			env_module_specifier: env_module_url,
+			cwd_module_specifier: cwd_module_url,
 			dev,
 			env_dir
 		});

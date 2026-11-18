@@ -27,6 +27,8 @@ import {
 import { package_json_load } from './package_json.ts';
 import { fs } from './fs.ts';
 import { create_fs_paths, type FsOpenedPath, type FsPaths } from './fs_paths.ts';
+import { cwd } from './cwd.ts';
+import { env } from './env.ts';
 import { spawn, type SpawnProgram } from './spawn.ts';
 
 /** @nodocs */
@@ -122,7 +124,7 @@ export const task: Task<Args> = {
 			}
 		};
 
-		const fs_paths = create_fs_paths(fs);
+		const fs_paths = create_fs_paths(fs, { cwd: cwd(), home: env.get('HOME') });
 
 		const package_json = await package_json_load(fs_paths);
 

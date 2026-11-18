@@ -16,6 +16,8 @@ import {
 import { SVELTE_CHECK_CLI } from './constants.ts';
 import { fs } from './fs.ts';
 import { create_fs_paths } from './fs_paths.ts';
+import { cwd as process_cwd } from './cwd.ts';
+import { env } from './env.ts';
 import { paths } from './paths.ts';
 import { spawn } from './spawn.ts';
 import { project_has_sveltekit_app, sveltekit_sync } from './sveltekit_helpers.ts';
@@ -47,7 +49,12 @@ export const task: Task<Args> = {
 	run: async ({ task_args, log, config }): Promise<void> => {
 		const { svelte_check_cli, typescript_cli, path_replacement, cwd } = task_args;
 
-		if (await project_has_sveltekit_app(create_fs_paths(fs), log)) {
+		if (
+			await project_has_sveltekit_app(
+				create_fs_paths(fs, { cwd: process_cwd(), home: env.get('HOME') }),
+				log
+			)
+		) {
 			await sveltekit_sync(spawn, { pm_cli: config.pm_cli });
 		}
 

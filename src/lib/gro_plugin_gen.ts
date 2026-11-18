@@ -8,6 +8,8 @@ import { paths } from './paths.ts';
 import { find_genfiles, is_gen_path } from './gen.ts';
 import { fs } from './fs.ts';
 import { create_fs_paths } from './fs_paths.ts';
+import { cwd } from './cwd.ts';
+import { env } from './env.ts';
 import { should_trigger_gen } from './gen_helpers.ts';
 import { find_cli, spawn_cli } from './cli.ts';
 import { spawn } from './spawn.ts';
@@ -42,7 +44,7 @@ export const gro_plugin_gen = ({
 }: GroPluginGenOptions = EMPTY_OBJECT): Plugin => {
 	const queued_files: Set<string> = new Set();
 	const reported_invalid_inputs: Set<string> = new Set();
-	const fs_paths = create_fs_paths(fs);
+	const fs_paths = create_fs_paths(fs, { cwd: cwd(), home: env.get('HOME') });
 
 	let cleanup_watch: (() => Promise<void>) | undefined;
 

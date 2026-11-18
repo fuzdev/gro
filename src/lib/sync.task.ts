@@ -9,6 +9,8 @@ import { stderr } from './stderr.ts';
 import { fs } from './fs.ts';
 import { spawn } from './spawn.ts';
 import { create_fs_paths } from './fs_paths.ts';
+import { cwd } from './cwd.ts';
+import { env } from './env.ts';
 
 /** @nodocs */
 export const Args = s.object({
@@ -34,7 +36,7 @@ export const task: Task<Args> = {
 	Args,
 	run: async ({ task_args, invoke_task, config, log }): Promise<void> => {
 		const { sveltekit, package_json, gen, install } = task_args;
-		const fs_paths = create_fs_paths(fs);
+		const fs_paths = create_fs_paths(fs, { cwd: cwd(), home: env.get('HOME') });
 
 		if (install) {
 			await install_with_cache_healing_or_throw(spawn, config.pm_cli, {

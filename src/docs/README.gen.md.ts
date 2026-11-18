@@ -3,6 +3,8 @@ import { basename, join } from 'node:path';
 import type { Gen } from '../lib/gen.ts';
 import { fs } from '../lib/fs.ts';
 import { create_fs_paths } from '../lib/fs_paths.ts';
+import { cwd } from '../lib/cwd.ts';
+import { env } from '../lib/env.ts';
 import {
 	create_gen_doc_context,
 	create_root_link,
@@ -38,7 +40,7 @@ const parse_listed_doc_paths = (content: string): Array<string> => {
 export const gen: Gen = {
 	inputs: { files: ['src/docs/runtime.md'] }, // `RUNTIME_INDEX_FILE`, as a literal
 	generate: async ({ origin_id }) => {
-		const fs_paths = create_fs_paths(fs);
+		const fs_paths = create_fs_paths(fs, { cwd: cwd(), home: env.get('HOME') });
 		const ctx = create_gen_doc_context(origin_id);
 		const { origin_dir, origin_base, root_path, output_file_name, relative_dir } = ctx;
 

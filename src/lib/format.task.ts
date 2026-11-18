@@ -4,6 +4,8 @@ import { meta } from '@fuzdev/fuz_schema/meta.ts';
 import { format_directory } from './format_directory.ts';
 import { fs } from './fs.ts';
 import { create_fs_paths } from './fs_paths.ts';
+import { cwd } from './cwd.ts';
+import { env } from './env.ts';
 import { paths } from './paths.ts';
 import type { Task } from './task.ts';
 import { TaskError } from './task_error.ts';
@@ -25,13 +27,16 @@ export const task: Task<Args> = {
 	run: async ({ task_args, log, config }) => {
 		const { _: patterns, check } = task_args;
 
-		const result = await format_directory(create_fs_paths(fs), {
-			log,
-			dir: paths.source,
-			check,
-			filter: config.search_filters,
-			patterns
-		});
+		const result = await format_directory(
+			create_fs_paths(fs, { cwd: cwd(), home: env.get('HOME') }),
+			{
+				log,
+				dir: paths.source,
+				check,
+				filter: config.search_filters,
+				patterns
+			}
+		);
 		if (!result.ok) {
 			throw new TaskError(`Failed ${check ? 'formatting check' : 'to format'}.`);
 		}

@@ -1,6 +1,6 @@
 import type { Logger } from '@fuzdev/fuz_util/log.ts';
 import { UnreachableError } from '@fuzdev/fuz_util/error.ts';
-import { styleText as st } from 'node:util';
+import { st } from '@fuzdev/fuz_util/print.ts';
 
 import { NODE_MODULES_DIRNAME } from './constants.ts';
 import type {

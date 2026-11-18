@@ -23,6 +23,7 @@ import {
 import { SOURCE_DIRNAME } from './constants.ts';
 import { fs } from './fs.ts';
 import { create_fs_paths } from './fs_paths.ts';
+import { env } from './env.ts';
 import { cwd } from './cwd.ts';
 
 // read once when the module loads, so every parse fills in the same directory
@@ -52,7 +53,7 @@ export const task: Task<Args> = {
 	run: async ({ task_args, log, timings, config, invoke_task }): Promise<void> => {
 		const { _: raw_input_paths, root_dirs, check } = task_args;
 
-		const fs_paths = create_fs_paths(fs);
+		const fs_paths = create_fs_paths(fs, { cwd: cwd(), home: env.get('HOME') });
 		const input_paths = to_input_paths(raw_input_paths, fs_paths.project.path);
 
 		// load all of the gen modules

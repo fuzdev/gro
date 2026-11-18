@@ -10,6 +10,7 @@ import { spawn } from './spawn.ts';
 import { args } from './args.ts';
 import { cwd } from './cwd.ts';
 import { create_fs_paths } from './fs_paths.ts';
+import { env } from './env.ts';
 import type { Task } from './task.ts';
 import { TaskError } from './task_error.ts';
 import { project_has_vitest, TEST_FILE_PATTERN } from './vitest_helpers.ts';
@@ -42,7 +43,9 @@ export const task: Task<Args> = {
 	run: async ({ task_args, log }): Promise<void> => {
 		const { _: patterns, dir, fail_without_tests, t } = task_args;
 
-		if (!(await project_has_vitest(create_fs_paths(fs), log))) {
+		if (
+			!(await project_has_vitest(create_fs_paths(fs, { cwd: cwd(), home: env.get('HOME') }), log))
+		) {
 			throw new TaskError('no test runner found, add vitest to devDependencies');
 		}
 

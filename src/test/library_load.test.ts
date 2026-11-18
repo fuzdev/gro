@@ -27,10 +27,11 @@ import {
 import { SVELTEKIT_TSCONFIG_PATH } from '#lib/constants.ts';
 import { fs, type FsDir } from '#lib/fs.ts';
 import { create_fs_paths } from '#lib/fs_paths.ts';
+import { to_fs_paths_options } from './fs_test_helpers.ts';
 
 import { create_mock_git_program, git_ops } from './git_mocks.ts';
 
-const fs_paths = create_fs_paths(fs);
+const fs_paths = create_fs_paths(fs, to_fs_paths_options());
 
 // the cache key's logic in isolation over a scripted program, without the surrounding repo's git
 const deps = { fs_paths, git: create_mock_git_program() };

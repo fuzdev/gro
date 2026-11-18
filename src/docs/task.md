@@ -227,11 +227,13 @@ handing it the fs boundary the genfile builds as its composition root:
 
 ```ts
 // src/gro_tasks.gen.ts
+import {cwd} from '@fuzdev/gro/cwd.ts';
+import {env} from '@fuzdev/gro/env.ts';
 import {fs} from '@fuzdev/gro/fs.ts';
 import {create_fs_paths} from '@fuzdev/gro/fs_paths.ts';
 import {gen_task_registry} from '@fuzdev/gro/task_registry.ts';
 
-export const gen = gen_task_registry(create_fs_paths(fs));
+export const gen = gen_task_registry(create_fs_paths(fs, {cwd: cwd(), home: env.get('HOME')}));
 ```
 
 `gro gen` then writes `src/gro_tasks.ts`, which augments the `ProjectTasks` interface

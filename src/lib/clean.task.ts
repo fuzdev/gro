@@ -6,6 +6,8 @@ import { TaskError } from './task_error.ts';
 import { clean_fs } from './clean_fs.ts';
 import { fs } from './fs.ts';
 import { create_fs_paths } from './fs_paths.ts';
+import { cwd } from './cwd.ts';
+import { env } from './env.ts';
 import { GitOrigin, to_git_program } from './git.ts';
 import { spawn } from './spawn.ts';
 import { spawn_result_is_ok, to_spawn_result_message } from './cli.ts';
@@ -48,7 +50,7 @@ export const task: Task<Args> = {
 		const { build_dist, sveltekit, nodemodules, git, git_origin } = task_args;
 
 		await clean_fs(
-			{ fs_paths: create_fs_paths(fs), log },
+			{ fs_paths: create_fs_paths(fs, { cwd: cwd(), home: env.get('HOME') }), log },
 			{ gro_dir: !build_dist, dist_dirs: true, sveltekit, nodemodules }
 		);
 

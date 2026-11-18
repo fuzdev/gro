@@ -69,7 +69,7 @@ export const gro_plugin_server = (options: GroPluginServerOptions): Plugin => {
 				return;
 			}
 
-			const fs_paths = create_fs_paths(fs);
+			const fs_paths = create_fs_paths(fs, { cwd: cwd(), home: env.get('HOME') });
 			const entry_file = await fs_paths.open_path(entry);
 			if (!(await entry_file.dir.exists(entry_file.path))) {
 				throw new TaskError(`${LABEL} cannot find the server entry: ${entry}`);

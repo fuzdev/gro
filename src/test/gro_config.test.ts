@@ -12,9 +12,10 @@ import {
 import { paths } from '#lib/paths.ts';
 import { fs } from '#lib/fs.ts';
 import { create_fs_paths } from '#lib/fs_paths.ts';
+import { to_fs_paths_options } from './fs_test_helpers.ts';
 
 test('load_gro_config', async () => {
-	const config = await load_gro_config(create_fs_paths(fs));
+	const config = await load_gro_config(create_fs_paths(fs, to_fs_paths_options()));
 	expect(config).toBeTruthy();
 	expect(config.plugins).toBeDefined();
 	expect('task_root_dirs' in config).toBe(false);

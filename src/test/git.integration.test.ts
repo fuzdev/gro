@@ -20,6 +20,7 @@ import {
 	git_tag_exists
 } from '#lib/git.ts';
 import { create_fs_paths } from '#lib/fs_paths.ts';
+import { to_fs_paths_options } from './fs_test_helpers.ts';
 import { library_cache_key } from '#lib/library_load.ts';
 import { spawn, type SpawnProgram } from '#lib/spawn.ts';
 
@@ -277,7 +278,12 @@ describe('a repo git can not read', () => {
 
 	test('the library cache key is null over a corrupted index, not a thrown error', async () => {
 		await work.write('.git/index', 'garbage');
-		assert.isNull(await library_cache_key({ fs_paths: create_fs_paths(fs), git }, work.path));
+		assert.isNull(
+			await library_cache_key(
+				{ fs_paths: create_fs_paths(fs, to_fs_paths_options()), git },
+				work.path
+			)
+		);
 	});
 });
 

@@ -3,9 +3,12 @@ import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { configure_print_colors } from '@fuzdev/fuz_util/print.ts';
+
 import {
 	find_cli,
 	find_local_cli,
+	print_command_args,
 	spawn_cli,
 	spawn_cli_process,
 	spawn_result_is_ok,
@@ -234,6 +237,22 @@ describe('spawn results', () => {
 		assert.strictEqual(
 			to_spawn_result_message({ kind: 'aborted', code: null, signal: 'SIGTERM' }),
 			'aborted'
+		);
+	});
+});
+
+describe('print_command_args', () => {
+	afterEach(() => {
+		configure_print_colors(null);
+	});
+
+	test('styles through the colors `configure_print_colors` set, plain without them', () => {
+		configure_print_colors(null);
+		assert.strictEqual(print_command_args(['git', 'status']), '[running command] git status');
+		configure_print_colors((style, text) => `<${style}>${text}`);
+		assert.strictEqual(
+			print_command_args(['git', 'status']),
+			'<gray>[<magenta>running command<gray>] git status'
 		);
 	});
 });

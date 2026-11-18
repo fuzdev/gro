@@ -9,18 +9,20 @@
  * beneath a handle it already holds.
  *
  * It opens any path, so it's built from the root `Fs` and never from a handle:
- * a composition root that imports the host module builds one with `create_fs_paths(fs)`
- * and passes it down, and code given one reaches what the root's `fs` reaches.
+ * a composition root that imports the host modules builds one with
+ * `create_fs_paths(fs, {cwd: cwd(), home: env.get('HOME')})` and passes it down,
+ * and code given one reaches what the root's `fs` reaches.
  * Code that holds a handle gets narrower handles from it, never wider ones by path.
+ * The root reads the working directory and `HOME` for the directories its removals refuse,
+ * so this module reads nothing of the process and imports no host module.
  *
  * @module
  */
 
-import { resolve } from 'node:path';
-
 import type { Fs, FsCopyOptions, FsDir, FsRemoveOptions } from './fs.ts';
 import type { FsSearchOptions, FsSearchResult } from './fs_search.ts';
 import { create_fs_boundary } from './internal/fs_boundary.ts';
+import { posix_resolve } from './internal/posix_path.ts';
 
 /**
  * A path resolved to a handle and the relative path beneath it.
@@ -97,8 +99,9 @@ export interface FsPaths {
 	 * Empties a directory, its symlinks followed, removing everything in it
 	 * but never the directory itself, so a symlink to it is kept.
 	 * @param path - absolute, or relative to the project
-	 * @throws `FsError` - `io_error` when the directory is the project, the process's working
-	 * directory, `$HOME`, or an ancestor of one, `not_a_directory` when it's a file,
+	 * @throws `FsError` - `io_error` when the directory is the project, the working directory or
+	 * `$HOME` it was built with (`FsPathsOptions`), or an ancestor of one; `not_a_directory` when it's a file;
+	 * as `fs.real_path` throws for `$HOME`, unless it's missing, before anything is removed;
 	 * otherwise as `open_dir_path` and `FsDir.remove` do
 	 */
 	empty_dir_path(path: string): Promise<void>;
@@ -108,17 +111,42 @@ export interface FsPaths {
 	 * and the final entry is removed as `FsDir.remove` does, a symlink removed itself.
 	 * A trailing `/` removes only a directory, as in `FsDir.remove`.
 	 * @param path - absolute, or relative to the project
-	 * @throws `FsError` - `io_error` for the project, the process's working directory, `$HOME`,
-	 * or an ancestor of one, otherwise as `open_path` and `FsDir.remove` do
+	 * @throws `FsError` - `io_error` for the project, the working directory or `$HOME` it was built
+	 * with (`FsPathsOptions`), or an ancestor of one; as `fs.real_path` throws for `$HOME`,
+	 * unless it's missing, before anything is removed; otherwise as `open_path` and `FsDir.remove` do
 	 */
 	remove_path(path: string, options?: FsRemoveOptions): Promise<void>;
 }
 
 /**
+ * What an `FsPaths` protects beyond its project: the directories its `remove_path` and
+ * `empty_dir_path` refuse, with their ancestors and `/`, beside the project.
+ * A root reads both from the host modules, so leaving one out fails to typecheck.
+ */
+export interface FsPathsOptions {
+	/**
+	 * The process's working directory, an absolute real path, as `cwd()` from the cwd host module
+	 * returns, protected as given whatever project the `FsPaths` is over.
+	 */
+	cwd: string;
+	/**
+	 * `$HOME`, `env.get('HOME')` from the env host module, protected as given and as its real path,
+	 * which the first removal or emptying resolves through `fs.real_path`.
+	 * `undefined`, empty, or relative, as an unset or malformed `HOME` reads, protects nothing.
+	 * On `fgro`, reading `HOME` takes `--allow-env=HOME`, and resolving its real path takes
+	 * `--allow-read` on `$HOME`, or on its nearest existing ancestor when it's missing,
+	 * without which the read is refused and the removal fails before it acts.
+	 */
+	home: string | undefined;
+}
+
+/**
  * Builds the boundary over the fs root, resolving relative paths against `fs.project`.
  * @param fs - the fs host module's root, `fs` from `fs.ts` or a mock of it
+ * @param options - the working directory and `$HOME`, which its removals refuse
+ * @throws `TypeError` - when `options.cwd` isn't an absolute path
  */
-export const create_fs_paths = (fs: Fs): FsPaths => {
+export const create_fs_paths = (fs: Fs, options: FsPathsOptions): FsPaths => {
 	const project_path = fs.project.path;
-	return create_fs_boundary(fs, (path) => resolve(project_path, path));
+	return create_fs_boundary(fs, options, (path) => posix_resolve(project_path, path));
 };

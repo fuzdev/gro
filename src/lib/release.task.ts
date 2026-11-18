@@ -6,6 +6,8 @@ import { has_sveltekit_library, has_sveltekit_app } from './sveltekit_helpers.ts
 import { package_json_load } from './package_json.ts';
 import { fs } from './fs.ts';
 import { create_fs_paths } from './fs_paths.ts';
+import { cwd } from './cwd.ts';
+import { env } from './env.ts';
 
 /** @nodocs */
 export const Args = s.object({
@@ -48,7 +50,7 @@ export const task: Task<Args> = {
 	run: async ({ task_args, invoke_task }) => {
 		const { dry, check, build, pull, sync, install, gen, force_build } = task_args;
 
-		const fs_paths = create_fs_paths(fs);
+		const fs_paths = create_fs_paths(fs, { cwd: cwd(), home: env.get('HOME') });
 		const package_json = await package_json_load(fs_paths);
 
 		const publish = (await has_sveltekit_library(fs_paths, package_json)).ok;

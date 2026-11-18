@@ -6,6 +6,8 @@ import { stderr } from './stderr.ts';
 import { LOCKFILE_FILENAME, NODE_MODULES_DIRNAME } from './constants.ts';
 import { fs } from './fs.ts';
 import { create_fs_paths } from './fs_paths.ts';
+import { cwd } from './cwd.ts';
+import { env } from './env.ts';
 import { spawn } from './spawn.ts';
 
 /** @nodocs */
@@ -17,7 +19,7 @@ export const task: Task<Args> = {
 	summary: `refreshes ${LOCKFILE_FILENAME} with the latest and cleanest deps`,
 	Args,
 	run: async ({ log, config }): Promise<void> => {
-		const fs_paths = create_fs_paths(fs);
+		const fs_paths = create_fs_paths(fs, { cwd: cwd(), home: env.get('HOME') });
 
 		log.info(`running the initial \`${config.pm_cli} install\``);
 		await install_with_cache_healing_or_throw(spawn, config.pm_cli, {

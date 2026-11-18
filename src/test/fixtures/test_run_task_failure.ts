@@ -10,13 +10,15 @@ import { run_task } from '#lib/run_task.ts';
 import { load_gro_config } from '#lib/gro_config.ts';
 import { fs } from '#lib/fs.ts';
 import { create_fs_paths } from '#lib/fs_paths.ts';
+import { cwd } from '#lib/cwd.ts';
+import { env } from '#lib/env.ts';
 import { create_node_module_graph } from '#lib/module_graph_node.ts';
 
 async function runTest() {
 	console.log('Testing run_task handles failing tasks...\n');
 
 	let err;
-	const fs_paths = create_fs_paths(fs);
+	const fs_paths = create_fs_paths(fs, { cwd: cwd(), home: env.get('HOME') });
 	const config = await load_gro_config(fs_paths);
 	const graph = create_node_module_graph({ watch: config.watch });
 	const log = new Logger('test');

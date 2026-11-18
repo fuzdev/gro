@@ -9,10 +9,11 @@ import { update_changelog } from '#lib/changelog.ts';
 import { load_from_env } from '#lib/env_files.ts';
 import { fs } from '#lib/fs.ts';
 import { create_fs_paths } from '#lib/fs_paths.ts';
+import { to_fs_paths_options } from './fs_test_helpers.ts';
 
 const log = new Logger();
 
-const fs_paths = create_fs_paths(fs);
+const fs_paths = create_fs_paths(fs, to_fs_paths_options());
 
 const token = await load_from_env(fs_paths, process.env, 'SECRET_GITHUB_API_TOKEN');
 if (!token) {

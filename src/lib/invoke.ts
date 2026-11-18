@@ -10,6 +10,7 @@ import { sveltekit_sync_if_obviously_needed } from './sveltekit_helpers.ts';
 import { fs } from './fs.ts';
 import { spawn } from './spawn.ts';
 import { create_fs_paths } from './fs_paths.ts';
+import { cwd } from './cwd.ts';
 import { print_error_with_causes } from './internal/error_report.ts';
 import { args } from './args.ts';
 import { env } from './env.ts';
@@ -107,7 +108,7 @@ if (!env.get('NO_COLOR')) {
 }
 
 // the CLI's composition root, where the fs and spawn host modules enter
-const fs_paths = create_fs_paths(fs);
+const fs_paths = create_fs_paths(fs, { cwd: cwd(), home: env.get('HOME') });
 
 await sveltekit_sync_if_obviously_needed(fs_paths, spawn);
 

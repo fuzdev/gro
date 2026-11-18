@@ -53,13 +53,13 @@ errors and exit codes. Where it lives:
 - Exit code - `to_exit_code` in `invoke.ts` reads a `TaskError`'s `exit_code`
   (how `gro run` passes on its script's code) from the CLI-invoked task's
   failure
-- Errors - `TaskError` suppresses the stack, `SilentError` exits silently;
-  `is_task_error` / `is_silent_error` match subclasses and other
-  copies of Gro, where `instanceof` misses
+- Errors - `task_error.ts`, grant-free: `TaskError` suppresses the stack,
+  `SilentError` exits silently; `is_task_error` / `is_silent_error` match
+  subclasses and other copies of Gro, where `instanceof` misses
 - Typed `invoke_task` - `InvokeTask` checks literals against `TaskRegistry`
   (`task_registry.ts`); builtins from the generated `GroBuiltinTasks`
   (`gro_builtin_tasks.gen.ts`), project tasks from a genfile exporting
-  `gen_task_registry(create_fs_paths(fs))` (augments `ProjectTasks`)
+  `gen_task_registry(create_fs_paths(fs, options))` (augments `ProjectTasks`)
   ([docs](src/docs/task.md#types-for-invoke_task))
 - Fs boundary - `invoke_task` takes the root's `FsPaths` as `fs_paths` in
   `InvokeTaskOptions`, built by the CLI entry (`invoke.ts`), and `run_task`
@@ -578,17 +578,16 @@ Key utilities:
   grant-free; `fs_search.ts`, the recursive search over a handle;
   `fs_paths.ts`, `FsPaths`, the boundary where a path from outside (a CLI arg, config, a
   well-known path) becomes a handle, its symlinks followed, built at a composition root with
-  `create_fs_paths(fs)` and passed down, its machinery in `internal/fs_boundary.ts` with
-  `is_protected_dir` guarding every removal; library code takes an `FsPaths` or a narrow
-  handle as a parameter, and only roots (tasks, `invoke.ts`, genfiles, the default config,
+  `create_fs_paths(fs, {cwd: cwd(), home: env.get('HOME')})` and passed down, its machinery
+  in `internal/fs_boundary.ts` with `is_protected_dir` guarding every removal; library code
+  takes an `FsPaths` or a narrow handle as a parameter, and only roots (tasks, `invoke.ts`, genfiles, the default config,
   plugin modules, the rendered `$app/env/*` shims) import `fs`, as they import the process
   modules, one per kind of authority: `env.ts`, `args.ts`, `exit.ts` (`exit`, `set_exit_code`),
   `stdin.ts`, `stdout.ts` (with `ProcessOutput`, the type `stderr.ts` shares), `stderr.ts`,
   `cwd.ts`, `pid.ts`, `runtime_version.ts`, the two streams' implementation in
   `internal/process_output.ts`; their errors grant-free in `env_error.ts` (`EnvError`,
   `is_env_error`) and `stdio_error.ts` (`StdioError`, `is_stdio_error`); library code takes a
-  `cwd` string, a plain record, the CLI args, or a stream,
-  but for `internal/fs_boundary.ts`, which reads `HOME` through `env` once at load for its protected directories;
+  `cwd` string, a plain record, the CLI args, or a stream;
   Gro's library and task code uses no `node:child_process` but `spawn.ts`, and
   no `node:fs` but the Node-only machinery
   [host_modules.md](src/docs/host_modules.md#where-to-import-them) lists;

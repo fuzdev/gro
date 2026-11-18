@@ -26,7 +26,13 @@ import {
 import { paths, print_path } from './paths.ts';
 import { GRO_DIRNAME, GIT_DIRNAME, SVELTEKIT_BUILD_DIRNAME } from './constants.ts';
 import { fs, type FsDir } from './fs.ts';
-import { create_fs_paths, type FsOpenedPath, type FsPaths } from './fs_paths.ts';
+import {
+	create_fs_paths,
+	type FsOpenedPath,
+	type FsPaths,
+	type FsPathsOptions
+} from './fs_paths.ts';
+import { env } from './env.ts';
 import { spawn_result_is_ok } from './cli.ts';
 import { spawn, type SpawnCallOptions, type SpawnProgram } from './spawn.ts';
 import { is_fs_error } from './fs_error.ts';
@@ -142,7 +148,8 @@ export const task: Task<Args> = {
 			pull
 		} = task_args;
 
-		const fs_paths = create_fs_paths(fs);
+		const fs_paths_options: FsPathsOptions = { cwd: cwd(), home: env.get('HOME') };
+		const fs_paths = create_fs_paths(fs, fs_paths_options);
 		// a named unconfined phase, `-A`-equivalent: it signs and pushes with the user's git setup
 		const git = to_git_program(spawn, { pass_env: 'all' });
 
@@ -152,7 +159,7 @@ export const task: Task<Args> = {
 		const resolved_deploy_dir = resolve(deploy_dir);
 		await assert_deploy_dir_owned(
 			git,
-			await open_deploy_dir(fs_paths, resolved_deploy_dir),
+			await open_deploy_dir(fs_paths, fs_paths_options, resolved_deploy_dir),
 			origin
 		);
 		if (!force && target !== TARGET_BRANCH) {
@@ -320,7 +327,7 @@ export const task: Task<Args> = {
 			// TODO there's definitely a better way to do this
 			await git_init(['rm', '-rf', '.']);
 			try {
-				const initial = await open_deploy_dir(fs_paths, resolved_deploy_dir);
+				const initial = await open_deploy_dir(fs_paths, fs_paths_options, resolved_deploy_dir);
 				await initial.dir.write(join(initial.path, INITIAL_FILE_PATH), '');
 			} catch (error) {
 				if (!is_fs_error(error)) throw error;
@@ -336,7 +343,7 @@ export const task: Task<Args> = {
 
 		// Remove everything except .git from the deploy directory to avoid stale files,
 		// opened now that it's in its final form, so the emptying never acts on a replaced directory
-		const deploy = await open_deploy_dir(fs_paths, resolved_deploy_dir);
+		const deploy = await open_deploy_dir(fs_paths, fs_paths_options, resolved_deploy_dir);
 		const stale: Array<string> = [];
 		for await (const { name } of deploy.dir.list(deploy.path)) {
 			if (name !== GIT_DIRNAME) stale.push(name);
@@ -460,11 +467,14 @@ export const task: Task<Args> = {
  */
 const open_deploy_dir = async (
 	fs_paths: FsPaths,
+	fs_paths_options: FsPathsOptions,
 	resolved_deploy_dir: string
 ): Promise<FsOpenedPath> => {
 	const opened = await fs_paths.open_path(resolved_deploy_dir);
 	const real = to_opened_real_path(opened);
-	if (is_protected_dir(real, await to_protected_dirs(fs, fs_paths.project.path))) {
+	if (
+		is_protected_dir(real, await to_protected_dirs(fs, fs_paths.project.path, fs_paths_options))
+	) {
 		throw new TaskError(
 			`The deploy dir ${print_path(resolved_deploy_dir)} resolves to ${real},` +
 				` ${PROTECTED_DIRS_TEXT}`

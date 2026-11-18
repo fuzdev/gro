@@ -22,7 +22,7 @@ import { TaskError } from './task_error.ts';
 
 /**
  * The project's own tasks by normalized path, empty until augmented by a generated file.
- * Create a genfile like `src/gro_tasks.gen.ts` exporting `gen_task_registry(create_fs_paths(fs))`
+ * Create a genfile like `src/gro_tasks.gen.ts` exporting `gen_task_registry(create_fs_paths(fs, options))`
  * as `gen` to type the project's task paths and args for `invoke_task`.
  */
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
@@ -212,7 +212,7 @@ ${summaries}};
 /**
  * Creates the genfile config that types a project's tasks for `invoke_task`.
  * Export it as `gen` from a genfile like `src/gro_tasks.gen.ts`,
- * `export const gen = gen_task_registry(create_fs_paths(fs));`,
+ * `export const gen = gen_task_registry(create_fs_paths(fs, {cwd: cwd(), home: env.get('HOME')}));`,
  * which writes `src/gro_tasks.ts` augmenting `ProjectTasks`
  * with every task file under `src/`, keyed by its path relative to the project root.
  * In `gro dev` it regenerates when a task file is added or changed;

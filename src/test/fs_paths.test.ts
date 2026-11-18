@@ -10,6 +10,7 @@ import {
 	assert_fs_error_rejects,
 	create_fs_sandbox,
 	remove_fs_sandbox,
+	to_fs_paths_options,
 	type FsSandbox
 } from './fs_test_helpers.ts';
 import { assert_awaits_as_itself } from './test_helpers.ts';
@@ -27,7 +28,7 @@ let fs_paths: FsPaths;
 
 beforeEach(async () => {
 	sandbox = await create_fs_sandbox();
-	fs_paths = create_fs_paths({ ...fs, project: sandbox.dir });
+	fs_paths = create_fs_paths({ ...fs, project: sandbox.dir }, to_fs_paths_options());
 	assert.notStrictEqual(process.cwd(), sandbox.root);
 });
 
@@ -102,7 +103,10 @@ describe('create_fs_paths', () => {
 			script,
 			`import { fs } from ${JSON.stringify(resolve('src/lib/fs.ts'))};
 import { create_fs_paths } from ${JSON.stringify(resolve('src/lib/fs_paths.ts'))};
-const fs_paths = create_fs_paths({ ...fs, project: await fs.open_dir(process.argv[2]) });
+const fs_paths = create_fs_paths(
+	{ ...fs, project: await fs.open_dir(process.argv[2]) },
+	{ cwd: process.cwd(), home: process.env.HOME }
+);
 for (const [name, run] of [
 	['remove cwd', () => fs_paths.remove_path(process.cwd(), { recursive: true })],
 	['empty cwd', () => fs_paths.empty_dir_path(process.cwd())],

@@ -6,6 +6,7 @@ import { fs, type FsDir } from '#lib/fs.ts';
 import { is_fs_error } from '#lib/fs_error.ts';
 import { create_fs_paths, type FsPaths } from '#lib/fs_paths.ts';
 import { load_env, load_from_env } from '#lib/env_files.ts';
+import { to_fs_paths_options } from './fs_test_helpers.ts';
 
 const KEY = 'GRO_TEST_LOAD_FROM_ENV_KEY';
 
@@ -16,7 +17,7 @@ let fs_paths: FsPaths;
 beforeEach(async () => {
 	delete process.env[KEY];
 	temp = await fs.temp_dir();
-	fs_paths = create_fs_paths({ ...fs, project: temp });
+	fs_paths = create_fs_paths({ ...fs, project: temp }, to_fs_paths_options());
 });
 
 afterEach(async () => {
@@ -33,7 +34,10 @@ describe('load_from_env', () => {
 	test('never reads a parent directory `.env` by default', async () => {
 		await temp.write('.env', `${KEY}=parent`);
 		await temp.mkdir('child');
-		const child_paths = create_fs_paths({ ...fs, project: temp.dir('child') });
+		const child_paths = create_fs_paths(
+			{ ...fs, project: temp.dir('child') },
+			to_fs_paths_options()
+		);
 		assert.strictEqual(await load_from_env(child_paths, process.env, KEY), undefined);
 	});
 
@@ -41,7 +45,7 @@ describe('load_from_env', () => {
 		await temp.write('.env', `${KEY}=parent`);
 		await temp.mkdir('child');
 		const child = temp.dir('child');
-		const child_paths = create_fs_paths({ ...fs, project: child });
+		const child_paths = create_fs_paths({ ...fs, project: child }, to_fs_paths_options());
 		const paths = ['.env', '../.env'];
 		assert.strictEqual(await load_from_env(child_paths, process.env, KEY, paths), 'parent');
 		await child.write('.env', `${KEY}=project`);

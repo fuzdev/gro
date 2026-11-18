@@ -8,6 +8,8 @@ import { rewrite_dist_imports } from './dist_rewrite_imports.ts';
 import { fs } from './fs.ts';
 import { is_fs_error } from './fs_error.ts';
 import { create_fs_paths, type FsPaths } from './fs_paths.ts';
+import { cwd } from './cwd.ts';
+import { env } from './env.ts';
 import { spawn } from './spawn.ts';
 import { format_error_detail } from './error_detail.ts';
 
@@ -47,7 +49,7 @@ export const gro_plugin_sveltekit_library = ({
 	svelte_package_cli = SVELTE_PACKAGE_CLI
 }: GroPluginSveltekitLibraryOptions = {}): Plugin => {
 	// the plugin is a composition root, where the fs and spawn host modules enter
-	const fs_paths = create_fs_paths(fs);
+	const fs_paths = create_fs_paths(fs, { cwd: cwd(), home: env.get('HOME') });
 	return {
 		name: 'gro_plugin_sveltekit_library',
 		setup: async ({ dev, log, config }) => {

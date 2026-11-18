@@ -10,10 +10,11 @@ import {
 } from '#lib/dist_rewrite_imports.ts';
 import { fs } from '#lib/fs.ts';
 import { create_fs_paths } from '#lib/fs_paths.ts';
+import { to_fs_paths_options } from './fs_test_helpers.ts';
 
 import { create_mock_logger } from './test_helpers.ts';
 
-const fs_paths = create_fs_paths(fs);
+const fs_paths = create_fs_paths(fs, to_fs_paths_options());
 
 const rewrite_svelte = (content: string): string =>
 	rewrite_dist_file_imports('Comp.svelte', content);

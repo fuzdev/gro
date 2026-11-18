@@ -18,6 +18,8 @@ import type { Task } from './task.ts';
 import { TaskError } from './task_error.ts';
 import { fs } from './fs.ts';
 import { create_fs_paths, type FsPaths } from './fs_paths.ts';
+import { cwd } from './cwd.ts';
+import { env } from './env.ts';
 import { spawn } from './spawn.ts';
 
 /** @nodocs */
@@ -92,7 +94,7 @@ export const task: Task<Args> = {
 			throw new TaskError('Cannot call `gro upgrade` with both rest args and --only.');
 		}
 
-		const fs_paths = create_fs_paths(fs);
+		const fs_paths = create_fs_paths(fs, { cwd: cwd(), home: env.get('HOME') });
 
 		// TODO maybe a different task that pulls and does other things, like `gro ready`
 		if (pull && !dry) {

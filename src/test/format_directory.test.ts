@@ -16,11 +16,12 @@ import { format_directory, read_format_ignore } from '#lib/format_directory.ts';
 import { create_empty_gro_config } from '#lib/gro_config.ts';
 import { fs } from '#lib/fs.ts';
 import { create_fs_paths } from '#lib/fs_paths.ts';
+import { to_fs_paths_options } from './fs_test_helpers.ts';
 
 import { create_mock_logger } from './test_helpers.ts';
 
 // over the cwd, as `gro format` builds it, the tests' paths absolute in a temp dir
-const fs_paths = create_fs_paths(fs);
+const fs_paths = create_fs_paths(fs, to_fs_paths_options());
 
 let root: string;
 

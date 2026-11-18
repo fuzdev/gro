@@ -17,6 +17,8 @@ import { load_build_cache_dependencies } from './build_cache_dependencies.ts';
 import { fs } from './fs.ts';
 import { is_fs_error } from './fs_error.ts';
 import { create_fs_paths } from './fs_paths.ts';
+import { cwd } from './cwd.ts';
+import { env } from './env.ts';
 import {
 	GIT_LOCAL_PASS_ENV,
 	git_check_clean_workspace,
@@ -68,7 +70,7 @@ export const task: Task<Args> = {
 	run: async (ctx): Promise<void> => {
 		const { task_args, invoke_task, log, config } = ctx;
 		const { sync, gen, install, force_build, allow_dirty } = task_args;
-		const fs_paths = create_fs_paths(fs);
+		const fs_paths = create_fs_paths(fs, { cwd: cwd(), home: env.get('HOME') });
 		// only reads the local repo, so the named set is all it needs
 		const git = to_git_program(spawn, { pass_env: GIT_LOCAL_PASS_ENV });
 		const cache_deps = { fs_paths, log, git };

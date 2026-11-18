@@ -5,7 +5,7 @@ import { join } from 'node:path';
 
 import { fs, type FsDir, type FsReadDir } from '#lib/fs.ts';
 import { is_fs_error, type FsError, type FsErrorKind } from '#lib/fs_error.ts';
-import { create_fs_paths, type FsPaths } from '#lib/fs_paths.ts';
+import { create_fs_paths, type FsPaths, type FsPathsOptions } from '#lib/fs_paths.ts';
 
 /**
  * A real directory tree for fs tests: `root` is the handle's directory,
@@ -29,12 +29,21 @@ export const create_fs_sandbox = async (): Promise<FsSandbox> => {
 };
 
 /**
+ * What a root passes `create_fs_paths`, read from the process when called,
+ * so a test that changes directory protects the directory it's in.
+ */
+export const to_fs_paths_options = (): FsPathsOptions => ({
+	cwd: process.cwd(),
+	home: process.env.HOME
+});
+
+/**
  * A real `FsPaths` whose project is the directory at `project_path`, the rest of `fs` real,
  * so library code runs on a temp project with no `chdir`, its relative paths beneath it.
  * @param project_path - an absolute path to an existing directory
  */
 export const create_project_fs_paths = async (project_path: string): Promise<FsPaths> =>
-	create_fs_paths({ ...fs, project: await fs.open_dir(project_path) });
+	create_fs_paths({ ...fs, project: await fs.open_dir(project_path) }, to_fs_paths_options());
 
 /**
  * A real handle on a directory beneath the sandbox's root, the directory then removed,

@@ -104,6 +104,10 @@ export interface RenderSveltekitShimAppEnvVarsOptions extends Pick<
 	 * How the rendered module imports Gro's env host module, a file URL.
 	 */
 	env_module_specifier: string;
+	/**
+	 * How the rendered module imports Gro's cwd host module, a file URL.
+	 */
+	cwd_module_specifier: string;
 }
 
 /**
@@ -112,7 +116,8 @@ export interface RenderSveltekitShimAppEnvVarsOptions extends Pick<
  * so unlike SvelteKit's build, static vars aren't inlined - the module reads them
  * from the env files and ambient env, importing the declarations module and Gro's `env_files` module.
  * The rendered module is the composition root of that read: it imports the fs host module
- * and builds the `FsPaths` the env files are read through, and it imports the env host module
+ * and builds the `FsPaths` the env files are read through, with the cwd host module's
+ * working directory and the env host module's `HOME`, and it imports the env host module
  * for the ambient env, so `$app/env/*` shows its fs and env reach in its imports,
  * while the shim's rendering, in the loader's hooks, never loads a host module.
  */
@@ -123,6 +128,7 @@ export const render_sveltekit_shim_app_env_vars = ({
 	fs_module_specifier,
 	fs_paths_module_specifier,
 	env_module_specifier,
+	cwd_module_specifier,
 	dev,
 	env_dir
 }: RenderSveltekitShimAppEnvVarsOptions): string => {
@@ -145,11 +151,12 @@ import {
 import {fs as __gro_fs} from ${JSON.stringify(fs_module_specifier)};
 import {create_fs_paths as __gro_create_fs_paths} from ${JSON.stringify(fs_paths_module_specifier)};
 import {env as __gro_host_env} from ${JSON.stringify(env_module_specifier)};
+import {cwd as __gro_cwd} from ${JSON.stringify(cwd_module_specifier)};
 
 const __gro_env = __gro_resolve_env_vars(
 	__gro_variables,
 	${JSON.stringify(visibility)},
-	await __gro_load_env(__gro_create_fs_paths(__gro_fs), {
+	await __gro_load_env(__gro_create_fs_paths(__gro_fs, {cwd: __gro_cwd(), home: __gro_host_env.get('HOME')}), {
 		...${load_env_options},
 		ambient_env: __gro_host_env.get_all()
 	})

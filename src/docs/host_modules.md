@@ -873,7 +873,9 @@ Its digests are the Node module's, held to the official test vectors' inputs by 
   `@fuzdev/gro/fs.ts` is the specifier for every other package.
 - A path that arrives from outside, like a CLI arg, a config value, or one of Gro's well-known paths,
   becomes a handle at one boundary, an `FsPaths` (`@fuzdev/gro/fs_paths.ts`).
-  A composition root builds one from the root, `create_fs_paths(fs)`, and passes it down;
+  A composition root builds one from the root and passes it down,
+  `create_fs_paths(fs, {cwd: cwd(), home: env.get('HOME')})`, the working directory and `$HOME` read
+  through their host modules for the directories its removals refuse;
   it opens any path, so nothing builds one from a handle.
   It resolves a relative path against `fs.project`, follows the path's symlinks the way `fs.open_dir` does,
   the same inside and outside the project, then hands back `fs.project` for a real path beneath the project,
@@ -887,14 +889,13 @@ Its digests are the Node module's, held to the official test vectors' inputs by 
   genfiles, the default config, and the plugin modules like `gro_plugin_sveltekit_library`.
   The process modules follow the same rule: those roots and the CLI's bootstrap (`gro.ts`)
   import `env`, `args`, `exit`, the streams, and the observations, and library code takes what it needs as parameters,
-  a plain record, a `cwd` string, the CLI args, or a stream.
-  The one exception is `internal/fs_boundary.ts`, which imports `env` to read `HOME` once, when it loads,
-  for its protected-directory set, so `create_fs_paths` needs no parameter for a value no root chooses.
-  The CLI's entry passes its own to the config's loading and `invoke_task`,
+  a plain record, a `cwd` string, the CLI args, or a stream,
+  so `fs_paths.ts` reads nothing of the process and imports no host module.
+  The CLI's entry passes its own `FsPaths` to the config's loading and `invoke_task`,
   which carries it in its options to the tasks a task invokes, never on the task's context.
   The rendered `$app/env/public` and `$app/env/private` modules are roots too,
-  importing `fs` and `create_fs_paths` to read the `.env` files and `env` for the ambient env
-  when they run, so a module importing `$app/env/*` shows those reads in its import graph,
+  importing `fs` and `create_fs_paths` to read the `.env` files, and `env` and `cwd`
+  for the ambient env and the `FsPaths`' protected directories, when they run, so a module importing `$app/env/*` shows those reads in its import graph,
   while the loader that renders them never loads the host module on its hooks thread.
   Gro reads its own `package.json` through the module system (`package_json_load_for_gro`), with no fs grant.
   A function that reads files outside the directory it's named for takes an `FsPaths` rather than a handle,
@@ -1048,8 +1049,15 @@ These exist because the Node implementation resolves paths itself, in JS, before
 
 Gro's tooling, not the module, guards what it removes and writes:
 
-- Emptying or removing a path from outside refuses `/`, the project, `$HOME`, and an ancestor of either,
-  and an `FsPaths` over another project still refuses the working directory Gro loaded in and its ancestors.
+- Emptying or removing a path from outside refuses `/`, the project, `$HOME` as given and as its real path,
+  and an ancestor of either, and an `FsPaths` over another project still refuses the working directory
+  its root passed, the one Gro loaded in, and its ancestors.
+  The first removal or emptying reads `$HOME`'s real path through `fs.real_path`,
+  and a failure to read it, but for a missing `$HOME`, fails that removal and every later one
+  through that `FsPaths` before it acts.
+  So on `fgro`, building an `FsPaths` with `env.get('HOME')` takes `--allow-env=HOME`,
+  and a confined removal through it takes `--allow-read` on `$HOME`, or on its nearest existing ancestor
+  when it's missing: a `$HOME` outside every grant is refused, missing or not.
 - `gro clean` empties a symlinked `.gro/`'s target only when it holds the marker Gro writes
   into a `.gro/` it creates, and isn't inside a git work tree.
   It leaves a dangling link alone, with nothing to clean.
@@ -1260,6 +1268,9 @@ what can fail for a reason of the run's fails in what the module exports, as `cw
 - Pass `RESOLVE_NO_MAGICLINKS` explicitly, so a handle on `/proc` refuses its magic links (built).
 - Copy and remove a tree recursively beneath the handle's directory, each entry opened relative to its parent's
   (built for `remove`; designed for `copy`).
+- Refuse, in the remove ops themselves, to remove `$HOME` and the working directory, each resolved by the host
+  as the run starts, as the roots' rule already refuses the project's directory (designed). The read grant on `$HOME`
+  that `FsPaths`' guard takes on `fgro` goes only once its boundary stops resolving `$HOME` itself.
 - Check `write`'s data is a string or a `Uint8Array`, and mask its `mode` to `0o777`,
   refusing one that isn't an integer from `0` to `0o7777` with a `TypeError`, as the Node implementation does (built).
 - Read a link from its own descriptor, opened as a path only beneath the handle without following it,
@@ -1343,8 +1354,6 @@ These hold for the process modules' builtins on `fgro` ([on `fgro`](#the-process
   `get_all` holding only the granted names that are set.
 - Refuse a name holding a NUL byte, a `=`, or a lone surrogate before it reaches the OS.
 - Make the environment fixed at startup, with no way for a run to change it.
-- Own the read of `HOME` behind the protected directories of [Gro's guards](#gros-guards-on-its-own-destructive-paths),
-  so `create_fs_paths` grants no environment read to whatever imports it.
 - Give `exit` the runtime's own path, so the spawn children are killed from it, and validate the code there too.
   A script's exit code passes to the process verbatim, so `1` and `2` are shared with `fgro`'s own failures,
   but for a `0` in a run that was refused an `import()` or a host function's call by rule, which exits 1 ([run](run.md#errors-and-exit-codes)).

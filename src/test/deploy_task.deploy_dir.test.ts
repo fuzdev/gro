@@ -29,8 +29,8 @@ vi.mock('#lib/fs_paths.ts', async (import_original) => {
 	const actual = await import_original<typeof import('#lib/fs_paths.ts')>();
 	return {
 		...actual,
-		create_fs_paths: vi.fn((fs: Parameters<typeof actual.create_fs_paths>[0]) => {
-			const fs_paths = actual.create_fs_paths(fs);
+		create_fs_paths: vi.fn((...args: Parameters<typeof actual.create_fs_paths>) => {
+			const fs_paths = actual.create_fs_paths(...args);
 			return { ...fs_paths, open_path: vi.fn(fs_paths.open_path) };
 		})
 	};

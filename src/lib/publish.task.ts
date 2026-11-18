@@ -24,6 +24,7 @@ import { load_from_env } from './env_files.ts';
 import { CHANGESET_CLI, changeset_has_pending } from './changeset_helpers.ts';
 import { fs } from './fs.ts';
 import { create_fs_paths } from './fs_paths.ts';
+import { cwd } from './cwd.ts';
 import { spawn } from './spawn.ts';
 import { env } from './env.ts';
 import { stderr } from './stderr.ts';
@@ -104,7 +105,7 @@ export const task: Task<Args> = {
 			log.info(st('green', 'dry run!'));
 		}
 
-		const fs_paths = create_fs_paths(fs);
+		const fs_paths = create_fs_paths(fs, { cwd: cwd(), home: env.get('HOME') });
 
 		const package_json = await package_json_load(fs_paths);
 

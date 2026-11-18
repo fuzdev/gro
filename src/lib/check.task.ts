@@ -11,6 +11,7 @@ import { is_fs_error } from './fs_error.ts';
 import { package_json_sync } from './package_json.ts';
 import { fs } from './fs.ts';
 import { create_fs_paths, type FsPaths } from './fs_paths.ts';
+import { cwd } from './cwd.ts';
 import { GIT_LOCAL_PASS_ENV, git_check_clean_workspace } from './git.ts';
 import { spawn } from './spawn.ts';
 import { args } from './args.ts';
@@ -78,7 +79,7 @@ export const task: Task<Args> = {
 			install,
 			workspace
 		} = task_args;
-		const fs_paths = create_fs_paths(fs);
+		const fs_paths = create_fs_paths(fs, { cwd: cwd(), home: env.get('HOME') });
 
 		// When checking the workspace, which was added for CI, never sync.
 		// Setup like installing packages and `sveltekit-sync` should be done in the CI setup.
