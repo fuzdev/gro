@@ -26,11 +26,18 @@
 //!   status with its peak resident set size ([`Reaped`]), which std's `wait`
 //!   drops.
 //! - [`kill_process_group`] sends `SIGKILL` to a process group by its id,
-//!   for a watchdog that doesn't own the child another thread is reaping.
-//! - [`guard_group`] and [`kill_guarded_groups_on_signal`] kill the process
-//!   groups a process spawned when a terminal's interrupt, a hangup, or a
-//!   `SIGTERM` ends it, since a child in a group of its own doesn't get the
-//!   terminal's signals.
+//!   for a watchdog that doesn't own the child another thread is reaping,
+//!   and [`signal_process_group`] any signal.
+//! - [`GroupGuard`], [`TermForward`], and [`guard_children_on_signal`] kill
+//!   the process groups a process spawned when a terminal's interrupt, a
+//!   hangup, or a `SIGTERM` ends it, since a child in a group of its own
+//!   doesn't get the terminal's signals, and pass a `SIGTERM` on to the
+//!   children sharing its group, which a supervisor's `SIGTERM` of it alone
+//!   wouldn't reach.
+//! - [`cloexec_inherited_fds`] marks every descriptor above stderr
+//!   close-on-exec, so a child is handed none the process inherited.
+//! - [`raise_open_files_limit`] raises the soft limit on the process's open
+//!   descriptors to its hard one, as Node does as it starts.
 //! - [`exit_now`] ends the process by `_exit`, running none of its teardown.
 //! - [`may_execute`] asks whether the process may execute a file, by
 //!   `access`, as `execve` would judge it.
@@ -38,6 +45,13 @@
 //!   descriptor, each path resolved by one `openat2` with `RESOLVE_BENEATH`:
 //!   opening, `stat`, listing a directory, and making, removing, and
 //!   renaming an entry.
+//!
+//! With the `child` feature, which `gro_runtime` enables, so a crate without
+//! it builds no tokio, it also has `child`, which holds a child process by
+//! its pidfd: opening it, signaling through it, reading how the child ended
+//! with or without reaping it, and waiting for its exit on a tokio
+//! runtime's reactor; and sets `SIGCHLD` back to its default, so the kernel
+//! never reaps a child itself.
 //!
 //! With the `testing` feature, which only tests enable (`gro_cli`'s, from its
 //! dev-dependencies), it also has:
@@ -53,8 +67,11 @@ compile_error!("gro_sys is Linux-only: its system calls are Linux's");
 
 use std::ffi::OsString;
 use std::io;
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, Ordering};
 
 pub mod beneath;
+#[cfg(feature = "child")]
+pub mod child;
 
 /// Whether the process may execute the file at `path`, by `access(2)`.
 ///
@@ -148,6 +165,113 @@ pub fn close_inherited_fds() -> io::Result<()> {
         }
         result => result.map_err(|error| context("close_range failed", &error)),
     }
+}
+
+/// Marks every file descriptor above stderr (2) the process holds
+/// close-on-exec, so a program it starts is handed only stdin, stdout, and
+/// stderr.
+///
+/// At the start of `main`, those are the ones it inherited from its
+/// parent without close-on-exec, which would pass on to every child; what
+/// the process opens itself is close-on-exec already, as std opens
+/// everything. Unlike [`close_inherited_fds`], it closes nothing, so it
+/// has no precondition: a descriptor a value owns stays open under it, and
+/// only an exec drops it.
+///
+/// It marks them with one `close_range` call (`CLOSE_RANGE_CLOEXEC`); on a
+/// kernel without it (before 5.9, `ENOSYS`), without the flag (before 5.11,
+/// `EINVAL`), or under a seccomp filter that refuses it (`EPERM`), with
+/// `/proc/self/fd` listed and each listed descriptor marked in turn.
+///
+/// # Errors
+///
+/// Returns an error when `close_range` fails otherwise; on the fallback,
+/// when `/proc/self/fd` can't be listed or names something other than a
+/// descriptor, or when marking one fails other than for the listing's own
+/// handle, closed by then (`EBADF`), or one another thread closed between.
+pub fn cloexec_inherited_fds() -> io::Result<()> {
+    match cloexec_range_above_stderr() {
+        Err(error)
+            if matches!(
+                error.raw_os_error(),
+                Some(libc::ENOSYS | libc::EINVAL | libc::EPERM)
+            ) =>
+        {
+            cloexec_listed()
+        }
+        result => result.map_err(|error| context("close_range failed", &error)),
+    }
+}
+
+/// Marks the descriptors from [`FIRST_INHERITED`] up close-on-exec with one
+/// `close_range` call.
+#[expect(
+    unsafe_code,
+    reason = "std has no `close_range`, and a raw system call is `unsafe`"
+)]
+fn cloexec_range_above_stderr() -> io::Result<()> {
+    // SAFETY: `close_range` takes three integers and reads or writes none of
+    // this process's memory, and with `CLOSE_RANGE_CLOEXEC` it closes
+    // nothing, so no value's descriptor changes under it
+    let result = unsafe {
+        libc::syscall(
+            libc::SYS_close_range,
+            FIRST_INHERITED,
+            libc::c_uint::MAX,
+            libc::CLOSE_RANGE_CLOEXEC,
+        )
+    };
+    if result == 0 {
+        Ok(())
+    } else {
+        Err(io::Error::last_os_error())
+    }
+}
+
+/// Lists `/proc/self/fd`, then marks each descriptor listed above stderr
+/// close-on-exec: the fallback where the kernel's `close_range` can't. A
+/// descriptor closed since the listing (its own handle among them) is
+/// passed over.
+fn cloexec_listed() -> io::Result<()> {
+    let names = std::fs::read_dir("/proc/self/fd")
+        .and_then(|listing| {
+            listing
+                .map(|entry| entry.map(|entry| entry.file_name()))
+                .collect::<io::Result<Vec<_>>>()
+        })
+        .map_err(|error| context("failed to list /proc/self/fd", &error))?;
+    for fd in above_stderr(names)? {
+        match set_cloexec(fd) {
+            Err(error) if error.raw_os_error() != Some(libc::EBADF) => {
+                return Err(context(
+                    &format!("failed to mark descriptor {fd} close-on-exec"),
+                    &error,
+                ));
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+/// Sets `FD_CLOEXEC` on the descriptor `fd`, keeping its other flags.
+#[expect(
+    unsafe_code,
+    reason = "`fcntl` on a descriptor by its number is a libc call, which is `unsafe`"
+)]
+fn set_cloexec(fd: libc::c_int) -> io::Result<()> {
+    // SAFETY: `fcntl` with `F_GETFD` takes integers and reads or writes none
+    // of this process's memory
+    let flags = unsafe { libc::fcntl(fd, libc::F_GETFD) };
+    if flags < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: as above, `F_SETFD` changes only the descriptor's
+    // close-on-exec flag, never what it refers to
+    if unsafe { libc::fcntl(fd, libc::F_SETFD, flags | libc::FD_CLOEXEC) } < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
 }
 
 /// Clears the process's environment but the variables named in `kept`.
@@ -300,6 +424,57 @@ pub fn data_limit() -> io::Result<(u64, u64)> {
         return Err(io::Error::last_os_error());
     }
     Ok((current.rlim_cur, current.rlim_max))
+}
+
+/// Raises the soft limit on the process's open descriptors,
+/// `RLIMIT_NOFILE`, to its hard limit, and returns the soft limit then; a
+/// soft limit already at the hard one is left as it is.
+///
+/// Node raises it so as it starts, so a program that holds many children,
+/// each with its pipes, or many files open, isn't refused at a soft limit
+/// a shell set low (often 1024). A child started after inherits the raised
+/// limit, as Node's does. Raising a soft limit to the hard one takes no
+/// privilege, and Linux's hard limit is never unlimited for this resource.
+///
+/// It touches no memory of the process's and holds no lock, so it's safe on
+/// any thread.
+///
+/// # Errors
+///
+/// Returns the error of `getrlimit` or `setrlimit`, the limit unchanged.
+#[expect(
+    unsafe_code,
+    reason = "std has no `getrlimit` or `setrlimit`, and a libc call is `unsafe`"
+)]
+pub fn raise_open_files_limit() -> io::Result<u64> {
+    let mut current = libc::rlimit {
+        rlim_cur: 0,
+        rlim_max: 0,
+    };
+    // SAFETY: `getrlimit` writes only to the pointer, to a live local of the
+    // type it expects
+    if unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &raw mut current) } != 0 {
+        return Err(context(
+            "getrlimit(RLIMIT_NOFILE) failed",
+            &io::Error::last_os_error(),
+        ));
+    }
+    if current.rlim_cur >= current.rlim_max {
+        return Ok(current.rlim_cur);
+    }
+    let raised = libc::rlimit {
+        rlim_cur: current.rlim_max,
+        rlim_max: current.rlim_max,
+    };
+    // SAFETY: `setrlimit` reads only the pointer, to a live local of the
+    // type it expects, and changes no memory of the process's
+    if unsafe { libc::setrlimit(libc::RLIMIT_NOFILE, &raw const raised) } != 0 {
+        return Err(context(
+            "setrlimit(RLIMIT_NOFILE) failed",
+            &io::Error::last_os_error(),
+        ));
+    }
+    Ok(raised.rlim_cur)
 }
 
 /// Lowers the stack size of a thread started without a size of its own to
@@ -686,100 +861,355 @@ pub fn wait_child(child: std::process::Child) -> io::Result<Reaped> {
 }
 
 /// Sends `SIGKILL` to every process of the group `pgid`, by `kill` with the
-/// id negated.
+/// id negated ([`signal_process_group`]).
 ///
 /// That is a child spawned as the leader of its own group
 /// (`CommandExt::process_group(0)`) and what it spawned, which, holding the
 /// leader's pipes, would otherwise keep a reader of them waiting. For a
 /// watchdog that ends a child another thread is reaping with [`wait_child`],
-/// which owns the child, so std's `Child::kill` can't reach it. The id names
-/// the group only while its leader isn't reaped: a caller kills only a group
-/// it knows isn't reaped yet, as far as it can know, since the id is free for
-/// reuse once it is.
+/// which owns the child, so std's `Child::kill` can't reach it.
+///
+/// # Errors
+///
+/// As [`signal_process_group`]'s.
+pub fn kill_process_group(pgid: u32) -> io::Result<()> {
+    signal_process_group(pgid, libc::SIGKILL)
+}
+
+/// Sends `signal` to every process of the group `pgid`, by `kill` with the
+/// id negated.
+///
+/// The id names the group only while its leader isn't reaped: a caller
+/// signals only a group it knows isn't reaped yet, as far as it can know,
+/// since the id is free for reuse once it is. A leader held by its pidfd
+/// and read without reaping (`child::Pidfd::ended`) is known.
 ///
 /// # Errors
 ///
 /// Returns the call's error: `ESRCH` when no process is in the group,
-/// `EPERM` when none may be signaled, or `EINVAL` for an id past `pid_t` or
-/// not above 1.
-pub fn kill_process_group(pgid: u32) -> io::Result<()> {
+/// `EPERM` when none may be signaled, or `EINVAL` for an invalid signal, or
+/// an id past `pid_t` or not above 1.
+pub fn signal_process_group(pgid: u32, signal: libc::c_int) -> io::Result<()> {
     // group 1 would be `kill(-1)`, every process the caller may signal
     if pgid <= 1 {
         return Err(io::Error::from_raw_os_error(libc::EINVAL));
     }
-    kill(-positive_pid(pgid)?)
+    send(-positive_pid(pgid)?, signal)
 }
 
-/// The most process groups [`guard_group`] guards at once.
-pub const GUARDED_GROUPS: usize = 64;
+/// The most process groups [`GroupGuard`]s guard at once.
+pub const GUARDED_GROUPS: usize = 1024;
 
-/// The signals [`kill_guarded_groups_on_signal`] handles: the ones that end
-/// a process from a terminal (an interrupt, a hangup) or from a supervisor.
+/// The most children [`TermForward`]s name at once.
+pub const FORWARDED_CHILDREN: usize = 1024;
+
+/// The signals [`guard_children_on_signal`] handles: the ones that end a
+/// process from a terminal (an interrupt, a hangup) or from a supervisor.
 const GUARDING_SIGNALS: [libc::c_int; 3] = [libc::SIGINT, libc::SIGTERM, libc::SIGHUP];
+
+/// What a slot reserved and not armed yet holds, which the handler waits
+/// on and never signals: neither it nor a free slot's 0 is above 1.
+const RESERVED: libc::pid_t = -1;
+
+/// How long the handler waits for the slots reserved as it began to be
+/// armed or freed, in nanoseconds: a launch arms its slot within
+/// microseconds of its child's start, so the bound only ends a wait for a
+/// thread that never resumes.
+const ARMING_WAIT_NS: u64 = 1_000_000_000;
+
+/// How long the handler sleeps between its looks at the slots reserved,
+/// in nanoseconds.
+const ARMING_POLL_NS: libc::c_long = 100_000;
 
 /// The groups guarded, a slot each, 0 when free; lock-free, so the signal
 /// handler reads them.
-static GUARDED: [std::sync::atomic::AtomicI32; GUARDED_GROUPS] =
-    [const { std::sync::atomic::AtomicI32::new(0) }; GUARDED_GROUPS];
+static GUARDED: [AtomicI32; GUARDED_GROUPS] = [const { AtomicI32::new(0) }; GUARDED_GROUPS];
 
-/// A process group [`kill_guarded_groups_on_signal`]'s handler kills, until
-/// dropped.
-#[derive(Debug)]
-#[must_use = "the group is guarded only until the guard drops"]
-pub struct GroupGuard {
-    slot: usize,
+/// The children a `SIGTERM` passes on to, a slot each, 0 when free;
+/// lock-free, so the signal handler reads them.
+static FORWARDED: [AtomicI32; FORWARDED_CHILDREN] =
+    [const { AtomicI32::new(0) }; FORWARDED_CHILDREN];
+
+/// Set by the handler as it begins, before it reads a slot, and never
+/// cleared, since the handler ends the process: from then no slot is
+/// reserved, and an id a slot frees isn't safe to free.
+static ENDING: AtomicBool = AtomicBool::new(false);
+
+thread_local! {
+    /// How many slots this thread holds reserved and not armed: the
+    /// handler, run on a thread that holds one, can't wait for it.
+    static RESERVING: AtomicU32 = const { AtomicU32::new(0) };
 }
 
-impl Drop for GroupGuard {
-    fn drop(&mut self) {
-        GUARDED[self.slot].store(0, std::sync::atomic::Ordering::SeqCst);
+/// Why no slot of the handler's tables was reserved.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Unreserved {
+    /// Every slot is taken.
+    Full,
+    /// A signal the handler guards against is ending the process.
+    Ending,
+}
+
+/// A slot of one of the tables the handler reads, freed when dropped.
+#[derive(Debug)]
+struct Slot {
+    /// The table.
+    table: &'static [AtomicI32],
+    /// Its place in the table.
+    at: usize,
+}
+
+impl Slot {
+    /// Stores `id`, checked above 1.
+    fn store(&self, id: libc::pid_t) {
+        debug_assert!(id > 1, "{id}");
+        self.table[self.at].store(id, Ordering::SeqCst);
+    }
+
+    /// Frees the slot, returning whether the id it held is safe to free:
+    /// `false` once the handler has begun, since it may have read the id
+    /// and not signaled it yet, so the caller keeps the process holding
+    /// the id unreaped until the process ends.
+    fn release(self) -> bool {
+        drop(self);
+        // the handler sets `ENDING` before it reads a slot: either it reads
+        // this one freed, or this reads the flag set
+        !ENDING.load(Ordering::SeqCst)
     }
 }
 
-/// Guards the process group `pgid`, so a signal ending this process kills
-/// the group first.
+impl Drop for Slot {
+    fn drop(&mut self) {
+        self.table[self.at].store(0, Ordering::SeqCst);
+    }
+}
+
+/// A slot reserved, on the thread that reserved it and no other, and not
+/// armed yet, counted in that thread's [`RESERVING`] while it lives; its
+/// slot is freed, then the count lowered, if it's dropped unarmed.
+#[derive(Debug)]
+struct Reservation {
+    /// The slot, holding [`RESERVED`]; dropped before `counted`.
+    slot: Slot,
+    /// Its place in the thread's count.
+    counted: Counted,
+}
+
+/// One slot reserved in the calling thread's [`RESERVING`], until dropped;
+/// neither `Send` nor `Sync`, so it's dropped on the thread it counts in.
+#[derive(Debug)]
+struct Counted(std::marker::PhantomData<*const ()>);
+
+impl Counted {
+    /// Raises the calling thread's count.
+    fn new() -> Self {
+        RESERVING.with(|count| count.fetch_add(1, Ordering::SeqCst));
+        Self(std::marker::PhantomData)
+    }
+}
+
+impl Drop for Counted {
+    fn drop(&mut self) {
+        RESERVING.with(|count| count.fetch_sub(1, Ordering::SeqCst));
+    }
+}
+
+impl Reservation {
+    /// The first free slot of `table`, reserved by a compare-and-swap, no
+    /// lock or system call.
+    ///
+    /// The thread's count is raised before the slot is taken, and the
+    /// flag read after: either the handler reads the slot reserved, and
+    /// waits for its arming, or this reads the flag set and backs out, so
+    /// no child is started once the handler has begun.
+    fn new(table: &'static [AtomicI32]) -> Result<Self, Unreserved> {
+        let counted = Counted::new();
+        let at = table
+            .iter()
+            .position(|slot| {
+                slot.compare_exchange(0, RESERVED, Ordering::SeqCst, Ordering::SeqCst)
+                    .is_ok()
+            })
+            .ok_or(Unreserved::Full)?;
+        let reservation = Self {
+            slot: Slot { table, at },
+            counted,
+        };
+        if ENDING.load(Ordering::SeqCst) {
+            return Err(Unreserved::Ending);
+        }
+        Ok(reservation)
+    }
+
+    /// The slot, holding `id`, a process's or a group's, or `EINVAL` for
+    /// an id past `pid_t` or not above 1, the slot freed.
+    fn arm(self, id: u32) -> io::Result<Slot> {
+        let Self { slot, counted } = self;
+        let Some(id) = positive_pid(id).ok().filter(|id| *id > 1) else {
+            // freed before the count falls, as a reservation's drop is
+            drop(slot);
+            drop(counted);
+            return Err(io::Error::from_raw_os_error(libc::EINVAL));
+        };
+        slot.store(id);
+        // armed before the count falls, so a handler on this thread never
+        // reads the count fallen and the slot still reserved
+        drop(counted);
+        Ok(slot)
+    }
+}
+
+/// A process group [`guard_children_on_signal`]'s handler kills, until
+/// released.
 ///
 /// The group is a child spawned as the leader of its own
 /// (`CommandExt::process_group(0)`), and the kill happens once
-/// [`kill_guarded_groups_on_signal`] is installed. A child in a group of its
-/// own isn't in the terminal's foreground group, so the terminal's interrupt
-/// never reaches it, and it would outlive its parent. The caller drops the
-/// guard once it reaps the child, since the id is free for reuse after; a
-/// signal in the moment between the two kills the group by an id the kernel
-/// hands out again only after wrapping around every id, as
-/// [`kill_process_group`] does. A signal between the spawn and the guard misses
-/// the group.
+/// [`guard_children_on_signal`] is installed. A child in a group of its own
+/// isn't in the terminal's foreground group, so the terminal's interrupt
+/// never reaches it, and it would outlive its parent.
 ///
-/// Arming is a compare-and-swap on the first free slot, no lock or system
-/// call, cheap enough for a timed span.
+/// A guard is reserved before the child is spawned ([`GroupGuard::reserve`]),
+/// so a process that guards as many groups as it may refuses a spawn rather
+/// than run a child unguarded, and armed with the group's id once it's
+/// spawned ([`GroupReservation::arm`]). A signal that arrives between the two
+/// waits for the arming, so the group is killed, and once the handler has
+/// begun no reservation is made. Reserving and arming are each a
+/// compare-and-swap or a store, no lock or system call, cheap enough for a
+/// timed span.
 ///
-/// Returns `None`, guarding nothing, when [`GUARDED_GROUPS`] are guarded
-/// already, or for an id past `pid_t` or not above 1.
-pub fn guard_group(pgid: u32) -> Option<GroupGuard> {
-    use std::sync::atomic::Ordering;
+/// The caller releases the guard before it reaps the child
+/// ([`GroupGuard::release`]), since the id is free for reuse after, and
+/// reaps it only when the release says it may.
+#[derive(Debug)]
+#[must_use = "the group is guarded only until the guard is released"]
+pub struct GroupGuard(Slot);
 
-    let pgid = positive_pid(pgid).ok().filter(|pgid| *pgid > 1)?;
-    GUARDED
-        .iter()
-        .position(|slot| {
-            slot.compare_exchange(0, pgid, Ordering::SeqCst, Ordering::SeqCst)
-                .is_ok()
-        })
-        .map(|slot| GroupGuard { slot })
+/// A [`GroupGuard`] reserved and not armed yet, guarding nothing: armed
+/// ([`GroupReservation::arm`]) or dropped on the thread that reserved it.
+#[derive(Debug)]
+#[must_use = "a reservation guards nothing until it's armed"]
+pub struct GroupReservation(Reservation);
+
+impl GroupGuard {
+    /// A guard reserved, guarding nothing until it's armed.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Unreserved::Full`] when [`GUARDED_GROUPS`] are reserved
+    /// already, and [`Unreserved::Ending`] once the handler has begun.
+    pub fn reserve() -> Result<GroupReservation, Unreserved> {
+        Reservation::new(&GUARDED).map(GroupReservation)
+    }
+
+    /// Stops guarding the group, returning whether its id may be freed
+    /// now, its leader reaped: `false` once the handler has begun, which
+    /// may have read the id and not killed the group yet, so the caller
+    /// leaves the leader unreaped, holding the id, for the process's end.
+    pub fn release(self) -> bool {
+        self.0.release()
+    }
+}
+
+impl GroupReservation {
+    /// The guard of the group `pgid`.
+    ///
+    /// # Errors
+    ///
+    /// Returns `EINVAL`, the reservation freed, for an id past `pid_t` or
+    /// not above 1.
+    pub fn arm(self, pgid: u32) -> io::Result<GroupGuard> {
+        self.0.arm(pgid).map(GroupGuard)
+    }
+}
+
+/// Guards the process group `pgid` ([`GroupGuard`]), reserving and arming
+/// at once, for a caller that spawned the group already.
+///
+/// Returns `None`, guarding nothing, when no guard can be reserved, or for
+/// an id past `pid_t` or not above 1.
+pub fn guard_group(pgid: u32) -> Option<GroupGuard> {
+    GroupGuard::reserve().ok()?.arm(pgid).ok()
+}
+
+/// A child process [`guard_children_on_signal`]'s handler passes a
+/// `SIGTERM` on to, until released.
+///
+/// That is a child sharing this process's group,
+/// which a terminal's signals reach, but a supervisor's `SIGTERM` of this
+/// process alone doesn't. Reserved and armed as a [`GroupGuard`] is, and
+/// released before the child is reaped, which only a release that says it
+/// may allows, since its pid is free for reuse after.
+#[derive(Debug)]
+#[must_use = "the child is named only until the slot is released"]
+pub struct TermForward(Slot);
+
+/// A [`TermForward`] reserved and not armed yet, naming nothing: armed
+/// ([`ForwardReservation::arm`]) or dropped on the thread that reserved it.
+#[derive(Debug)]
+#[must_use = "a reservation names nothing until it's armed"]
+pub struct ForwardReservation(Reservation);
+
+impl TermForward {
+    /// A slot reserved, naming nothing until it's armed.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Unreserved::Full`] when [`FORWARDED_CHILDREN`] are
+    /// reserved already, and [`Unreserved::Ending`] once the handler has
+    /// begun.
+    pub fn reserve() -> Result<ForwardReservation, Unreserved> {
+        Reservation::new(&FORWARDED).map(ForwardReservation)
+    }
+
+    /// Stops naming the child, returning whether its pid may be freed now,
+    /// as [`GroupGuard::release`] does for a group.
+    pub fn release(self) -> bool {
+        self.0.release()
+    }
+}
+
+impl ForwardReservation {
+    /// The slot naming the child `pid`.
+    ///
+    /// # Errors
+    ///
+    /// Returns `EINVAL`, the reservation freed, for an id past `pid_t` or
+    /// not above 1.
+    pub fn arm(self, pid: u32) -> io::Result<TermForward> {
+        self.0.arm(pid).map(TermForward)
+    }
 }
 
 /// Installs a handler for `SIGINT`, `SIGTERM`, and `SIGHUP` that kills
-/// every group [`guard_group`] guards.
+/// every group a [`GroupGuard`] guards and, for a `SIGTERM`, sends it on
+/// to every child a [`TermForward`] names.
 ///
-/// The handler sends each `SIGKILL`, then ends the process by the signal's
-/// default action, so its parent sees it killed by that signal.
-/// The handler is async-signal-safe: it reads the guarded ids from a fixed
-/// array of atomics, calls `kill` for each, and raises the signal again,
-/// which the kernel delivers once the handler returns, its disposition reset
-/// to the default as the handler started (`SA_RESETHAND`). A signal the
-/// process ignores (`SIG_IGN`, as `nohup` leaves `SIGHUP`) stays ignored, and
-/// installing again is harmless. A `SIGKILL` of this process still orphans
-/// the groups.
+/// Then the handler ends the process by the signal's default action, so
+/// its parent sees it killed by that signal.
+///
+/// As it begins, the handler sets a flag no reservation is made past, then
+/// waits, bounded, for every slot reserved before to be armed or freed, so
+/// a child started between its reservation and its arming is killed too;
+/// it sends each group `SIGKILL` and each named child `SIGTERM`, sets the
+/// signal's default action back, and raises the signal again, which the
+/// kernel delivers once the handler returns. Each of the three signals is
+/// blocked while the handler runs, so a second one, of the same number or
+/// another, waits for it rather than end the process mid-scan; one a
+/// thread of the process handles meanwhile does all of it again.
+///
+/// The handler run on a thread that holds a slot reserved and not armed,
+/// which can't arm it while the handler waits, sends the signal on to the
+/// process's main thread (`tgkill`) and returns, so the thread arms its
+/// slot and the main thread's handler waits for it. That needs the main
+/// thread live, not blocking the three signals, and not itself holding a
+/// reservation: where it's the thread that holds one, its handler doesn't
+/// wait, and the child that slot is for, if started, isn't killed.
+///
+/// The handler is async-signal-safe: it reads the ids from fixed arrays of
+/// atomics, and its calls are `kill`, `tgkill`, `nanosleep`,
+/// `clock_gettime`, `sigaction`, and `raise`. A signal the process ignores
+/// (`SIG_IGN`, as `nohup` leaves `SIGHUP`) stays ignored, and installing
+/// again is harmless. A `SIGKILL` of this process still orphans the groups.
 ///
 /// # Errors
 ///
@@ -788,7 +1218,7 @@ pub fn guard_group(pgid: u32) -> Option<GroupGuard> {
     unsafe_code,
     reason = "std installs no signal handler, and a libc call is `unsafe`"
 )]
-pub fn kill_guarded_groups_on_signal() -> io::Result<()> {
+pub fn guard_children_on_signal() -> io::Result<()> {
     let handler: extern "C" fn(libc::c_int) = on_guarding_signal;
     for signal in GUARDING_SIGNALS {
         // SAFETY: an all-zero `sigaction` is a valid value of the struct of
@@ -805,9 +1235,17 @@ pub fn kill_guarded_groups_on_signal() -> io::Result<()> {
         // SAFETY: as above
         let mut action: libc::sigaction = unsafe { std::mem::zeroed() };
         action.sa_sigaction = handler as libc::sighandler_t;
-        action.sa_flags = libc::SA_RESETHAND | libc::SA_RESTART;
-        // SAFETY: `sigemptyset` writes only the live local's signal set
-        unsafe { libc::sigemptyset(&raw mut action.sa_mask) };
+        // no `SA_RESETHAND`: a second signal during the scan waits for it,
+        // and the handler sets the default back itself before it raises
+        action.sa_flags = libc::SA_RESTART;
+        // SAFETY: `sigemptyset` and `sigaddset` write only the live local's
+        // signal set, each signal valid
+        unsafe {
+            libc::sigemptyset(&raw mut action.sa_mask);
+            for blocked in GUARDING_SIGNALS {
+                libc::sigaddset(&raw mut action.sa_mask, blocked);
+            }
+        }
         // SAFETY: the action points at `on_guarding_signal`, an
         // `extern "C" fn(c_int)` that lives as long as the process and is
         // async-signal-safe; the old action isn't asked for
@@ -818,50 +1256,148 @@ pub fn kill_guarded_groups_on_signal() -> io::Result<()> {
     Ok(())
 }
 
-/// [`kill_guarded_groups_on_signal`]'s handler: kills each guarded group,
-/// then raises `signal` again, whose default action, reset as the handler
-/// started, ends the process when the handler returns.
+/// [`guard_children_on_signal`]'s handler: sets [`ENDING`], hands the
+/// signal on to the main thread from a thread mid-launch, else waits for
+/// the slots reserved, kills each guarded group, sends a `SIGTERM` on to
+/// each named child, sets the signal's default back, and raises it again,
+/// which ends the process when the handler returns.
 #[expect(
     unsafe_code,
     reason = "a signal handler calls libc's async-signal-safe calls, which are `unsafe`"
 )]
 extern "C" fn on_guarding_signal(signal: libc::c_int) {
+    ENDING.store(true, Ordering::SeqCst);
+    // a const-initialized thread local with no destructor, read without
+    // any lazy step, so reading it here is safe
+    let reserving = RESERVING
+        .try_with(|count| count.load(Ordering::SeqCst) > 0)
+        .unwrap_or(false);
+    if reserving {
+        if hand_off_to_main_thread(signal) {
+            return;
+        }
+    } else {
+        await_arming();
+    }
     for slot in &GUARDED {
-        let pgid = slot.load(std::sync::atomic::Ordering::SeqCst);
-        // a slot holds 0 or a group above 1, never a caller's group or every
-        // process
+        let pgid = slot.load(Ordering::SeqCst);
+        // a slot holds 0, `RESERVED`, or a group above 1, never a caller's
+        // group or every process
         if pgid > 1 {
             // SAFETY: `kill` is async-signal-safe and takes two integers,
             // touching none of this process's memory
             unsafe { libc::kill(-pgid, libc::SIGKILL) };
         }
     }
+    if signal == libc::SIGTERM {
+        for slot in &FORWARDED {
+            let pid = slot.load(Ordering::SeqCst);
+            // as above: a process above 1, never a group or every process
+            if pid > 1 {
+                // SAFETY: as above
+                unsafe { libc::kill(pid, libc::SIGTERM) };
+            }
+        }
+    }
+    // SAFETY: an all-zero `sigaction` is a valid value of the struct of
+    // integers and a signal set, and its handler is `SIG_DFL`, 0
+    let mut action: libc::sigaction = unsafe { std::mem::zeroed() };
+    action.sa_sigaction = libc::SIG_DFL;
+    // SAFETY: `sigaction` is async-signal-safe and reads only the live
+    // local; the old action isn't asked for
+    unsafe { libc::sigaction(signal, &raw const action, std::ptr::null_mut()) };
     // SAFETY: `raise` is async-signal-safe and takes an integer; the signal
     // stays blocked until the handler returns, then ends the process
     unsafe { libc::raise(signal) };
 }
 
+/// Sends `signal` to the process's main thread, by `tgkill`, for the
+/// handler on another thread mid-launch; `false` when this is the main
+/// thread, or the call failed, so the handler goes on here.
+#[expect(
+    unsafe_code,
+    reason = "std has no `gettid` or `tgkill`, and libc's calls are `unsafe`"
+)]
+fn hand_off_to_main_thread(signal: libc::c_int) -> bool {
+    // SAFETY: `getpid` and `gettid` are async-signal-safe and take nothing
+    let (pid, tid) = unsafe { (libc::getpid(), libc::syscall(libc::SYS_gettid)) };
+    if tid == libc::c_long::from(pid) {
+        return false;
+    }
+    // SAFETY: `tgkill` is async-signal-safe and takes three integers,
+    // touching none of this process's memory; the main thread's handler
+    // then runs, this one's signal blocked there until it returns
+    unsafe { libc::syscall(libc::SYS_tgkill, pid, pid, signal) == 0 }
+}
+
+/// Waits, at most [`ARMING_WAIT_NS`], for no slot of either table to be
+/// reserved and not armed: each such one is a launch on another thread
+/// between its reservation and its arming, which goes on while the handler
+/// waits, and no slot is reserved from now.
+#[expect(unsafe_code, reason = "`nanosleep` is a libc call, which is `unsafe`")]
+fn await_arming() {
+    let Some(deadline) = monotonic_ns().map(|now| now.saturating_add(ARMING_WAIT_NS)) else {
+        return;
+    };
+    let reserved = || {
+        GUARDED
+            .iter()
+            .chain(&FORWARDED)
+            .any(|slot| slot.load(Ordering::SeqCst) == RESERVED)
+    };
+    while reserved() && monotonic_ns().is_some_and(|now| now < deadline) {
+        let pause = libc::timespec {
+            tv_sec: 0,
+            tv_nsec: ARMING_POLL_NS,
+        };
+        // SAFETY: `nanosleep` is async-signal-safe and reads only the live
+        // local; the time left isn't asked for
+        unsafe { libc::nanosleep(&raw const pause, std::ptr::null_mut()) };
+    }
+}
+
+/// `CLOCK_MONOTONIC`'s time in nanoseconds, `None` should the call fail;
+/// async-signal-safe.
+#[expect(
+    unsafe_code,
+    reason = "std's clock isn't async-signal-safe, and a libc call is `unsafe`"
+)]
+fn monotonic_ns() -> Option<u64> {
+    let mut now = libc::timespec {
+        tv_sec: 0,
+        tv_nsec: 0,
+    };
+    // SAFETY: `clock_gettime` is async-signal-safe and writes only the live
+    // local, of the type it expects
+    if unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &raw mut now) } != 0 {
+        return None;
+    }
+    let seconds = u64::try_from(now.tv_sec).ok()?;
+    let nanos = u64::try_from(now.tv_nsec).ok()?;
+    Some(seconds.saturating_mul(1_000_000_000).saturating_add(nanos))
+}
+
 /// `id` as a `pid_t` above 0, or `EINVAL`.
-fn positive_pid(id: u32) -> io::Result<libc::pid_t> {
+pub(crate) fn positive_pid(id: u32) -> io::Result<libc::pid_t> {
     libc::pid_t::try_from(id)
         .ok()
         .filter(|pid| *pid > 0)
         .ok_or_else(|| io::Error::from_raw_os_error(libc::EINVAL))
 }
 
-/// `kill(target, SIGKILL)`, for a `target` that is a process (above 0) or a
+/// `kill(target, signal)`, for a `target` that is a process (above 0) or a
 /// group (below -1), never 0 or -1, which name the caller's group or every
 /// process.
 #[expect(
     unsafe_code,
     reason = "std kills only a child it owns, and a libc call is `unsafe`"
 )]
-fn kill(target: libc::pid_t) -> io::Result<()> {
+fn send(target: libc::pid_t, signal: libc::c_int) -> io::Result<()> {
     debug_assert!(!matches!(target, 0 | -1), "{target}");
     // SAFETY: `kill` takes two integers and reads or writes none of this
     // process's memory; the callers pass one process or one group, never 0
     // or -1
-    let result = unsafe { libc::kill(target, libc::SIGKILL) };
+    let result = unsafe { libc::kill(target, signal) };
     if result == 0 {
         Ok(())
     } else {
@@ -1021,6 +1557,54 @@ fn context(what: &str, error: &io::Error) -> io::Error {
 #[cfg(test)]
 mod tests {
     use std::ffi::OsString;
+
+    /// Each table's slots are reserved until it's full, then none is,
+    /// until one is freed; a slot reserved and not armed holds what the
+    /// handler waits on, counted in the thread's reservations until it's
+    /// armed or dropped, and an id not above 1 isn't armed, its slot freed.
+    /// No other test of this binary reserves a slot, so the counts are the
+    /// tables'.
+    #[test]
+    fn a_full_table_reserves_nothing_until_a_slot_is_freed() {
+        use super::{
+            FORWARDED, FORWARDED_CHILDREN, GUARDED, GUARDED_GROUPS, GroupGuard, RESERVED,
+            RESERVING, TermForward, Unreserved,
+        };
+        use std::sync::atomic::Ordering;
+
+        let reserving = || RESERVING.with(|count| count.load(Ordering::SeqCst));
+        let mut groups: Vec<_> = std::iter::from_fn(|| GroupGuard::reserve().ok()).collect();
+        assert_eq!(groups.len(), GUARDED_GROUPS);
+        assert_eq!(reserving(), u32::try_from(GUARDED_GROUPS).unwrap());
+        assert!(
+            GUARDED
+                .iter()
+                .all(|slot| slot.load(Ordering::SeqCst) == RESERVED)
+        );
+        assert_eq!(GroupGuard::reserve().unwrap_err(), Unreserved::Full);
+        assert!(groups.swap_remove(0).arm(1).is_err());
+        assert_eq!(GUARDED[0].load(Ordering::SeqCst), 0);
+        let guard = GroupGuard::reserve().unwrap().arm(4242).unwrap();
+        assert_eq!(GUARDED[0].load(Ordering::SeqCst), 4242);
+        assert_eq!(reserving(), u32::try_from(GUARDED_GROUPS - 1).unwrap());
+        assert_eq!(GroupGuard::reserve().unwrap_err(), Unreserved::Full);
+        assert!(guard.release());
+        assert_eq!(GUARDED[0].load(Ordering::SeqCst), 0);
+        drop(groups);
+        assert_eq!(reserving(), 0);
+        assert!(GUARDED.iter().all(|slot| slot.load(Ordering::SeqCst) == 0));
+
+        let named: Vec<_> = std::iter::from_fn(|| TermForward::reserve().ok()).collect();
+        assert_eq!(named.len(), FORWARDED_CHILDREN);
+        assert_eq!(TermForward::reserve().unwrap_err(), Unreserved::Full);
+        drop(named);
+        assert_eq!(reserving(), 0);
+        assert!(
+            FORWARDED
+                .iter()
+                .all(|slot| slot.load(Ordering::SeqCst) == 0)
+        );
+    }
 
     /// A thread's stack start lies above every frame of the thread and no
     /// further above the first than the thread's stack holds, and a second

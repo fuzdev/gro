@@ -1,6 +1,7 @@
-//! `close_inherited_fds` from inside a child process: each case runs this
-//! binary again, the child, which reports what it then holds; the parent reads
-//! its output. Closing descriptors by number is only sound in a process where
+//! `close_inherited_fds` and `cloexec_inherited_fds` from inside a child
+//! process: each case runs this binary again, the child, which reports what
+//! it then holds, and what a program it starts holds; the parent reads its
+//! output. Closing descriptors by number is only sound in a process where
 //! nothing owns them, so it never happens in this one, nor under libtest's
 //! harness, whose threads and handles would be closed under it.
 //!
@@ -30,6 +31,10 @@ fn parent() {
         (
             "closes",
             "before: inherited, own\nclosed: ok\nafter: none, none\nabove stderr: 1\n",
+        ),
+        (
+            "cloexec",
+            "before: inherited, own\nmarked: ok\nafter: inherited, own\nits child holds: none\n",
         ),
         (
             "threads",
@@ -96,6 +101,29 @@ fn child(case: &str) {
                 })
                 .count();
             println!("above stderr: {above}");
+        }
+        "cloexec" => {
+            gro_sys::cloexec_inherited_fds().unwrap();
+            println!("marked: ok");
+            println!("after: {}", holds(own));
+            // what a program started now holds above stderr, its own
+            // shell's descriptors aside, which it opens past the ones tried
+            let output = Command::new("sh")
+                .args([
+                    "-c",
+                    &format!(
+                        "for fd in 3 4 5 6 {INHERITED} {own}; do \
+                         [ -e /proc/self/fd/$fd ] && printf '%s ' $fd; done; true"
+                    ),
+                ])
+                .output()
+                .unwrap();
+            let held = String::from_utf8(output.stdout).unwrap();
+            let held = held.trim();
+            println!(
+                "its child holds: {}",
+                if held.is_empty() { "none" } else { held }
+            );
         }
         "threads" => {
             let (stop, wait) = std::sync::mpsc::channel::<()>();

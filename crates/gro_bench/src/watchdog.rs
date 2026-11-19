@@ -25,7 +25,7 @@
 //! watchdog also guards each group it watches
 //! (`gro_sys::guard_group`), and [`Watchdog::start`] installs the handler
 //! that kills every guarded group when a Ctrl-C, a hangup, or a `SIGTERM`
-//! ends the run (`gro_sys::kill_guarded_groups_on_signal`), the run then
+//! ends the run (`gro_sys::guard_children_on_signal`), the run then
 //! ending by that signal. A signal in the moment between a spawn and its
 //! guard misses that group, and a `SIGKILL` of the run orphans them all.
 //!
@@ -111,7 +111,7 @@ impl Watchdog {
     ///
     /// Fails when the handler can't be installed or the thread can't start.
     pub fn start(timeout: Duration) -> io::Result<Self> {
-        gro_sys::kill_guarded_groups_on_signal()?;
+        gro_sys::guard_children_on_signal()?;
         let shared = Arc::new(Shared {
             state: Mutex::new(State {
                 next: 0,

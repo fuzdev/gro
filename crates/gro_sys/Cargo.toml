@@ -9,8 +9,14 @@ description = "gro's raw system calls, behind a safe API"
 
 [dependencies]
 libc.workspace = true
+# `child`'s wait for a child's exit, on the reactor of the runtime that
+# drives it
+tokio = { workspace = true, optional = true }
 
 [features]
+# `child`: a child process held by its pidfd and waited on by tokio's
+# reactor, which `gro_runtime` enables, so a crate without it builds no tokio
+child = ["dep:tokio"]
 # `signal_thread`, `map_anonymous`, and `protect_anonymous`, for tests of the
 # box from inside it; only tests enable it
 testing = []
@@ -32,6 +38,13 @@ harness = false
 [[test]]
 name = "data"
 harness = false
+
+# a child process that starts with `SIGCHLD` ignored and sets it back, which
+# would change how libtest's harness reaps its own children
+[[test]]
+name = "child"
+harness = false
+required-features = ["child"]
 
 # a child process killed by a signal its handler catches, which would end
 # libtest's harness and every other test in it

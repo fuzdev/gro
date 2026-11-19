@@ -1,6 +1,8 @@
-//! `limit_data` and `set_default_thread_stack` from inside a child process:
-//! each case runs this binary again, the child, which caps its own data
-//! segment, or lowers its default thread stack, and reports what it then has.
+//! `limit_data`, `set_default_thread_stack`, and `raise_open_files_limit`
+//! from inside a child process: each case runs this binary again, the
+//! child, which caps its own data segment, lowers its default thread stack,
+//! or raises its soft limit on open descriptors, and reports what it then
+//! has.
 //! The stack's cases run on glibc only, whose default the call sets and reads;
 //! elsewhere it does nothing. A cap is the whole process's and can't be raised
 //! again, so it's never set in this process, nor under libtest's harness, whose
@@ -15,6 +17,14 @@ use std::process::Command;
 /// The cap the cases set: 1 GiB.
 const CAP: u64 = 1 << 30;
 
+/// The soft limit on open descriptors the first open-files case starts its
+/// child under, a shell's common default.
+const OPEN_FILES_SOFT: u64 = 1024;
+
+/// The hard limit on open descriptors the open-files cases start their
+/// child under, which an unprivileged `prlimit` may lower it to.
+const OPEN_FILES_HARD: u64 = 4096;
+
 /// The stack limit the stack's cases start their child under, which
 /// glibc sizes its default thread stack by: 8 MiB.
 #[cfg(target_env = "gnu")]
@@ -28,10 +38,6 @@ fn main() {
 fn parent() {
     let cap = CAP;
     let lower = CAP / 2;
-    #[cfg_attr(
-        not(target_env = "gnu"),
-        expect(unused_mut, reason = "the stack's cases are glibc's only")
-    )]
     let mut cases = vec![
         (
             "caps",
@@ -51,6 +57,26 @@ fn parent() {
             format!("set: {lower}\nlimit: {lower} {lower}\n"),
         ),
     ];
+    cases.extend([
+        // a soft limit below the hard one is raised to it
+        (
+            "open_files",
+            Some(format!("--nofile={OPEN_FILES_SOFT}:{OPEN_FILES_HARD}")),
+            format!(
+                "before: {OPEN_FILES_SOFT} {OPEN_FILES_HARD}\nraised: {OPEN_FILES_HARD}\nafter: \
+                 {OPEN_FILES_HARD} {OPEN_FILES_HARD}\n"
+            ),
+        ),
+        // one at the hard limit stays
+        (
+            "open_files",
+            Some(format!("--nofile={OPEN_FILES_HARD}:{OPEN_FILES_HARD}")),
+            format!(
+                "before: {OPEN_FILES_HARD} {OPEN_FILES_HARD}\nraised: {OPEN_FILES_HARD}\nafter: \
+                 {OPEN_FILES_HARD} {OPEN_FILES_HARD}\n"
+            ),
+        ),
+    ]);
     #[cfg(target_env = "gnu")]
     {
         let limit = STACK_LIMIT;
@@ -149,6 +175,29 @@ fn child(case: &str) {
             let after = gro_sys::default_thread_stack().unwrap();
             println!("lowered only: {}", after == before.min(STACK_LIMIT));
         }
+        // the soft and hard limits on open descriptors, before and after
+        "open_files" => {
+            let (soft, hard) = open_files_limit();
+            println!("before: {soft} {hard}");
+            println!("raised: {}", gro_sys::raise_open_files_limit().unwrap());
+            let (soft, hard) = open_files_limit();
+            println!("after: {soft} {hard}");
+        }
         _ => unreachable!("no case {case}"),
     }
+}
+
+/// The process's soft and hard limits on open descriptors, from
+/// `/proc/self/limits`, `gro_sys` having no reader of them.
+fn open_files_limit() -> (String, String) {
+    let limits = std::fs::read_to_string("/proc/self/limits").unwrap();
+    let line = limits
+        .lines()
+        .find(|line| line.starts_with("Max open files"))
+        .unwrap();
+    let mut fields = line["Max open files".len()..].split_whitespace();
+    (
+        fields.next().unwrap().to_owned(),
+        fields.next().unwrap().to_owned(),
+    )
 }
