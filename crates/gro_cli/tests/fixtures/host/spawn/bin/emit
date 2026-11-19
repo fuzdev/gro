@@ -1,0 +1,20 @@
+#!/bin/sh
+# What a launch case's child does, by its first argument.
+mode=$1
+shift
+case $mode in
+args) printf '[%s]' "$@" ;;
+argv0) printf '%s' "$0" ;;
+streams) printf 'out'; printf 'err' >&2 ;;
+exit) exit "$1" ;;
+signal) kill -"$1" $$ ;;
+vars) for name in "$@"; do eval "printf '%s=%s;' \"\$name\" \"\${$name-unset}\""; done ;;
+pwd) pwd ;;
+cat) cat ;;
+bytes) printf '\357\273\277a\377b\303\251c\342\202' ;;
+hold) printf '0123456789'; exec sleep 5 ;;
+linger) sleep 5 & echo started ;;
+sleep) exec sleep "$1" ;;
+trap) trap 'exit 7' TERM; sleep 5 & wait ;;
+*) exit 99 ;;
+esac

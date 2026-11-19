@@ -210,7 +210,8 @@ const EXERCISES = new Map([
 		]
 	],
 	// the program the run grants, with options, so a hostile one in their place is read; its
-	// handle's methods, which launch nothing on fgro yet, given no arguments to pass it
+	// handle's launches each start `tool`, which exits at once, given arguments and options, so a
+	// hostile one in either place is read; `start`, which isn't built on fgro, given arguments
 	[
 		'@fuzdev/gro/spawn.ts spawn.program',
 		[['tool', { __proto__: null, pass_env: [], env: { __proto__: null, A: 'a' } }]]
@@ -219,13 +220,31 @@ const EXERCISES = new Map([
 	// with a hostile array in its place, `narrow` is given the one name `hostile`, which the run
 	// grants and each root here holds, as for `env`
 	['@fuzdev/gro/spawn.ts spawn.narrow', [[['tool', 'hostile']]]],
-	['@fuzdev/gro/spawn.ts spawn.program(arguments 1).run', [[[]]]],
-	['@fuzdev/gro/spawn.ts spawn.program(arguments 1).out', [[[]]]],
-	['@fuzdev/gro/spawn.ts spawn.program(arguments 1).out_bytes', [[[]]]],
+	[
+		'@fuzdev/gro/spawn.ts spawn.program(arguments 1).run',
+		[[['a'], { __proto__: null, timeout_ms: 10000 }]]
+	],
+	[
+		'@fuzdev/gro/spawn.ts spawn.program(arguments 1).out',
+		[[['a'], { __proto__: null, timeout_ms: 10000, max_bytes: 100, stdin: new Uint8Array(1) }]]
+	],
+	[
+		'@fuzdev/gro/spawn.ts spawn.program(arguments 1).out_bytes',
+		[[['a'], { __proto__: null, timeout_ms: 10000, max_bytes: 100, stdin: new Uint8Array(1) }]]
+	],
 	['@fuzdev/gro/spawn.ts spawn.program(arguments 1).start', [[[]]]],
-	['@fuzdev/gro/spawn.ts spawn.find(arguments 1).run', [[[]]]],
-	['@fuzdev/gro/spawn.ts spawn.find(arguments 1).out', [[[]]]],
-	['@fuzdev/gro/spawn.ts spawn.find(arguments 1).out_bytes', [[[]]]],
+	[
+		'@fuzdev/gro/spawn.ts spawn.find(arguments 1).run',
+		[[['a'], { __proto__: null, timeout_ms: 10000 }]]
+	],
+	[
+		'@fuzdev/gro/spawn.ts spawn.find(arguments 1).out',
+		[[['a'], { __proto__: null, timeout_ms: 10000, max_bytes: 100, stdin: new Uint8Array(1) }]]
+	],
+	[
+		'@fuzdev/gro/spawn.ts spawn.find(arguments 1).out_bytes',
+		[[['a'], { __proto__: null, timeout_ms: 10000, max_bytes: 100, stdin: new Uint8Array(1) }]]
+	],
 	['@fuzdev/gro/spawn.ts spawn.find(arguments 1).start', [[[]]]],
 	['@fuzdev/gro/spawn.ts spawn.narrow(arguments 1).program', [['tool']]],
 	['@fuzdev/gro/spawn.ts spawn.narrow(arguments 1).find', [['tool']]],

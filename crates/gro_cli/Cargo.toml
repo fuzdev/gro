@@ -16,8 +16,9 @@ argh.workspace = true
 gro_runtime = { path = "../gro_runtime" }
 # eval's steps before the box: closing the descriptors the process inherited,
 # clearing its environment, lowering the default thread stack, and capping
-# `RLIMIT_DATA`
-gro_sys = { path = "../gro_sys" }
+# `RLIMIT_DATA`; and a run's before it starts a program: `SIGCHLD` at its
+# default, the inherited descriptors close-on-exec, and `RLIMIT_NOFILE` raised
+gro_sys = { path = "../gro_sys", features = ["child"] }
 thiserror.workspace = true
 
 [dev-dependencies]

@@ -553,6 +553,43 @@ fn read_handle<'s>(
     })
 }
 
+/// Why [`open_handle_dir`] opened nothing.
+#[derive(Debug)]
+pub(in crate::host) enum HandleDirFault {
+    /// The value is no fs handle of the kind asked for, or none of this
+    /// run's.
+    NotAHandle,
+    /// The handle's directory, at this path, couldn't be opened, as this
+    /// says.
+    Unopened(String, String),
+}
+
+/// The directory `value`, an fs handle of `kind` or a kind extending it,
+/// names, opened beneath its root as an op on it opens it, refusing any
+/// symlink on the way, with its absolute path: for another host module
+/// that acts in a handle's directory, as spawn runs a child in one. What
+/// the handle may do isn't asked: a handle that names a directory lets its
+/// holder name it.
+pub(in crate::host) fn open_handle_dir(
+    state: &OpState,
+    scope: &v8::PinScope<'_, '_>,
+    kind: &HandleKind,
+    value: v8::Local<'_, v8::Value>,
+) -> Result<(OwnedFd, String), HandleDirFault> {
+    let handle = read_handle(scope, kind, value).map_err(|_| HandleDirFault::NotAHandle)?;
+    let table = run_roots(state).map_err(|_| HandleDirFault::NotAHandle)?;
+    let root = table
+        .roots()
+        .get(handle.root)
+        .ok_or(HandleDirFault::NotAHandle)?;
+    let path = join(root.handle_base(), &handle.beneath);
+    let unopened = |why: String| HandleDirFault::Unopened(path.clone(), why);
+    let fd = root.fd.as_ref().map_err(|why| unopened(why.clone()))?;
+    let opened =
+        sys::open_handle_dir(fd, &handle.beneath).map_err(|error| unopened(error.to_string()))?;
+    Ok((opened, path))
+}
+
 /// Makes a handle of `kind` of `prototype` on the directory `beneath` the
 /// root at `index`, whose path is `root_path`, doing what `access` says.
 fn make_dir<'s>(

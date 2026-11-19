@@ -15,8 +15,9 @@ deno_webidl.workspace = true
 getrandom.workspace = true
 # the system calls std lacks: the out-of-memory backstop's exit, which skips
 # the process's teardown, the thread count the box checks, a thread's stack
-# start, and `fs`'s calls beneath a descriptor
-gro_sys = { path = "../gro_sys" }
+# start, `fs`'s calls beneath a descriptor, and `spawn`'s children, held by
+# their pidfds
+gro_sys = { path = "../gro_sys", features = ["child"] }
 gro_v8 = { path = "../gro_v8" }
 landlock.workspace = true
 # the kernel's constants: the box's, `fs`'s error numbers, and `ELOOP` and

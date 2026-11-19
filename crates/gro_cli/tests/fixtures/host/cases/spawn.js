@@ -6,10 +6,11 @@ import { describe, thrown } from '../describe.js';
 // neither a script nor a binary (`text`), and a `.cmd`;
 // `dir/` holds only a file without execute permission; `nm/node_modules/.bin`, a link to
 // `shadow/.bin`, holds a program a `PATH` walk skips by that spelling; and `rel/` holds one only
-// a relative `PATH` entry names, which the walk skips too. Each case's `PATH` names
-// these by `{cwd}`, the fixtures' directory, and each path a value or an error names is shown
-// with the project's path as `{project}`, since the checkout's path is the machine's. No program
-// is started: a case makes handles and reads what they hold.
+// a relative `PATH` entry names, which the walk skips too; `bin/emit` is a `#!` script whose
+// first argument says what it does when it's started. Each case's `PATH` names these by `{cwd}`,
+// the fixtures' directory, and each path a value or an error names is shown with the project's
+// path as `{project}`, since the checkout's path is the machine's. The cases that start a program
+// start `emit`, and `run`'s children, which share this process's stdout, print nothing.
 
 /** @type {string} */
 let project = '';
@@ -57,6 +58,48 @@ const settled = async (/** @type {() => Promise<unknown>} */ call) => {
 	} catch (error) {
 		return { rejected: show_error(error) };
 	}
+};
+
+/** A call's result as data: each own key in order, a `Uint8Array` as its bytes and whether
+ * it holds its own buffer, exactly its length, and the record's shape. */
+const show_result = (/** @type {any} */ result) => {
+	if (result === null || typeof result !== 'object') return { not_a_record: typeof result };
+	/** @type {Record<string, unknown>} */
+	const fields = {};
+	for (const key of Reflect.ownKeys(result)) {
+		const value = result[key];
+		fields[String(key)] =
+			value instanceof Uint8Array
+				? {
+						bytes: Array.from(value),
+						class: value.constructor.name,
+						own_buffer: value.byteOffset === 0 && value.buffer.byteLength === value.length
+					}
+				: value;
+	}
+	return {
+		fields,
+		frozen: Object.isFrozen(result),
+		null_prototype: Object.getPrototypeOf(result) === null
+	};
+};
+
+/** What a call settled to, as data: its result, or what it rejected with. */
+const called = async (/** @type {() => Promise<unknown>} */ call) => {
+	try {
+		return { fulfilled: show_result(await call()) };
+	} catch (error) {
+		return { rejected: show_error(error) };
+	}
+};
+
+/** What a call settled to, as `called` shows it, its `stdout` with the project's path as
+ * `{project}`. */
+const called_relative = async (/** @type {() => Promise<unknown>} */ call) => {
+	const shown = /** @type {any} */ (await called(call));
+	const fields = shown.fulfilled?.fields;
+	if (fields) fields.stdout = relative(fields.stdout);
+	return shown;
 };
 
 /** Each of `names` asked for by `program` and `find` of `root`, with `options`. */
@@ -270,6 +313,112 @@ export default async (ns, [scenario, cwd]) => {
 					['all', { pass_env: 'all' }]
 				]).map(([label, options]) => [label, outcome(() => spawn.program('tool', options))])
 			);
+		case 'launch': {
+			const emit = spawn.program('emit');
+			const by_path = spawn.program('./spawn/bin/emit');
+			const sh = spawn.program('sh');
+			const with_env = spawn.program('emit', {
+				pass_env: ['GRO_A', 'GRO_P_*'],
+				env: { GRO_SET: 'set', PATH: '/usr/bin:rel:/bin' }
+			});
+			const big = new Uint8Array(200000).fill(98);
+			return {
+				run: {
+					exited: await called(() => emit.run(['exit', '3'])),
+					zero: await called(() => emit.run(['exit', '0'])),
+					signaled: await called(() => emit.run(['signal', 'USR1'])),
+					real_time: await called(() => emit.run(['signal', '35'])),
+					timed_out: await called(() => emit.run(['sleep', '5'], { timeout_ms: 100 })),
+					extra_options: await called(() => emit.run(['exit', '0'], { max_bytes: -1, stdin: 1 }))
+				},
+				out: {
+					streams: await called(() => emit.out(['streams'])),
+					args: await called(() => emit.out(['args', 'a b', '', 'é', '--x'])),
+					argv0_script_bare: await called_relative(() => emit.out(['argv0'])),
+					argv0_script_path: await called_relative(() => by_path.out(['argv0'])),
+					argv0_native: await called(() => sh.out(['-c', 'printf %s "$0"'])),
+					exited: await called(() => emit.out(['exit', '5'])),
+					killed: await called(() => emit.out(['signal', 'TERM'])),
+					text: await called(() => emit.out(['bytes'])),
+					pwd: await called_relative(() => emit.out(['pwd'])),
+					vars: await called_relative(() =>
+						emit.out(['vars', 'PATH', 'HOME', 'LC_ALL', 'GRO_A', 'GRO_B', 'GRO_P_X', 'GRO_SECRET'])
+					),
+					vars_given: await called(() =>
+						with_env.out(['vars', 'PATH', 'LC_ALL', 'GRO_A', 'GRO_B', 'GRO_P_X', 'GRO_SET'])
+					),
+					stdin_ignored: await called(() => emit.out(['cat'])),
+					stdin_data: await called(() =>
+						emit.out(['cat'], { stdin: new TextEncoder().encode('fed') })
+					),
+					stdin_empty: await called(() => emit.out(['cat'], { stdin: new Uint8Array(0) })),
+					stdin_large: await called(async () => {
+						const result = /** @type {any} */ (await emit.out_bytes(['cat'], { stdin: big }));
+						return { ...result, stdout: result.stdout.length };
+					}),
+					stdin_unread: await called(() => emit.out(['exit', '0'], { stdin: big })),
+					capped: await called(() => emit.out(['hold'], { max_bytes: 3 })),
+					capped_none: await called(() => emit.out(['hold'], { max_bytes: 0 })),
+					at_the_cap: await called(() => emit.out(['streams'], { max_bytes: 3 })),
+					timed_out: await called(() => emit.out(['sleep', '5'], { timeout_ms: 100 })),
+					timed_out_exits: await called(() => emit.out(['trap'], { timeout_ms: 300 })),
+					lingering: await called(() => emit.out(['linger']))
+				},
+				out_bytes: {
+					streams: await called(() => emit.out_bytes(['streams'])),
+					bytes: await called(() => emit.out_bytes(['bytes'])),
+					capped: await called(() => emit.out_bytes(['hold'], { max_bytes: 4 })),
+					empty: await called(() => emit.out_bytes(['exit', '0']))
+				}
+			};
+		}
+		case 'call_invalid': {
+			const emit = spawn.program('emit');
+			const args_of = (/** @type {unknown} */ args) =>
+				called(() => emit.out(/** @type {any} */ (args)));
+			const options_of = (/** @type {unknown} */ options) =>
+				called(() => emit.out(['exit', '0'], /** @type {any} */ (options)));
+			return {
+				args: await Promise.all(
+					[undefined, 'x', {}, [1], ['a\0'], ['\ud800'], ['a', , 'b'], [['x']]].map(args_of)
+				),
+				options: await Promise.all(
+					[
+						1,
+						null,
+						'x',
+						[],
+						() => {},
+						{ cwd: {} },
+						{ cwd: null },
+						{ timeout_ms: 0 },
+						{ timeout_ms: -1 },
+						{ timeout_ms: 1.5 },
+						{ timeout_ms: 2147483648 },
+						{ timeout_ms: '1' },
+						{ timeout_ms: Number.NaN },
+						{ max_bytes: -1 },
+						{ max_bytes: 1.5 },
+						{ max_bytes: 2 ** 53 },
+						{ max_bytes: '1' },
+						{ stdin: 'pipe' },
+						{ stdin: 1 },
+						{ stdin: null },
+						{ stdin: [1] },
+						{ stdin: new Uint16Array(1) },
+						{ timeout_ms: 0, max_bytes: -1, stdin: 1 },
+						{ max_bytes: -1, stdin: 1 },
+						{ __proto__: { timeout_ms: 0 } }
+					].map(options_of)
+				),
+				args_before_options: await called(() => emit.out(/** @type {any} */ (1), 1)),
+				run_options: await Promise.all(
+					[1, { cwd: {} }, { timeout_ms: 0 }].map((options) =>
+						called(() => emit.run(['exit', '0'], /** @type {any} */ (options)))
+					)
+				)
+			};
+		}
 		default:
 			throw new Error(`no scenario ${scenario}`);
 	}

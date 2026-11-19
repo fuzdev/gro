@@ -128,10 +128,40 @@ fn start_and_run(run: &RunInvocation) -> Result<RunOutcome, CliError> {
             stderr_line(note);
         }
     }
+    if grants_programs(&run.grant) {
+        ready_to_spawn().map_err(CliError::SpawnReady)?;
+    }
     let engine = init_engine(Confinement::Unconfined, &EngineOptions::default())?;
     phases::mark(Phase::Engine);
     let options = runtime_options(run, &ProcessEnvironment, fs, &cwd);
     Ok(gro_runtime::run_main(engine, &options, &run.file, &cwd))
+}
+
+/// Whether `grant` lets the run start a program: `-A`, or a program
+/// `--allow-run=` names.
+fn grants_programs(grant: &RunGrant) -> bool {
+    match grant {
+        RunGrant::All => true,
+        RunGrant::Named { run, .. } => !run.is_empty(),
+    }
+}
+
+/// Makes the process ready to start programs, as a run that grants one
+/// does before anything runs: every descriptor it inherited above stderr
+/// marked close-on-exec, so a child is handed only stdin, stdout, and
+/// stderr, `SIGCHLD` at its default where it was inherited ignored, so
+/// the kernel leaves each child for its pidfd to reap, and the soft limit
+/// on open descriptors raised to the hard one, as Node raises it, so a run
+/// holding many children, each with its pipes, isn't refused at a low soft
+/// limit.
+///
+/// # Errors
+///
+/// Returns the call's error that failed.
+fn ready_to_spawn() -> std::io::Result<()> {
+    gro_sys::cloexec_inherited_fds()?;
+    gro_sys::child::default_child_signal()?;
+    gro_sys::raise_open_files_limit().map(drop)
 }
 
 /// The fs grant of the directories `dirs` lists, each resolved against

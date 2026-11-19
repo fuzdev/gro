@@ -16536,5 +16536,754 @@
 				}
 			}
 		}
+	},
+	"spawn_launch": {
+		"code": 0,
+		"output": {
+			"run": {
+				"exited": {
+					"fulfilled": {
+						"fields": {
+							"kind": "exited",
+							"code": 3
+						},
+						"frozen": true,
+						"null_prototype": true
+					}
+				},
+				"zero": {
+					"fulfilled": {
+						"fields": {
+							"kind": "exited",
+							"code": 0
+						},
+						"frozen": true,
+						"null_prototype": true
+					}
+				},
+				"signaled": {
+					"fulfilled": {
+						"fields": {
+							"kind": "signaled",
+							"signal": "SIGUSR1"
+						},
+						"frozen": true,
+						"null_prototype": true
+					}
+				},
+				"real_time": {
+					"fulfilled": {
+						"fields": {
+							"kind": "exited",
+							"code": 0
+						},
+						"frozen": true,
+						"null_prototype": true
+					}
+				},
+				"timed_out": {
+					"fulfilled": {
+						"fields": {
+							"kind": "timed_out",
+							"code": null,
+							"signal": "SIGTERM"
+						},
+						"frozen": true,
+						"null_prototype": true
+					}
+				},
+				"extra_options": {
+					"fulfilled": {
+						"fields": {
+							"kind": "exited",
+							"code": 0
+						},
+						"frozen": true,
+						"null_prototype": true
+					}
+				}
+			},
+			"out": {
+				"streams": {
+					"fulfilled": {
+						"fields": {
+							"kind": "exited",
+							"code": 0,
+							"stdout": "out",
+							"stderr": "err",
+							"truncated": false
+						},
+						"frozen": true,
+						"null_prototype": true
+					}
+				},
+				"args": {
+					"fulfilled": {
+						"fields": {
+							"kind": "exited",
+							"code": 0,
+							"stdout": "[a b][][é][--x]",
+							"stderr": "",
+							"truncated": false
+						},
+						"frozen": true,
+						"null_prototype": true
+					}
+				},
+				"argv0_script_bare": {
+					"fulfilled": {
+						"fields": {
+							"kind": "exited",
+							"code": 0,
+							"stdout": "{project}/spawn/bin/emit",
+							"stderr": "",
+							"truncated": false
+						},
+						"frozen": true,
+						"null_prototype": true
+					}
+				},
+				"argv0_script_path": {
+					"fulfilled": {
+						"fields": {
+							"kind": "exited",
+							"code": 0,
+							"stdout": "{project}/spawn/bin/emit",
+							"stderr": "",
+							"truncated": false
+						},
+						"frozen": true,
+						"null_prototype": true
+					}
+				},
+				"argv0_native": {
+					"fulfilled": {
+						"fields": {
+							"kind": "exited",
+							"code": 0,
+							"stdout": "sh",
+							"stderr": "",
+							"truncated": false
+						},
+						"frozen": true,
+						"null_prototype": true
+					}
+				},
+				"exited": {
+					"fulfilled": {
+						"fields": {
+							"kind": "exited",
+							"code": 5,
+							"stdout": "",
+							"stderr": "",
+							"truncated": false
+						},
+						"frozen": true,
+						"null_prototype": true
+					}
+				},
+				"killed": {
+					"fulfilled": {
+						"fields": {
+							"kind": "signaled",
+							"signal": "SIGTERM",
+							"stdout": "",
+							"stderr": "",
+							"truncated": false
+						},
+						"frozen": true,
+						"null_prototype": true
+					}
+				},
+				"text": {
+					"fulfilled": {
+						"fields": {
+							"kind": "exited",
+							"code": 0,
+							"stdout": "﻿a�béc�",
+							"stderr": "",
+							"truncated": false
+						},
+						"frozen": true,
+						"null_prototype": true
+					}
+				},
+				"pwd": {
+					"fulfilled": {
+						"fields": {
+							"kind": "exited",
+							"code": 0,
+							"stdout": "{project}\n",
+							"stderr": "",
+							"truncated": false
+						},
+						"frozen": true,
+						"null_prototype": true
+					}
+				},
+				"vars": {
+					"fulfilled": {
+						"fields": {
+							"kind": "exited",
+							"code": 0,
+							"stdout": "PATH={project}/spawn/nm/node_modules/.bin:spawn/rel::{project}/spawn/dir:{project}/spawn/bin/:/usr/bin:/bin;HOME=unset;LC_ALL=C;GRO_A=unset;GRO_B=unset;GRO_P_X=unset;GRO_SECRET=unset;",
+							"stderr": "",
+							"truncated": false
+						},
+						"frozen": true,
+						"null_prototype": true
+					}
+				},
+				"vars_given": {
+					"fulfilled": {
+						"fields": {
+							"kind": "exited",
+							"code": 0,
+							"stdout": "PATH=/usr/bin:rel:/bin;LC_ALL=C;GRO_A=a;GRO_B=unset;GRO_P_X=x;GRO_SET=set;",
+							"stderr": "",
+							"truncated": false
+						},
+						"frozen": true,
+						"null_prototype": true
+					}
+				},
+				"stdin_ignored": {
+					"fulfilled": {
+						"fields": {
+							"kind": "exited",
+							"code": 0,
+							"stdout": "",
+							"stderr": "",
+							"truncated": false
+						},
+						"frozen": true,
+						"null_prototype": true
+					}
+				},
+				"stdin_data": {
+					"fulfilled": {
+						"fields": {
+							"kind": "exited",
+							"code": 0,
+							"stdout": "fed",
+							"stderr": "",
+							"truncated": false
+						},
+						"frozen": true,
+						"null_prototype": true
+					}
+				},
+				"stdin_empty": {
+					"fulfilled": {
+						"fields": {
+							"kind": "exited",
+							"code": 0,
+							"stdout": "",
+							"stderr": "",
+							"truncated": false
+						},
+						"frozen": true,
+						"null_prototype": true
+					}
+				},
+				"stdin_large": {
+					"fulfilled": {
+						"fields": {
+							"kind": "exited",
+							"code": 0,
+							"stdout": 200000,
+							"stderr": {
+								"bytes": [],
+								"class": "Uint8Array",
+								"own_buffer": true
+							},
+							"truncated": false
+						},
+						"frozen": false,
+						"null_prototype": false
+					}
+				},
+				"stdin_unread": {
+					"fulfilled": {
+						"fields": {
+							"kind": "exited",
+							"code": 0,
+							"stdout": "",
+							"stderr": "",
+							"truncated": false
+						},
+						"frozen": true,
+						"null_prototype": true
+					}
+				},
+				"capped": {
+					"fulfilled": {
+						"fields": {
+							"kind": "signaled",
+							"signal": "SIGKILL",
+							"stdout": "012",
+							"stderr": "",
+							"truncated": true
+						},
+						"frozen": true,
+						"null_prototype": true
+					}
+				},
+				"capped_none": {
+					"fulfilled": {
+						"fields": {
+							"kind": "signaled",
+							"signal": "SIGKILL",
+							"stdout": "",
+							"stderr": "",
+							"truncated": true
+						},
+						"frozen": true,
+						"null_prototype": true
+					}
+				},
+				"at_the_cap": {
+					"fulfilled": {
+						"fields": {
+							"kind": "exited",
+							"code": 0,
+							"stdout": "out",
+							"stderr": "err",
+							"truncated": false
+						},
+						"frozen": true,
+						"null_prototype": true
+					}
+				},
+				"timed_out": {
+					"fulfilled": {
+						"fields": {
+							"kind": "timed_out",
+							"code": null,
+							"signal": "SIGTERM",
+							"stdout": "",
+							"stderr": "",
+							"truncated": false
+						},
+						"frozen": true,
+						"null_prototype": true
+					}
+				},
+				"timed_out_exits": {
+					"fulfilled": {
+						"fields": {
+							"kind": "timed_out",
+							"code": 7,
+							"signal": null,
+							"stdout": "",
+							"stderr": "",
+							"truncated": false
+						},
+						"frozen": true,
+						"null_prototype": true
+					}
+				},
+				"lingering": {
+					"fulfilled": {
+						"fields": {
+							"kind": "exited",
+							"code": 0,
+							"stdout": "started\n",
+							"stderr": "",
+							"truncated": true
+						},
+						"frozen": true,
+						"null_prototype": true
+					}
+				}
+			},
+			"out_bytes": {
+				"streams": {
+					"fulfilled": {
+						"fields": {
+							"kind": "exited",
+							"code": 0,
+							"stdout": {
+								"bytes": [
+									111,
+									117,
+									116
+								],
+								"class": "Uint8Array",
+								"own_buffer": true
+							},
+							"stderr": {
+								"bytes": [
+									101,
+									114,
+									114
+								],
+								"class": "Uint8Array",
+								"own_buffer": true
+							},
+							"truncated": false
+						},
+						"frozen": true,
+						"null_prototype": true
+					}
+				},
+				"bytes": {
+					"fulfilled": {
+						"fields": {
+							"kind": "exited",
+							"code": 0,
+							"stdout": {
+								"bytes": [
+									239,
+									187,
+									191,
+									97,
+									255,
+									98,
+									195,
+									169,
+									99,
+									226,
+									130
+								],
+								"class": "Uint8Array",
+								"own_buffer": true
+							},
+							"stderr": {
+								"bytes": [],
+								"class": "Uint8Array",
+								"own_buffer": true
+							},
+							"truncated": false
+						},
+						"frozen": true,
+						"null_prototype": true
+					}
+				},
+				"capped": {
+					"fulfilled": {
+						"fields": {
+							"kind": "signaled",
+							"signal": "SIGKILL",
+							"stdout": {
+								"bytes": [
+									48,
+									49,
+									50,
+									51
+								],
+								"class": "Uint8Array",
+								"own_buffer": true
+							},
+							"stderr": {
+								"bytes": [],
+								"class": "Uint8Array",
+								"own_buffer": true
+							},
+							"truncated": true
+						},
+						"frozen": true,
+						"null_prototype": true
+					}
+				},
+				"empty": {
+					"fulfilled": {
+						"fields": {
+							"kind": "exited",
+							"code": 0,
+							"stdout": {
+								"bytes": [],
+								"class": "Uint8Array",
+								"own_buffer": true
+							},
+							"stderr": {
+								"bytes": [],
+								"class": "Uint8Array",
+								"own_buffer": true
+							},
+							"truncated": false
+						},
+						"frozen": true,
+						"null_prototype": true
+					}
+				}
+			}
+		}
+	},
+	"spawn_call_invalid": {
+		"code": 0,
+		"output": {
+			"args": [
+				{
+					"rejected": {
+						"class": "TypeError",
+						"message": "spawn args are an array of strings",
+						"cause": "undefined"
+					}
+				},
+				{
+					"rejected": {
+						"class": "TypeError",
+						"message": "spawn args are an array of strings",
+						"cause": "undefined"
+					}
+				},
+				{
+					"rejected": {
+						"class": "TypeError",
+						"message": "spawn args are an array of strings",
+						"cause": "undefined"
+					}
+				},
+				{
+					"rejected": {
+						"class": "TypeError",
+						"message": "a spawn argument must be a string",
+						"cause": "undefined"
+					}
+				},
+				{
+					"rejected": {
+						"class": "TypeError",
+						"message": "a spawn argument holds a NUL byte",
+						"cause": "undefined"
+					}
+				},
+				{
+					"rejected": {
+						"class": "TypeError",
+						"message": "a spawn argument isn't well-formed Unicode",
+						"cause": "undefined"
+					}
+				},
+				{
+					"rejected": {
+						"class": "TypeError",
+						"message": "a spawn argument must be a string",
+						"cause": "undefined"
+					}
+				},
+				{
+					"rejected": {
+						"class": "TypeError",
+						"message": "a spawn argument must be a string",
+						"cause": "undefined"
+					}
+				}
+			],
+			"options": [
+				{
+					"rejected": {
+						"class": "TypeError",
+						"message": "spawn call options are an object",
+						"cause": "undefined"
+					}
+				},
+				{
+					"rejected": {
+						"class": "TypeError",
+						"message": "spawn call options are an object",
+						"cause": "undefined"
+					}
+				},
+				{
+					"rejected": {
+						"class": "TypeError",
+						"message": "spawn call options are an object",
+						"cause": "undefined"
+					}
+				},
+				{
+					"rejected": {
+						"class": "TypeError",
+						"message": "spawn call options are an object",
+						"cause": "undefined"
+					}
+				},
+				{
+					"rejected": {
+						"class": "TypeError",
+						"message": "spawn call options are an object",
+						"cause": "undefined"
+					}
+				},
+				{
+					"rejected": {
+						"class": "TypeError",
+						"message": "expected an fs directory handle from this copy of Gro",
+						"cause": "undefined"
+					}
+				},
+				{
+					"rejected": {
+						"class": "TypeError",
+						"message": "expected an fs directory handle from this copy of Gro",
+						"cause": "undefined"
+					}
+				},
+				{
+					"rejected": {
+						"class": "TypeError",
+						"message": "`timeout_ms` is a positive safe integer of at most 2147483647",
+						"cause": "undefined"
+					}
+				},
+				{
+					"rejected": {
+						"class": "TypeError",
+						"message": "`timeout_ms` is a positive safe integer of at most 2147483647",
+						"cause": "undefined"
+					}
+				},
+				{
+					"rejected": {
+						"class": "TypeError",
+						"message": "`timeout_ms` is a positive safe integer of at most 2147483647",
+						"cause": "undefined"
+					}
+				},
+				{
+					"rejected": {
+						"class": "TypeError",
+						"message": "`timeout_ms` is a positive safe integer of at most 2147483647",
+						"cause": "undefined"
+					}
+				},
+				{
+					"rejected": {
+						"class": "TypeError",
+						"message": "`timeout_ms` is a positive safe integer of at most 2147483647",
+						"cause": "undefined"
+					}
+				},
+				{
+					"rejected": {
+						"class": "TypeError",
+						"message": "`timeout_ms` is a positive safe integer of at most 2147483647",
+						"cause": "undefined"
+					}
+				},
+				{
+					"rejected": {
+						"class": "TypeError",
+						"message": "`max_bytes` is a non-negative safe integer",
+						"cause": "undefined"
+					}
+				},
+				{
+					"rejected": {
+						"class": "TypeError",
+						"message": "`max_bytes` is a non-negative safe integer",
+						"cause": "undefined"
+					}
+				},
+				{
+					"rejected": {
+						"class": "TypeError",
+						"message": "`max_bytes` is a non-negative safe integer",
+						"cause": "undefined"
+					}
+				},
+				{
+					"rejected": {
+						"class": "TypeError",
+						"message": "`max_bytes` is a non-negative safe integer",
+						"cause": "undefined"
+					}
+				},
+				{
+					"rejected": {
+						"class": "TypeError",
+						"message": "`stdin` is 'inherit', 'ignore', or a `Uint8Array`",
+						"cause": "undefined"
+					}
+				},
+				{
+					"rejected": {
+						"class": "TypeError",
+						"message": "`stdin` is 'inherit', 'ignore', or a `Uint8Array`",
+						"cause": "undefined"
+					}
+				},
+				{
+					"rejected": {
+						"class": "TypeError",
+						"message": "`stdin` is 'inherit', 'ignore', or a `Uint8Array`",
+						"cause": "undefined"
+					}
+				},
+				{
+					"rejected": {
+						"class": "TypeError",
+						"message": "`stdin` is 'inherit', 'ignore', or a `Uint8Array`",
+						"cause": "undefined"
+					}
+				},
+				{
+					"rejected": {
+						"class": "TypeError",
+						"message": "`stdin` is 'inherit', 'ignore', or a `Uint8Array`",
+						"cause": "undefined"
+					}
+				},
+				{
+					"rejected": {
+						"class": "TypeError",
+						"message": "`timeout_ms` is a positive safe integer of at most 2147483647",
+						"cause": "undefined"
+					}
+				},
+				{
+					"rejected": {
+						"class": "TypeError",
+						"message": "`max_bytes` is a non-negative safe integer",
+						"cause": "undefined"
+					}
+				},
+				{
+					"fulfilled": {
+						"fields": {
+							"kind": "exited",
+							"code": 0,
+							"stdout": "",
+							"stderr": "",
+							"truncated": false
+						},
+						"frozen": true,
+						"null_prototype": true
+					}
+				}
+			],
+			"args_before_options": {
+				"rejected": {
+					"class": "TypeError",
+					"message": "spawn args are an array of strings",
+					"cause": "undefined"
+				}
+			},
+			"run_options": [
+				{
+					"rejected": {
+						"class": "TypeError",
+						"message": "spawn call options are an object",
+						"cause": "undefined"
+					}
+				},
+				{
+					"rejected": {
+						"class": "TypeError",
+						"message": "expected an fs directory handle from this copy of Gro",
+						"cause": "undefined"
+					}
+				},
+				{
+					"rejected": {
+						"class": "TypeError",
+						"message": "`timeout_ms` is a positive safe integer of at most 2147483647",
+						"cause": "undefined"
+					}
+				}
+			]
+		}
 	}
 }

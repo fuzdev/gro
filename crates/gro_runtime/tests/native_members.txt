@@ -59,9 +59,9 @@
 @fuzdev/gro/spawn.ts program_in method of @fuzdev/gro/spawn.ts#Spawn length 3 grant spawn throws SpawnError
 @fuzdev/gro/spawn.ts find_in method of @fuzdev/gro/spawn.ts#Spawn length 3 grant spawn throws SpawnError
 @fuzdev/gro/spawn.ts narrow method of @fuzdev/gro/spawn.ts#Spawn length 1 grant spawn throws SpawnError
-@fuzdev/gro/spawn.ts run method of @fuzdev/gro/spawn.ts#SpawnProgram length 2 async grant spawn
-@fuzdev/gro/spawn.ts out method of @fuzdev/gro/spawn.ts#SpawnProgram length 2 async grant spawn
-@fuzdev/gro/spawn.ts out_bytes method of @fuzdev/gro/spawn.ts#SpawnProgram length 2 async grant spawn
+@fuzdev/gro/spawn.ts run method of @fuzdev/gro/spawn.ts#SpawnProgram length 2 async grant spawn throws SpawnError
+@fuzdev/gro/spawn.ts out method of @fuzdev/gro/spawn.ts#SpawnProgram length 2 async grant spawn throws SpawnError
+@fuzdev/gro/spawn.ts out_bytes method of @fuzdev/gro/spawn.ts#SpawnProgram length 2 async grant spawn throws SpawnError
 @fuzdev/gro/spawn.ts start method of @fuzdev/gro/spawn.ts#SpawnProgram length 2 async grant spawn
 @fuzdev/gro/spawn.ts kill method of @fuzdev/gro/spawn.ts#SpawnChild length 0 grant spawn
 @fuzdev/gro/spawn.ts [Symbol.asyncDispose] method of @fuzdev/gro/spawn.ts#SpawnChild length 0 async grant spawn

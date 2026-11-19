@@ -17,6 +17,7 @@ mod env;
 mod refusals;
 mod reports;
 mod resolution;
+mod spawn;
 mod typescript;
 mod usage;
 

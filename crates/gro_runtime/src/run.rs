@@ -212,6 +212,7 @@ fn run_resolved(
     // pinned once the entry has resolved, so a name holding `/` has the
     // project's root, and before any module evaluates
     let spawn = SpawnRun::start(&options.authority, &options.spawn_env, &project).map(Rc::new);
+    let children = spawn.clone();
     let host = HostState {
         authority: options.authority.clone(),
         data: HostData {
@@ -233,6 +234,11 @@ fn run_resolved(
         entry,
         Rc::clone(loader),
     );
+    // the event loop has returned, however the run ended: no child it
+    // launched outlives it
+    if let Some(spawn) = children {
+        spawn.kill_children();
+    }
     phases::mark(Phase::Teardown);
     let exit_code = runtime.as_mut().and_then(SpentRuntime::exit_code);
     let (result, refused) = outcome(result, loader.take_refused());

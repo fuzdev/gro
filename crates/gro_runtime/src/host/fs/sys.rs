@@ -151,6 +151,16 @@ impl<'r> HandleDir<'r> {
     }
 }
 
+/// The handle's directory at `beneath` the root `root`, opened as
+/// [`HandleDir`] opens it, as a descriptor of its own: the root's own
+/// duplicated for none.
+pub fn open_handle_dir(root: &OwnedFd, beneath: &str) -> io::Result<OwnedFd> {
+    match HandleDir::open(root, beneath)?.opened {
+        Some(opened) => Ok(opened),
+        None => root.try_clone(),
+    }
+}
+
 /// The entry at `rel` beneath the handle's directory, at `beneath`
 /// the root, its final symlink followed when `follow` says.
 pub fn stat(

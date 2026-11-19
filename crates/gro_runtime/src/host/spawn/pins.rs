@@ -23,10 +23,12 @@
 //! by. Any other is `not_executable`, since `execvp` would hand it to
 //! `/bin/sh`.
 //!
-//! A pin holds a file's identity, not its content: a file rewritten in
-//! place keeps its identity, so it's still the file pinned and runs as
-//! rewritten, while a file replaced, removed, or made at its path since is
-//! never what the pin runs.
+//! A pin holds a file's identity, and its change time (`ctime`) as it was
+//! pinned: a file replaced, removed, or made at its path since is never
+//! what the pin runs, and a file rewritten in place, which keeps its
+//! identity, is refused at launch, as is one whose mode, owner, or links
+//! changed since, since no program of this user's can write a file without
+//! moving its change time ([`Pin::check_launch`]).
 //!
 //! A fault is kept as the fault, so a program asked for later meets it
 //! then, as the Node module's call-time resolution would.
@@ -50,6 +52,11 @@ pub struct Pin {
     pub argv0: String,
     /// The identity of the file pinned.
     pub id: FileId,
+    /// Its change time as it was pinned, seconds and nanoseconds.
+    pub changed: (i64, i64),
+    /// Its link count as it was pinned, which a rename over it or a
+    /// removal lowers.
+    pub links: u64,
     /// How it runs.
     pub kind: PinKind,
 }
@@ -62,10 +69,91 @@ impl Pin {
             && self.run_path == other.run_path
             && self.argv0 == other.argv0
             && self.id == other.id
+            && self.changed == other.changed
             && matches!(
                 (&self.kind, &other.kind),
                 (PinKind::Native(_), PinKind::Native(_)) | (PinKind::Script, PinKind::Script)
             )
+    }
+
+    /// That the file the pin runs is still the one pinned, just before
+    /// it's launched, `name` the name it was asked for: a native binary's
+    /// descriptor, and the path a script was found at, which must still
+    /// lead to the pin's identity, each with the change time it was pinned
+    /// with. Else the cause of the `launch_failed` the launch throws.
+    ///
+    /// # Errors
+    ///
+    /// Returns why it isn't ([`Unlaunched`]): what the launch's `cause`
+    /// says, and what the OS said, when it said something.
+    pub fn check_launch(&self, name: &str) -> Result<(), Unlaunched> {
+        let metadata = match &self.kind {
+            // through the held descriptor, so it's the pinned file's
+            PinKind::Native(held) => {
+                std::fs::metadata(format!("/proc/self/fd/{}", held.as_raw_fd())).map_err(
+                    |error| Unlaunched {
+                        cause: format!("{name} at {} can't be looked at", self.real),
+                        inner: Some(error.to_string()),
+                    },
+                )?
+            }
+            PinKind::Script => std::fs::metadata(&self.run_path).map_err(|error| Unlaunched {
+                cause: format!(
+                    "{name} at {} no longer resolves, pinned to {}",
+                    self.run_path, self.real
+                ),
+                inner: Some(error.to_string()),
+            })?,
+        };
+        if FileId::of(&metadata) != self.id {
+            let leads_to = std::fs::canonicalize(&self.run_path)
+                .ok()
+                .and_then(|real| real.into_os_string().into_string().ok())
+                .map_or_else(|| " another file,".to_owned(), |real| format!(" {real},"));
+            return Err(Unlaunched::of(format!(
+                "{name} at {} now leads to{leads_to} not the file pinned at {}",
+                self.run_path, self.real
+            )));
+        }
+        if changed(&metadata) != self.changed {
+            // a link gone is the file renamed over or removed, else it was
+            // written, or its mode or owner set
+            let how = if std::os::unix::fs::MetadataExt::nlink(&metadata) < self.links {
+                "was replaced or removed"
+            } else {
+                "changed"
+            };
+            return Err(Unlaunched::of(format!(
+                "{name} at {} {how} after the run pinned it",
+                self.real
+            )));
+        }
+        Ok(())
+    }
+}
+
+/// The change time of the file `metadata` was read from, seconds and
+/// nanoseconds.
+fn changed(metadata: &std::fs::Metadata) -> (i64, i64) {
+    use std::os::unix::fs::MetadataExt as _;
+    (metadata.ctime(), metadata.ctime_nsec())
+}
+
+/// Why a pin refused its launch: the cause of the `launch_failed` the
+/// launch throws, and what the OS said, that cause's own, when it said
+/// something.
+#[derive(Debug)]
+pub struct Unlaunched {
+    /// The cause's message.
+    pub cause: String,
+    /// What the OS said.
+    pub inner: Option<String>,
+}
+
+impl Unlaunched {
+    /// A refusal of `cause` alone.
+    const fn of(cause: String) -> Self {
+        Self { cause, inner: None }
     }
 }
 
@@ -74,16 +162,7 @@ impl Pin {
 pub enum PinKind {
     /// A native binary, or a file this user can't read, run by this
     /// descriptor on its real path, opened as a path only.
-    Native(
-        #[cfg_attr(
-            not(test),
-            expect(
-                dead_code,
-                reason = "held so the pin keeps its file; no launch is built yet to exec it"
-            )
-        )]
-        OwnedFd,
-    ),
+    Native(OwnedFd),
     /// A `#!` script, run by the path it was found at, checked to lead to
     /// the pin's identity just before it's launched.
     Script,
@@ -308,7 +387,8 @@ fn pin(name: &str, found: &str, argv0: &str) -> Result<Pin, Fault> {
         .map_err(|_| unreadable())?
         .into();
     let held = File::from(held);
-    let id = FileId::of(&held.metadata().map_err(|_| unreadable())?);
+    let metadata = held.metadata().map_err(|_| unreadable())?;
+    let id = FileId::of(&metadata);
     // reopened through the held descriptor, so the bytes read are the
     // pinned file's whatever its path leads to by now; non-blocking, so a
     // FIFO can't hang the open
@@ -345,6 +425,8 @@ fn pin(name: &str, found: &str, argv0: &str) -> Result<Pin, Fault> {
         real,
         argv0: argv0.to_owned(),
         id,
+        changed: changed(&metadata),
+        links: std::os::unix::fs::MetadataExt::nlink(&metadata),
         kind: if script {
             PinKind::Script
         } else {

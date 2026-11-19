@@ -37,13 +37,6 @@ pub mod exit;
 pub mod fs;
 mod grant;
 pub mod handle;
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "no shipped member is declared `later` yet; the form's tests declare theirs"
-    )
-)]
 pub mod later;
 pub mod native;
 pub mod spawn;
@@ -284,7 +277,13 @@ native_members! {
         };
         match (code, state.try_borrow::<ExitState>(), state.try_borrow::<RefusalLog>()) {
             (None, ..) => throw_type_error(scope, NOT_A_CODE),
-            (Some(code), Some(exit), Some(refusals)) => exit.exit(code, refusals),
+            (Some(code), Some(exit), Some(refusals)) => {
+                // no child outlives the run, which ends here
+                if let Some(spawn) = state.try_borrow::<HostData>().and_then(|data| data.spawn.as_deref()) {
+                    spawn.kill_children();
+                }
+                exit.exit(code, refusals)
+            }
             (Some(_), ..) => throw_error(scope, NO_EXIT_STATE),
         }
         None
@@ -689,25 +688,31 @@ native_members! {
         spawn::narrow(state, scope, handle, names, errors)
     }
 
-    /// `program.run(args, options?)`, not built ([`spawn::unbuilt`]).
-    async run(state, _granted: SpawnGrant; scope, _args, _options) for "@fuzdev/gro/spawn.ts"
-        on SPAWN_PROGRAM(handle)
+    /// `program.run(args, options?)`, called on `handle`
+    /// ([`spawn::launch::call`]).
+    later run(state, _granted: SpawnGrant; scope, args, options) for "@fuzdev/gro/spawn.ts"
+        on SPAWN_PROGRAM(handle) throws SPAWN_ERROR(errors)
     {
-        spawn::unbuilt(state, scope, "run", &SPAWN_PROGRAM, handle)
+        let capture = spawn::watch::Capture::None;
+        spawn::launch::call(state, scope, capture, handle, args, options, errors)
     }
 
-    /// `program.out(args, options?)`, not built ([`spawn::unbuilt`]).
-    async out(state, _granted: SpawnGrant; scope, _args, _options) for "@fuzdev/gro/spawn.ts"
-        on SPAWN_PROGRAM(handle)
+    /// `program.out(args, options?)`, called on `handle`
+    /// ([`spawn::launch::call`]).
+    later out(state, _granted: SpawnGrant; scope, args, options) for "@fuzdev/gro/spawn.ts"
+        on SPAWN_PROGRAM(handle) throws SPAWN_ERROR(errors)
     {
-        spawn::unbuilt(state, scope, "out", &SPAWN_PROGRAM, handle)
+        let capture = spawn::watch::Capture::Text;
+        spawn::launch::call(state, scope, capture, handle, args, options, errors)
     }
 
-    /// `program.out_bytes(args, options?)`, not built ([`spawn::unbuilt`]).
-    async out_bytes(state, _granted: SpawnGrant; scope, _args, _options)
-        for "@fuzdev/gro/spawn.ts" on SPAWN_PROGRAM(handle)
+    /// `program.out_bytes(args, options?)`, called on `handle`
+    /// ([`spawn::launch::call`]).
+    later out_bytes(state, _granted: SpawnGrant; scope, args, options)
+        for "@fuzdev/gro/spawn.ts" on SPAWN_PROGRAM(handle) throws SPAWN_ERROR(errors)
     {
-        spawn::unbuilt(state, scope, "out_bytes", &SPAWN_PROGRAM, handle)
+        let capture = spawn::watch::Capture::Bytes;
+        spawn::launch::call(state, scope, capture, handle, args, options, errors)
     }
 
     /// `program.start(args, options?)`, not built ([`spawn::unbuilt`]).

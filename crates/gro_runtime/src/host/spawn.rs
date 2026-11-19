@@ -51,16 +51,25 @@
 //! then the directory against the exec roots of the root's scope, which a
 //! run declares none of yet: in a confined run's scope that's
 //! `not_granted`, and in an unconfined one's, where every directory would
-//! be one, resolving beneath it isn't built. A child isn't launched yet: a
-//! program's `run`, `out`, `out_bytes`, and `start`, and a child's and its
-//! stdin's methods, each check their receiver and fail with a plain `Error`
-//! saying so.
+//! be one, resolving beneath it isn't built.
+//!
+//! A program's `run`, `out`, and `out_bytes` launch a child and settle in a
+//! later turn ([`launch`]), its watch a task on the event loop's own
+//! runtime, and the run's table of children killed when the run ends
+//! ([`watch`]). `start`, and a child's and its stdin's methods, aren't
+//! built: each checks its receiver and fails with a plain `Error` saying
+//! so.
 
+pub mod launch;
 pub mod pins;
+pub mod watch;
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, BTreeSet};
+use std::os::fd::{AsRawFd, OwnedFd, RawFd};
+use std::os::unix::fs::OpenOptionsExt as _;
 use std::path::Path;
+use std::sync::Arc;
 
 use deno_core::{OpState, v8};
 
@@ -73,6 +82,7 @@ use crate::loader::RefusalLog;
 use crate::loader::refused::{NOT_GRANTED, NotGranted, SpawnNeed};
 use crate::{Authority, CHILD_BASE_ENV, EnvPattern, EnvPatternFault, EnvVars, Grants};
 use pins::{Fault, Pin};
+use watch::Children;
 
 /// The spawn namespace's specifier, which holds the run's root as its
 /// `spawn`.
@@ -106,10 +116,19 @@ const PROJECT_SCOPE: usize = 0;
 
 /// The run's spawn state, made as it starts, before any module evaluates:
 /// the variables a child may be given, the project's root, which a name
-/// holding `/` resolves beneath, the run's table of scopes, and the run's
-/// pins.
+/// holding `/` resolves beneath, and its directory, a child's working
+/// directory when a call names none, the run's table of scopes, the run's
+/// pins, and its children not reaped yet.
 #[derive(Debug)]
 pub struct SpawnRun {
+    /// The project's directory, opened as a path only as the run started,
+    /// or why it couldn't be, which fails a launch that needs it.
+    project_dir: Result<OwnedFd, String>,
+    /// The children launched and not reaped yet, which the run kills when
+    /// it ends.
+    children: Arc<Children>,
+    /// Whether the signal handler that kills them is installed.
+    guarded: Cell<bool>,
     /// The variables a child may be given, as the embedder read them.
     env: EnvVars,
     /// The project's root, a real path, unset when it isn't UTF-8.
@@ -155,6 +174,7 @@ impl SpawnRun {
                 spawn: Some(grant), ..
             }) => Some(grant),
         };
+        let project_path = project;
         let project = project.to_str().map(ToOwned::to_owned);
         let mut pins = Vec::new();
         let scope = grant.map_or(Scope::Unconfined, |grant| {
@@ -176,12 +196,63 @@ impl SpawnRun {
                     .collect(),
             )
         });
+        let project_dir = std::fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_PATH | libc::O_DIRECTORY)
+            .open(project_path)
+            .map(OwnedFd::from)
+            .map_err(|error| {
+                format!(
+                    "the project's directory {} can't be opened: {error}",
+                    project_path.display()
+                )
+            });
         Some(Self {
+            project_dir,
+            children: Arc::default(),
+            guarded: Cell::new(false),
             env: env.clone(),
             project,
             scopes: vec![scope],
             pins: RefCell::new(pins),
         })
+    }
+
+    /// Kills every child launched and not reaped yet, each group it leads
+    /// with it ([`Children::kill_all`]): what a run's end, and its `exit`,
+    /// do before the process goes on, so no child outlives the run that
+    /// launched it.
+    pub fn kill_children(&self) {
+        self.children.kill_all();
+    }
+
+    /// Installs, at the run's first launch, the signal handler that kills
+    /// its groups and passes a `SIGTERM` on to its other children when a
+    /// signal ends the process (`gro_sys::guard_children_on_signal`).
+    ///
+    /// # Errors
+    ///
+    /// Returns why it couldn't be installed.
+    fn guard_on_signal(&self) -> Result<(), String> {
+        if !self.guarded.get() {
+            gro_sys::guard_children_on_signal()
+                .map_err(|error| format!("its signal handler couldn't be installed: {error}"))?;
+            self.guarded.set(true);
+        }
+        Ok(())
+    }
+
+    /// The descriptor of the project's directory, a child's working
+    /// directory when a call names none.
+    ///
+    /// # Errors
+    ///
+    /// Returns why it couldn't be opened as the run started.
+    fn project_dir(&self) -> Result<RawFd, String> {
+        self.project_dir
+            .as_ref()
+            .map(AsRawFd::as_raw_fd)
+            .map_err(Clone::clone)
     }
 
     /// The scope `root` names, or a plain `Error` for a place the run's
@@ -220,14 +291,16 @@ fn pin(name: &str, env: &EnvVars, project: Option<&str>) -> Result<Pin, Fault> {
 }
 
 /// The `kind` of a `SpawnError` the module throws, of the closed set
-/// `spawn_error.ts`'s `SpawnErrorKind` declares, `launch_failed` waiting
-/// for the first launch.
+/// `spawn_error.ts`'s `SpawnErrorKind` declares; `not_granted` is a
+/// refusal's ([`Failure::NotGranted`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SpawnErrorKind {
     /// No program at the name.
     NotFound,
     /// What's at the name can't be run.
     NotExecutable,
+    /// The program didn't start.
+    LaunchFailed,
 }
 
 impl SpawnErrorKind {
@@ -236,6 +309,7 @@ impl SpawnErrorKind {
         match self {
             Self::NotFound => "not_found",
             Self::NotExecutable => "not_executable",
+            Self::LaunchFailed => "launch_failed",
         }
     }
 }
@@ -250,6 +324,14 @@ enum Failure {
         kind: SpawnErrorKind,
         program: String,
         cause: String,
+    },
+    /// `launch_failed` about `program`, its `cause` an `Error` of this
+    /// message, whose own `cause`, when there's `inner`, is an `Error` of
+    /// that message: what the OS said.
+    Launch {
+        program: String,
+        cause: String,
+        inner: Option<String>,
     },
     /// `not_granted` about `program`, its `cause` an `Error` of this
     /// message, recorded as it's thrown with what would have allowed it.
@@ -291,6 +373,7 @@ impl Failure {
 /// family the member declares, its refusal recorded in the run's record
 /// first.
 fn throw(state: &OpState, scope: &v8::PinScope<'_, '_>, errors: DeclaredFamily, failure: Failure) {
+    let mut inner = None;
     let (kind, program, cause) = match failure {
         Failure::Thrown => return,
         Failure::Type(message) => return throw_type_error(scope, &message),
@@ -300,6 +383,14 @@ fn throw(state: &OpState, scope: &v8::PinScope<'_, '_>, errors: DeclaredFamily, 
             program,
             cause,
         } => (kind.as_str(), program, cause),
+        Failure::Launch {
+            program,
+            cause,
+            inner: why,
+        } => {
+            inner = why;
+            (SpawnErrorKind::LaunchFailed.as_str(), program, cause)
+        }
         Failure::NotGranted {
             program,
             cause,
@@ -324,6 +415,24 @@ fn throw(state: &OpState, scope: &v8::PinScope<'_, '_>, errors: DeclaredFamily, 
         return;
     };
     let cause = v8::Exception::error(scope, cause);
+    if let Some(inner) = inner {
+        // what the OS said, the cause's own `cause`, as an `Error`'s
+        // options would define it: not enumerable
+        let (Some(object), Some(key), Some(inner)) = (
+            cause.to_object(scope),
+            name(scope, "cause"),
+            string(scope, &inner),
+        ) else {
+            return;
+        };
+        let inner = v8::Exception::error(scope, inner);
+        if object
+            .define_own_property(scope, key, inner, v8::PropertyAttribute::DONT_ENUM)
+            .is_none()
+        {
+            return;
+        }
+    }
     classes.throw(scope, errors, kind, target, Some(cause));
 }
 
@@ -1171,6 +1280,9 @@ pub fn run_of_scopes(scopes: &[&[(&str, &[&str])]]) -> SpawnRun {
         })
         .collect();
     SpawnRun {
+        project_dir: Err("a test's run has no project".to_owned()),
+        children: Arc::default(),
+        guarded: Cell::new(false),
         env: EnvVars::default(),
         project: Some("/".to_owned()),
         scopes,

@@ -1206,5 +1206,37 @@
 				"why": "fgro's root narrows only to the programs --allow-run grants, where Node's narrows to any"
 			}
 		]
+	},
+	{
+		"name": "spawn_launch",
+		"module": "spawn",
+		"args": ["launch", "{cwd}"],
+		"flags": ["--allow-run=emit,./spawn/bin/emit,sh", "--allow-run-env=GRO_A,GRO_P_*"],
+		"env": {"PATH": "{cwd}/spawn/nm/node_modules/.bin:spawn/rel::{cwd}/spawn/dir:{cwd}/spawn/bin/:/usr/bin:/bin", "GRO_A": "a", "GRO_B": "b", "GRO_P_X": "x", "GRO_SECRET": "s"},
+		"differs": [
+			{
+				"at": "/run/real_time/fulfilled/fields",
+				"fgro": {"kind": "signaled", "signal": "SIGRTMIN+1"},
+				"why": "fgro reports a child a real-time signal killed as signaled, by the signal's place after SIGRTMIN, where Node reports it as exited 0"
+			},
+			{
+				"at": "/out/vars/fulfilled/fields/stdout",
+				"fgro": "PATH={project}/spawn/nm/node_modules/.bin:{project}/spawn/dir:{project}/spawn/bin/:/usr/bin:/bin;HOME=unset;LC_ALL=C;GRO_A=unset;GRO_B=unset;GRO_P_X=unset;GRO_SECRET=unset;",
+				"why": "fgro hands a child a PATH of its absolute entries only, so an empty or relative one can't name the child's working directory"
+			},
+			{
+				"at": "/out/vars_given/fulfilled/fields/stdout",
+				"fgro": "PATH=/usr/bin:/bin;LC_ALL=C;GRO_A=a;GRO_B=unset;GRO_P_X=x;GRO_SET=set;",
+				"why": "fgro keeps only the absolute entries of any PATH a child is handed, one `env` sets included"
+			}
+		]
+	},
+	{
+		"name": "spawn_call_invalid",
+		"module": "spawn",
+		"args": ["call_invalid", "{cwd}"],
+		"flags": ["-A"],
+		"env": {"PATH": "{cwd}/spawn/nm/node_modules/.bin:spawn/rel::{cwd}/spawn/dir:{cwd}/spawn/bin/:/usr/bin:/bin", "GRO_A": "a", "GRO_B": "b", "GRO_P_X": "x", "GRO_SECRET": "s"},
+		"differs": []
 	}
 ]
