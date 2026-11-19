@@ -120,9 +120,9 @@ Narrower ways to widen sit beside each default, like a blanket net grant and the
 
 ## exec root
 
-A directory a run declares for `spawn.program_in`, beneath which a child may execute what it finds.
-One may also be a [write root](#write-root), as a build's output directory is, so each is declared and reviewed as narrowly.
-Designed ([backstop](backstop.md#the-box-for-runs-and-children)).
+A directory a run grants for `spawn.program_in` and `find_in`, beneath which they find a program to run: on `fgro`, one `fgro run --allow-run-in=` names, opened as the run starts and held to the directory it named then ([host modules](host_modules.md#spawn-on-fgro)).
+One may also be a [write root](#write-root), as a build's output directory is, so a run granted both runs what it writes there, and each is declared and reviewed as narrowly.
+The kernel's `EXECUTE` rule on one is designed ([backstop](backstop.md#the-box-for-runs-and-children)).
 
 ## grant
 

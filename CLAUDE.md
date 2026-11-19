@@ -465,10 +465,11 @@ miss there, and the contracts no one module doc owns:
   a child may be given (`spawn_env`: the base set and what
   `--allow-run-env=` names, the whole environment listed only when it grants
   a glob, everything under `-A`), handed in as `RuntimeOptions::spawn_env`,
-  which no member returns, and the directories `--allow-read=` and
-  `--allow-write=` grant, each resolved against the working directory and
-  checked to be a directory as the run starts (`fs_grant`), handed in as the
-  `fs` grant's paths, each with its real path then and the identity of the
+  which no member returns, and the directories `--allow-read=`,
+  `--allow-write=`, and `--allow-run-in=` grant, each resolved against the
+  working directory and checked to be a directory as the run starts
+  (`granted_dirs`), handed in as the `fs` grant's paths and the `spawn`
+  grant's exec roots, each with its real path then and the identity of the
   directory there, and, for a run that grants `fs.temp_dir`, the OS's
   temporary directory, read from `TMPDIR`, `TMP`, or `TEMP` as Node's
   `os.tmpdir()` reads it, handed in by its real path then (where it can't be

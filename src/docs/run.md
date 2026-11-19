@@ -16,6 +16,7 @@ fgro run --allow-env=HOME,NO_COLOR <file>   # the env host module, with these tw
 fgro run --allow-read=../data --allow-write=out <file>   # fs reads ../data, and out/ is a write root
 fgro run --allow-temp <file>   # fs.temp_dir makes fresh directories under the OS's temporary directory
 fgro run --allow-run=git,cargo --allow-run-env='CARGO_*' <file>   # spawn makes these programs, each may be passed what CARGO_* covers when its pass_env names it
+fgro run --allow-write=target --allow-run-in=target <file>   # spawn.program_in runs what the run builds in target/
 fgro run -A <file>          # unconfined: every grant at its widest
 fgro --version              # the version, the git commit, the V8 version, and whether a startup snapshot is embedded
 ```
@@ -80,9 +81,15 @@ A run grants the project's own modules `args`, `exit`, and `fs`, whose root read
   Until each child is boxed, granting any program is close to granting what `-A` grants:
   most programs can be made to run code by their arguments or environment, a shell, git, and cargo among them,
   and the root's `env` values set any variable for a program; hand library code a narrowed root, which refuses `env` values.
-- `--allow-run-env=A,CARGO_*` lets the programs `--allow-run=` grants be passed these variables, when a program's `pass_env` names them:
+- `--allow-run-in=target,../tools` grants `@fuzdev/gro/spawn.ts` to the project's modules with these directories as exec roots, listed as `--allow-read=` lists its own:
+  `spawn.program_in(dir, name)` and `find_in` find a program beneath an fs handle's directory that lies beneath one, and refuse any other directory `not_granted`.
+  Each is checked to be a directory as the run starts, then opened by its real path, beside the pins, and held to the directory it named then,
+  so one replaced between is refused ([host modules](host_modules.md#spawn-on-fgro)). A bare `--allow-run-in` is a usage error.
+  An exec root that is also a directory `--allow-write=` grants runs what the run writes there, so a run granted both can write a program and run it:
+  as for `--allow-run=`, granting one is close to granting what `-A` grants.
+- `--allow-run-env=A,CARGO_*` lets the programs `--allow-run=` grants, and those found beneath what `--allow-run-in=` grants, be passed these variables, when a program's `pass_env` names them:
   each an exact name, or a `PREFIX_*` glob, which covers every name it starts and lets `pass_env` name a glob within it.
-  It's repeatable, its names one set, and it's a usage error without `--allow-run=`, bare, or naming what no variable can be named: an empty name, a NUL byte, a `=`, a `*` before a name's end, or `*` alone, which would pass every variable without saying so.
+  It's repeatable, its names one set, and it's a usage error without `--allow-run=` or `--allow-run-in=`, bare, or naming what no variable can be named: an empty name, a NUL byte, a `=`, a `*` before a name's end, or `*` alone, which would pass every variable without saying so.
   `fgro` reads each exact name by name, and the whole environment only when a glob is granted, keeping what a glob covers, so the runtime holds no variable it could pass no child;
   a script reads none of them: the spawn module gives a child what its program's options name, and no member returns a value.
   A variable of the base set needs no grant: `pass_env` may name one exactly, since every child is given it.
@@ -100,7 +107,7 @@ and ends the run or sets its exit code with `exit` and `set_exit_code`, from `@f
 User code can't read stdin (there is no `process` global, `Deno`, or `Bun`) and reads the environment only through `@fuzdev/gro/env.ts`, the variables `--allow-env=` or `-A` grants;
 it reads the filesystem only through `@fuzdev/gro/fs.ts`, beneath the project's root, the directories `--allow-read=` names, and those `fs.temp_dir` makes under `--allow-temp` (everything under `-A`),
 and writes only beneath the directories `--allow-write=` names and those `fs.temp_dir` makes under `--allow-temp`;
-it starts only the programs `--allow-run=` names, through `@fuzdev/gro/spawn.ts` (any under `-A`), and no module gives it the network.
+it starts only the programs `--allow-run=` names and those found beneath what `--allow-run-in=` names, through `@fuzdev/gro/spawn.ts` (any under `-A`), and no module gives it the network.
 That is the whole of today's confinement: the process itself has no kernel box and no resource limits, the JIT is on,
 and console output reaches the terminal unescaped: it's the program's own, and can imitate `fgro`'s lines, an `error:` or a `hint:` among them.
 So `fgro run` is not yet for code you treat as hostile
@@ -109,8 +116,8 @@ The event loop drains before the run ends, so timers and pending promises comple
 and a top-level `await` on a promise nothing settles or waits on ends the run as an error, not a hang;
 a call's child is waited on until it ends, so a run awaiting a child that never ends waits for it, as on Node.
 When the run ends, by `exit`, an uncaught error, or its event loop's end, every child it started and hasn't reaped is killed, with the process group the child leads.
-A run that grants a program (`--allow-run=` or `-A`) raises its soft limit on open descriptors to the hard one as it starts, as Node does, so many children with their pipes fit,
-and each child inherits the raised limit.
+A run that grants a program (`--allow-run=`, `--allow-run-in=`, or `-A`) raises its soft limit on open descriptors to the hard one as it starts, as Node does, so many children with their pipes fit,
+and each child inherits the raised limit; a raise the kernel refuses leaves the limit as it was and the run going, as on Node.
 Linux x86_64 only.
 A binary from `cargo xtask build` starts from its embedded snapshot and runs anywhere,
 while a plain `cargo build` runs only from its build tree.
@@ -160,10 +167,9 @@ The binary embeds the commit, so a dirty tree (a changed file, or an untracked o
   with `FsError` `not_granted`, which fails the run caught or not, and so does a read through a handle that doesn't read
   or a write through one that doesn't write, while a handle's reach outside its directory is `outside_root`, which doesn't ([host modules](host_modules.md#fs-on-fgro)).
 - `@fuzdev/gro/fs_error.ts`, a builtin module that needs no grant: `FsError`, `is_fs_error`, and `is_own_fs_error`.
-- `@fuzdev/gro/spawn.ts`, a builtin module granted to the project's own modules only by `--allow-run=` (and to every module by `-A`):
-  `spawn`, the root handle, making program handles of the names it may and narrower roots, a refusal throwing `SpawnError` `not_granted`, which fails the run caught or not;
-  a program's `run`, `out`, and `out_bytes` start its child, refused `launch_failed` when its file changed since it was pinned,
-  and `start` isn't built, rejecting saying so ([host modules](host_modules.md#spawn-on-fgro)).
+- `@fuzdev/gro/spawn.ts`, a builtin module granted to the project's own modules only by `--allow-run=` and `--allow-run-in=` (and to every module by `-A`):
+  `spawn`, the root handle, making program handles of the names it may, of programs beneath the exec roots, and narrower roots, a refusal throwing `SpawnError` `not_granted`, which fails the run caught or not;
+  a program's `run`, `out`, `out_bytes`, and `start` start its child, refused `launch_failed` when its file changed since it was pinned ([host modules](host_modules.md#spawn-on-fgro)).
 - `@fuzdev/gro/spawn_error.ts`, a builtin module that needs no grant: `SpawnError` and `is_spawn_error`.
 - A builtin module's `.js` spelling (`@fuzdev/gro/args.js`), the host modules not on `fgro` yet (`@fuzdev/gro/net.ts`, `stdin`, `stdout`, `net_error`, and the rest, either spelling),
   and `@fuzdev/gro/process.ts` and `process_error.ts`, which Gro has none of (either spelling),
@@ -263,7 +269,7 @@ which throws `EnvError` `not_granted` and fails the run (an unset granted name, 
 or a path `fs` refuses `not_granted`: one outside every root the call may use, or an op its handle's scope lacks;
 or a program `spawn` refuses `not_granted`: a name outside the set of the root it's asked of, the run's root's being the ones `--allow-run=` granted,
 a variable a program's `pass_env` names that `--allow-run-env=` doesn't forward (a name of the base set needs none), `pass_env: 'all'` but under `-A`, an absolute name or one climbing above the project,
-what a narrowed root refuses, and a directory no exec root holds, which a run declares none of yet.
+what a narrowed root refuses, and a directory no exec root of the root's scope holds, the run's root's being the ones `--allow-run-in=` granted.
 After the run's own error, if it has one, stderr lists the first 8 distinct refusals of either kind in the order they happened,
 `error: import() refused: <its message>` for an import and `error: env refused: not_granted: <name>`, `error: fs refused <need>: not_granted: <path>`, or `error: spawn refused: not_granted: <program>` for a call, never a value,
 escaped as a usage error's argument is (`\u{1b}`),
@@ -285,6 +291,7 @@ only a plain name, of ASCII letters, digits, `.`, `_`, `+`, and `-`, starting wi
 and `hint: add --allow-run-env=A,B to grant what spawn refused`, naming each variable a granted program's `pass_env` named that the flag doesn't forward, by `env`'s rule, so never a glob,
 whichever root passed it on, a narrowed one included, since the flag widens the program's grant.
 Each counts its own names, and reads `some of what spawn refused` when it can't name them all of its kind.
+Then `hint: add --allow-run-in naming the directory to grant what spawn refused`, once, for a directory the run's root found in no exec root, fixed text naming no path, as `fs`'s hints are.
 After them come the hints for `fs`, each once when a refusal needed it, in this order, each fixed text that names no path:
 `hint: add --allow-read naming the directory to grant what fs refused`, for a reach outside every root or a read through a handle that doesn't read;
 `hint: fs refused a symlink leaving its root (an absolute target, or a .. above the root, even one leading back in): make the link relative within its root, or open its target's directory by its own path with fs.open_dir`,
@@ -305,7 +312,7 @@ so a hint pairs with the listed refusals of its kind or with none listed, never 
 and two refusals of one path that needed different kinds are two lines.
 The listed refusal names the path; a hint never does, since a path the program chose, shown back, can grant another directory than it names, through a symlink, or run something when pasted.
 There's no hint for a name outside a narrowed handle's set, which no flag widens, for any refusal under `-A`, whose roots reach everything,
-for `pass_env: 'all'` or an exec root, which no flag grants yet,
+for `pass_env: 'all'`, which no flag grants,
 or for a refused `import()`, which records no grant: a package is granted no host module by any flag, most rules are grantable by nothing,
 and the project's `import()` of `env` without `--allow-env=` names no variable the flag could list.
 The hint is made from what the run recorded of each refusal, the grant that would have allowed it, never from the listed text.
@@ -334,7 +341,7 @@ Whether a stream is colored is decided once per process, in order:
 | 0              | the module ran to completion with no code set, or called `exit()` with none set, or `--help` or `--version`                                                  |
 | the program's  | the code given to `exit(code)`, or the one `set_exit_code` set when the module then ran to completion or called `exit()` with none: an integer from 0 to 255 |
 | 1              | the module threw, rejected a promise no one handled, left a top-level `await` unsettled, an import failed to resolve, load, or strip, or the runtime failed to start, or a run that grants a program couldn't make ready to start one, whatever code `set_exit_code` set; or an `import()` was refused by one of gro's rules, or a call for a grant its handle lacks, caught or not, in a run that would have exited 0 |
-| 2              | a usage error (no arguments, an unknown subcommand or flag, a flag before `run`'s file other than `--help`, `--allow-env=`, `--allow-read=`, `--allow-write=`, `--allow-temp`, `--allow-run=`, `--allow-run-env=`, or `-A`, a bare one of these or a name it can't grant, `--allow-temp` given a value, `--allow-run-env=` without `--allow-run=`, a directory missing, no directory, or one that can't be looked at, no file, an extra argument to `eval`, a non-UTF-8 argument, the script's included, `--version` with a subcommand), or an entry that doesn't resolve (missing, the wrong extension, a `.js` file not under `"type": "module"`) |
+| 2              | a usage error (no arguments, an unknown subcommand or flag, a flag before `run`'s file other than `--help`, `--allow-env=`, `--allow-read=`, `--allow-write=`, `--allow-temp`, `--allow-run=`, `--allow-run-in=`, `--allow-run-env=`, or `-A`, a bare one of these or a name it can't grant, `--allow-temp` given a value, `--allow-run-env=` without `--allow-run=` or `--allow-run-in=`, a directory missing, no directory, or one that can't be looked at, no file, an extra argument to `eval`, a non-UTF-8 argument, the script's included, `--version` with a subcommand), or an entry that doesn't resolve (missing, the wrong extension, a `.js` file not under `"type": "module"`) |
 
 An entry that fails to resolve on an I/O error or a symlink loop exits 1, not 2.
 A program's code passes as it is, so `1` and `2` are shared between the program and `fgro`'s own failures.

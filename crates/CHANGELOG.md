@@ -20,7 +20,7 @@ beside a `SHA512SUMS` file, each with a provenance attestation.
   and console output reaches the terminal unescaped, so `fgro run` isn't yet for code you treat as hostile.
   - A program reaches the OS only through the builtin host modules, imports under `@fuzdev/gro/*` that the binary resolves ahead of package lookup,
     each with the exports and types of its Node module in the npm package.
-    A run grants the ones that need a grant to the project's own modules only, `env` only under `--allow-env=` and `spawn` only under `--allow-run=`:
+    A run grants the ones that need a grant to the project's own modules only, `env` only under `--allow-env=` and `spawn` only under `--allow-run=` or `--allow-run-in=`:
     a package's module is refused one when the graph links,
     and can't import the project's own modules by name to reach it through one, and `fgro eval` imports no builtin module.
     A builtin module's implementation is compiled and run when a run first imports it, so a run that imports none pays for none.
@@ -56,11 +56,17 @@ beside a `SHA512SUMS` file, each with a provenance attestation.
     the child is waited for by its pidfd, and a group it leads is killed, by an id still its own, at the drain bound, past `max_bytes`, and after a timeout's grace.
     No child outlives its run: `exit`, an uncaught error, the run's end, and a `SIGINT`, `SIGTERM`, or `SIGHUP` kill each one left, with its group,
     a child launching as the signal arrives among them, waited for up to a second.
-    A run that grants a program raises its soft limit on open descriptors to the hard one as it starts, as Node does.
-    `start` isn't built, nor a call's `signal` option: each rejects saying so.
+    `start` starts a long-lived child, its `SpawnChild` holding its `pid`, its `closed`, which never rejects, its piped `stdin`, written and closed in order,
+    and its piped `stdout` and `stderr`, each an async iterable once, of chunks buffered up to 1 MiB ahead of its reader;
+    `kill` sends a signal by name, and a disposal stops it, and the kill at the run's end, the guards, the drain bound, and `timeout_ms` cover it as they do `run`'s.
+    `fgro run --allow-run-in=target <file>` grants exec roots, each held as the run starts: `program_in` and `find_in` find a program beneath an fs handle's directory within one,
+    resolved beneath the exec root's own descriptor, so an absolute name, a `..` above the directory, and a symlink leaving it are refused, and pinned as a granted program is.
+    An exec root that is also a write root runs what the run writes there.
+    A run that grants a program raises its soft limit on open descriptors to the hard one as it starts, as Node does, and goes on when the kernel refuses the raise.
+    A call's `signal` option isn't built: given, it rejects saying so.
     Until each child is boxed, granting any program is close to granting what `-A` grants, since most programs can be made to run code
     by their arguments or environment and the root's `env` values set any variable; hand library code a narrowed root, which refuses them.
-    A program outside a handle's set, or a variable its program's grant doesn't forward, throws `SpawnError` `not_granted`.
+    A program outside a handle's set, a directory outside every exec root, or a variable its program's grant doesn't forward, throws `SpawnError` `not_granted`.
   - Four more builtin modules need no grant, so a package's modules import them as the project's do:
     `@fuzdev/gro/cwd.ts`, whose `cwd()` is the directory `fgro` was started in,
     `@fuzdev/gro/pid.ts`, whose `pid` is the process's id,

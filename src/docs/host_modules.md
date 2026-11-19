@@ -20,27 +20,27 @@ and narrowing it means handing down a narrower handle.
 Every host module, each `@fuzdev/gro/<module>`, and whether it's a builtin module on `fgro` yet.
 This table is the one list of what's on `fgro`: the other runtime docs link here rather than restate it.
 
-| module               | what it reaches                         | on `fgro`               |
-| -------------------- | --------------------------------------- | ----------------------- |
-| `fs.ts`              | the filesystem, through handles         | built, the `fs` grant   |
-| `spawn.ts`           | programs, as child processes            | built but `start`       |
-| `net.ts`             | the network, by host                    | not yet                 |
-| `watch.ts`           | changes under a directory handle        | not yet                 |
-| `env.ts`             | the environment                         | built, the `env` grant  |
-| `args.ts`            | the script's arguments                  | built, the `args` grant |
-| `exit.ts`            | how the run ends                        | built, the `exit` grant |
-| `stdin.ts`           | standard input                          | not yet                 |
-| `stdout.ts`          | standard output                         | not yet                 |
-| `stderr.ts`          | standard error                          | not yet                 |
-| `cwd.ts`             | nothing: the working directory, a value | built, no grant         |
-| `pid.ts`             | nothing: the process's id, a value      | built, no grant         |
-| `runtime_version.ts` | nothing: the runtime's name, a value    | built, no grant         |
-| `blake3.ts`          | nothing: BLAKE3 hashing over bytes      | built, no grant         |
-| `env_error.ts`       | nothing: `env`'s error class            | built, no grant         |
-| `fs_error.ts`        | nothing: `fs`'s error class             | built, no grant         |
-| `spawn_error.ts`     | nothing: `spawn`'s error class          | built, no grant         |
-| `net_error.ts`       | nothing: `net`'s error class            | not yet                 |
-| `stdio_error.ts`     | nothing: the streams' error class       | not yet                 |
+| module               | what it reaches                         | on `fgro`                |
+| -------------------- | --------------------------------------- | ------------------------ |
+| `fs.ts`              | the filesystem, through handles         | built, the `fs` grant    |
+| `spawn.ts`           | programs, as child processes            | built, the `spawn` grant |
+| `net.ts`             | the network, by host                    | not yet                  |
+| `watch.ts`           | changes under a directory handle        | not yet                  |
+| `env.ts`             | the environment                         | built, the `env` grant   |
+| `args.ts`            | the script's arguments                  | built, the `args` grant  |
+| `exit.ts`            | how the run ends                        | built, the `exit` grant  |
+| `stdin.ts`           | standard input                          | not yet                  |
+| `stdout.ts`          | standard output                         | not yet                  |
+| `stderr.ts`          | standard error                          | not yet                  |
+| `cwd.ts`             | nothing: the working directory, a value | built, no grant          |
+| `pid.ts`             | nothing: the process's id, a value      | built, no grant          |
+| `runtime_version.ts` | nothing: the runtime's name, a value    | built, no grant          |
+| `blake3.ts`          | nothing: BLAKE3 hashing over bytes      | built, no grant          |
+| `env_error.ts`       | nothing: `env`'s error class            | built, no grant          |
+| `fs_error.ts`        | nothing: `fs`'s error class             | built, no grant          |
+| `spawn_error.ts`     | nothing: `spawn`'s error class          | built, no grant          |
+| `net_error.ts`       | nothing: `net`'s error class            | not yet                  |
+| `stdio_error.ts`     | nothing: the streams' error class       | not yet                  |
 
 A module that isn't on `fgro` yet is refused there by its specifier, in either spelling, never loaded from the npm package.
 
@@ -513,13 +513,12 @@ The module's TSDoc has each op's contract.
 
 On `fgro`, `@fuzdev/gro/spawn.ts` is a builtin module with the Node module's members, each of the same `length`, its handles frozen,
 and `@fuzdev/gro/spawn_error.ts` is a grant-free one, `SpawnError` and `is_spawn_error` the runtime's own ([error classes](#error-classes-on-fgro)).
-`spawn` needs the `spawn` grant, which `fgro run --allow-run=` gives the project's own modules for the programs it names, and `-A` gives every module for every program ([run](run.md#usage)).
-Built: the root and its narrowed roots, `program`, `find`, and `narrow`, program handles with their `name` and `path`,
-a program's `run`, `out`, and `out_bytes`, and `program_in` and `find_in` up to their check of the directory.
-Not built: `start`, which checks its receiver and rejects with a plain `Error` saying so,
-and the `SpawnChild` and `SpawnStdin` kinds, which only `start` makes, whose methods are declared the same way, so the module's shape is the Node module's;
-and a call's `signal` option, which, given, rejects with a plain `Error`.
-How it's built is in the module docs of `crates/gro_runtime/src/host/spawn.rs` and its children, `spawn/pins.rs`, `spawn/launch.rs`, and `spawn/watch.rs`.
+`spawn` needs the `spawn` grant, which `fgro run --allow-run=` gives the project's own modules for the programs it names, `--allow-run-in=` for the programs found beneath the directories it names,
+and `-A` gives every module for every program ([run](run.md#usage)).
+Built: every member, the root and its narrowed roots, `program`, `find`, `program_in`, `find_in`, and `narrow`, program handles with their `name` and `path`,
+a program's `run`, `out`, `out_bytes`, and `start`, and a started child's `SpawnChild`, its `stdin`, and its output streams.
+Not built: a call's `signal` option, which, given, rejects with a plain `Error`.
+How it's built is in the module docs of `crates/gro_runtime/src/host/spawn.rs` and its children, `spawn/pins.rs`, `spawn/exec_roots.rs`, `spawn/launch.rs`, `spawn/watch.rs`, `spawn/start.rs`, and `spawn/child.rs`.
 
 - Until each child is held in a box of its own ([native requirements](#native-requirements)), granting any program is close to granting what `-A` grants:
   most programs can be made to run code by their arguments or environment, a shell, git, and cargo among them,
@@ -536,6 +535,7 @@ How it's built is in the module docs of `crates/gro_runtime/src/host/spawn.rs` a
   a native binary through the descriptor it runs by, a script at the path it was found at, which must still lead to the pinned file.
   A file rewritten in place, as `fs`'s `write` rewrites one, keeps its identity but not its change time, which no program can set,
   so it's refused, `launch_failed`, as is one whose mode, owner, or links changed, a native binary renamed over or removed among them, said to be replaced or removed when it lost a link;
+  a change within the filesystem clock's tick of the file's last change before its pin leaves the change time as pinned, and isn't seen;
   a script whose path now leads to another file is refused too, as on Node, where a native binary replaced at its path would run the new file.
   A granted name that finds nothing is no error until it's asked for, and then `find` returns `null`. Under `-A` a name is resolved when it's asked for, as on Node.
 - A child's environment is built when its handle is made, from what `fgro` read for children as the run started, never from the process:
@@ -546,10 +546,11 @@ How it's built is in the module docs of `crates/gro_runtime/src/host/spawn.rs` a
   Anything else, `pass_env: 'all'` among it, is `not_granted`; under `-A` any variable passes, `'all'` included.
   `env`'s values are set at the run's root, as on Node, and a narrowed root refuses them.
 - A child is started by `posix_spawn`, no code run between its fork and its exec: a native binary by its pin's descriptor, a script by its path,
+  so a native child's process name, which `ps` and `pkill` read, is that descriptor's number, where Node's is the binary's name;
   its working directory by a descriptor too, the `cwd` handle's directory opened beneath its root, or the project's, opened as the run started,
   and its environment exactly the program's. Every descriptor `fgro` inherited above stderr is marked close-on-exec as a run that grants a program starts,
   so a child is handed only stdin, stdout, and stderr, and its pipes are pipes, so a child reads `/dev/stdin` as a file.
-  That run also raises its soft limit on open descriptors to the hard one, as Node does as it starts, and a child inherits the raised limit.
+  That run also raises its soft limit on open descriptors to the hard one, as Node does as it starts, and a child inherits the raised limit; a raise the kernel refuses leaves the limit as it was, as on Node.
   A child inherits the signals `fgro` was started ignoring, as `nohup` leaves `SIGHUP`, and the launching thread's signal mask, the one `fgro` was started with,
   where Node's child starts with every signal at its default and none blocked; a launch that resets both in the child is designed, not built.
 - A captured child whose stdin isn't `'inherit'` leads a process group of its own, as on Node, but stays in the terminal's session, where Node's starts a new one:
@@ -566,8 +567,24 @@ How it's built is in the module docs of `crates/gro_runtime/src/host/spawn.rs` a
   At most `gro_sys`'s caps of children are held at once (1024 group leaders, and 1024 others): past them a launch is `launch_failed`, where Node has no cap.
 - A child a real-time signal killed is `signaled`, by the signal's place after `SIGRTMIN` (`SIGRTMIN+1`), where Node reports it as `exited` with code 0.
   `NODE_V8_COVERAGE` is never added to a child's environment.
-- `program_in` and `find_in` take a directory beneath an exec root the run declares, and a run declares none yet,
-  so in a confined run each is `not_granted` once its directory, name, and options are checked, and under `-A`, where every directory would be one, resolving beneath it isn't built.
+- `program_in` and `find_in` find a program beneath an exec root, a directory `--allow-run-in=` names, opened as the run starts, beside the pins, and held to the directory it named then,
+  so one replaced since is refused, `not_executable`, its cause saying so, and refuses what it holds rather than yield to an exec root holding it, whose grant may be wider;
+  under `-A` every directory is beneath one.
+  The handle's directory, by its real path, must lie beneath an exec root of the scope the root names, else the call is `not_granted`, with a hint naming the flag and no path;
+  then the directory is opened beneath the exec root's own descriptor, no symlink allowed on the way, and the name beneath it by `openat2` with `RESOLVE_BENEATH`:
+  an absolute name, a `..` above the directory, an absolute symlink, and a relative one that climbs out are `not_granted`, as on Node, where a symlink swapped in between the walk and the pin escapes;
+  a magic link (`/proc/self/exe`, a `/proc/<pid>/fd` entry) is refused by the kernel as a loop, `not_executable`, where Node's handle refuses one whose link reads as an absolute path `not_granted`, and finds no program at one that reads as no path (a pipe's).
+  An exec root stays the directory it opened wherever it's moved: what's found beneath it is found in that directory, never at the path it was granted as now.
+  What's found is pinned through the descriptor that found it, as a granted program is: a native binary runs by that descriptor, a script by the path it was found at.
+  A program found beneath an exec root may be passed what `--allow-run-env=` forwards.
+  An exec root that is also a directory `--allow-write=` grants runs what the run writes there: a run granted both can write a program and run it, so it holds what that program can reach.
+- `start` resolves, in a later turn, to a `SpawnChild` once the child is running, each stream as `stdio` says, a child inheriting none leading a group of its own, as on Node.
+  Its `closed` never rejects and keeps the event loop running until the child has ended and its pipes closed, or the drain bound passed, as Node's child does;
+  a piped output is read from the start, buffering up to 1 MiB ahead of its reader before its pipe is left unread,
+  each chunk a `Uint8Array` of its own buffer; a second iteration is a `TypeError`, and leaving a `for await` early, or the iterator's `throw`, drops the rest, the pipe read on.
+  A pending `next()`, `stdin.write`, or `stdin.close` keeps the event loop running until it settles, as Node's ref'd streams do.
+  `kill` sends its signal by name once to the child or its group, `false` once it has exited; a disposal stops it, `SIGTERM` then `SIGKILL` after the grace, and settles once `closed` has.
+  The kill when the run ends, the signal handler's guards, the drain bound, and `timeout_ms` cover a started child as they do `run`'s.
 - A refusal by the run's root names its program in the listed refusal and, for a plain name or variable, the flag that grants it in a hint ([run](run.md#errors-and-exit-codes));
   a narrowed root refuses what the Node module's does (a name outside its set, `env`, `pass_env: 'all'`, and a glob) with no hint, since no flag widens it,
   and a variable its program's grant doesn't forward with the `--allow-run-env=` hint, since the flag widens the program's grant.
@@ -1404,7 +1421,7 @@ what can fail for a reason of the run's fails in what the module exports, as `cw
 - Resolve `program_in`'s name with `openat2` and `RESOLVE_BENEATH` beneath the handle's directory, opened beneath its root's descriptor, launch a native binary with
   `execveat(fd, "", …, AT_EMPTY_PATH)`, and a script by its found path, checked by identity as above.
   Refuse a handle the runtime didn't make, a resource rather than a shape,
-  and check that the handle's directory is beneath an exec root the run declares before resolving, else `not_granted`.
+  and check that the handle's directory is beneath an exec root of the spawn root's scope before resolving, else `not_granted`.
   An exec root may also be a write root, as a build's output directory is ([backstop](backstop.md#the-box-for-runs-and-children)).
 - Refuse `env`, `pass_env: 'all'`, and `pass_env` globs on a narrowed root natively,
   so a patched `String.prototype.endsWith` can't pass a glob through.
