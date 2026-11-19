@@ -99,13 +99,18 @@ one of the [builtin modules](glossary.md#builtin-module) built so far ([host mod
 and ends the run or sets its exit code with `exit` and `set_exit_code`, from `@fuzdev/gro/exit.ts` ([below](#errors-and-exit-codes)).
 User code can't read stdin (there is no `process` global, `Deno`, or `Bun`) and reads the environment only through `@fuzdev/gro/env.ts`, the variables `--allow-env=` or `-A` grants;
 it reads the filesystem only through `@fuzdev/gro/fs.ts`, beneath the project's root, the directories `--allow-read=` names, and those `fs.temp_dir` makes under `--allow-temp` (everything under `-A`),
-and writes only beneath the directories `--allow-write=` names and those `fs.temp_dir` makes under `--allow-temp`; no module gives it the network or a process.
+and writes only beneath the directories `--allow-write=` names and those `fs.temp_dir` makes under `--allow-temp`;
+it starts only the programs `--allow-run=` names, through `@fuzdev/gro/spawn.ts` (any under `-A`), and no module gives it the network.
 That is the whole of today's confinement: the process itself has no kernel box and no resource limits, the JIT is on,
 and console output reaches the terminal unescaped: it's the program's own, and can imitate `fgro`'s lines, an `error:` or a `hint:` among them.
 So `fgro run` is not yet for code you treat as hostile
 ([authority](authority.md#threat-model) and [backstop](backstop.md) have what's designed).
 The event loop drains before the run ends, so timers and pending promises complete,
-and a top-level `await` on a promise that never settles ends the run as an error, not a hang.
+and a top-level `await` on a promise nothing settles or waits on ends the run as an error, not a hang;
+a call's child is waited on until it ends, so a run awaiting a child that never ends waits for it, as on Node.
+When the run ends, by `exit`, an uncaught error, or its event loop's end, every child it started and hasn't reaped is killed, with the process group the child leads.
+A run that grants a program (`--allow-run=` or `-A`) raises its soft limit on open descriptors to the hard one as it starts, as Node does, so many children with their pipes fit,
+and each child inherits the raised limit.
 Linux x86_64 only.
 A binary from `cargo xtask build` starts from its embedded snapshot and runs anywhere,
 while a plain `cargo build` runs only from its build tree.
@@ -157,7 +162,8 @@ The binary embeds the commit, so a dirty tree (a changed file, or an untracked o
 - `@fuzdev/gro/fs_error.ts`, a builtin module that needs no grant: `FsError`, `is_fs_error`, and `is_own_fs_error`.
 - `@fuzdev/gro/spawn.ts`, a builtin module granted to the project's own modules only by `--allow-run=` (and to every module by `-A`):
   `spawn`, the root handle, making program handles of the names it may and narrower roots, a refusal throwing `SpawnError` `not_granted`, which fails the run caught or not;
-  no child is started yet, so a program's `run`, `out`, `out_bytes`, and `start` reject saying so ([host modules](host_modules.md#spawn-on-fgro)).
+  a program's `run`, `out`, and `out_bytes` start its child, refused `launch_failed` when its file changed since it was pinned,
+  and `start` isn't built, rejecting saying so ([host modules](host_modules.md#spawn-on-fgro)).
 - `@fuzdev/gro/spawn_error.ts`, a builtin module that needs no grant: `SpawnError` and `is_spawn_error`.
 - A builtin module's `.js` spelling (`@fuzdev/gro/args.js`), the host modules not on `fgro` yet (`@fuzdev/gro/net.ts`, `stdin`, `stdout`, `net_error`, and the rest, either spelling),
   and `@fuzdev/gro/process.ts` and `process_error.ts`, which Gro has none of (either spelling),
@@ -327,7 +333,7 @@ Whether a stream is colored is decided once per process, in order:
 | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | 0              | the module ran to completion with no code set, or called `exit()` with none set, or `--help` or `--version`                                                  |
 | the program's  | the code given to `exit(code)`, or the one `set_exit_code` set when the module then ran to completion or called `exit()` with none: an integer from 0 to 255 |
-| 1              | the module threw, rejected a promise no one handled, left a top-level `await` unsettled, an import failed to resolve, load, or strip, or the runtime failed to start, whatever code `set_exit_code` set; or an `import()` was refused by one of gro's rules, or a call for a grant its handle lacks, caught or not, in a run that would have exited 0 |
+| 1              | the module threw, rejected a promise no one handled, left a top-level `await` unsettled, an import failed to resolve, load, or strip, or the runtime failed to start, or a run that grants a program couldn't make ready to start one, whatever code `set_exit_code` set; or an `import()` was refused by one of gro's rules, or a call for a grant its handle lacks, caught or not, in a run that would have exited 0 |
 | 2              | a usage error (no arguments, an unknown subcommand or flag, a flag before `run`'s file other than `--help`, `--allow-env=`, `--allow-read=`, `--allow-write=`, `--allow-temp`, `--allow-run=`, `--allow-run-env=`, or `-A`, a bare one of these or a name it can't grant, `--allow-temp` given a value, `--allow-run-env=` without `--allow-run=`, a directory missing, no directory, or one that can't be looked at, no file, an extra argument to `eval`, a non-UTF-8 argument, the script's included, `--version` with a subcommand), or an entry that doesn't resolve (missing, the wrong extension, a `.js` file not under `"type": "module"`) |
 
 An entry that fails to resolve on an I/O error or a symlink loop exits 1, not 2.
@@ -337,7 +343,11 @@ An `import()` or a call refused by rule turns a `0` into `1` however the run end
 and its lines are printed before the process ends.
 An `import()` whose graph is still loading when `exit` is called is abandoned where it is:
 a refusal the graph would meet later is never reached, so it neither fails the run nor prints.
-A top-level `await` nothing settles exits 1, where Node exits 13.
+A top-level `await` nothing settles or waits on exits 1, where Node exits 13.
+A `SIGINT`, `SIGTERM`, or `SIGHUP` that ends a run that started a child ends it by that signal, as with none,
+once the groups its children lead are killed and a `SIGTERM` is passed on to its children in its own group,
+a child launching as the signal arrives among them, waited for up to a second;
+a `SIGTERM` that arrives with a `SIGINT` or `SIGHUP` that ends the run first isn't passed on.
 A panic exits 101 in a debug build; a release build aborts.
 `--version` or `--help` whose stdout can't be written (a pipe whose reader closed) exits 1,
 naming the failure on stderr; a stderr that can't be written is ignored.

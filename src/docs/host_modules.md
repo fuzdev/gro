@@ -23,7 +23,7 @@ This table is the one list of what's on `fgro`: the other runtime docs link here
 | module               | what it reaches                         | on `fgro`               |
 | -------------------- | --------------------------------------- | ----------------------- |
 | `fs.ts`              | the filesystem, through handles         | built, the `fs` grant   |
-| `spawn.ts`           | programs, as child processes            | handles, no launch yet  |
+| `spawn.ts`           | programs, as child processes            | built but `start`       |
 | `net.ts`             | the network, by host                    | not yet                 |
 | `watch.ts`           | changes under a directory handle        | not yet                 |
 | `env.ts`             | the environment                         | built, the `env` grant  |
@@ -515,10 +515,11 @@ On `fgro`, `@fuzdev/gro/spawn.ts` is a builtin module with the Node module's mem
 and `@fuzdev/gro/spawn_error.ts` is a grant-free one, `SpawnError` and `is_spawn_error` the runtime's own ([error classes](#error-classes-on-fgro)).
 `spawn` needs the `spawn` grant, which `fgro run --allow-run=` gives the project's own modules for the programs it names, and `-A` gives every module for every program ([run](run.md#usage)).
 Built: the root and its narrowed roots, `program`, `find`, and `narrow`, program handles with their `name` and `path`,
-and `program_in` and `find_in` up to their check of the directory.
-Not built: starting a child. A program's `run`, `out`, `out_bytes`, and `start` check their receiver and reject with a plain `Error` saying so,
-and the `SpawnChild` and `SpawnStdin` kinds, which only `start` makes, have their methods declared the same way, so the module's shape is the Node module's.
-How it's built is in the module docs of `crates/gro_runtime/src/host/spawn.rs` and `spawn/pins.rs`.
+a program's `run`, `out`, and `out_bytes`, and `program_in` and `find_in` up to their check of the directory.
+Not built: `start`, which checks its receiver and rejects with a plain `Error` saying so,
+and the `SpawnChild` and `SpawnStdin` kinds, which only `start` makes, whose methods are declared the same way, so the module's shape is the Node module's;
+and a call's `signal` option, which, given, rejects with a plain `Error`.
+How it's built is in the module docs of `crates/gro_runtime/src/host/spawn.rs` and its children, `spawn/pins.rs`, `spawn/launch.rs`, and `spawn/watch.rs`.
 
 - Until each child is held in a box of its own ([native requirements](#native-requirements)), granting any program is close to granting what `-A` grants:
   most programs can be made to run code by their arguments or environment, a shell, git, and cargo among them,
@@ -531,8 +532,11 @@ How it's built is in the module docs of `crates/gro_runtime/src/host/spawn.rs` a
   its first bytes read through a descriptor on the file it found, which a native binary's pin keeps to run by,
   while a script's keeps none and is run by the path it was found at:
   a call meets what the start found, a fault included, where Node resolves at the call.
-  A pin holds the file's identity, not its content: a file rewritten in place, as `fs`'s `write` rewrites one, is still the file pinned and runs as rewritten,
-  while one replaced, removed, or made at its path since the start isn't seen.
+  A pin holds the file's identity and its change time (`ctime`) as it was pinned, and a launch checks both first:
+  a native binary through the descriptor it runs by, a script at the path it was found at, which must still lead to the pinned file.
+  A file rewritten in place, as `fs`'s `write` rewrites one, keeps its identity but not its change time, which no program can set,
+  so it's refused, `launch_failed`, as is one whose mode, owner, or links changed, a native binary renamed over or removed among them, said to be replaced or removed when it lost a link;
+  a script whose path now leads to another file is refused too, as on Node, where a native binary replaced at its path would run the new file.
   A granted name that finds nothing is no error until it's asked for, and then `find` returns `null`. Under `-A` a name is resolved when it's asked for, as on Node.
 - A child's environment is built when its handle is made, from what `fgro` read for children as the run started, never from the process:
   the base set, then what `pass_env` names, then `env`'s values, and every `PATH` a child gets keeps only its absolute entries,
@@ -541,6 +545,27 @@ How it's built is in the module docs of `crates/gro_runtime/src/host/spawn.rs` a
   and an exact name of the base set, which every child is given anyway.
   Anything else, `pass_env: 'all'` among it, is `not_granted`; under `-A` any variable passes, `'all'` included.
   `env`'s values are set at the run's root, as on Node, and a narrowed root refuses them.
+- A child is started by `posix_spawn`, no code run between its fork and its exec: a native binary by its pin's descriptor, a script by its path,
+  its working directory by a descriptor too, the `cwd` handle's directory opened beneath its root, or the project's, opened as the run started,
+  and its environment exactly the program's. Every descriptor `fgro` inherited above stderr is marked close-on-exec as a run that grants a program starts,
+  so a child is handed only stdin, stdout, and stderr, and its pipes are pipes, so a child reads `/dev/stdin` as a file.
+  That run also raises its soft limit on open descriptors to the hard one, as Node does as it starts, and a child inherits the raised limit.
+  A child inherits the signals `fgro` was started ignoring, as `nohup` leaves `SIGHUP`, and the launching thread's signal mask, the one `fgro` was started with,
+  where Node's child starts with every signal at its default and none blocked; a launch that resets both in the child is designed, not built.
+- A captured child whose stdin isn't `'inherit'` leads a process group of its own, as on Node, but stays in the terminal's session, where Node's starts a new one:
+  such a child that reads `/dev/tty` stops on `SIGTTIN` instead of failing the read, and an `out` with no `timeout_ms` waits for it.
+- A child is waited for by its pidfd, which never names another process, and its leader is held unreaped until the call is done with it,
+  so a group is killed by an id still its own: at the drain bound, past `max_bytes`, after a timeout's grace, and when the run ends.
+  The run ends every child it launched and hasn't reaped, each group a child leads with it, when it calls `exit`, before the process ends,
+  and when its event loop returns, whether it drained or an error ended it.
+  A `SIGINT`, `SIGTERM`, or `SIGHUP` that ends the run kills the groups first, and a `SIGTERM` is passed on to its children in its own group, as on Node,
+  unless a `SIGINT` or `SIGHUP` arriving with it ends the run first.
+  The signal's handler waits, for up to a second, for a launch between its child's start and the slot that names the child, so a signal during a burst of launches misses none that arms in time,
+  and from the moment it begins every launch is `launch_failed`, its cause saying a signal is ending the run;
+  a second signal during the handler waits for it, or runs it again on another thread, rather than end the run mid-way.
+  At most `gro_sys`'s caps of children are held at once (1024 group leaders, and 1024 others): past them a launch is `launch_failed`, where Node has no cap.
+- A child a real-time signal killed is `signaled`, by the signal's place after `SIGRTMIN` (`SIGRTMIN+1`), where Node reports it as `exited` with code 0.
+  `NODE_V8_COVERAGE` is never added to a child's environment.
 - `program_in` and `find_in` take a directory beneath an exec root the run declares, and a run declares none yet,
   so in a confined run each is `not_granted` once its directory, name, and options are checked, and under `-A`, where every directory would be one, resolving beneath it isn't built.
 - A refusal by the run's root names its program in the listed refusal and, for a plain name or variable, the flag that grants it in a hint ([run](run.md#errors-and-exit-codes));
@@ -708,7 +733,8 @@ a string, a boxed number, a thenable, and an object with a `Symbol.toPrimitive` 
 the realm's own `TypeError` whatever the global of that name has become, and no property of the value is read.
 The code set is the run's state, kept by the host, not the module's.
 Nothing is flushed, because nothing is buffered: on `fgro` the console is the only writer to stdout and stderr so far.
-On Node, `exit` also runs the spawn module's child cleanup; `fgro` starts no child yet.
+On Node, `exit` also runs the spawn module's child cleanup; on `fgro` it kills every child the run started and hasn't reaped,
+each group a child leads with it, before the embedder's step ends the process ([spawn on fgro](#spawn-on-fgro)).
 
 #### env on fgro
 
@@ -1355,10 +1381,10 @@ what can fail for a reason of the run's fails in what the module exports, as `cw
   and its environment stays unreadable.
 - Hand the child a `PATH` filtered to absolute entries.
 - Refuse a name or argument holding a NUL byte or a lone surrogate before it reaches the kernel.
-- Report a child killed by any signal, real-time ones included, from `wait4`'s status.
+- Report a child killed by any signal, real-time ones included, from what `waitid` reports on its pidfd.
 - Make a group-leading child's process group with `setpgid`, not a new session,
   so a piped child keeps the controlling terminal, and guard it the way `guard_group` does,
-  with `kill_guarded_groups_on_signal` handling the signals that end the host.
+  with `guard_children_on_signal` handling the signals that end the host.
   A captured child with `stdin: 'ignore'` must fail on `/dev/tty`, not stop on `SIGTTIN`, so it needs a new session or a refused read.
 - Leave a captured child with `stdin: 'inherit'` in the host's foreground group, with no `setpgid`,
   since a background group's read of `/dev/tty` stops on `SIGTTIN`, stopping and capping it by pid alone.

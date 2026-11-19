@@ -10,11 +10,11 @@
 > and the directories `--allow-read=` names, with a write scope on those `--allow-write=` names,
 > each scope carried by the handles made under it;
 > the grant-free modules link for every module; `-A` grants every module every one;
-> and `spawn` with the programs `--allow-run=` names, each pinned as the run starts, making handles and starting no child yet,
+> and `spawn` with the programs `--allow-run=` names, each pinned as the run starts, its `run`, `out`, and `out_bytes` starting them unboxed,
 > any program granted that way being close to `-A` until each child is boxed, since most can be made to run code by their arguments or environment
 > (a shell, git, and cargo among them) and the root's `env` values set any variable: hand library code a narrowed root, which refuses them;
 > and a refused `import()`, `env` name, `fs` reach, or `spawn` program fails the run, caught or not ([run](run.md#errors-and-exit-codes)).
-> Not built for `fgro run`: starting a child, `net`, `watch`, the standard streams, the policy file, the seal, and the kernel backstop;
+> Not built for `fgro run`: `spawn`'s `start` and a child's box, `net`, `watch`, the standard streams, the policy file, the seal, and the kernel backstop;
 > the [roadmap](runtime.md#roadmap) says when, and [backstop](backstop.md) has the kernel layer under all of it.
 
 These terms carry this doc, and the [glossary](glossary.md) defines them and the others:

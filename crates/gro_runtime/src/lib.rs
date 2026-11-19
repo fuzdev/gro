@@ -24,6 +24,15 @@
 //! 1 from V8's out-of-memory callback (`eval/limits.rs`), and a confined
 //! engine whose random source fails aborts (`engine.rs`).
 //!
+//! A run that grants a program also changes the process at its first
+//! launch: it installs a handler for `SIGINT`, `SIGTERM`, and `SIGHUP`
+//! (`gro_sys::guard_children_on_signal`), process-wide, in place of any the
+//! embedder set (one the process ignores stays ignored), which kills the
+//! run's child groups, passes a `SIGTERM` on to its other children, and
+//! then ends the process by the signal's default action. The process
+//! itself is the embedder's to make ready before such a run starts, as
+//! [`RuntimeOptions::spawn_env`] says.
+//!
 //! - [`resolver`]: the strict ESM resolver, a pure module (relative and
 //!   absolute specifiers with mandatory extensions, and packages in
 //!   `node_modules` through their `"exports"`, each module kept inside its
@@ -200,6 +209,19 @@ pub struct RuntimeOptions {
     /// what a program's `pass_env` names and its grant forwards, every
     /// variable in an unconfined run. So an embedder passes no more than
     /// those: none for a run that grants no program.
+    ///
+    /// An embedder that runs a program granting one makes its process
+    /// ready first, as `fgro` does, since the runtime changes no
+    /// process-wide state but the signal handler it installs at the first
+    /// launch (the crate's doc): `SIGCHLD` at its default where it was
+    /// inherited ignored (`gro_sys::child::default_child_signal`), or the
+    /// kernel reaps a child before its pidfd can say how it ended; every
+    /// descriptor it inherited above stderr close-on-exec
+    /// (`gro_sys::cloexec_inherited_fds`), or a child is handed them; the
+    /// soft limit on open descriptors raised (`gro_sys::raise_open_files_limit`),
+    /// as Node raises it; and no other waiter on its children, and its main
+    /// thread live and not blocking those three signals, which the handler
+    /// on a thread mid-launch hands on to it.
     pub spawn_env: EnvVars,
 }
 

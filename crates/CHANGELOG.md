@@ -51,7 +51,13 @@ beside a `SHA512SUMS` file, each with a provenance attestation.
     each found on `PATH`, or beneath the project's root for a name holding `/`, and pinned as the run starts, before any module evaluates.
     `program`, `find`, and `narrow` are built, and `--allow-run-env='CARGO_*'` lets a program's `pass_env` name those variables
     beside the base set every child is given; `fgro` reads them as the run starts, and no member returns one.
-    No child is started yet: a program's `run`, `out`, `out_bytes`, and `start` reject saying so.
+    A program's `run`, `out`, and `out_bytes` start its child, a native binary by the descriptor it was pinned with and a script by its path,
+    each refused `launch_failed` when its file changed since it was pinned, even in place;
+    the child is waited for by its pidfd, and a group it leads is killed, by an id still its own, at the drain bound, past `max_bytes`, and after a timeout's grace.
+    No child outlives its run: `exit`, an uncaught error, the run's end, and a `SIGINT`, `SIGTERM`, or `SIGHUP` kill each one left, with its group,
+    a child launching as the signal arrives among them, waited for up to a second.
+    A run that grants a program raises its soft limit on open descriptors to the hard one as it starts, as Node does.
+    `start` isn't built, nor a call's `signal` option: each rejects saying so.
     Until each child is boxed, granting any program is close to granting what `-A` grants, since most programs can be made to run code
     by their arguments or environment and the root's `env` values set any variable; hand library code a narrowed root, which refuses them.
     A program outside a handle's set, or a variable its program's grant doesn't forward, throws `SpawnError` `not_granted`.
