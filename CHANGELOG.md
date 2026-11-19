@@ -1,5 +1,38 @@
 # @fuzdev/gro
 
+## 0.238.0
+
+### Minor Changes
+
+- Update dependencies (BREAKING CHANGES) ([e8b8998](https://github.com/fuzdev/gro/commit/e8b8998))
+  
+  Breaking dependency changes:
+  - svelte-docinfo: 0.17.0 → 0.18.1 (minor)
+  - @fuzdev/fuz_util: 0.81.0 → 0.83.0 (minor)
+- feat: `create_fs_paths(fs, {cwd, home})` takes the working directory and `$HOME` its `remove_path` and `empty_dir_path` refuse, so `@fuzdev/gro/fs_paths.ts` and `@fuzdev/gro/git.ts` read nothing of the process when they load and import no `node:` module or host module, and load as a package on the runtime ([4648ca4](https://github.com/fuzdev/gro/commit/4648ca4))
+  
+  **breaking** `create_fs_paths(fs)` takes a second argument, `FsPathsOptions`: pass `create_fs_paths(fs, {cwd: cwd(), home: env.get('HOME')})`, with `cwd` from `@fuzdev/gro/cwd.ts` and `env` from `@fuzdev/gro/env.ts`, as a project's `gen_task_registry` genfile now does. `cwd` is an absolute real path, as `cwd()` returns, protected as given, and `create_fs_paths` throws `TypeError` for one that isn't absolute; `home` is required and may be `undefined`, which, like an empty or relative one, protects nothing. Before, the boundary read the working directory and `HOME` itself, when it loaded.
+  
+  **breaking** `RenderSveltekitShimAppEnvVarsOptions` in `@fuzdev/gro/sveltekit_shim_app_env_vars.ts` requires `cwd_module_specifier`, the cwd host module's URL, which the rendered `$app/env/*` modules import to build their `FsPaths`.
+  
+  fix: `remove_path` and `empty_dir_path` fail before they act when `$HOME`'s real path can't be read for any reason but a missing `$HOME`, where they went ahead protecting only `$HOME` as given. On `fgro`, that read takes `--allow-read` on `$HOME`, or on its nearest existing ancestor when it's missing (a `$HOME` outside every grant is refused, missing or not), and `env.get('HOME')`, which builds the `FsPaths`, takes `--allow-env=HOME`.
+  
+  `print_command_args` in `@fuzdev/gro/cli.ts` colors through fuz_util's `st`, which `configure_print_colors` sets and the Gro CLI configures unless `NO_COLOR` is set, so it's plain where nothing configured it, where it used Node's `styleText`.
+- feat: `fs`'s `write` checks its data, a string or a `Uint8Array` (a `Buffer` among them), and `mkdir` reads `recursive` by truthiness, as the runtime's builtin does ([336076a](https://github.com/fuzdev/gro/commit/336076a))
+  
+  **breaking** `write` with any other data throws `TypeError` `fs write data is a string or a Uint8Array`, before anything is written, where a number, `null`, `undefined`, an `ArrayBuffer`, an array of numbers, or another object failed as `io_error`, and a `Uint16Array`, a `DataView`, another view, a boxed string, or an array of strings was written. Pass a string, or the bytes as a `Uint8Array` (`new Uint8Array(view.buffer, view.byteOffset, view.byteLength)` for another view).
+  
+  `mkdir(path, {recursive: 1})` makes the directory and its parents, where any `recursive` but a boolean failed as `io_error`; a falsy one is no `recursive`, as `exists_ok`, `remove`'s `recursive` and `missing_ok`, and `write`'s `create_new` already were.
+- feat: a started child's output iterator has `throw`, which drops the rest of the stream, as leaving a `for await` early does, and rejects with what it's given, as the runtime's builtin does ([f3bf10e](https://github.com/fuzdev/gro/commit/f3bf10e))
+- feat: `TaskError`, `TaskErrorOptions`, `SilentError`, `is_task_error`, and `is_silent_error` move from `@fuzdev/gro/task.ts` to `@fuzdev/gro/task_error.ts`, which imports nothing that reaches the process or the filesystem, so code that throws or matches a task's failure loads without the task runner ([a34b8b0](https://github.com/fuzdev/gro/commit/a34b8b0))
+  
+  **breaking** `@fuzdev/gro/task.ts` no longer exports them: import them from `@fuzdev/gro/task_error.ts`. `TaskError` stays on the bare `@fuzdev/gro` entry.
+
+### Patch Changes
+
+- deps: peer '@fuzdev/fuz_schema' `>=0.5.7`, admitting 0.6: the floor is the version whose named schema types (`ObjectSchema`, `StringSchema`, …) this package's declarations print when built against it, and 0.6.0's type changes compile here unchanged ([0820a2f](https://github.com/fuzdev/gro/commit/0820a2f))
+- fix: a started child's `stdin.write` after `close()` resolves `false` without dropping the writes before it, where Node's write after the end destroyed the stream and lost what was still queued, the earlier write resolving `false` too ([f3bf10e](https://github.com/fuzdev/gro/commit/f3bf10e))
+
 ## 0.237.0
 
 ### Minor Changes
