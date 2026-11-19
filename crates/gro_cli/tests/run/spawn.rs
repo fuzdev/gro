@@ -767,3 +767,376 @@ console.log((await sh.out(['-c', 'echo $(ulimit -Sn) $(ulimit -Hn)'])).stdout.tr
     assert_eq!(output.status.code(), Some(0), "{output:?}");
     assert_eq!(String::from_utf8_lossy(&output.stdout), "4096 4096\n");
 }
+
+/// As [`ENDINGS`], with `start`'s children: one with nothing inherited,
+/// which leads a group of its own, and one inheriting stdin, in the run's
+/// group, each held by its `SpawnChild`, never awaited to its end.
+const STARTED_ENDINGS: &str = "import { args } from '@fuzdev/gro/args.ts';
+import { exit } from '@fuzdev/gro/exit.ts';
+import { spawn } from '@fuzdev/gro/spawn.ts';
+const sh = spawn.program('sh');
+await sh.start(['-c', 'echo $$ > grouped.pid; exec sleep 30'], { stdio: 'ignore' });
+await sh.start(['-c', 'echo $$ > shared.pid; exec sleep 30'], { stdio: ['inherit', 'ignore', 'ignore'] });
+while (true) {
+\tconst found = await sh.out(['-c', 'test -s grouped.pid && test -s shared.pid']);
+\tif (found.code === 0) break;
+}
+if (args[0] === 'exit') exit(5);
+if (args[0] === 'throw') throw new Error('ended');
+await new Promise(() => setInterval(() => {}, 1000));
+";
+
+/// `start`'s children end with the run as `run`'s do: `exit` and an
+/// uncaught throw kill both, and a signal that ends the run kills the
+/// group and passes a `SIGTERM` on to the child in the run's own group.
+#[test]
+fn no_started_child_outlives_its_run() {
+    for (ending, code) in [("exit", 5), ("throw", 1)] {
+        let fixtures = temp_fixtures(
+            &format!("spawn_started_ending_{ending}"),
+            &[("main.js", STARTED_ENDINGS)],
+        );
+        let mut command = fgro_command(&["run", "--allow-run=sh", "main.js", ending]);
+        command.current_dir(&fixtures.0).stdin(Stdio::null());
+        let output = spawn(command, b"");
+        assert_eq!(output.status.code(), Some(code), "{ending}: {output:?}");
+        await_gone(read_pid(&fixtures, "grouped.pid"), "the grouped child");
+        await_gone(
+            read_pid(&fixtures, "shared.pid"),
+            "the child in the run's group",
+        );
+    }
+    let fixtures = temp_fixtures("spawn_started_signal", &[("main.js", STARTED_ENDINGS)]);
+    let mut command = std::process::Command::new("env");
+    command.arg("--default-signal=INT,TERM,HUP");
+    let mut command =
+        support::wrapped_fgro_command(command, &["run", "--allow-run=sh", "main.js", "signal"]);
+    command
+        .current_dir(&fixtures.0)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    let mut child = KillOnDrop(command.spawn().unwrap());
+    let grouped = read_pid(&fixtures, "grouped.pid");
+    let shared = read_pid(&fixtures, "shared.pid");
+    let status = std::process::Command::new("kill")
+        .args(["-TERM", &child.id().to_string()])
+        .status()
+        .unwrap();
+    assert!(status.success());
+    let status = support::wait_bounded("TERM", &mut child);
+    assert_eq!(status.signal(), Some(SIGTERM), "{status}");
+    await_gone(grouped, "the grouped child");
+    await_gone(shared, "the child in the run's group");
+}
+
+/// A started child's stops, each with a real process: `kill` sends its
+/// signal, once, and `closed` says so; a disposal stops a child, and one
+/// that ignores the `SIGTERM` is killed with its group once the grace has
+/// passed; `timeout_ms` stops one as `run`'s does, `timed_out`; and a
+/// grandchild left holding the piped stdout is killed with its group at
+/// the drain bound, `closed` settling then, the stream ending, what it
+/// held read.
+#[test]
+fn a_started_child_is_stopped_by_kill_disposal_timeout_and_the_drain_bound() {
+    let fixtures = temp_fixtures(
+        "spawn_started_stops",
+        &[(
+            "main.js",
+            "import { spawn } from '@fuzdev/gro/spawn.ts';
+const sh = spawn.program('sh');
+const read = async (stream) => {
+\tlet text = '';
+\tfor await (const chunk of stream) text += new TextDecoder().decode(chunk);
+\treturn text;
+};
+const killed = await sh.start(['-c', 'exec sleep 30'], { stdio: 'ignore' });
+const sent = [killed.kill('SIGUSR1'), (await killed.closed).signal, killed.kill()];
+const stubborn = await sh.start(['-c', 'trap \"\" TERM; echo $$; sleep 30'], { stdio: ['ignore', 'pipe', 'ignore'] });
+const stubborn_pid = (await stubborn.stdout[Symbol.asyncIterator]().next()).value;
+let started = Date.now();
+await stubborn[Symbol.asyncDispose]();
+const disposed = [(await stubborn.closed).signal, Date.now() - started >= 1900];
+const timed = await sh.start(['-c', 'exec sleep 30'], { stdio: 'ignore', timeout_ms: 100 });
+const timed_out = await timed.closed;
+const lingering = await sh.start(['-c', 'sleep 30 & echo $!'], { stdio: ['ignore', 'pipe', 'ignore'] });
+started = Date.now();
+const [held, closed] = await Promise.all([read(lingering.stdout), lingering.closed]);
+const waited = Date.now() - started;
+console.log(JSON.stringify({
+\tsent,
+\tdisposed,
+\ttimed_out: [timed_out.kind, timed_out.signal],
+\tlingering: [closed.kind, closed.code, waited >= 1900 && waited < 9000],
+\tpids: [new TextDecoder().decode(stubborn_pid).trim(), held.trim()]
+}));
+",
+        )],
+    );
+    let mut command = fgro_command(&["run", "--allow-run=sh", "main.js"]);
+    command.current_dir(&fixtures.0);
+    let output = spawn(command, b"");
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    let printed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(printed["sent"], serde_json::json!([true, "SIGUSR1", false]));
+    assert_eq!(printed["disposed"], serde_json::json!(["SIGKILL", true]));
+    assert_eq!(
+        printed["timed_out"],
+        serde_json::json!(["timed_out", "SIGTERM"])
+    );
+    assert_eq!(printed["lingering"], serde_json::json!(["exited", 0, true]));
+    for pid in printed["pids"].as_array().unwrap() {
+        let pid: u32 = pid.as_str().unwrap().parse().unwrap();
+        await_gone(pid, "a child stopped or a grandchild holding the pipe");
+    }
+}
+
+/// A herd of started children, each read whole as it runs, its stdin
+/// written and closed at once, many at a time: every one's output, every
+/// `closed`, and every write's settlement comes, in order, none lost.
+#[test]
+fn a_herd_of_started_children_each_reads_and_settles_whole() {
+    let fixtures = temp_fixtures(
+        "spawn_started_herd",
+        &[(
+            "main.js",
+            "import { spawn } from '@fuzdev/gro/spawn.ts';
+const sh = spawn.program('sh');
+const read = async (stream) => {
+\tconst parts = [];
+\tfor await (const chunk of stream) parts.push(new TextDecoder().decode(chunk));
+\treturn parts.join('');
+};
+const one = async (i) => {
+\tconst child = await sh.start(['-c', 'cat; echo $1', 'sh', String(i)], { stdio: 'pipe' });
+\tconst writes = [child.stdin.write(`${i}:`), child.stdin.write('x'.repeat(i % 5)), child.stdin.close()];
+\tconst [stdout, stderr, closed, written] = await Promise.all([read(child.stdout), read(child.stderr), child.closed, Promise.all(writes)]);
+\treturn stdout === `${i}:${'x'.repeat(i % 5)}${i}\\n` && stderr === '' && closed.kind === 'exited' && closed.code === 0 && written[0] && written[1];
+};
+let ok = 0;
+for (let round = 0; round < 10; round++) {
+\tconst results = await Promise.all(Array.from({ length: 40 }, (_, i) => one(round * 40 + i)));
+\tok += results.filter(Boolean).length;
+}
+console.log(JSON.stringify(ok));
+",
+        )],
+    );
+    let mut command = fgro_command(&["run", "--allow-run=sh", "main.js"]);
+    command.current_dir(&fixtures.0);
+    let output = spawn(command, b"");
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "400");
+}
+
+/// A native binary the run writes, under an exec root that is also a
+/// directory it writes, runs: copied byte for byte from `/usr/bin` into the
+/// write root, given execute permission, then found there by `program_in`
+/// and run.
+#[test]
+fn a_binary_the_run_builds_in_a_write_root_that_is_an_exec_root_runs() {
+    let fixtures = temp_fixtures(
+        "spawn_built",
+        &[(
+            "main.js",
+            "import { fs } from '@fuzdev/gro/fs.ts';
+import { spawn } from '@fuzdev/gro/spawn.ts';
+import { cwd } from '@fuzdev/gro/cwd.ts';
+const bin = await fs.open_dir('/usr/bin');
+const out = await fs.open_dir(`${cwd()}/out`);
+await out.write('built', await bin.read('true'));
+await out.set_mode('built', 0o755);
+const built = spawn.program_in(out, 'built');
+const result = await built.run([]);
+console.log(JSON.stringify([built.name, result.kind, result.code]));
+",
+        )],
+    );
+    std::fs::create_dir(fixtures.0.join("out")).unwrap();
+    let mut command = fgro_command(&[
+        "run",
+        "--allow-read=/usr/bin",
+        "--allow-write=out",
+        "--allow-run-in=out",
+        "main.js",
+    ]);
+    command.current_dir(&fixtures.0);
+    let output = spawn(command, b"");
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).trim(),
+        r#"["built","exited",0]"#
+    );
+}
+
+/// A started child's piped output nobody reads is read only so far ahead
+/// of its reader, so a child writing more than that and the pipe hold
+/// blocks until its reader takes some; then it runs on, and every byte is
+/// read, in order.
+#[test]
+fn a_stream_nobody_reads_pauses_its_child() {
+    let fixtures = temp_fixtures(
+        "spawn_started_pause",
+        &[(
+            "main.js",
+            "import { spawn } from '@fuzdev/gro/spawn.ts';
+const sh = spawn.program('sh');
+const child = await sh.start(['-c', 'head -c 3000000 /dev/zero; touch done'], { stdio: ['ignore', 'pipe', 'ignore'] });
+await new Promise((resolve) => setTimeout(resolve, 1000));
+const blocked = (await sh.out(['-c', 'test -e done'])).code;
+let length = 0;
+for await (const chunk of child.stdout) length += chunk.length;
+const closed = await child.closed;
+const finished = (await sh.out(['-c', 'test -e done'])).code;
+console.log(JSON.stringify([blocked, length, closed.kind, closed.code, finished]));
+",
+        )],
+    );
+    let mut command = fgro_command(&["run", "--allow-run=sh", "main.js"]);
+    command.current_dir(&fixtures.0);
+    let output = spawn(command, b"");
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).trim(),
+        "[1,3000000,\"exited\",0,0]"
+    );
+}
+
+/// A started child's stdin lets go when the child exits, as the Node
+/// module's does: a write pending then, and one after, settle `false` at the
+/// exit, though a grandchild holds the pipe's other end and reads nothing, and
+/// the run ends then, not when the grandchild does.
+#[test]
+fn a_started_child_s_stdin_lets_go_when_it_exits() {
+    let fixtures = temp_fixtures(
+        "spawn_started_stdin_exit",
+        &[(
+            "main.js",
+            "import { spawn } from '@fuzdev/gro/spawn.ts';
+const sh = spawn.program('sh');
+const child = await sh.start(['-c', 'exec 3<&0; sleep 30 <&3 >/dev/null 2>&1 & echo $! >&2; sleep 0.2'], {
+\tstdio: ['pipe', 'ignore', 'pipe']
+});
+const started = Date.now();
+const pending = child.stdin.write(new Uint8Array(1024 * 1024));
+const pid = (await child.stderr[Symbol.asyncIterator]().next()).value;
+await child.closed;
+const after = await child.stdin.write('x');
+const written = await pending;
+console.log(JSON.stringify({
+\twrites: [written, after],
+\tsoon: Date.now() - started < 5000,
+\tpid: new TextDecoder().decode(pid).trim()
+}));
+",
+        )],
+    );
+    let mut command = fgro_command(&["run", "--allow-run=sh", "main.js"]);
+    command.current_dir(&fixtures.0);
+    let output = spawn(command, b"");
+    let printed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap_or_default();
+    // the grandchild outlives the run, as on Node, so it's ended here
+    if let Some(pid) = printed["pid"].as_str().and_then(|pid| pid.parse().ok()) {
+        kill(pid);
+    }
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    assert_eq!(printed["writes"], serde_json::json!([false, false]));
+    assert_eq!(printed["soon"], serde_json::json!(true));
+}
+
+/// A disposal's grace outlasts `closed`: a group whose leader died of the
+/// `SIGTERM`, leaving a member that ignores it with no pipe of the child's,
+/// settles at once, and the member is killed with the group once the grace
+/// has passed, the leader held unreaped until then.
+#[test]
+fn a_started_group_s_grace_outlasts_its_closed() {
+    let fixtures = temp_fixtures(
+        "spawn_started_grace",
+        &[(
+            "main.js",
+            "import { spawn } from '@fuzdev/gro/spawn.ts';
+const sh = spawn.program('sh');
+const child = await sh.start(['-c', '(trap \"\" TERM; exec sleep 30 >/dev/null 2>&1) & echo $! >&2; sleep 30'], {
+\tstdio: ['ignore', 'ignore', 'pipe']
+});
+const pid = (await child.stderr[Symbol.asyncIterator]().next()).value;
+const started = Date.now();
+await child[Symbol.asyncDispose]();
+const disposed = Date.now() - started;
+await new Promise((resolve) => setTimeout(resolve, 3000));
+console.log(JSON.stringify({
+\tclosed: (await child.closed).signal,
+\tat_once: disposed < 1000,
+\tpid: new TextDecoder().decode(pid).trim()
+}));
+",
+        )],
+    );
+    let mut command = fgro_command(&["run", "--allow-run=sh", "main.js"]);
+    command.current_dir(&fixtures.0);
+    let output = spawn(command, b"");
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    let printed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(printed["closed"], serde_json::json!("SIGTERM"));
+    assert_eq!(printed["at_once"], serde_json::json!(true));
+    let pid: u32 = printed["pid"].as_str().unwrap().parse().unwrap();
+    // gone before the run ended: the grace's kill, not the run's end
+    let running = is_running(pid);
+    if running {
+        kill(pid);
+    }
+    assert!(!running, "the grandchild outlived the grace");
+}
+
+/// A stream its reader is behind on at the drain bound keeps what it
+/// holds, the pipe read on once the reader catches up, and gets the bound
+/// again from then: here a child in the run's group, which no group kill
+/// reaches, leaves a writer that writes past the pause and then holds the
+/// pipe, so every byte is read, and the stream ends within the bound past
+/// the catch-up, not when the writer lets go.
+#[test]
+fn a_reader_behind_at_the_drain_bound_reads_on_within_the_bound() {
+    let fixtures = temp_fixtures(
+        "spawn_started_behind",
+        &[(
+            "main.js",
+            "import { spawn } from '@fuzdev/gro/spawn.ts';
+const sh = spawn.program('sh');
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const child = await sh.start(
+\t['-c', '(head -c 3000000 /dev/zero; exec sleep 8 2>/dev/null) & echo $! >&2; exit 0'],
+\t{ stdio: ['inherit', 'pipe', 'pipe'] }
+);
+const iterator = child.stdout[Symbol.asyncIterator]();
+const pid = (await child.stderr[Symbol.asyncIterator]().next()).value;
+await wait(2600);
+const closed = await Promise.race([child.closed.then((result) => result.kind), wait(10).then(() => 'pending')]);
+const resumed = Date.now();
+let length = 0;
+for (;;) {
+\tconst result = await iterator.next();
+\tif (result.done) break;
+\tlength += result.value.length;
+}
+console.log(JSON.stringify({
+\tclosed,
+\tlength,
+\tbounded: Date.now() - resumed < 5000,
+\tpid: new TextDecoder().decode(pid).trim()
+}));
+",
+        )],
+    );
+    let mut command = fgro_command(&["run", "--allow-run=sh", "main.js"]);
+    command.current_dir(&fixtures.0);
+    let output = spawn(command, b"");
+    let printed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap_or_default();
+    // the writer is in the run's group, which outlives the run, as on Node
+    if let Some(pid) = printed["pid"].as_str().and_then(|pid| pid.parse().ok()) {
+        kill(pid);
+    }
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    assert_eq!(printed["closed"], serde_json::json!("exited"));
+    assert_eq!(printed["length"], serde_json::json!(3_000_000));
+    assert_eq!(printed["bounded"], serde_json::json!(true));
+}

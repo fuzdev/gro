@@ -49,7 +49,7 @@ use exit::{ExitState, NOT_A_CODE, to_exit_code};
 use grant::require_authority;
 use handle::{
     BLAKE3_HASHER, ENV_HANDLE, FS_DIR, FS_LISTING, FS_READ_DIR, FS_ROOT, FS_TEMP_DIR, SPAWN,
-    SPAWN_CHILD, SPAWN_PROGRAM, SPAWN_STDIN,
+    SPAWN_CHILD, SPAWN_OUTPUT, SPAWN_OUTPUT_ITERATOR, SPAWN_PROGRAM, SPAWN_STDIN,
 };
 use native::native_members;
 use native::{ASYNC_DISPOSE, ASYNC_ITERATOR};
@@ -715,38 +715,72 @@ native_members! {
         spawn::launch::call(state, scope, capture, handle, args, options, errors)
     }
 
-    /// `program.start(args, options?)`, not built ([`spawn::unbuilt`]).
-    async start(state, _granted: SpawnGrant; scope, _args, _options) for "@fuzdev/gro/spawn.ts"
-        on SPAWN_PROGRAM(handle)
+    /// `program.start(args, options?)`, called on `handle`
+    /// ([`spawn::start::start`]).
+    later start(state, _granted: SpawnGrant; scope, args, options) for "@fuzdev/gro/spawn.ts"
+        on SPAWN_PROGRAM(handle) throws SPAWN_ERROR(errors)
     {
-        spawn::unbuilt(state, scope, "start", &SPAWN_PROGRAM, handle)
+        spawn::start::start(state, scope, handle, args, options, errors)
     }
 
-    /// `child.kill(signal?)`, not built ([`spawn::unbuilt`]).
-    fn kill(state, _granted: SpawnGrant; scope, [_signal]) for "@fuzdev/gro/spawn.ts"
+    /// `child.kill(signal?)`, called on `handle` ([`spawn::start::kill`]).
+    fn kill(state, _granted: SpawnGrant; scope, [signal]) for "@fuzdev/gro/spawn.ts"
         on SPAWN_CHILD(handle)
     {
-        spawn::unbuilt(state, scope, "kill", &SPAWN_CHILD, handle)
+        spawn::start::kill(state, scope, handle, signal)
     }
 
-    /// A child's `[Symbol.asyncDispose]()`, not built ([`spawn::unbuilt`]).
-    async [ASYNC_DISPOSE](state, _granted: SpawnGrant; scope) for "@fuzdev/gro/spawn.ts"
+    /// A child's `[Symbol.asyncDispose]()`, called on `handle`
+    /// ([`spawn::start::dispose`]).
+    later [ASYNC_DISPOSE](state, _granted: SpawnGrant; scope) for "@fuzdev/gro/spawn.ts"
         on SPAWN_CHILD(handle)
     {
-        spawn::unbuilt(state, scope, "[Symbol.asyncDispose]", &SPAWN_CHILD, handle)
+        spawn::start::dispose(state, scope, handle)
     }
 
-    /// `stdin.write(data)`, not built ([`spawn::unbuilt`]).
-    async write(state, _granted: SpawnGrant; scope, _data) for "@fuzdev/gro/spawn.ts"
+    /// `stdin.write(data)`, called on `handle` ([`spawn::start::write`]).
+    later write(state, _granted: SpawnGrant; scope, data) for "@fuzdev/gro/spawn.ts"
         on SPAWN_STDIN(handle)
     {
-        spawn::unbuilt(state, scope, "write", &SPAWN_STDIN, handle)
+        spawn::start::write(state, scope, handle, data)
     }
 
-    /// `stdin.close()`, not built ([`spawn::unbuilt`]).
-    async close(state, _granted: SpawnGrant; scope) for "@fuzdev/gro/spawn.ts"
+    /// `stdin.close()`, called on `handle` ([`spawn::start::close`]).
+    later close(state, _granted: SpawnGrant; scope) for "@fuzdev/gro/spawn.ts"
         on SPAWN_STDIN(handle)
     {
-        spawn::unbuilt(state, scope, "close", &SPAWN_STDIN, handle)
+        spawn::start::close(state, scope, handle)
+    }
+
+    /// A child's output stream's `[Symbol.asyncIterator]()`, called on
+    /// `stream` ([`spawn::start::iterate`]).
+    fn [ASYNC_ITERATOR](state, _granted: SpawnGrant; scope) for "@fuzdev/gro/spawn.ts"
+        on SPAWN_OUTPUT(stream)
+    {
+        spawn::start::iterate(state, scope, stream)
+    }
+
+    /// An output stream's iterator's `next()`, called on `iterator`
+    /// ([`spawn::start::next`]).
+    later next(state, _granted: SpawnGrant; scope) for "@fuzdev/gro/spawn.ts"
+        on SPAWN_OUTPUT_ITERATOR(iterator)
+    {
+        spawn::start::next(state, scope, iterator)
+    }
+
+    /// An output stream's iterator's `return()`, called on `iterator`
+    /// ([`spawn::start::iterator_return`]).
+    async return(state, _granted: SpawnGrant; scope) for "@fuzdev/gro/spawn.ts"
+        on SPAWN_OUTPUT_ITERATOR(iterator)
+    {
+        spawn::start::iterator_return(state, scope, iterator)
+    }
+
+    /// An output stream's iterator's `throw(error)`, called on `iterator`
+    /// ([`spawn::start::iterator_throw`]).
+    async throw(state, _granted: SpawnGrant; scope, error) for "@fuzdev/gro/spawn.ts"
+        on SPAWN_OUTPUT_ITERATOR(iterator)
+    {
+        spawn::start::iterator_throw(state, scope, iterator, error)
     }
 }

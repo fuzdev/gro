@@ -16,5 +16,7 @@ hold) printf '0123456789'; exec sleep 5 ;;
 linger) sleep 5 & echo started ;;
 sleep) exec sleep "$1" ;;
 trap) trap 'exit 7' TERM; sleep 5 & wait ;;
+big) head -c "$1" /dev/zero ;;
+echo_err) cat; printf 'err' >&2 ;;
 *) exit 99 ;;
 esac

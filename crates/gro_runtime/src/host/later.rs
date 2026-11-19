@@ -139,6 +139,14 @@ impl std::fmt::Debug for LaterState {
 #[derive(Debug)]
 pub struct Deferred<'s>(v8::Local<'s, v8::Promise>);
 
+impl<'s> Deferred<'s> {
+    /// The promise, for a value a member makes beside the one it returns,
+    /// held as made, as a started child's `closed` is.
+    pub const fn promise(&self) -> v8::Local<'s, v8::Promise> {
+        self.0
+    }
+}
+
 /// What a later member's work holds to settle its promise: `Send`, and
 /// holding no V8 value. Dropped unsettled, it rejects the promise with
 /// [`DROPPED`].

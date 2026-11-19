@@ -643,7 +643,7 @@ impl Reports {
         let dir = dir.to_str().unwrap();
         let lines = self.strings("line").into_iter();
         lines
-            .map(|line| unrandom_temp_names(&line.replace(dir, "{project}")))
+            .map(|line| unrandom_pids(&unrandom_temp_names(&line.replace(dir, "{project}"))))
             .collect()
     }
 
@@ -750,6 +750,22 @@ fn unrandom_temp_names(line: &str) -> String {
         shown.push_str(&name[..kept]);
         shown.push_str(&"X".repeat(name.len() - kept));
         rest = after;
+    }
+    shown.push_str(rest);
+    shown
+}
+
+/// `line` with each started child's `pid`, a number of the process's, in
+/// place of its digits.
+fn unrandom_pids(line: &str) -> String {
+    const PID: &str = "pid [e--]: number ";
+    let mut shown = String::new();
+    let mut rest = line;
+    while let Some(at) = rest.find(PID) {
+        let (before, after) = rest.split_at(at + PID.len());
+        shown.push_str(before);
+        shown.push_str("<pid>");
+        rest = after.trim_start_matches(|c: char| c.is_ascii_digit());
     }
     shown.push_str(rest);
     shown

@@ -480,7 +480,7 @@ export type SpawnSignal =
 export interface SpawnStdin {
 	/**
 	 * Writes `data`, a string as UTF-8, resolving once it's accepted.
-	 * @returns `false` when the child closed its stdin or ended, so the data went nowhere
+	 * @returns `false` when the child closed its stdin or ended, or after `close`, so the data went nowhere
 	 * @throws `TypeError` - for data that's neither a well-formed string nor a `Uint8Array`
 	 */
 	write(data: string | Uint8Array): Promise<boolean>;
@@ -509,8 +509,8 @@ export interface SpawnChild extends AsyncDisposable {
 	readonly closed: Promise<SpawnResult>;
 	/**
 	 * The child's stdout, or `null` unless `'pipe'`. Iterating is once only: a
-	 * second iteration throws `TypeError`, and leaving the loop early discards the rest, the
-	 * child still running. Chunks are plain `Uint8Array` copies. A stream nobody reads
+	 * second iteration throws `TypeError`, and leaving the loop early, or the iterator's
+	 * `throw`, discards the rest, the child still running. Chunks are plain `Uint8Array` copies. A stream nobody reads
 	 * pauses once its buffer fills, so the child can block on a full pipe.
 	 */
 	readonly stdout: AsyncIterable<Uint8Array> | null;
@@ -1840,6 +1840,13 @@ class NodeSpawnOutputIterator implements AsyncIterator<Uint8Array> {
 		this.#feed.discard();
 		return Promise.resolve(to_chunk_result(null));
 	}
+
+	// as an async generator thrown into where nothing catches: the rest dropped, `error` rejected
+	throw(error?: unknown): Promise<IteratorResult<Uint8Array>> {
+		this.#feed.discard();
+		// eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- the caller's, any value
+		return Promise.reject(error);
+	}
 }
 
 class NodeSpawnStdin implements SpawnStdin {
@@ -1860,6 +1867,11 @@ class NodeSpawnStdin implements SpawnStdin {
 				}
 			} else if (!isUint8Array(data)) {
 				reject(new TypeError('stdin data is a string or a `Uint8Array`'));
+				return;
+			}
+			// a write after `close` would destroy the stream, dropping what earlier writes left queued
+			if (stream.writableEnded || stream.destroyed) {
+				resolve(false);
 				return;
 			}
 			// a copy, as Node holds what it can't write yet and a caller may reuse the buffer

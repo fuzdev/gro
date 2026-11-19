@@ -52,6 +52,19 @@ const written = await namespace_of('@fuzdev/gro/fs.ts').fs.open_dir(
 const temp = await namespace_of('@fuzdev/gro/fs.ts').fs.temp_dir('exercised-');
 
 /**
+ * A child of `tool`, which exits at once, started with its streams piped before the realm is
+ * armed: its methods, its stdin's, and its streams' and their iterators' are exercised through
+ * it, as a call's result is past the walk's reach.
+ */
+const started = await namespace_of('@fuzdev/gro/spawn.ts').spawn
+	.program('tool')
+	.start([], { stdio: 'pipe' });
+
+/** The iterator of the started child's stderr, taken before the realm is armed, past the
+ * walk's reach, so its methods are exercised. */
+const started_iterator = started.stderr[Symbol.asyncIterator]();
+
+/**
  * The arguments each function or class a builtin exports or reaches is exercised with, by its
  * path as the reports name it (`<specifier> <export>`, then `.member` or `()` for each step):
  * lists that reach what a call with no argument or with hostile ones doesn't, and none for a
@@ -211,7 +224,7 @@ const EXERCISES = new Map([
 	],
 	// the program the run grants, with options, so a hostile one in their place is read; its
 	// handle's launches each start `tool`, which exits at once, given arguments and options, so a
-	// hostile one in either place is read; `start`, which isn't built on fgro, given arguments
+	// hostile one in either place is read; `start` given arguments, its streams inherited
 	[
 		'@fuzdev/gro/spawn.ts spawn.program',
 		[['tool', { __proto__: null, pass_env: [], env: { __proto__: null, A: 'a' } }]]
@@ -254,7 +267,20 @@ const EXERCISES = new Map([
 	['@fuzdev/gro/spawn.ts spawn.program_in', [[written, '']]],
 	['@fuzdev/gro/spawn.ts spawn.find_in', [[written, '']]],
 	['@fuzdev/gro/spawn.ts spawn.narrow(arguments 1).program_in', [[written, '']]],
-	['@fuzdev/gro/spawn.ts spawn.narrow(arguments 1).find_in', [[written, '']]]
+	['@fuzdev/gro/spawn.ts spawn.narrow(arguments 1).find_in', [[written, '']]],
+	// the started child's: its streams' iterators, the first call taking each, the rest refused;
+	// each iterator's `next()`, with its end, and its `return()` and `throw()`; its stdin's
+	// writes, text and bytes, and its close; a signal sent, past the child's end or not; and its
+	// disposal, twice
+	['@fuzdev/gro/spawn.ts started.stdout.Symbol(Symbol.asyncIterator)', []],
+	['@fuzdev/gro/spawn.ts started.stderr.Symbol(Symbol.asyncIterator)', []],
+	['@fuzdev/gro/spawn.ts started.stdin.write', [['a'], [new Uint8Array(1)]]],
+	['@fuzdev/gro/spawn.ts started.stdin.close', []],
+	['@fuzdev/gro/spawn.ts started.kill', [['SIGTERM']]],
+	['@fuzdev/gro/spawn.ts started.Symbol(Symbol.asyncDispose)', [[], []]],
+	['@fuzdev/gro/spawn.ts started_iterator.next', []],
+	['@fuzdev/gro/spawn.ts started_iterator.return', []],
+	['@fuzdev/gro/spawn.ts started_iterator.throw', [[1]]]
 ]);
 
 /** How far into an export's properties and its calls' results the functions are looked for. */
@@ -297,6 +323,11 @@ for (const name of [
 ]) {
 	exerciser.exercise(`@fuzdev/gro/fs.ts written.${name}`, written_prototype[name], written, 1);
 }
+
+// a started child's methods and its streams', reached through it
+exerciser.exercise('@fuzdev/gro/spawn.ts started', started, undefined, DEPTH);
+
+exerciser.exercise('@fuzdev/gro/spawn.ts started_iterator', started_iterator, undefined, DEPTH);
 
 // a temporary directory's disposal, reached through its handle
 exerciser.exercise(

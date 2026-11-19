@@ -1307,5 +1307,34 @@
 			}
 		},
 		"differs": []
+	},
+	{
+		"name": "spawn_start",
+		"module": "spawn",
+		"args": ["start", "{cwd}"],
+		"flags": ["--allow-run=emit"],
+		"env": {"PATH": "{cwd}/spawn/nm/node_modules/.bin:spawn/rel::{cwd}/spawn/dir:{cwd}/spawn/bin/:/usr/bin:/bin", "GRO_A": "a", "GRO_B": "b", "GRO_P_X": "x", "GRO_SECRET": "s"},
+		"differs": [
+			{
+				"at": "/piped/prototype/own",
+				"fgro": {"kill": {"type": "function", "writable": false, "enumerable": true, "configurable": false}, "Symbol(Symbol.asyncDispose)": {"type": "function", "writable": false, "enumerable": true, "configurable": false}},
+				"why": "a handle's prototype is the host's null-prototype record of its methods, enumerable as an object literal makes them, with no constructor, so nothing reached from a handle makes another"
+			},
+			{
+				"at": "/piped/stdout_prototype/own",
+				"fgro": {"Symbol(Symbol.asyncIterator)": {"type": "function", "writable": false, "enumerable": true, "configurable": false}},
+				"why": "a handle's prototype is the host's null-prototype record of its methods, enumerable as an object literal makes them, with no constructor, so nothing reached from a handle makes another"
+			},
+			{
+				"at": "/piped/iterator_prototype/own",
+				"fgro": {"next": {"type": "function", "writable": false, "enumerable": true, "configurable": false}, "return": {"type": "function", "writable": false, "enumerable": true, "configurable": false}, "throw": {"type": "function", "writable": false, "enumerable": true, "configurable": false}},
+				"why": "a handle's prototype is the host's null-prototype record of its methods, enumerable as an object literal makes them, with no constructor, so nothing reached from a handle makes another"
+			},
+			{
+				"at": "/piped/stdin_prototype/own",
+				"fgro": {"write": {"type": "function", "writable": false, "enumerable": true, "configurable": false}, "close": {"type": "function", "writable": false, "enumerable": true, "configurable": false}},
+				"why": "a handle's prototype is the host's null-prototype record of its methods, enumerable as an object literal makes them, with no constructor, so nothing reached from a handle makes another"
+			}
+		]
 	}
 ]

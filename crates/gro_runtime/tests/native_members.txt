@@ -62,16 +62,20 @@
 @fuzdev/gro/spawn.ts run method of @fuzdev/gro/spawn.ts#SpawnProgram length 2 async grant spawn throws SpawnError
 @fuzdev/gro/spawn.ts out method of @fuzdev/gro/spawn.ts#SpawnProgram length 2 async grant spawn throws SpawnError
 @fuzdev/gro/spawn.ts out_bytes method of @fuzdev/gro/spawn.ts#SpawnProgram length 2 async grant spawn throws SpawnError
-@fuzdev/gro/spawn.ts start method of @fuzdev/gro/spawn.ts#SpawnProgram length 2 async grant spawn
+@fuzdev/gro/spawn.ts start method of @fuzdev/gro/spawn.ts#SpawnProgram length 2 async grant spawn throws SpawnError
 @fuzdev/gro/spawn.ts kill method of @fuzdev/gro/spawn.ts#SpawnChild length 0 grant spawn
 @fuzdev/gro/spawn.ts [Symbol.asyncDispose] method of @fuzdev/gro/spawn.ts#SpawnChild length 0 async grant spawn
 @fuzdev/gro/spawn.ts write method of @fuzdev/gro/spawn.ts#SpawnStdin length 1 async grant spawn
 @fuzdev/gro/spawn.ts close method of @fuzdev/gro/spawn.ts#SpawnStdin length 0 async grant spawn
+@fuzdev/gro/spawn.ts [Symbol.asyncIterator] method of @fuzdev/gro/spawn.ts#AsyncIterable length 0 grant spawn
+@fuzdev/gro/spawn.ts next method of @fuzdev/gro/spawn.ts#AsyncIterator length 0 async grant spawn
+@fuzdev/gro/spawn.ts return method of @fuzdev/gro/spawn.ts#AsyncIterator length 0 async grant spawn
+@fuzdev/gro/spawn.ts throw method of @fuzdev/gro/spawn.ts#AsyncIterator length 1 async grant spawn
 @fuzdev/gro/fs.ts path data of @fuzdev/gro/fs.ts#FsReadDir data grant fs
 @fuzdev/gro/spawn.ts name data of @fuzdev/gro/spawn.ts#SpawnProgram data grant spawn
 @fuzdev/gro/spawn.ts path data of @fuzdev/gro/spawn.ts#SpawnProgram data grant spawn
 @fuzdev/gro/spawn.ts pid data of @fuzdev/gro/spawn.ts#SpawnChild data grant spawn
 @fuzdev/gro/spawn.ts closed data of @fuzdev/gro/spawn.ts#SpawnChild data grant spawn
-@fuzdev/gro/spawn.ts stdout data of @fuzdev/gro/spawn.ts#SpawnChild data grant spawn
-@fuzdev/gro/spawn.ts stderr data of @fuzdev/gro/spawn.ts#SpawnChild data grant spawn
+@fuzdev/gro/spawn.ts stdout data of @fuzdev/gro/spawn.ts#SpawnChild handle @fuzdev/gro/spawn.ts#AsyncIterable grant spawn
+@fuzdev/gro/spawn.ts stderr data of @fuzdev/gro/spawn.ts#SpawnChild handle @fuzdev/gro/spawn.ts#AsyncIterable grant spawn
 @fuzdev/gro/spawn.ts stdin data of @fuzdev/gro/spawn.ts#SpawnChild handle @fuzdev/gro/spawn.ts#SpawnStdin grant spawn

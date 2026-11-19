@@ -59,13 +59,15 @@
 //! A program's `run`, `out`, and `out_bytes` launch a child and settle in a
 //! later turn ([`launch`]), its watch a task on the event loop's own
 //! runtime, and the run's table of children killed when the run ends
-//! ([`watch`]). `start`, and a child's and its stdin's methods, aren't
-//! built: each checks its receiver and fails with a plain `Error` saying
-//! so.
+//! ([`watch`]). `start` launches one the same way and settles with its
+//! `SpawnChild` ([`start`]), whose state and long-lived task are
+//! [`child`]'s.
 
+pub mod child;
 pub mod exec_roots;
 pub mod launch;
 pub mod pins;
+pub mod start;
 pub mod watch;
 
 use std::cell::{Cell, RefCell};
@@ -73,6 +75,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::os::fd::{AsRawFd, OwnedFd, RawFd};
 use std::os::unix::fs::OpenOptionsExt as _;
 use std::path::Path;
+use std::rc::Rc;
 use std::sync::Arc;
 
 use deno_core::{OpState, v8};
@@ -145,6 +148,9 @@ pub struct SpawnRun {
     /// ones, pinned as the run started, then, in an unconfined run, each
     /// file pinned since, once for each way it's run.
     pins: RefCell<Vec<Pin>>,
+    /// The run's started children, by the number their handles name
+    /// ([`start::StartedChildren`]).
+    started: Rc<start::StartedChildren>,
 }
 
 /// What the roots naming a scope may make: its programs, and the exec
@@ -244,6 +250,7 @@ impl SpawnRun {
             project,
             scopes: vec![scope],
             pins: RefCell::new(pins),
+            started: Rc::default(),
         })
     }
 
@@ -761,29 +768,6 @@ pub fn narrow<'s>(
             .ok_or(Failure::Thrown)
     })();
     finish(state, scope, errors, result)
-}
-
-/// A member not built on fgro yet, `member`, called on `receiver`, a handle
-/// of `kind`: a plain `Error` saying so, once the receiver is checked,
-/// since no kind of `SpawnError` is a missing feature.
-pub fn unbuilt<'s>(
-    state: &OpState,
-    scope: &v8::PinScope<'s, '_>,
-    member: &str,
-    kind: &HandleKind,
-    receiver: v8::Local<'s, v8::Value>,
-) -> Option<v8::Local<'s, v8::Value>> {
-    let message = match run_state(state).and_then(|_| read_handle(scope, kind, receiver)) {
-        Ok(_) => format!("{member} of {MODULE} isn't built on fgro yet"),
-        Err(Failure::Type(message)) => {
-            throw_type_error(scope, &message);
-            return None;
-        }
-        Err(Failure::Plain(message)) => message,
-        Err(_) => return None,
-    };
-    throw_error(scope, &message);
-    None
 }
 
 /// What a name is checked for, which says the cause of a refusal.
@@ -1340,6 +1324,7 @@ pub fn run_of_scopes(scopes: Vec<TestScope<'_>>) -> SpawnRun {
         project: Some("/".to_owned()),
         scopes,
         pins: RefCell::new(Vec::new()),
+        started: Rc::default(),
     }
 }
 

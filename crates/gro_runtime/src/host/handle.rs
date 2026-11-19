@@ -161,8 +161,14 @@ pub const SPAWN_CHILD: HandleKind = HandleKind {
     fields: &[
         Field::data("pid"),
         Field::data("closed"),
-        Field::data("stdout"),
-        Field::data("stderr"),
+        Field {
+            name: "stdout",
+            handle: Some(&SPAWN_OUTPUT),
+        },
+        Field {
+            name: "stderr",
+            handle: Some(&SPAWN_OUTPUT),
+        },
         Field {
             name: "stdin",
             handle: Some(&SPAWN_STDIN),
@@ -173,6 +179,23 @@ pub const SPAWN_CHILD: HandleKind = HandleKind {
 /// The spawn host module's children's stdin, its `SpawnStdin`.
 pub const SPAWN_STDIN: HandleKind = HandleKind {
     brand: "@fuzdev/gro/spawn.ts#SpawnStdin",
+    parent: None,
+    fields: &[],
+};
+
+/// The spawn host module's children's piped output streams, each a
+/// TypeScript `AsyncIterable` of chunks, as the Node module's are.
+pub const SPAWN_OUTPUT: HandleKind = HandleKind {
+    brand: "@fuzdev/gro/spawn.ts#AsyncIterable",
+    parent: None,
+    fields: &[],
+};
+
+/// The iterator of a child's output stream, what its
+/// `[Symbol.asyncIterator]()` returns, a TypeScript `AsyncIterator`, as the
+/// Node module's is.
+pub const SPAWN_OUTPUT_ITERATOR: HandleKind = HandleKind {
+    brand: "@fuzdev/gro/spawn.ts#AsyncIterator",
     parent: None,
     fields: &[],
 };

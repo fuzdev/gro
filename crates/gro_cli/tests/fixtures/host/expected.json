@@ -18216,5 +18216,444 @@
 				}
 			}
 		}
+	},
+	"spawn_start": {
+		"code": 0,
+		"output": {
+			"piped": {
+				"iterator": {
+					"type": "object",
+					"prototype": "other",
+					"frozen": true,
+					"own": {}
+				},
+				"iterator_prototype": {
+					"type": "object",
+					"prototype": null,
+					"frozen": true,
+					"own": {
+						"constructor": {
+							"type": "function",
+							"writable": false,
+							"enumerable": false,
+							"configurable": false
+						},
+						"next": {
+							"type": "function",
+							"writable": false,
+							"enumerable": false,
+							"configurable": false
+						},
+						"return": {
+							"type": "function",
+							"writable": false,
+							"enumerable": false,
+							"configurable": false
+						},
+						"throw": {
+							"type": "function",
+							"writable": false,
+							"enumerable": false,
+							"configurable": false
+						}
+					}
+				},
+				"child": {
+					"type": "object",
+					"prototype": "other",
+					"frozen": true,
+					"own": {
+						"pid": {
+							"type": "number",
+							"writable": false,
+							"enumerable": true,
+							"configurable": false
+						},
+						"closed": {
+							"type": "object",
+							"writable": false,
+							"enumerable": true,
+							"configurable": false
+						},
+						"stdout": {
+							"type": "object",
+							"writable": false,
+							"enumerable": true,
+							"configurable": false
+						},
+						"stderr": {
+							"type": "object",
+							"writable": false,
+							"enumerable": true,
+							"configurable": false
+						},
+						"stdin": {
+							"type": "object",
+							"writable": false,
+							"enumerable": true,
+							"configurable": false
+						}
+					}
+				},
+				"prototype": {
+					"type": "object",
+					"prototype": null,
+					"frozen": true,
+					"own": {
+						"constructor": {
+							"type": "function",
+							"writable": false,
+							"enumerable": false,
+							"configurable": false
+						},
+						"kill": {
+							"type": "function",
+							"writable": false,
+							"enumerable": false,
+							"configurable": false
+						},
+						"Symbol(Symbol.asyncDispose)": {
+							"type": "function",
+							"writable": false,
+							"enumerable": false,
+							"configurable": false
+						}
+					}
+				},
+				"stdout": {
+					"type": "object",
+					"prototype": "other",
+					"frozen": true,
+					"own": {}
+				},
+				"stdout_prototype": {
+					"type": "object",
+					"prototype": null,
+					"frozen": true,
+					"own": {
+						"constructor": {
+							"type": "function",
+							"writable": false,
+							"enumerable": false,
+							"configurable": false
+						},
+						"Symbol(Symbol.asyncIterator)": {
+							"type": "function",
+							"writable": false,
+							"enumerable": false,
+							"configurable": false
+						}
+					}
+				},
+				"stdin": {
+					"type": "object",
+					"prototype": "other",
+					"frozen": true,
+					"own": {}
+				},
+				"stdin_prototype": {
+					"type": "object",
+					"prototype": null,
+					"frozen": true,
+					"own": {
+						"constructor": {
+							"type": "function",
+							"writable": false,
+							"enumerable": false,
+							"configurable": false
+						},
+						"write": {
+							"type": "function",
+							"writable": false,
+							"enumerable": false,
+							"configurable": false
+						},
+						"close": {
+							"type": "function",
+							"writable": false,
+							"enumerable": false,
+							"configurable": false
+						}
+					}
+				},
+				"then": false,
+				"pid": "number",
+				"closed_frozen": true,
+				"methods": {
+					"child": [
+						{
+							"length": 0,
+							"name": "kill"
+						},
+						{
+							"length": 0,
+							"name": "[Symbol.asyncDispose]"
+						}
+					],
+					"stdin": [
+						{
+							"length": 1,
+							"name": "write"
+						},
+						{
+							"length": 0,
+							"name": "close"
+						}
+					],
+					"stdout": [
+						{
+							"length": 0,
+							"name": "[Symbol.asyncIterator]"
+						}
+					],
+					"iterator": [
+						{
+							"length": 0,
+							"name": "next"
+						},
+						{
+							"length": 0,
+							"name": "return"
+						},
+						{
+							"length": 1,
+							"name": "throw"
+						}
+					]
+				}
+			},
+			"piped_read": {
+				"stdout": {
+					"text": "out",
+					"plain": true
+				},
+				"stderr": {
+					"text": "err",
+					"plain": true
+				},
+				"second_iteration": "TypeError",
+				"closed": {
+					"fields": {
+						"kind": "exited",
+						"code": 0
+					},
+					"frozen": true,
+					"null_prototype": true
+				},
+				"kill_after_the_end": false,
+				"closed_again": true
+			},
+			"inherited": {
+				"stdout": null,
+				"stderr": null,
+				"stdin": null,
+				"closed": {
+					"fields": {
+						"kind": "exited",
+						"code": 3
+					},
+					"frozen": true,
+					"null_prototype": true
+				}
+			},
+			"mixed": {
+				"stdin": null,
+				"stdout": {
+					"text": "out",
+					"plain": true
+				},
+				"stderr": null,
+				"closed": {
+					"fields": {
+						"kind": "exited",
+						"code": 0
+					},
+					"frozen": true,
+					"null_prototype": true
+				}
+			},
+			"fed": {
+				"writes": [
+					true,
+					true,
+					true,
+					null,
+					false,
+					null
+				],
+				"stdout": {
+					"text": "ab",
+					"plain": true
+				},
+				"stderr": {
+					"text": "err",
+					"plain": true
+				},
+				"invalid": [
+					{
+						"rejected": {
+							"class": "TypeError",
+							"message": "stdin data is a string or a `Uint8Array`",
+							"cause": "undefined"
+						}
+					},
+					{
+						"rejected": {
+							"class": "TypeError",
+							"message": "stdin data isn't well-formed Unicode",
+							"cause": "undefined"
+						}
+					},
+					{
+						"rejected": {
+							"class": "TypeError",
+							"message": "stdin data is a string or a `Uint8Array`",
+							"cause": "undefined"
+						}
+					},
+					{
+						"rejected": {
+							"class": "TypeError",
+							"message": "stdin data is a string or a `Uint8Array`",
+							"cause": "undefined"
+						}
+					}
+				],
+				"closed": {
+					"fields": {
+						"kind": "exited",
+						"code": 0
+					},
+					"frozen": true,
+					"null_prototype": true
+				}
+			},
+			"big_fed": {
+				"writes": [
+					true,
+					null,
+					false
+				],
+				"length": 200000,
+				"closed": {
+					"fields": {
+						"kind": "exited",
+						"code": 0
+					},
+					"frozen": true,
+					"null_prototype": true
+				}
+			},
+			"kill": {
+				"names": [
+					"TypeError",
+					"TypeError",
+					"TypeError",
+					"TypeError"
+				],
+				"sent": true,
+				"closed": {
+					"fields": {
+						"kind": "signaled",
+						"signal": "SIGTERM"
+					},
+					"frozen": true,
+					"null_prototype": true
+				},
+				"after_the_end": false
+			},
+			"disposed": {
+				"closed": {
+					"fields": {
+						"kind": "signaled",
+						"signal": "SIGTERM"
+					},
+					"frozen": true,
+					"null_prototype": true
+				}
+			},
+			"timed_out": {
+				"fields": {
+					"kind": "timed_out",
+					"code": null,
+					"signal": "SIGTERM"
+				},
+				"frozen": true,
+				"null_prototype": true
+			},
+			"behind_the_pause": {
+				"length": 3000000,
+				"closed": {
+					"fields": {
+						"kind": "exited",
+						"code": 0
+					},
+					"frozen": true,
+					"null_prototype": true
+				}
+			},
+			"left_early": {
+				"first": true,
+				"after": "TypeError",
+				"closed": {
+					"fields": {
+						"kind": "exited",
+						"code": 0
+					},
+					"frozen": true,
+					"null_prototype": true
+				}
+			},
+			"thrown_into": {
+				"first": true,
+				"rejected": "RangeError: stop",
+				"after": [
+					true,
+					true
+				],
+				"again": {
+					"text": "",
+					"plain": true
+				},
+				"closed": {
+					"fields": {
+						"kind": "exited",
+						"code": 0
+					},
+					"frozen": true,
+					"null_prototype": true
+				}
+			},
+			"invalid": [
+				{
+					"rejected": {
+						"class": "TypeError",
+						"message": "a `stdio` value is 'inherit', 'pipe', or 'ignore'",
+						"cause": "undefined"
+					}
+				},
+				{
+					"rejected": {
+						"class": "TypeError",
+						"message": "`stdio` is 'inherit', 'pipe', 'ignore', or three of them",
+						"cause": "undefined"
+					}
+				},
+				{
+					"rejected": {
+						"class": "TypeError",
+						"message": "a `stdio` value is 'inherit', 'pipe', or 'ignore'",
+						"cause": "undefined"
+					}
+				},
+				{
+					"rejected": {
+						"class": "TypeError",
+						"message": "`stdio` is 'inherit', 'pipe', 'ignore', or three of them",
+						"cause": "undefined"
+					}
+				}
+			]
+		}
 	}
 }

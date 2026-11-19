@@ -150,9 +150,9 @@ impl Guard {
 #[derive(Debug)]
 pub struct Held {
     /// Its pidfd, which the table holds too.
-    pidfd: Arc<Pidfd>,
+    pub(super) pidfd: Arc<Pidfd>,
     /// The group it leads, its pid, when it leads one.
-    group: Option<u32>,
+    pub(super) group: Option<u32>,
     /// Its slot of the signal handler's tables, dropped before it's reaped.
     guard: Option<Guard>,
     /// The run's table, and its number there.
@@ -160,7 +160,7 @@ pub struct Held {
     /// Its number in the table.
     id: u64,
     /// Whether it's reaped, or abandoned, so dropping it kills nothing.
-    done: bool,
+    pub(super) done: bool,
 }
 
 impl Held {
@@ -186,7 +186,7 @@ impl Held {
     /// Sends `signal` to the child, or to the group it leads, which its
     /// leader, not reaped, still holds; nothing once it's reaped, when the
     /// group's id may be another's. A failure is a child gone.
-    fn send(&self, signal: libc::c_int) {
+    pub(super) fn send(&self, signal: libc::c_int) {
         if self.done {
             return;
         }
@@ -201,7 +201,7 @@ impl Held {
     /// process, it waits for the child's end without reaping it, so the id
     /// the handler may still signal stays the child's until the process
     /// ends.
-    fn reap(&mut self) -> io::Result<Ended> {
+    pub(super) fn reap(&mut self) -> io::Result<Ended> {
         self.children.untrack(self.id);
         let freed = self.guard.take().is_none_or(Guard::release);
         self.done = true;
@@ -222,7 +222,7 @@ impl Held {
     /// `read` what reading it gave: its group too only when the read found
     /// it running, unreaped, since an error may be that something else
     /// reaped it, and its group's id may be another's.
-    fn kill_lost(&mut self, read: &io::Result<Option<Ended>>) -> io::Result<Ended> {
+    pub(super) fn kill_lost(&mut self, read: &io::Result<Option<Ended>>) -> io::Result<Ended> {
         self.kill_and_reap(matches!(read, Ok(None)))
     }
 

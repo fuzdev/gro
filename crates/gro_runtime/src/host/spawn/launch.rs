@@ -56,7 +56,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use deno_core::{OpState, v8};
-use gro_sys::child::{Ended, Pidfd};
+use gro_sys::child::{Ended, Pidfd, PidfdWatch};
 use gro_sys::{
     FORWARDED_CHILDREN, ForwardReservation, GUARDED_GROUPS, GroupGuard, GroupReservation,
     TermForward, Unreserved,
@@ -108,23 +108,47 @@ enum StdinOption {
     Data(Vec<u8>),
 }
 
+/// What a started child's stream is: `stdio`'s value for it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Stream {
+    /// The host's.
+    Inherit,
+    /// A pipe to the `SpawnChild`.
+    Pipe,
+    /// `/dev/null`.
+    Ignore,
+}
+
+/// Which options a call reads beside `cwd`, `timeout_ms`, and `signal`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Reads {
+    /// None: `run`'s.
+    Run,
+    /// `max_bytes` and `stdin`: `out`'s and `out_bytes`'.
+    Captured,
+    /// `stdio`: `start`'s.
+    Started,
+}
+
 /// A call's options, each read once.
 #[derive(Debug)]
-struct CallOptions {
+pub struct CallOptions {
     /// `cwd`'s directory, opened, or its path and why it couldn't be, which
     /// fails the launch; `None` for the project's.
-    cwd: Option<Result<OwnedFd, (String, String)>>,
+    pub cwd: Option<Result<OwnedFd, (String, String)>>,
     /// `timeout_ms`.
-    timeout: Option<Duration>,
+    pub timeout: Option<Duration>,
     /// `max_bytes`.
     max_bytes: usize,
     /// `stdin`.
     stdin: StdinOption,
+    /// `stdio`, each stream's.
+    pub stdio: [Stream; 3],
 }
 
 /// A program handle, as a call reads the one it's called on.
 #[derive(Debug)]
-struct Program {
+pub struct Program {
     /// The name it was asked for.
     name: String,
     /// Its pin's place in the run's table.
@@ -150,7 +174,12 @@ pub fn call<'s>(
         let run = run_state(state)?;
         let program = read_program(scope, receiver)?;
         let argv = read_argv(scope, args)?;
-        let options = read_call_options(state, scope, capture, options)?;
+        let reads = if capture == Capture::None {
+            Reads::Run
+        } else {
+            Reads::Captured
+        };
+        let options = read_call_options(state, scope, reads, options)?;
         launch(run, &program, &argv, options, capture)
     })();
     match started {
@@ -166,7 +195,7 @@ pub fn call<'s>(
 
 /// The program `receiver` is, its name, pin, and children's environment
 /// read from its own data and its state, the host's, or a `TypeError`.
-fn read_program<'s>(
+pub(super) fn read_program<'s>(
     scope: &v8::PinScope<'s, '_>,
     receiver: v8::Local<'s, v8::Value>,
 ) -> Result<Program, Failure> {
@@ -205,7 +234,7 @@ fn read_program<'s>(
 
 /// `args`, a call's arguments, as the Node module's `to_argv` reads them:
 /// an array, no proxy, each element its own data and text.
-fn read_argv(
+pub(super) fn read_argv(
     scope: &v8::PinScope<'_, '_>,
     args: v8::Local<'_, v8::Value>,
 ) -> Result<Vec<String>, Failure> {
@@ -229,12 +258,12 @@ fn safe_integer(value: v8::Local<'_, v8::Value>) -> Option<f64> {
 }
 
 /// A call's `options`, read and checked once, in the Node module's order:
-/// `cwd`, `timeout_ms`, `signal`, then, for a captured call, `max_bytes`
-/// and `stdin`.
-fn read_call_options(
+/// `cwd`, `timeout_ms`, `signal`, then, as `reads` says, for a captured
+/// call `max_bytes` and `stdin`, and for `start` `stdio`.
+pub(super) fn read_call_options(
     state: &OpState,
     scope: &v8::PinScope<'_, '_>,
-    capture: Capture,
+    reads: Reads,
     options: v8::Local<'_, v8::Value>,
 ) -> Result<CallOptions, Failure> {
     let mut read = CallOptions {
@@ -242,6 +271,7 @@ fn read_call_options(
         timeout: None,
         max_bytes: DEFAULT_MAX_BYTES,
         stdin: StdinOption::Ignore,
+        stdio: [Stream::Inherit; 3],
     };
     if options.is_undefined() {
         return Ok(read);
@@ -285,8 +315,15 @@ fn read_call_options(
             "the `signal` option of {MODULE} isn't built on fgro yet"
         )));
     }
-    if capture == Capture::None {
-        return Ok(read);
+    match reads {
+        Reads::Run => return Ok(read),
+        Reads::Started => {
+            if let Some(stdio) = given("stdio")? {
+                read.stdio = read_stdio(scope, stdio)?;
+            }
+            return Ok(read);
+        }
+        Reads::Captured => {}
     }
     if let Some(max_bytes) = given("max_bytes")? {
         let max_bytes = safe_integer(max_bytes)
@@ -321,6 +358,38 @@ fn read_call_options(
         };
     }
     Ok(read)
+}
+
+/// A `stdio` option, read once: one value for all three streams, or the
+/// three in order, an array of exactly three, each its own data.
+fn read_stdio(
+    scope: &v8::PinScope<'_, '_>,
+    raw: v8::Local<'_, v8::Value>,
+) -> Result<[Stream; 3], Failure> {
+    let one = |value: v8::Local<'_, v8::Value>| {
+        let mode = value.is_string().then(|| value.to_rust_string_lossy(scope));
+        match mode.as_deref() {
+            Some("inherit") => Ok(Stream::Inherit),
+            Some("pipe") => Ok(Stream::Pipe),
+            Some("ignore") => Ok(Stream::Ignore),
+            _ => Err(Failure::Type(
+                "a `stdio` value is 'inherit', 'pipe', or 'ignore'".to_owned(),
+            )),
+        }
+    };
+    if raw.is_string() {
+        return one(raw).map(|stream| [stream; 3]);
+    }
+    let three = array(raw)
+        .filter(|list| list.length() == 3)
+        .ok_or_else(|| {
+            Failure::Type("`stdio` is 'inherit', 'pipe', 'ignore', or three of them".to_owned())
+        })?;
+    Ok([
+        one(element(scope, three, 0)?)?,
+        one(element(scope, three, 1)?)?,
+        one(element(scope, three, 2)?)?,
+    ])
 }
 
 /// The slot of the signal handler's tables reserved for a child before it
@@ -372,15 +441,29 @@ fn not_started(program: &Program, path: &str, why: String) -> Failure {
     }
 }
 
+/// A child launched: held, its pidfd watched, and its piped streams.
+#[derive(Debug)]
+pub struct Launched {
+    /// The child's process id.
+    pub pid: u32,
+    /// The child.
+    pub held: Held,
+    /// Its pidfd, registered with the reactor.
+    pub exit: PidfdWatch,
+    /// Its stdin, when it's piped.
+    pub stdin: Option<pipe::Sender>,
+    /// Its stdout, when it's piped.
+    pub stdout: Option<pipe::Receiver>,
+    /// Its stderr, when it's piped.
+    pub stderr: Option<pipe::Receiver>,
+}
+
 /// Launches `program` with `argv` and `options` for a call that makes
 /// `capture` of its output, returning what its watch takes.
 ///
 /// # Errors
 ///
-/// Returns `launch_failed` when the pin no longer checks out, no slot of
-/// the signal handler's tables is free or a signal is ending the run, the
-/// working directory can't be opened, or the child can't be started or
-/// held.
+/// Returns [`launch_child`]'s errors.
 fn launch(
     run: &SpawnRun,
     program: &Program,
@@ -388,6 +471,51 @@ fn launch(
     options: CallOptions,
     capture: Capture,
 ) -> Result<Started, Failure> {
+    let stdio = match capture {
+        Capture::None => [Stream::Inherit; 3],
+        Capture::Text | Capture::Bytes => [
+            match options.stdin {
+                StdinOption::Data(_) => Stream::Pipe,
+                StdinOption::Inherit => Stream::Inherit,
+                StdinOption::Ignore => Stream::Ignore,
+            },
+            Stream::Pipe,
+            Stream::Pipe,
+        ],
+    };
+    let launched = launch_child(run, program, argv, options.cwd.as_ref(), stdio)?;
+    let feed_data = match options.stdin {
+        StdinOption::Data(data) => Some(data),
+        StdinOption::Inherit | StdinOption::Ignore => None,
+    };
+    Ok(Started {
+        held: launched.held,
+        exit: launched.exit,
+        capture,
+        max_bytes: options.max_bytes,
+        pipes: launched.stdout.zip(launched.stderr),
+        feed: launched.stdin.zip(feed_data),
+        timeout: options.timeout,
+    })
+}
+
+/// Launches `program` with `argv`, in `cwd`'s directory or the project's,
+/// each stream as `stdio` says, leading a process group of its own when it
+/// inherits none, as the Node module's child does.
+///
+/// # Errors
+///
+/// Returns `launch_failed` when the pin no longer checks out, no slot of
+/// the signal handler's tables is free or a signal is ending the run, the
+/// working directory can't be opened, or the child can't be started or
+/// held.
+pub(super) fn launch_child(
+    run: &SpawnRun,
+    program: &Program,
+    argv: &[String],
+    cwd: Option<&Result<OwnedFd, (String, String)>>,
+    stdio: [Stream; 3],
+) -> Result<Launched, Failure> {
     let pins = run.pins.borrow();
     let pin = pins
         .get(program.pin)
@@ -400,7 +528,7 @@ fn launch(
             inner: unlaunched.inner,
         })?;
     let path = pin.run_path.as_str();
-    let grouped = capture != Capture::None && !matches!(options.stdin, StdinOption::Inherit);
+    let grouped = !stdio.contains(&Stream::Inherit);
     let reserved = if grouped {
         GroupGuard::reserve().map(Reserved::Group)
     } else {
@@ -410,7 +538,7 @@ fn launch(
         .map_err(|unreserved| not_started(program, path, unreserved_why(unreserved, grouped)))?;
     run.guard_on_signal()
         .map_err(|error| not_started(program, path, error))?;
-    let cwd = match &options.cwd {
+    let cwd = match cwd {
         Some(Ok(fd)) => fd.as_raw_fd(),
         Some(Err((dir, why))) => {
             return Err(not_started(
@@ -427,37 +555,20 @@ fn launch(
         PinKind::Native(held) => format!("/proc/self/fd/{}", held.as_raw_fd()),
         PinKind::Script => pin.run_path.clone(),
     });
+    let to_stdio = |stream: Stream| match stream {
+        Stream::Inherit => Stdio::inherit(),
+        Stream::Pipe => Stdio::piped(),
+        Stream::Ignore => Stdio::null(),
+    };
     command
         .arg0(&pin.argv0)
         .args(argv)
         .env_clear()
         .envs(program.env.iter().map(|(key, value)| (key, value)))
-        .current_dir(format!("/proc/self/fd/{cwd}"));
-    let inherit_stdin = matches!(options.stdin, StdinOption::Inherit);
-    let feed_data = match options.stdin {
-        StdinOption::Data(data) => Some(data),
-        StdinOption::Inherit | StdinOption::Ignore => None,
-    };
-    match capture {
-        Capture::None => {
-            command
-                .stdin(Stdio::inherit())
-                .stdout(Stdio::inherit())
-                .stderr(Stdio::inherit());
-        }
-        Capture::Text | Capture::Bytes => {
-            command
-                .stdin(if feed_data.is_some() {
-                    Stdio::piped()
-                } else if inherit_stdin {
-                    Stdio::inherit()
-                } else {
-                    Stdio::null()
-                })
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped());
-        }
-    }
+        .current_dir(format!("/proc/self/fd/{cwd}"))
+        .stdin(to_stdio(stdio[0]))
+        .stdout(to_stdio(stdio[1]))
+        .stderr(to_stdio(stdio[2]));
     if grouped {
         command.process_group(0);
     }
@@ -500,22 +611,18 @@ fn launch(
     drop(child);
     let watched = (|| {
         let exit = pidfd.watch()?;
-        let feed = match (stdin, feed_data) {
-            (Some(stdin), Some(data)) => {
-                Some((pipe::Sender::from_owned_fd(OwnedFd::from(stdin))?, data))
-            }
-            _ => None,
-        };
-        let pipes = match (stdout, stderr) {
-            (Some(stdout), Some(stderr)) => Some((
-                pipe::Receiver::from_owned_fd(OwnedFd::from(stdout))?,
-                pipe::Receiver::from_owned_fd(OwnedFd::from(stderr))?,
-            )),
-            _ => None,
-        };
-        Ok::<_, std::io::Error>((exit, feed, pipes))
+        let stdin = stdin
+            .map(|stdin| pipe::Sender::from_owned_fd(OwnedFd::from(stdin)))
+            .transpose()?;
+        let stdout = stdout
+            .map(|stdout| pipe::Receiver::from_owned_fd(OwnedFd::from(stdout)))
+            .transpose()?;
+        let stderr = stderr
+            .map(|stderr| pipe::Receiver::from_owned_fd(OwnedFd::from(stderr)))
+            .transpose()?;
+        Ok::<_, std::io::Error>((exit, stdin, stdout, stderr))
     })();
-    let (exit, feed, pipes) = match watched {
+    let (exit, stdin, stdout, stderr) = match watched {
         Ok(watched) => watched,
         Err(error) => {
             held.abandon();
@@ -526,14 +633,13 @@ fn launch(
             ));
         }
     };
-    Ok(Started {
+    Ok(Launched {
+        pid,
         held,
         exit,
-        capture,
-        max_bytes: options.max_bytes,
-        pipes,
-        feed,
-        timeout: options.timeout,
+        stdin,
+        stdout,
+        stderr,
     })
 }
 
@@ -590,7 +696,7 @@ pub fn signal_name(signal: libc::c_int) -> String {
 /// pending when it can't be made, a `RangeError` for a capture that
 /// couldn't grow or doesn't fit, a plain `Error` for a child whose end is
 /// unknown.
-fn finish<'s>(
+pub(super) fn finish<'s>(
     scope: &mut v8::PinScope<'s, '_>,
     outcome: Outcome,
 ) -> Option<v8::Local<'s, v8::Value>> {

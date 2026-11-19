@@ -487,6 +487,191 @@ export default async (ns, [scenario, cwd], _print, /** @type {any} */ load) => {
 				)
 			};
 		}
+		case 'start': {
+			const emit = spawn.program('emit');
+			/** Every chunk of `stream` read, as text, and whether each was a plain `Uint8Array` of
+			 * its own buffer in a null-prototype `{done, value}` record. */
+			const read_all = async (/** @type {any} */ stream) =>
+				read_iterator(stream[Symbol.asyncIterator]());
+			/** As `read_all`, from the iterator a stream made. */
+			const read_iterator = async (/** @type {any} */ iterator) => {
+				/** @type {Array<number>} */
+				const bytes = [];
+				let plain = true;
+				for (;;) {
+					const result = await iterator.next();
+					plain &&=
+						Object.getPrototypeOf(result) === null &&
+						Reflect.ownKeys(result).join() === 'done,value';
+					if (result.done) break;
+					const { value } = result;
+					plain &&=
+						value.constructor === Uint8Array &&
+						value.byteOffset === 0 &&
+						value.buffer.byteLength === value.length;
+					bytes.push(...value);
+				}
+				return { text: new TextDecoder().decode(new Uint8Array(bytes)), plain };
+			};
+			const piped = /** @type {any} */ (await emit.start(['streams'], { stdio: 'pipe' }));
+			const stderr_iterator = piped.stderr[Symbol.asyncIterator]();
+			const piped_shape = {
+				iterator: describe(stderr_iterator),
+				iterator_prototype: describe(Object.getPrototypeOf(stderr_iterator)),
+				child: describe(piped),
+				prototype: describe(Object.getPrototypeOf(piped)),
+				stdout: describe(piped.stdout),
+				stdout_prototype: describe(Object.getPrototypeOf(piped.stdout)),
+				stdin: describe(piped.stdin),
+				stdin_prototype: describe(Object.getPrototypeOf(piped.stdin)),
+				then: 'then' in piped,
+				pid: typeof piped.pid,
+				closed_frozen: Object.isFrozen(piped.closed),
+				// each method's `length` and `name`, which `describe` leaves out
+				methods: Object.fromEntries(
+					/** @type {Array<[string, any, Array<string | symbol>]>} */ ([
+						['child', Object.getPrototypeOf(piped), ['kill', Symbol.asyncDispose]],
+						['stdin', Object.getPrototypeOf(piped.stdin), ['write', 'close']],
+						['stdout', Object.getPrototypeOf(piped.stdout), [Symbol.asyncIterator]],
+						['iterator', Object.getPrototypeOf(stderr_iterator), ['next', 'return', 'throw']]
+					]).map(([of, prototype, keys]) => [
+						of,
+						keys.map((key) => ({ length: prototype[key].length, name: prototype[key].name }))
+					])
+				)
+			};
+			const piped_read = {
+				stdout: await read_all(piped.stdout),
+				stderr: await read_iterator(stderr_iterator),
+				second_iteration: thrown(() => piped.stdout[Symbol.asyncIterator]()),
+				closed: show_result(await piped.closed),
+				kill_after_the_end: piped.kill(),
+				closed_again: (await piped.closed) === (await piped.closed)
+			};
+			const inherited = /** @type {any} */ (await emit.start(['exit', '3']));
+			const mixed = /** @type {any} */ (
+				await emit.start(['streams'], { stdio: ['ignore', 'pipe', 'ignore'] })
+			);
+			const fed = /** @type {any} */ (
+				await emit.start(['echo_err'], { stdio: ['pipe', 'pipe', 'pipe'] })
+			);
+			// written and closed at once, never awaited between
+			const writes = [
+				fed.stdin.write('a'),
+				fed.stdin.write(new TextEncoder().encode('b')),
+				fed.stdin.write(''),
+				fed.stdin.close(),
+				fed.stdin.write('late'),
+				fed.stdin.close()
+			];
+			const fed_read = await Promise.all([read_all(fed.stdout), read_all(fed.stderr)]);
+			// more than a pipe holds, written and closed at once, then written again, the output read
+			// as it comes: the late write goes nowhere, and takes nothing of what came before
+			const big_fed = /** @type {any} */ (
+				await emit.start(['cat'], { stdio: ['pipe', 'pipe', 'ignore'] })
+			);
+			const big_writes = Promise.all([
+				big_fed.stdin.write(new Uint8Array(200000).fill(98)),
+				big_fed.stdin.close(),
+				big_fed.stdin.write('late')
+			]);
+			const big_read = await read_all(big_fed.stdout);
+			const big = {
+				writes: await big_writes,
+				length: big_read.text.length,
+				closed: show_result(await big_fed.closed)
+			};
+			const sleeper = /** @type {any} */ (await emit.start(['sleep', '5'], { stdio: 'ignore' }));
+			const disposed = /** @type {any} */ (await emit.start(['sleep', '5'], { stdio: 'ignore' }));
+			const timed = /** @type {any} */ (
+				await emit.start(['sleep', '5'], { stdio: 'ignore', timeout_ms: 100 })
+			);
+			const many = /** @type {any} */ (
+				await emit.start(['big', '3000000'], { stdio: ['ignore', 'pipe', 'ignore'] })
+			);
+			// left behind the pause, then read whole
+			await new Promise((resolve) => setTimeout(resolve, 300));
+			const many_read = await read_all(many.stdout);
+			const left = /** @type {any} */ (
+				await emit.start(['big', '3000000'], { stdio: ['ignore', 'pipe', 'ignore'] })
+			);
+			let first_length = 0;
+			for await (const chunk of left.stdout) {
+				first_length = chunk.length;
+				break;
+			}
+			// thrown into after its first chunk: the rest dropped, the error rejected, then done
+			const thrown_into = /** @type {any} */ (
+				await emit.start(['big', '3000000'], { stdio: ['ignore', 'pipe', 'ignore'] })
+			);
+			const thrown_iterator = thrown_into.stdout[Symbol.asyncIterator]();
+			const thrown_first = await thrown_iterator.next();
+			const thrown_rejection = await thrown_iterator.throw(new RangeError('stop')).then(
+				() => 'resolved',
+				(/** @type {any} */ error) => `${error.constructor.name}: ${error.message}`
+			);
+			const thrown_after = await thrown_iterator.next();
+			return {
+				piped: piped_shape,
+				piped_read,
+				inherited: {
+					stdout: inherited.stdout,
+					stderr: inherited.stderr,
+					stdin: inherited.stdin,
+					closed: show_result(await inherited.closed)
+				},
+				mixed: {
+					stdin: mixed.stdin,
+					stdout: await read_all(mixed.stdout),
+					stderr: mixed.stderr,
+					closed: show_result(await mixed.closed)
+				},
+				fed: {
+					writes: await Promise.all(writes),
+					stdout: fed_read[0],
+					stderr: fed_read[1],
+					invalid: await Promise.all(
+						[1, '\ud800', null, [1]].map((data) => settled(() => fed.stdin.write(data)))
+					),
+					closed: show_result(await fed.closed)
+				},
+				big_fed: big,
+				kill: {
+					names: ['SIGNOPE', 9, 'sigterm', null].map((signal) =>
+						thrown(() => sleeper.kill(signal))
+					),
+					sent: sleeper.kill(),
+					closed: show_result(await sleeper.closed),
+					after_the_end: sleeper.kill('SIGKILL')
+				},
+				disposed: {
+					disposal: await disposed[Symbol.asyncDispose](),
+					closed: show_result(await disposed.closed),
+					again: await disposed[Symbol.asyncDispose]()
+				},
+				timed_out: show_result(await timed.closed),
+				behind_the_pause: { length: many_read.text.length, closed: show_result(await many.closed) },
+				left_early: {
+					first: first_length > 0,
+					after: await read_all({
+						[Symbol.asyncIterator]: () => left.stdout[Symbol.asyncIterator]()
+					}).catch((error) => error.constructor.name),
+					closed: show_result(await left.closed)
+				},
+				thrown_into: {
+					first: thrown_first.done === false && thrown_first.value.length > 0,
+					rejected: thrown_rejection,
+					after: [thrown_after.done, thrown_after.value === undefined],
+					again: await read_iterator(thrown_iterator),
+					closed: show_result(await thrown_into.closed)
+				},
+				invalid: await Promise.all(
+					[{ stdio: 'x' }, { stdio: ['pipe'] }, { stdio: ['pipe', 'pipe', 'x'] }, { stdio: 1 }].map(
+						(options) => called(() => emit.start(['exit', '0'], /** @type {any} */ (options)))
+					)
+				)
+			};
+		}
 		default:
 			throw new Error(`no scenario ${scenario}`);
 	}
