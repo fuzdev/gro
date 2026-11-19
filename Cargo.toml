@@ -59,7 +59,7 @@ url = "2.5"
 # so both name one crate and V8 builds once
 v8 = { version = "=150.4.0", default-features = false, features = ["simdutf", "use_custom_libcxx"] }
 
-# deno_core as published, plus gro's patch for deterministic snapshots:
+# deno_core as published, plus gro's patches:
 # vendor/README.md indexes the patches
 [patch.crates-io]
 deno_core = { path = "vendor/deno_core" }

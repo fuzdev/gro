@@ -718,7 +718,7 @@ and under `fgro run` each is the real value, with no switch that fixes or refuse
 so that builds of different commits never share what a cache keys by the string:
 the full SHA, never a prefix of it, since the string is only compared, where a collision costs more than length does.
 It's written as semver writes build metadata, and it's a constant of the build, read from nothing when a run starts.
-A build whose working tree differed from its commit ends in `-dirty`, like `fgro/0.1.0+<commit>-dirty`,
+A build whose working tree differed from its commit ends in `-dirty`, like `fgro/<version>+<commit>-dirty`,
 which names the commit, not the sources: two such builds of one commit read alike whatever each was built from,
 so a dirty build's `runtime_version` isn't an identity, and a cache it keys can be another build's.
 A build that embeds no commit, a plain `cargo build` or a `cargo xtask build` of a tree git can't read,
@@ -1351,7 +1351,7 @@ what can fail for a reason of the run's fails in what the module exports, as `cw
   so the working directory is a string with no authority (built for `fs.project`).
 - Pass `RESOLVE_NO_MAGICLINKS` explicitly, so a handle on `/proc` refuses its magic links (built).
 - Copy and remove a tree recursively beneath the handle's directory, each entry opened relative to its parent's
-  (built for `remove`; designed for `copy`).
+  (built for `remove` and `copy`).
 - Refuse, in the remove ops themselves, to remove `$HOME` and the working directory, each resolved by the host
   as the run starts, as the roots' rule already refuses the project's directory (designed). The read grant on `$HOME`
   that `FsPaths`' guard takes on `fgro` goes only once its boundary stops resolving `$HOME` itself.
@@ -1361,14 +1361,14 @@ what can fail for a reason of the run's fails in what the module exports, as `cw
   by `readlinkat` with an empty path, so the link read is the one the open resolved (built).
 - Check `open_dir`'s and `real_path`'s absolute paths against the run's grants (built).
   Landlock doesn't gate resolving a path, which reads only metadata.
-- Create a link with `symlinkat` on the parent's descriptor, never checking the target, which is data (designed).
+- Create a link with `symlinkat` on the parent's descriptor, never checking the target, which is data (built).
   Landlock's `MAKE_SYM` limits where links are made, the write roots, and Landlock's own walk refuses to follow one
   out of a granted hierarchy for the confined process and its children;
   a link a later unconfined tool follows is the time-shifted case [backstop](backstop.md#the-box-for-runs-and-children) accepts for writes.
-- Set times and mode, following a final symlink, on a descriptor opened beneath the handle,
-  `utimensat(fd, NULL, …)` and `fchmod(fd)` (designed).
-  Landlock gates neither at any ABI, so in the run box they're allowed in these descriptor forms only,
-  seccomp pinning `utimensat`'s path to `NULL`, and bounded by what the process can open:
+- Set times and mode, following a final symlink, on an entry opened as a path beneath the handle,
+  through its `/proc/self/fd` link (built).
+  Landlock gates neither at any ABI, so the run box has to admit them by form (designed, and open:
+  the descriptor forms `utimensat(fd, NULL, …)` and `fchmod(fd)`, which seccomp could pin, aren't the built one), bounded by what the process can open:
   code that escapes V8 can retime and rechmod any file it can open, every read root included, not only the write roots.
   Bounding them to the write roots would take a broker outside the box.
 - Refuse `set_times` with `follow: false` in the run box with `permission_denied`, unless a broker outside the box does it (designed).
@@ -1418,8 +1418,8 @@ what can fail for a reason of the run's fails in what the module exports, as `cw
 - Check a name against a narrowed root's set before any resolution, so a name outside it touches nothing on disk.
 - Decide the lexical check on a name holding `/` natively, refusing an absolute name or one climbing above the project,
   so a patched `String.prototype.split` can't forge a segment.
-- Resolve `program_in`'s name with `openat2` and `RESOLVE_BENEATH` beneath the handle's directory, opened beneath its root's descriptor, launch a native binary with
-  `execveat(fd, "", …, AT_EMPTY_PATH)`, and a script by its found path, checked by identity as above.
+- Resolve `program_in`'s name with `openat2` and `RESOLVE_BENEATH` beneath the handle's directory, opened beneath its root's descriptor, launch a native binary by its pin's descriptor,
+  `/proc/self/fd/N` through `posix_spawn`, and a script by its found path, checked by identity as above.
   Refuse a handle the runtime didn't make, a resource rather than a shape,
   and check that the handle's directory is beneath an exec root of the spawn root's scope before resolving, else `not_granted`.
   An exec root may also be a write root, as a build's output directory is ([backstop](backstop.md#the-box-for-runs-and-children)).

@@ -254,7 +254,7 @@ The walls, in order:
   `ENOSYS` is what a call the kernel lacks returns, so glibc and Rust's std fall back where they can,
   and a host whose libc makes a call the list doesn't name degrades the same way or fails with `ENOSYS`.
   An x32 call fails too, since the filter compares exact call numbers.
-  The list is built for x86_64 and aarch64, and has been checked on x86_64 only.
+  The list is written for x86_64 and aarch64, but the runtime builds only for x86_64, the one architecture it's checked on.
 
 The reads the runtime makes at startup outside the roots (the CPU and cgroup files, `/proc/self/maps`) fail and fall back quietly.
 V8's entropy comes from the `getrandom` call, and if that fails, the process stops with a message
@@ -262,7 +262,7 @@ rather than let V8 seed itself from the clock.
 
 Eval refuses to run, as `environment`, on a kernel without Landlock, with it switched off,
 or with it below ABI 6, which the signal and abstract unix socket walls need, naming the kernel's ABI;
-on an architecture the seccomp filters aren't built for (they are for x86_64 and aarch64)
+on an architecture the seccomp filters aren't built for (they're written for x86_64 and aarch64, and only x86_64 builds)
 or a kernel that refuses them.
 A build with no embedded startup snapshot is refused as `internal`:
 started from source, the runtime would read its extensions' JS from the build tree, outside the box.

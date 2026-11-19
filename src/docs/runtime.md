@@ -12,12 +12,13 @@
 >   its heap, memory, and time limited, and its process in a kernel box read-only to its project
 >   ([eval](eval.md))
 >
-> Designed, not built: the host modules (`fs`, `spawn`, `net`, `watch`, and the process modules exist as their Node implementation,
-> and on `fgro` only the ones [host modules](host_modules.md#the-modules) marks built), the grant flags beyond those listed in [run](run.md#usage), the policy file,
+> Designed, not built: the host modules not marked built in [host modules](host_modules.md#the-modules) (`net`, `watch`, and the standard streams among them;
+> every host module exists as its Node implementation), the grant flags beyond those listed in [run](run.md#usage), the policy file,
 > the seal on the global object, and the kernel backstop for `run`.
-> Until they land, `fgro run` gives code no API past its own module graph, the console, and those builtin modules,
+> Until they land, `fgro run` gives code no API past its own module graph, the console, and the builtin modules [host modules](host_modules.md#the-modules) marks built,
 > but the process itself isn't confined or limited: against code that exploits V8 it's an ordinary process with your user's authority,
-> the same class as Deno with no permissions granted.
+> the same class as Deno with no permissions granted;
+> and with no exploit at all, a run that `--allow-run=` or `--allow-run-in=` grants a program is close to `-A`, as Deno's `--allow-run` is.
 > The [roadmap](#roadmap) marks what's built, the design doesn't have every answer yet
 > ([open questions](#open-questions)), and feedback is welcome in [discussions](https://github.com/fuzdev/gro/discussions).
 
@@ -33,8 +34,7 @@ The runtime's docs:
 - [typescript](typescript.md) - the type strip: erasable syntax only, and what's refused
 - [comparison](comparison.md) - against Node, Deno, and Bun, with the measured startup and size
 - [glossary](glossary.md) - the terms these docs use, each defined once
-- installing a release - [install](#install), below
-- building it - the README's [Develop](../../README.md#develop) section
+- building and installing it - [install](#install), below, and the README's [Develop](../../README.md#develop) section
 
 Gro is becoming its own JS runtime, a Rust binary that embeds V8,
 built on web standards instead of Node compat,
@@ -84,7 +84,7 @@ It also couldn't be Deno with different defaults:
 the model the stack wants, authority by import with nothing ambient,
 is one Deno can't make its default without breaking its users
 ([compared to Deno](#compared-to-deno-node-and-bun)).
-The sandbox shipped first, as `fgro eval`, long before Gro runs on itself.
+The sandbox was built first, as `fgro eval`, long before Gro runs on itself.
 
 It isn't a Deno replacement for everyone.
 Code that needs Node keeps running on Node,
@@ -119,14 +119,14 @@ any language compiled to it (see [polyglot confinement](#what-the-design-opens-u
   children get the project read-only and only the declared write roots writable ([backstop](backstop.md)).
 - **No prompts.** A grant denial fires at link time, before any confined code has written to your terminal
   (scoped checks inside a grant fail at the call and are reported, failing the run, so a `try/catch` can't hide them:
-  built for `env` and `fs`, designed for the modules to come),
+  built for `env`, `fs`, and `spawn`, designed for the modules to come),
   and the fix is a diff and a fixed command, never a question mid-run.
 - **The bound against a hostile dependency** is the invocation's whole grant set and the kernel box, not the realm:
   one realm shares its prototypes, so attribution catches overreach and the box bounds the deliberate
   ([threat model](authority.md#threat-model)).
 
 Of all this, the omissions are built (`fgro` has no runtime namespace, no Node compat, no remote imports, and no authority globals),
-`fgro eval`'s box is built, the builtin modules' link-time grant check is built with the modules [host modules](host_modules.md#the-modules) marks built its only host APIs,
+`fgro eval`'s box is built, the link-time grant check is built, over the builtin modules [host modules](host_modules.md#the-modules) marks built, which are its only host APIs,
 the grant flags [run](run.md#usage) lists are built, and the rest of the host modules, the other grant flags, the policy file, the seal, and the box for `run` are designed.
 
 ## Design
@@ -361,12 +361,6 @@ where the host modules and grants land with their first consumer.
 - [x] `gro eval` (as `fgro eval` for now), a confined, deterministic one-shot eval of a TS module to JSON
       under the kernel backstop, for any tool that evaluates config;
       zap evaluates its config on it, replacing Deno for config eval in the Fuz stack
-- [ ] the first release, `fgro` 0.1.0 for Linux x86_64 as a GitHub Release asset
-      with `run` and `eval`, a SHA-512 checksum file, and a provenance attestation;
-      the tool that installs it records the binary's hash as a pin,
-      which the caller of `gro eval` verifies before every spawn
-      (the release workflow is built, and no release is tagged yet;
-      the first waits for `fs` to be whole on `fgro`, so `run` reaches past pure computation)
 - [ ] the security gate, a suite of escape probes run under every grant set,
       with every web global and member classified by the three tests for [authority](glossary.md#authority-globals) as its oracle,
       and handle probes (a narrowed handle can't be widened back, one handle can't reach another,
@@ -382,6 +376,10 @@ where the host modules and grants land with their first consumer.
       (built so far: the link-time check, the modules [host modules](host_modules.md#the-modules) marks built, and the flags [run](run.md#usage) lists),
       and the policy file, enforced, with the kernel backstop under every run and its children
       ([backstop](backstop.md#the-box-for-runs-and-children)), landing with Gro on Gro
+- [ ] the first release, Gro running on this runtime, for Linux x86_64;
+      the tool that installs it records the binary's hash as a pin,
+      which the caller of `gro eval` verifies before every spawn
+      (no release is tagged, and `fgro` isn't released on its own)
 - [ ] macOS and Windows builds, each with its own sandbox design
 - [ ] binary-only, where `fgro` becomes `gro`, the npm package carries types, and the crates publish
 - [ ] serving and types from the binary, so fuz_app's server side runs on Gro
@@ -420,20 +418,14 @@ Maybe later or never:
 
 ## Install
 
-No release is tagged yet; the first will be 0.1.0, once `fs` is whole on `fgro`.
-Each release of `fgro` is a GitHub Release on an `fgro-v<version>` tag,
-with the binary's notes in [crates/CHANGELOG.md](../../crates/CHANGELOG.md).
-Its asset is a bare binary for Linux x86_64, `fgro-linux-x64-gnu`,
-built on Ubuntu 24.04, so it needs glibc 2.39 or later (not Debian 12 or Ubuntu 22.04),
-beside a `SHA512SUMS` file, each with a provenance attestation;
+No release is tagged, and `fgro` isn't released on its own:
+the first published version will be Gro running on this runtime ([roadmap](#roadmap)).
+Until then, build it from source, for Linux x86_64 ([the README](../../README.md#develop)),
+and see [crates/CHANGELOG.md](../../crates/CHANGELOG.md) for what the binary built from `main` does;
 `fgro eval` needs Linux 6.12 or later too ([eval](eval.md#usage)).
-Download both files and check them:
 
 ```bash
-gh release download fgro-v<version> -R fuzdev/gro   # or both files from the Release page
-gh attestation verify fgro-linux-x64-gnu -R fuzdev/gro \
-  --signer-workflow fuzdev/gro/.github/workflows/release.yml
-sha512sum -c SHA512SUMS
+cargo xtask build --release   # makes target/gro_snapshot/release/fgro, its startup snapshot embedded
 ```
 
 Install it to a path you update deliberately, since a caller that pins the binary
@@ -444,7 +436,7 @@ and records its pin with `zap lock`, which hashes that binary (blake3)
 and writes the hash to the project's `zap.lock`:
 
 ```bash
-install -D -m 755 fgro-linux-x64-gnu ~/.zap/bin/fgro
+install -D -m 755 target/gro_snapshot/release/fgro ~/.zap/bin/fgro
 export ZAP_FGRO="$HOME/.zap/bin/fgro"   # bash / zsh; in fish: set -gx ZAP_FGRO ~/.zap/bin/fgro
 zap lock   # in the zap project's directory
 ```

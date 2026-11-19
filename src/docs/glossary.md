@@ -114,8 +114,8 @@ the value, or an error with its kind, which a caller branches on.
 ## escape hatch
 
 `-A` (Deno's `--allow-all`, which `fgro run` spells only `-A`), which makes a run [unconfined](#unconfined):
-built on `fgro run`, where it grants every builtin module to every module of the run, `env` with every variable, `fs` with every directory.
-It's the one flag that widens everything but the always-on [deny overlay](#deny-overlays), never a default; a few grants are as strong (a shell, a child's whole environment) and are shown that way.
+built on `fgro run`, where it grants every builtin module to every module of the run, `env` with every variable, `fs` with every directory, `spawn` with any program.
+It's the one flag that widens everything but the always-on [deny overlay](#deny-overlays) (designed), never a default; some grants are as strong (any program until children are boxed, a child's whole environment) and are shown that way.
 Narrower ways to widen sit beside each default, like a blanket net grant and the JIT flag for `gro eval`.
 
 ## exec root
@@ -128,6 +128,7 @@ The kernel's `EXECUTE` rule on one is designed ([backstop](backstop.md#the-box-f
 
 One accepted reach, like a host module, named network hosts, or a read root.
 A grant is always of something specific, so even a wide one keeps a run [confined](#confined).
+A `spawn` grant is the exception until each child is boxed, since a granted program is close to `-A` ([run](run.md#usage)).
 
 ## graph dump
 

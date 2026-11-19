@@ -16,7 +16,7 @@
 > (a shell, git, and cargo among them) and the root's `env` values set any variable: hand library code a narrowed root, which refuses them;
 > an exec root that is also a write root runs whatever the run writes there, so a run granted both can write a program and run it, and holds what that program can reach;
 > and a refused `import()`, `env` name, `fs` reach, or `spawn` program fails the run, caught or not ([run](run.md#errors-and-exit-codes)).
-> Not built for `fgro run`: a child's box, `net`, `watch`, the standard streams, the policy file, the seal, and the kernel backstop;
+> Not built for `fgro run`: a child's box, `net`, `watch`, the standard streams, the policy file, the deny overlays, the seal, and the kernel backstop;
 > the [roadmap](runtime.md#roadmap) says when, and [backstop](backstop.md) has the kernel layer under all of it.
 
 These terms carry this doc, and the [glossary](glossary.md) defines them and the others:
@@ -57,7 +57,7 @@ As designed, a run gets:
   credential files (`~/.ssh`, `.git/config`), and writes under `.git` or `node_modules`
 - **never, `-A` included:** reads of a process's environment, memory, and command line
   (`/proc/*/environ`, `/proc/*/mem`, `/proc/*/cmdline`), the always-on part of the read-deny overlay
-- **under `gro eval`:** its own module graph, read-only, with no network, writes, env, or spawn,
+- **under `gro eval`:** the module files of its project and linked packages, read-only (the kernel admits those trees whole today, [eval](eval.md#the-box)), with no network, writes, env, or spawn,
   and the JIT off unless a flag turns it on
   (with the JIT off V8 has no `WebAssembly` at all, so a config that uses WASM needs the flag)
 - **for native code:** FFI, a grant that loads the library in a confined process of its own,
@@ -129,13 +129,13 @@ and no runtime namespace: the core's own op table is removed from the global obj
 and each host op and native member checks its grant again as its first step (built, held by tests rather than the compiler), so no leaked reference to the core reaches around the loader.
 A WASM module can reach only what its instantiator hands it, and one imported as an ES module declares that statically.
 The rest hold by default, where a policy entry or `-A` widens them and the diff shows it.
-These are the read and write roots, the net hosts, the deny overlays (but the always-on one on `/proc/*/environ`, `mem`, and `cmdline`, which nothing widens),
+These are the read and write roots, the net hosts, the deny overlays (designed; all but the always-on one on `/proc/*/environ`, `mem`, and `cmdline`, which nothing widens),
 the cleared environment with a small base set for children, the kernel rules, and whether a run stays hermetic.
 Native code stays out of the runtime's process, `-A` included: FFI loads its library in a confined process of its own.
 A widening of the second kind is a diff accepted in review, and the first kind has nothing to widen.
 
 The exceptions are explicit and labeled.
-`-A` is the one flag that widens everything but the always-on deny overlay, never a default; a few grants are as strong (a shell, a child's whole environment) and are shown that way.
+`-A` is the one flag that widens everything but the always-on deny overlay (designed), never a default; some grants are as strong (any program until children are boxed, a child's whole environment) and are shown that way.
 As designed, a tool built on the runtime names unconfined phases, like Gro's `publish` and `deploy`,
 which push and use credentials;
 they're shown that way in the policy diff, with credentials passed to the one process that needs them.
@@ -180,9 +180,9 @@ A dependency, a task, or an agent that reaches for authority nobody accepted
 fails before it runs (an unaccepted host module fails at link time,
 and there's no global to reach around it), and the widening shows up as a diff in review.
 V8 itself isn't treated as the boundary against code built to escape it.
-An engine exploit lands in the kernel backstop,
+An engine exploit is designed to land in the kernel backstop (built for `fgro eval` alone so far),
 which applies a coarsening of the same grants to the whole invocation and every child process,
-and `gro eval` and FFI each run in a process of their own.
+and FFI is designed to run in a process of its own, as `gro eval` does.
 Within one realm, a package's own grants catch overreach and attribute it in review,
 but a dependency built to steal can patch a shared prototype
 and catch a capability on its way through project code,
@@ -239,7 +239,7 @@ The net grant is inferred from the graph like a filesystem one, and the hosts it
 Pure globals (`URL`, `TextEncoder`, streams, `console`) are always there,
 and the scoped checks inside a grant (a variable outside a handle's names, a path outside a root, a host not accepted) are the host's, at the call.
 An `import()` refused by rule, an ungranted host module's among them, fails an `fgro run` even when caught, and is listed after it
-([run](run.md#errors-and-exit-codes)), and so does a host function's `not_granted`, built for `env` and `fs`, listed beside it, so a `try/catch` can't hide either;
+([run](run.md#errors-and-exit-codes)), and so does a host function's `not_granted`, built for `env`, `fs`, and `spawn`, listed beside it, so a `try/catch` can't hide either;
 the other scoped checks are designed to do the same as their modules land.
 
 Where the import happens matters: at the [composition root](glossary.md#composition-root),

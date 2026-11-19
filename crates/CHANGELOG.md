@@ -1,18 +1,13 @@
 # fgro changelog
 
-> `fgro`, gro's experimental JS runtime binary, has its own version line,
-> released from `fgro-v<version>` tags apart from the npm package's;
-> each section here becomes its GitHub Release's notes,
-> and is written ahead of its tag, so the tags say what has shipped
+> `fgro`, gro's experimental JS runtime binary, isn't released on its own:
+> the first published version will be Gro running on this runtime,
+> and until then this file records what the binary built from `main` does
 
-0.1.0 isn't tagged yet.
+## Unreleased
 
-## 0.1.0
-
-The first release of `fgro`, a Rust binary on V8 using Deno's web-standard libraries,
-for Linux x86_64 only.
-It ships as a bare binary, `fgro-linux-x64-gnu`, with its startup snapshot embedded,
-beside a `SHA512SUMS` file, each with a provenance attestation.
+`fgro` is a Rust binary on V8 using Deno's web-standard libraries,
+for Linux x86_64 only, built from source ([install](../src/docs/runtime.md#install)).
 
 - `fgro run <file>` runs a JS or TypeScript module from disk.
   Every argument after the file is the script's, passed as written.
@@ -101,7 +96,7 @@ beside a `SHA512SUMS` file, each with a provenance attestation.
     TypeScript is stripped of its types in process, and TypeScript with runtime semantics, like an `enum`, is refused.
   - The global scope holds the ECMAScript globals and a set of web-standard ones (no `fetch` or `crypto`),
     with no `process` global, `Deno`, or `Bun`: code reads the environment and the filesystem only through their host modules,
-    can't read stdin, and no module gives it the network or starts a process yet.
+    can't read stdin, and no module gives it the network yet.
 - `fgro eval <module>` evaluates a project's module to JSON data,
   printed as one envelope on stdout that a caller like zap reads:
   the default export, another with `--export`, or what a driver read from stdin with `--driver -` returns,
