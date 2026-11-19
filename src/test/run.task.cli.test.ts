@@ -3,7 +3,7 @@ import { describe, test, expect, vi, afterEach, assert } from 'vitest';
 import { invoke_cli, invoke_task } from '#lib/invoke_task.ts';
 import { to_raw_rest_args, to_task_args } from '#lib/task_args.ts';
 import { spawn_with_loader } from '#lib/gro_helpers.ts';
-import { SilentError, TaskError } from '#lib/task_error.ts';
+import { ReportedError, TaskError } from '#lib/task_error.ts';
 import { create_mock_config, create_mock_module_graph } from './test_helpers.ts';
 import { create_mock_fs_paths } from './fs_mocks.ts';
 
@@ -103,7 +103,7 @@ describe('gro run failure', () => {
 		} catch (e) {
 			error = e;
 		}
-		assert(error instanceof SilentError);
+		assert(error instanceof ReportedError);
 		assert(error.cause instanceof TaskError);
 		expect(error.cause.exit_code).toBe(3);
 	});

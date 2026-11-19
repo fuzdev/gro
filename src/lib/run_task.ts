@@ -10,7 +10,7 @@ import type { FsPaths } from './fs_paths.ts';
 import type { invoke_task as base_invoke_task } from './invoke_task.ts';
 import { load_default_svelte_config } from './svelte_config.ts';
 import type { InvokeTaskContextOptions, TaskModuleMeta } from './task.ts';
-import { is_silent_error, is_task_error, TaskError } from './task_error.ts';
+import { is_reported_error, is_task_error, TaskError } from './task_error.ts';
 import { log_task_help } from './task_logging.ts';
 import { is_fs_error } from './fs_error.ts';
 import { is_net_error } from './net_error.ts';
@@ -128,7 +128,7 @@ export const run_task = async (
 				? error.message
 				: // already reported, like a failed nested `invoke_task`,
 					// or a host module's, the task's own failure like a missing file, its stack logged
-					is_silent_error(error) || is_host_module_error(error)
+					is_reported_error(error) || is_host_module_error(error)
 					? `Task ${st('cyan', task_meta.name)} failed.`
 					: `Unexpected error running task ${st(
 							'cyan',

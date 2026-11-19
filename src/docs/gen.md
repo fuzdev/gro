@@ -318,7 +318,7 @@ import type {Task} from '@fuzdev/gro';
 
 export const task: Task = {
 	run: async ({invoke_task}) => {
-		// throws if anything is new or different (a `SilentError`, the gen failure as its `cause`)
+		// throws if anything is new or different (a `ReportedError`, the gen failure as its `cause`)
 		await invoke_task('gen', {check: true});
 	},
 };

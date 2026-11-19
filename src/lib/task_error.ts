@@ -39,10 +39,11 @@ export class TaskError extends Error {
 }
 
 /**
- * This is used to tell Gro to exit silently, usually still with a non-zero exit code.
- * Using it means error logging is handled by the code that threw it.
+ * A failure its thrower has already reported, so Gro reports it no further and exits non-zero.
+ * Throw one after logging the failure; `invoke_task` throws one, with the failure as its `cause`,
+ * when the task it invoked fails.
  */
-export class SilentError extends Error {}
+export class ReportedError extends Error {}
 
 /**
  * Whether `error` is a `TaskError` or a subclass of one, from any copy of Gro.
@@ -51,7 +52,7 @@ export const is_task_error = (error: unknown): error is TaskError =>
 	is_error_class_named(error, 'TaskError');
 
 /**
- * Whether `error` is a `SilentError` or a subclass of one, from any copy of Gro.
+ * Whether `error` is a `ReportedError` or a subclass of one, from any copy of Gro.
  */
-export const is_silent_error = (error: unknown): error is SilentError =>
-	is_error_class_named(error, 'SilentError');
+export const is_reported_error = (error: unknown): error is ReportedError =>
+	is_error_class_named(error, 'ReportedError');

@@ -421,7 +421,7 @@ export const task: Task = {
 ```
 
 A failed task is reported once, where it fails:
-`invoke_task` logs the error and throws a `SilentError` with the original error as its `cause`,
+`invoke_task` logs the error and throws a `ReportedError` with the original error as its `cause`,
 so an invoking task reports only that it failed.
 Any other error is logged with its stack: a host module's (`FsError`, `SpawnError`, `NetError`,
 `EnvError`, `StdioError`) as the task's own failure, like a missing file, and anything else as unexpected,
@@ -436,7 +436,7 @@ and `gro dev | head` keeps running until signalled.
 An uncaught error waits a few seconds at most for its output to be accepted before exiting,
 though after a child that inherits stdio, a write past the pipe's buffer can still block on the reader.
 
-To test a caught error, use `is_task_error` and `is_silent_error` from `@fuzdev/gro/task_error.ts`
+To test a caught error, use `is_task_error` and `is_reported_error` from `@fuzdev/gro/task_error.ts`
 rather than `instanceof`: they match subclasses and errors from other copies of Gro,
 like a project's own install beside a global one.
 

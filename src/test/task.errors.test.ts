@@ -1,14 +1,14 @@
 import { describe, test, assert } from 'vitest';
 
-import { is_silent_error, is_task_error, SilentError, TaskError } from '#lib/task_error.ts';
+import { is_reported_error, is_task_error, ReportedError, TaskError } from '#lib/task_error.ts';
 
 // stand-ins for the classes from another copy of Gro, which a task module can load
 type ErrorClass = new (message?: string) => Error;
 
-const other_copy = (): { TaskError: ErrorClass; SilentError: ErrorClass } => {
+const other_copy = (): { TaskError: ErrorClass; ReportedError: ErrorClass } => {
 	class TaskError extends Error {}
-	class SilentError extends Error {}
-	return { TaskError, SilentError };
+	class ReportedError extends Error {}
+	return { TaskError, ReportedError };
 };
 
 describe('is_task_error', () => {
@@ -33,8 +33,8 @@ describe('is_task_error', () => {
 
 	test('rejects other errors and non-errors', () => {
 		assert.ok(!is_task_error(new Error('x')));
-		assert.ok(!is_task_error(new SilentError()));
-		assert.ok(!is_task_error(new (other_copy().SilentError)()));
+		assert.ok(!is_task_error(new ReportedError()));
+		assert.ok(!is_task_error(new (other_copy().ReportedError)()));
 		assert.ok(!is_task_error(null));
 		assert.ok(!is_task_error(undefined));
 		assert.ok(!is_task_error('TaskError'));
@@ -43,19 +43,19 @@ describe('is_task_error', () => {
 	});
 });
 
-describe('is_silent_error', () => {
-	test('recognizes a `SilentError`, a subclass, and another copy', () => {
-		class SubSilentError extends SilentError {}
+describe('is_reported_error', () => {
+	test('recognizes a `ReportedError`, a subclass, and another copy', () => {
+		class SubReportedError extends ReportedError {}
 		const other = other_copy();
-		class OtherSubSilentError extends other.SilentError {}
-		assert.ok(is_silent_error(new SilentError()));
-		assert.ok(is_silent_error(new SubSilentError()));
-		assert.ok(is_silent_error(new other.SilentError()));
-		assert.ok(is_silent_error(new OtherSubSilentError()));
+		class OtherSubReportedError extends other.ReportedError {}
+		assert.ok(is_reported_error(new ReportedError()));
+		assert.ok(is_reported_error(new SubReportedError()));
+		assert.ok(is_reported_error(new other.ReportedError()));
+		assert.ok(is_reported_error(new OtherSubReportedError()));
 	});
 
 	test('rejects other errors', () => {
-		assert.ok(!is_silent_error(new Error('x')));
-		assert.ok(!is_silent_error(new TaskError('x')));
+		assert.ok(!is_reported_error(new Error('x')));
+		assert.ok(!is_reported_error(new TaskError('x')));
 	});
 });

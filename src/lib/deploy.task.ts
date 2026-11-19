@@ -4,7 +4,7 @@ import { meta } from '@fuzdev/fuz_schema/meta.ts';
 import { join, resolve } from 'node:path';
 
 import type { Task } from './task.ts';
-import { is_silent_error, TaskError } from './task_error.ts';
+import { is_reported_error, TaskError } from './task_error.ts';
 import {
 	git_check_clean_workspace,
 	git_checkout,
@@ -368,8 +368,8 @@ export const task: Task<Args> = {
 							st('yellow', `the new remote branch '${target}' has only its init commit`),
 							'- nothing was deployed'
 						]),
-				// a `SilentError` means the build's failure is already reported above
-				...(is_silent_error(error) ? [] : [print_error_with_causes(error as Error)])
+				// a `ReportedError` means the build's failure is already reported above
+				...(is_reported_error(error) ? [] : [print_error_with_causes(error as Error)])
 			);
 			if (dry) {
 				log.info(st('red', 'dry deploy failed'));

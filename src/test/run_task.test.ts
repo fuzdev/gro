@@ -8,7 +8,7 @@ import { spawn_with_loader } from '#lib/gro_helpers.ts';
 import { spawn } from '#lib/spawn.ts';
 import { run_task, type RunTaskOptions } from '#lib/run_task.ts';
 import type { Task, TaskContext } from '#lib/task.ts';
-import { SilentError, TaskError } from '#lib/task_error.ts';
+import { ReportedError, TaskError } from '#lib/task_error.ts';
 import { task as run_task_task } from '#lib/run.task.ts';
 import { FsError } from '#lib/fs_error.ts';
 import { NetError } from '#lib/net_error.ts';
@@ -152,11 +152,11 @@ test('run_task reports a failed nested `invoke_task` as a failure, not an unexpe
 		{},
 		{
 			...(await create_mock_run_task_options()),
-			invoke_task: () => Promise.reject(new SilentError()) // `invoke_task` already logged why
+			invoke_task: () => Promise.reject(new ReportedError()) // `invoke_task` already logged why
 		}
 	);
 	assert(!result.ok);
-	assert(result.error instanceof SilentError);
+	assert(result.error instanceof ReportedError);
 	assert.include(result.reason, 'failed.');
 	assert.notInclude(result.reason, 'Unexpected error');
 });

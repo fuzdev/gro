@@ -4,7 +4,7 @@ import { styleText as st } from 'node:util';
 
 import { invoke_cli } from './invoke_task.ts';
 import { to_raw_rest_args, to_task_args, type CliTaskArgs } from './task_args.ts';
-import { SilentError, is_silent_error, is_task_error } from './task_error.ts';
+import { ReportedError, is_reported_error, is_task_error } from './task_error.ts';
 import { load_gro_config } from './gro_config.ts';
 import { sveltekit_sync_if_obviously_needed } from './sveltekit_helpers.ts';
 import { fs } from './fs.ts';
@@ -35,7 +35,7 @@ verbatim, as its `raw_rest_args`; `gro run` has none, since every arg after its 
  * a `TaskError`'s `exit_code`, like `gro run`'s script's own, when it's an integer 1–255
  * (a process exit code is a byte, so `256` would exit `0`)
  * and it's the uncaught error itself, as when thrown from `gro.config.ts` before any task runs,
- * or failed the task the CLI invoked (the `cause` of `invoke_task`'s `SilentError`),
+ * or failed the task the CLI invoked (the `cause` of `invoke_task`'s `ReportedError`),
  * and `1` otherwise, including for a nested task's failure.
  */
 const to_exit_code = (err: unknown): number => {
@@ -96,7 +96,7 @@ host_process.on('uncaughtException', (err, origin) => {
 	if (is_task_error(err)) {
 		// a known failure, so its message with no stack
 		new Logger('TaskError').error(st('red', err.message));
-	} else if (!is_silent_error(err)) {
+	} else if (!is_reported_error(err)) {
 		// `print_error` reads properties, so a thrown `undefined` or `null` would throw here
 		new Logger(origin).error(err == null ? `Unknown error: ${err}` : print_error_with_causes(err));
 	}
@@ -118,6 +118,6 @@ try {
 } catch (error) {
 	if (!is_task_error(error)) throw error;
 	new Logger('gro').error(st('red', error.message)); // a usage error, no stack trace
-	throw new SilentError();
+	throw new ReportedError();
 }
 await invoke_cli(fs_paths, task_args, await load_gro_config(fs_paths), to_raw_rest_args(args));

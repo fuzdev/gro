@@ -8,7 +8,7 @@ import { invoke_task } from '#lib/invoke_task.ts';
 import { run_task } from '#lib/run_task.ts';
 import type { GroConfig } from '#lib/gro_config.ts';
 import { log_error_reasons } from '#lib/task_logging.ts';
-import { SilentError } from '#lib/task_error.ts';
+import { ReportedError } from '#lib/task_error.ts';
 import {
 	to_removed_builtin_prefix_message,
 	to_task_path_without_verb_message
@@ -155,7 +155,7 @@ describe('invoke_task forwarded args', () => {
 						graph: create_mock_module_graph()
 					}
 				)
-			).rejects.toBeInstanceOf(SilentError);
+			).rejects.toBeInstanceOf(ReportedError);
 		}
 		expect(vi.mocked(run_task)).not.toHaveBeenCalled();
 		const reasons = vi.mocked(log_error_reasons).mock.calls.map((c) => c[1]);

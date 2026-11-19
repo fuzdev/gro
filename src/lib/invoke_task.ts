@@ -24,7 +24,7 @@ import {
 	TASK_VERB,
 	type TaskModuleMeta
 } from './task.ts';
-import { is_silent_error, is_task_error, SilentError } from './task_error.ts';
+import { is_reported_error, is_task_error, ReportedError } from './task_error.ts';
 import {
 	TASK_PATH_SUFFIX_RULE,
 	find_task_file_for_input,
@@ -124,12 +124,12 @@ export const invoke_task = async (
 	const resolved = await resolve_task(fs_paths, task_name);
 	if (!resolved.ok) {
 		log_error_reasons(log, resolved.reasons);
-		throw new SilentError();
+		throw new ReportedError();
 	}
 	const loaded = await load_task(resolved.id, resolved.name);
 	if (!loaded.ok) {
 		log_error_reasons(log, [loaded.reason]);
-		throw new SilentError();
+		throw new ReportedError();
 	}
 	const task = loaded.value;
 
@@ -139,7 +139,7 @@ export const invoke_task = async (
 	} catch (error) {
 		if (!is_task_error(error)) throw error;
 		log_error_reasons(log, [error.message]);
-		throw new SilentError();
+		throw new ReportedError();
 	}
 
 	// the graph loads lazily, so a task that never uses it never loads chokidar
@@ -179,10 +179,10 @@ export const invoke_task = async (
 		log.info(`${st('red', '🞩')} ${st('cyan', task.name)}`);
 		log_error_reasons(log, [result.reason]);
 		// an unexpected error's stack is logged here, once, as nothing above reports it
-		if (!is_task_error(result.error) && !is_silent_error(result.error)) log.error(result.error);
+		if (!is_task_error(result.error) && !is_reported_error(result.error)) log.error(result.error);
 		// reported, so the invoking task says only that this one failed and the CLI exits quietly,
 		// with the original as `cause` for a task that catches it
-		throw new SilentError(undefined, { cause: result.error });
+		throw new ReportedError(undefined, { cause: result.error });
 	}
 	log.info(`✓ ${st('cyan', task.name)}`);
 
@@ -348,7 +348,7 @@ export const invoke_cli = async (
 	if (is_task_path_input(task_name) && !is_removed_builtin_prefix(task_name)) {
 		const log = new Logger('gro');
 		log_error_reasons(log, [to_task_path_without_verb_message(task_name, fs_paths.project.path)]);
-		throw new SilentError();
+		throw new ReportedError();
 	}
 
 	// `gro run` is like `node`, so the CLI gives it timings no one prints
@@ -375,7 +375,7 @@ const list_tasks = async (
 	const stat = await stat_path(fs_paths, dir_id);
 	if (!stat.ok) {
 		log_error_reasons(log, [`Can't read \`${dir ?? SOURCE_DIR}\`: ${stat.message}`]);
-		throw new SilentError();
+		throw new ReportedError();
 	}
 	if (stat.info?.kind !== 'directory') {
 		// the user named no path, so don't blame one
@@ -384,7 +384,7 @@ const list_tasks = async (
 				`\`gro ${TASK_VERB}\` lists the tasks under \`${SOURCE_DIR}\`, and there's no \`${SOURCE_DIR}\` directory here: ` +
 					`run a task file with \`gro ${TASK_VERB} <path>\` or list a directory's with \`gro ${TASK_VERB} <dir>\`.`
 			]);
-			throw new SilentError();
+			throw new ReportedError();
 		}
 		const reasons = [`\`${dir}\` is not a directory or a task file: ${TASK_PATH_SUFFIX_RULE}.`];
 		if (is_builtin_task_name(dir)) {
@@ -394,7 +394,7 @@ const list_tasks = async (
 			if (hint !== null) reasons.push(hint);
 		}
 		log_error_reasons(log, reasons);
-		throw new SilentError();
+		throw new ReportedError();
 	}
 	let entries: Array<TaskRegistryEntry>;
 	try {
@@ -402,7 +402,7 @@ const list_tasks = async (
 	} catch (error) {
 		if (!is_fs_error(error)) throw error;
 		log_error_reasons(log, [`Can't read \`${dir ?? SOURCE_DIR}\`: ${format_error_detail(error)}`]);
-		throw new SilentError();
+		throw new ReportedError();
 	}
 	const modules: Array<TaskModuleMeta> = [];
 	const reasons: Array<string> = [];
@@ -420,6 +420,6 @@ const list_tasks = async (
 	}
 	if (reasons.length) {
 		log_error_reasons(log, reasons);
-		throw new SilentError();
+		throw new ReportedError();
 	}
 };

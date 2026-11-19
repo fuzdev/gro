@@ -7,7 +7,7 @@ import { format } from 'node:util';
 
 import { invoke_task } from '#lib/invoke_task.ts';
 import { create_empty_gro_config } from '#lib/gro_config.ts';
-import { SilentError } from '#lib/task_error.ts';
+import { ReportedError } from '#lib/task_error.ts';
 import { create_mock_module_graph } from './test_helpers.ts';
 import { create_project_fs_paths } from './fs_test_helpers.ts';
 
@@ -85,7 +85,7 @@ const count = (text: string, part: string): number => text.split(part).length - 
 describe('invoke_task nested failure', () => {
 	test('a nested `TaskError` is reported once, the outer task says only it failed', async () => {
 		const error = await invoke_outer(write_nested(`throw new TaskError('inner boom');`));
-		assert.instanceOf(error, SilentError);
+		assert.instanceOf(error, ReportedError);
 		const text = errors.map((args) => format(...args)).join('\n');
 		assert.strictEqual(count(text, 'inner boom'), 1, text);
 		assert.include(text, 'outer.task.ts');
@@ -98,7 +98,7 @@ describe('invoke_task nested failure', () => {
 			write_nested(`class SubTaskError extends TaskError {}
 throw new SubTaskError('inner sub boom');`)
 		);
-		assert.instanceOf(error, SilentError);
+		assert.instanceOf(error, ReportedError);
 		const text = errors.map((args) => format(...args)).join('\n');
 		assert.strictEqual(count(text, 'inner sub boom'), 1, text);
 		assert.notInclude(text, 'Unexpected error');
@@ -107,9 +107,9 @@ throw new SubTaskError('inner sub boom');`)
 
 	test("a nested task's invalid args fail under the nested task, reported once", async () => {
 		const error = await invoke_outer(write_outer(`invoke_task('gen', {bogus: 1})`));
-		assert.instanceOf(error, SilentError);
-		// the outer's `SilentError` carries the nested one, whose cause is the validation `TaskError`
-		assert.instanceOf(error.cause, SilentError);
+		assert.instanceOf(error, ReportedError);
+		// the outer's `ReportedError` carries the nested one, whose cause is the validation `TaskError`
+		assert.instanceOf(error.cause, ReportedError);
 		assert.strictEqual((error.cause.cause as Error | undefined)?.constructor.name, 'TaskError');
 		const info = infos.map((args) => format(...args)).join('\n');
 		assert.match(info, /\[test:[^\]]*outer\.task\.ts:gen\] 🞩 gen/, info);
@@ -121,7 +121,7 @@ throw new SubTaskError('inner sub boom');`)
 
 	test("a nested unexpected error's stack is logged once", async () => {
 		const error = await invoke_outer(write_nested(`throw new Error('inner crash');`));
-		assert.instanceOf(error, SilentError);
+		assert.instanceOf(error, ReportedError);
 		const text = errors.map((args) => format(...args)).join('\n');
 		assert.strictEqual(count(text, 'inner crash'), 1, text);
 		assert.strictEqual(count(text, 'Unexpected error'), 1, text);
