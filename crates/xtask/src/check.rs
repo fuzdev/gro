@@ -25,7 +25,7 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use crate::cmd::{StepResult, relative, run, run_program, target_dir};
+use crate::cmd::{CargoDirs, StepResult, cargo_dirs, relative, run, run_program};
 use crate::error::XtaskError;
 use crate::snapshot::{self, Measurement};
 use crate::v8_archive;
@@ -34,23 +34,23 @@ use crate::v8_archive;
 const TSC: &str = "node_modules/.bin/tsc";
 
 /// Ensures the pinned V8 archive is in place and verified, and that the next
-/// build rewrites any library copy missing from the target directory.
-/// Returns cargo's target directory, which it reads to heal.
-pub fn fetch_v8(root: &Path) -> Result<PathBuf, XtaskError> {
+/// build rewrites any library copy missing from the build directory.
+/// Returns cargo's directories, whose build directory it reads to heal.
+pub fn fetch_v8(root: &Path) -> Result<CargoDirs, XtaskError> {
     let path = v8_archive::ensure(root)?;
     println!(
         "[xtask] the V8 archive is verified: {}",
         relative(root, &path)
     );
-    let target_dir = target_dir(root)?;
-    v8_archive::heal_missing_copies(root, &target_dir)?;
-    Ok(target_dir)
+    let dirs = cargo_dirs(root)?;
+    v8_archive::heal_missing_copies(root, &dirs.build)?;
+    Ok(dirs)
 }
 
 /// Checks the V8 library copy the last build of `profile` left under
-/// `target_dir` against the pin, before anything runs V8 code.
-pub fn verify_linked_step(target_dir: &Path, profile: &str) -> StepResult {
-    v8_archive::verify_linked(target_dir, profile)?;
+/// `build_dir` against the pin, before anything runs V8 code.
+pub fn verify_linked_step(build_dir: &Path, profile: &str) -> StepResult {
+    v8_archive::verify_linked(build_dir, profile)?;
     println!("[xtask] the V8 library copy matches the pinned archive");
     Ok(())
 }
@@ -64,7 +64,7 @@ pub fn check(root: &Path) -> StepResult {
 /// The Rust half of [`check`]: the V8 archive, the Rust gates, and the
 /// snapshot build with its verification.
 pub fn check_rust(root: &Path) -> StepResult {
-    let target_dir = fetch_v8(root)?;
+    let dirs = fetch_v8(root)?;
     crate::vendor::check(root)?;
     run(root, &[], "cargo", &["fmt", "--all", "--check"])?;
     run(
@@ -102,7 +102,7 @@ pub fn check_rust(root: &Path) -> StepResult {
         ],
     )?;
     // the first build step; check the V8 library copy before the tests run V8 code
-    verify_linked_step(&target_dir, "debug")?;
+    verify_linked_step(&dirs.build, "debug")?;
     run(
         root,
         &[],
@@ -137,7 +137,7 @@ pub fn check_rust(root: &Path) -> StepResult {
             "--document-private-items",
         ],
     )?;
-    let build = snapshot::build(root, &target_dir, false, Measurement::None, &[])?;
+    let build = snapshot::build(root, &dirs, false, Measurement::None, &[])?;
     snapshot::verify(root, false, &build)
 }
 

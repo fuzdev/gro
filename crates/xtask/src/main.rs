@@ -238,15 +238,13 @@ fn main() -> ExitCode {
         }
         Subcommand::FetchV8(FetchV8 {}) => check::fetch_v8(&root).map(|_| ()),
         Subcommand::VendorPatch(VendorPatch { name }) => vendor::write_patch(&root, &name),
-        Subcommand::Build(Build { release, verify }) => {
-            check::fetch_v8(&root).and_then(|target_dir| {
-                let build = snapshot::build(&root, &target_dir, release, Measurement::None, &[])?;
-                if verify {
-                    snapshot::verify(&root, release, &build)?;
-                }
-                Ok(())
-            })
-        }
+        Subcommand::Build(Build { release, verify }) => check::fetch_v8(&root).and_then(|dirs| {
+            let build = snapshot::build(&root, &dirs, release, Measurement::None, &[])?;
+            if verify {
+                snapshot::verify(&root, release, &build)?;
+            }
+            Ok(())
+        }),
         Subcommand::Bench(bench_args) => bench::bench(&root, bench_args),
     };
     match result {

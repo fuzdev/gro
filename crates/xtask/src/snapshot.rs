@@ -1,7 +1,9 @@
 //! `cargo xtask build`: `fgro` with an embedded startup snapshot, in two
 //! stages, and the checks that it runs off its build tree. `<target>` is
 //! cargo's target directory (`target/` unless `CARGO_TARGET_DIR` or
-//! `build.target-dir` moves it).
+//! `build.target-dir` moves it); the `v8` library copy it checks is under
+//! cargo's build directory, which `build.build-dir` may move apart
+//! ([`crate::cmd::CargoDirs`]).
 //!
 //! 1. `cargo build -p gro_cli` builds the plain `fgro`, which runs
 //!    `fgro make-snapshot <target>/gro_snapshot/<profile>/`. That writes
@@ -58,7 +60,7 @@ use std::process::{Command, Output, Stdio};
 
 use gro_bench::record::GitState;
 
-use crate::cmd::{StepResult, run};
+use crate::cmd::{CargoDirs, StepResult, run};
 use crate::error::XtaskError;
 
 /// Which build of the snapshot `fgro` to make: the plain one, or a
@@ -142,26 +144,26 @@ fn commit_value(state: &GitState) -> String {
 /// Builds the snapshot `fgro`, each cargo it runs with `cargo_env` added to
 /// its environment.
 ///
-/// Its paths come from `target_dir`, cargo's target directory, which
-/// `CARGO_TARGET_DIR` or `build.target-dir` may move off the checkout.
+/// Its paths come from `dirs`, cargo's target and build directories, which
+/// cargo's config may move off the checkout.
 pub fn build(
     root: &Path,
-    target_dir: &Path,
+    dirs: &CargoDirs,
     release: bool,
     measurement: Measurement,
     cargo_env: &[(&str, &str)],
 ) -> Result<SnapshotBuild, XtaskError> {
     let profile = if release { "release" } else { "debug" };
     let profile_args: &[&str] = if release { &["--release"] } else { &[] };
-    let dir = target_dir.join("gro_snapshot").join(profile);
+    let dir = dirs.target.join("gro_snapshot").join(profile);
     let dir_arg = dir.display().to_string();
 
     let mut stage_one = vec!["build", "--locked", "-p", "gro_cli"];
     stage_one.extend(profile_args);
     run(root, cargo_env, "cargo", &stage_one)?;
     // before stage one runs V8 code, and after the build that wrote the copy
-    crate::check::verify_linked_step(target_dir, profile)?;
-    let plain = target_dir.join(profile).join("fgro");
+    crate::check::verify_linked_step(&dirs.build, profile)?;
+    let plain = dirs.target.join(profile).join("fgro");
     let stamp = dir.join("stage_one.stamp");
     if snapshot_is_current(&dir, &stamp, &plain) {
         println!(
@@ -200,9 +202,10 @@ pub fn build(
     ];
     stage_two_env.extend(cargo_env);
     run(root, &stage_two_env, "cargo", &stage_two)?;
-    let built = target_dir.join(profile).join("fgro");
+    let built = dirs.target.join(profile).join("fgro");
     let linked = if let Some(feature) = measurement.feature() {
-        let dir = target_dir
+        let dir = dirs
+            .target
             .join("gro_snapshot")
             .join(format!("{profile}-{feature}"));
         fs::create_dir_all(&dir).map_err(|error| XtaskError::io("create", &dir, error))?;

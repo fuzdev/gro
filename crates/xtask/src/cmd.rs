@@ -9,11 +9,23 @@ use crate::error::XtaskError;
 /// A step's result: a failure is what `cargo xtask` prints and exits with.
 pub type StepResult = Result<(), XtaskError>;
 
-/// Cargo's target directory, as `cargo metadata` reports it, so a
-/// `CARGO_TARGET_DIR` or `build.target-dir` setting is honored. The V8
-/// archive's path doesn't depend on it: `.cargo/config.toml` names it relative
-/// to the checkout.
-pub fn target_dir(root: &Path) -> Result<PathBuf, XtaskError> {
+/// Cargo's two output directories, as `cargo metadata` reports them, so
+/// `CARGO_TARGET_DIR` or `build.target-dir`, and `CARGO_BUILD_BUILD_DIR` or
+/// `build.build-dir`, are honored. The V8 archive's path depends on neither:
+/// `.cargo/config.toml` names it relative to the checkout.
+#[derive(Debug, Clone)]
+pub struct CargoDirs {
+    /// The target directory, where final artifacts land
+    /// (`<target>/<profile>/fgro`).
+    pub target: PathBuf,
+    /// The build directory, where intermediate outputs land, build scripts'
+    /// among them (the `v8` library copy). The target directory unless
+    /// `build.build-dir` moves it.
+    pub build: PathBuf,
+}
+
+/// Reads [`CargoDirs`] from `cargo metadata` in `root`.
+pub fn cargo_dirs(root: &Path) -> Result<CargoDirs, XtaskError> {
     let output = Command::new("cargo")
         .args(["metadata", "--locked", "--no-deps", "--format-version", "1"])
         .current_dir(root)
@@ -22,18 +34,26 @@ pub fn target_dir(root: &Path) -> Result<PathBuf, XtaskError> {
             display: "cargo metadata".to_owned(),
             source,
         })?;
-    let target_dir = output
+    let metadata = output
         .status
         .success()
         .then(|| serde_json::from_slice::<serde_json::Value>(&output.stdout).ok())
-        .flatten()
-        .and_then(|metadata| metadata["target_directory"].as_str().map(PathBuf::from));
-    target_dir.ok_or_else(|| {
-        XtaskError::Failed(format!(
-            "cargo metadata reported no target directory ({}): {}",
-            output.status,
-            String::from_utf8_lossy(&output.stderr).trim()
-        ))
+        .flatten();
+    let dir = |key: &str| {
+        metadata
+            .as_ref()
+            .and_then(|metadata| metadata[key].as_str().map(PathBuf::from))
+            .ok_or_else(|| {
+                XtaskError::Failed(format!(
+                    "cargo metadata reported no {key} ({}): {}",
+                    output.status,
+                    String::from_utf8_lossy(&output.stderr).trim()
+                ))
+            })
+    };
+    Ok(CargoDirs {
+        target: dir("target_directory")?,
+        build: dir("build_directory")?,
     })
 }
 
@@ -95,4 +115,26 @@ pub fn relative(root: &Path, path: &Path) -> String {
         .unwrap_or(path)
         .display()
         .to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cargo_reports_both_output_directories() {
+        let dirs = cargo_dirs(&crate::root()).unwrap();
+        assert!(dirs.target.is_absolute(), "{dirs:?}");
+        assert!(dirs.build.is_absolute(), "{dirs:?}");
+        // the build directory is where the build is configured to put it
+        let configured = Command::new("cargo")
+            .args(["metadata", "--locked", "--no-deps", "--format-version", "1"])
+            .env("CARGO_BUILD_BUILD_DIR", "/nonexistent/build-dir")
+            .current_dir(crate::root())
+            .output()
+            .unwrap();
+        assert!(configured.status.success());
+        let metadata: serde_json::Value = serde_json::from_slice(&configured.stdout).unwrap();
+        assert_eq!(metadata["build_directory"], "/nonexistent/build-dir");
+    }
 }

@@ -17,7 +17,7 @@
 //!   are cleaned (`cargo clean -p v8`, every profile) so the next build
 //!   recopies and relinks, and the archive is fetched again.
 //! - [`verify_linked`] is a stale-copy check: it hashes the library copy the
-//!   `v8` build script last wrote (`<target>/<profile>/gn_out/obj/librusty_v8.a`),
+//!   `v8` build script last wrote (`<build>/<profile>/gn_out/obj/librusty_v8.a`),
 //!   which other build units of `v8` share, so it can't tell which copy a given
 //!   binary linked.
 //! - [`heal_missing_copies`] runs before the xtask's first build. The `v8` rlib
@@ -65,7 +65,8 @@ pub const FILE_NAME: &str = "librusty_v8_simdutf_release_x86_64-unknown-linux-gn
 pub const SHA256: &str = "f48762ca10d1f1fc605a441c5ae430ec8ce1e9e80f14d78fbc42cb878c30b476";
 
 /// The SHA-256 of the static library inflated from it, as the `v8` build
-/// script writes it to `<target>/<profile>/gn_out/obj/librusty_v8.a`.
+/// script writes it to `<build>/<profile>/gn_out/obj/librusty_v8.a`, under
+/// cargo's build directory.
 pub const INFLATED_SHA256: &str =
     "8c65c63246328268277bbc87e2a32128dd07f54c6e5438ac68e5b44e0b855a75";
 
@@ -270,21 +271,21 @@ fn clean_v8_profile(root: &Path, profile: &str) -> Result<(), ArchiveError> {
 }
 
 /// Cleans the `v8` build outputs of each profile the workspace builds
-/// ([`workspace_profiles`]) whose library copy is missing under `target_dir` though the `v8` build
+/// ([`workspace_profiles`]) whose library copy is missing under `build_dir` though the `v8` build
 /// script has run there ([`copy_is_missing`]), so the next build reruns it,
 /// which recopies the library. Run before the xtask's first build.
 ///
 /// # Errors
 ///
 /// Returns an [`ArchiveError`] if `cargo clean` fails.
-pub fn heal_missing_copies(root: &Path, target_dir: &Path) -> Result<(), ArchiveError> {
+pub fn heal_missing_copies(root: &Path, build_dir: &Path) -> Result<(), ArchiveError> {
     for (dir, profile) in workspace_profiles(root)? {
         let dir = dir.as_str();
-        if copy_is_missing(target_dir, dir) {
+        if copy_is_missing(build_dir, dir) {
             println!(
                 "[xtask] {} is missing but v8 was built for {dir}; cleaning v8's {dir} \
                  build outputs so the next build recopies it",
-                linked_path(target_dir, dir).display()
+                linked_path(build_dir, dir).display()
             );
             clean_v8_profile(root, &profile)?;
         }
@@ -295,11 +296,11 @@ pub fn heal_missing_copies(root: &Path, target_dir: &Path) -> Result<(), Archive
 /// Whether the library copy for the profile directory `dir` is missing while
 /// a `v8` build script output (`<dir>/build/v8-*/output`) is present: cargo
 /// counts that build script as done and won't rerun it to write the copy.
-fn copy_is_missing(target_dir: &Path, dir: &str) -> bool {
-    if linked_path(target_dir, dir).is_file() {
+fn copy_is_missing(build_dir: &Path, dir: &str) -> bool {
+    if linked_path(build_dir, dir).is_file() {
         return false;
     }
-    let Ok(entries) = fs::read_dir(target_dir.join(dir).join("build")) else {
+    let Ok(entries) = fs::read_dir(build_dir.join(dir).join("build")) else {
         return false;
     };
     entries.flatten().any(|entry| {
@@ -310,12 +311,12 @@ fn copy_is_missing(target_dir: &Path, dir: &str) -> bool {
 
 /// The library copy the `v8` build script writes for the profile directory
 /// `dir`.
-fn linked_path(target_dir: &Path, dir: &str) -> PathBuf {
-    target_dir.join(dir).join("gn_out/obj/librusty_v8.a")
+fn linked_path(build_dir: &Path, dir: &str) -> PathBuf {
+    build_dir.join(dir).join("gn_out/obj/librusty_v8.a")
 }
 
 /// Checks the library copy the `v8` build script last wrote for `profile`
-/// under `target_dir` against [`INFLATED_SHA256`], after a build of that
+/// under `build_dir`, cargo's build directory, against [`INFLATED_SHA256`], after a build of that
 /// profile and before anything runs V8 code. A stale-copy check: the copy is
 /// shared by every build unit of `v8`, so it doesn't prove which one a binary
 /// linked.
@@ -324,8 +325,8 @@ fn linked_path(target_dir: &Path, dir: &str) -> PathBuf {
 ///
 /// Returns [`ArchiveError::LinkedMismatch`] with the remedy when it differs,
 /// and an I/O error when it's missing.
-pub fn verify_linked(target_dir: &Path, profile: &str) -> Result<(), ArchiveError> {
-    let path = linked_path(target_dir, profile);
+pub fn verify_linked(build_dir: &Path, profile: &str) -> Result<(), ArchiveError> {
+    let path = linked_path(build_dir, profile);
     if !path.is_file() {
         return Err(ArchiveError::Io {
             path,

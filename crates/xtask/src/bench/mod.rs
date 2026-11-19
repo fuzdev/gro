@@ -62,7 +62,7 @@ use gro_bench::run::{Measure, RunContext, run as run_suite};
 use gro_bench::suite::{Runtime, Suite};
 
 use crate::check::fetch_v8;
-use crate::cmd::StepResult;
+use crate::cmd::{CargoDirs, StepResult};
 use crate::error::XtaskError;
 use crate::snapshot::{self, Measurement};
 use crate::{Bench, REPORT};
@@ -426,7 +426,7 @@ fn measurement_build(
     fgro_names: &BTreeSet<String>,
     suite: &mut Suite,
 ) -> StepResult {
-    let built = snapshot::build(root, &release.target_dir, true, measurement, &[])
+    let built = snapshot::build(root, &release.dirs, true, measurement, &[])
         .map_err(XtaskError::in_bench_build)?
         .binary;
     if measurement == Measurement::Prices {
@@ -522,7 +522,7 @@ fn is_fgro(runtime: &Runtime) -> bool {
 struct Release {
     /// The binary, canonical.
     binary: PathBuf,
-    target_dir: PathBuf,
+    dirs: CargoDirs,
 }
 
 /// Builds the release snapshot `fgro` when the suite has an `fgro` runtime
@@ -538,8 +538,8 @@ fn build_fgro(root: &Path, suite: &Suite, suite_dir: &Path) -> Result<Option<Rel
     if !suite.runtimes.iter().any(is_fgro) {
         return Ok(None);
     }
-    let target_dir = fetch_v8(root)?;
-    let built = snapshot::build(root, &target_dir, true, Measurement::None, &[])
+    let dirs = fetch_v8(root)?;
+    let built = snapshot::build(root, &dirs, true, Measurement::None, &[])
         .map_err(XtaskError::in_bench_build)?
         .binary;
     let built = built.canonicalize().map_err(|error| {
@@ -550,7 +550,7 @@ fn build_fgro(root: &Path, suite: &Suite, suite_dir: &Path) -> Result<Option<Rel
     println!();
     Ok(Some(Release {
         binary: built,
-        target_dir,
+        dirs,
     }))
 }
 
