@@ -67,8 +67,8 @@ use tokio::net::unix::pipe;
 use super::pins::PinKind;
 use super::watch::{Capture, Guard, Held, Outcome, Started, Stop, Watch};
 use super::{
-    Failure, MODULE, NOT_AN_FS_HANDLE, SpawnRun, array, checked_text, element, own_option,
-    read_handle, run_state, throw,
+    Failure, MODULE, NOT_AN_FS_HANDLE, SpawnErrorKind, SpawnRun, array, checked_text, element,
+    own_option, read_handle, run_state, throw,
 };
 use crate::host::error_class::DeclaredFamily;
 use crate::host::fs::{HandleDirFault, open_handle_dir};
@@ -364,7 +364,8 @@ fn unreserved_why(unreserved: Unreserved, grouped: bool) -> String {
 /// `launch_failed` for `program`, found at `path`, which didn't start, as
 /// `why` says.
 fn not_started(program: &Program, path: &str, why: String) -> Failure {
-    Failure::Launch {
+    Failure::Spawn {
+        kind: SpawnErrorKind::LaunchFailed,
         program: program.name.clone(),
         cause: format!("{} at {path} didn't start", program.name),
         inner: Some(why),
@@ -392,7 +393,8 @@ fn launch(
         .get(program.pin)
         .ok_or_else(|| Failure::Plain("a program handle names no pin of the run".to_owned()))?;
     pin.check_launch(&program.name)
-        .map_err(|unlaunched| Failure::Launch {
+        .map_err(|unlaunched| Failure::Spawn {
+            kind: SpawnErrorKind::LaunchFailed,
             program: program.name.clone(),
             cause: unlaunched.cause,
             inner: unlaunched.inner,

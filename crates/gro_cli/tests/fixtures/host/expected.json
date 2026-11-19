@@ -17285,5 +17285,936 @@
 				}
 			]
 		}
+	},
+	"spawn_in": {
+		"code": 0,
+		"output": {
+			"names": {
+				"tool": {
+					"program_in": {
+						"value": {
+							"name": "tool",
+							"path": "{project}/spawn/bin/tool"
+						}
+					},
+					"find_in": {
+						"value": {
+							"name": "tool",
+							"path": "{project}/spawn/bin/tool"
+						}
+					}
+				},
+				"link": {
+					"program_in": {
+						"value": {
+							"name": "link",
+							"path": "{project}/spawn/bin/tool"
+						}
+					},
+					"find_in": {
+						"value": {
+							"name": "link",
+							"path": "{project}/spawn/bin/tool"
+						}
+					}
+				},
+				"elf": {
+					"program_in": {
+						"value": {
+							"name": "elf",
+							"path": "{project}/spawn/bin/elf"
+						}
+					},
+					"find_in": {
+						"value": {
+							"name": "elf",
+							"path": "{project}/spawn/bin/elf"
+						}
+					}
+				},
+				"bare": {
+					"program_in": {
+						"value": {
+							"name": "bare",
+							"path": "{project}/spawn/bin/bare"
+						}
+					},
+					"find_in": {
+						"value": {
+							"name": "bare",
+							"path": "{project}/spawn/bin/bare"
+						}
+					}
+				},
+				"noexec": {
+					"program_in": {
+						"threw": {
+							"class": "SpawnError",
+							"message": "not_executable: noexec",
+							"kind": "not_executable",
+							"program": "noexec",
+							"cause": "{project}/spawn/bin/noexec isn't executable"
+						}
+					},
+					"find_in": {
+						"threw": {
+							"class": "SpawnError",
+							"message": "not_executable: noexec",
+							"kind": "not_executable",
+							"program": "noexec",
+							"cause": "{project}/spawn/bin/noexec isn't executable"
+						}
+					}
+				},
+				"text": {
+					"program_in": {
+						"threw": {
+							"class": "SpawnError",
+							"message": "not_executable: text",
+							"kind": "not_executable",
+							"program": "text",
+							"cause": "text at {project}/spawn/bin/text starts with neither #! nor a native binary's magic"
+						}
+					},
+					"find_in": {
+						"threw": {
+							"class": "SpawnError",
+							"message": "not_executable: text",
+							"kind": "not_executable",
+							"program": "text",
+							"cause": "text at {project}/spawn/bin/text starts with neither #! nor a native binary's magic"
+						}
+					}
+				},
+				"run.cmd": {
+					"program_in": {
+						"threw": {
+							"class": "SpawnError",
+							"message": "not_executable: run.cmd",
+							"kind": "not_executable",
+							"program": "run.cmd",
+							"cause": "run.cmd at run.cmd is a .bat or .cmd file, which only a shell runs"
+						}
+					},
+					"find_in": {
+						"threw": {
+							"class": "SpawnError",
+							"message": "not_executable: run.cmd",
+							"kind": "not_executable",
+							"program": "run.cmd",
+							"cause": "run.cmd at run.cmd is a .bat or .cmd file, which only a shell runs"
+						}
+					}
+				},
+				"RUN.CMD. ": {
+					"program_in": {
+						"threw": {
+							"class": "SpawnError",
+							"message": "not_executable: RUN.CMD. ",
+							"kind": "not_executable",
+							"program": "RUN.CMD. ",
+							"cause": "RUN.CMD.  at RUN.CMD.  is a .bat or .cmd file, which only a shell runs"
+						}
+					},
+					"find_in": {
+						"threw": {
+							"class": "SpawnError",
+							"message": "not_executable: RUN.CMD. ",
+							"kind": "not_executable",
+							"program": "RUN.CMD. ",
+							"cause": "RUN.CMD.  at RUN.CMD.  is a .bat or .cmd file, which only a shell runs"
+						}
+					}
+				},
+				"missing": {
+					"program_in": {
+						"threw": {
+							"class": "SpawnError",
+							"message": "not_found: missing",
+							"kind": "not_found",
+							"program": "missing",
+							"cause": "no program missing beneath {project}/spawn/bin"
+						}
+					},
+					"find_in": {
+						"value": null
+					}
+				},
+				"missing/x": {
+					"program_in": {
+						"threw": {
+							"class": "SpawnError",
+							"message": "not_found: missing/x",
+							"kind": "not_found",
+							"program": "missing/x",
+							"cause": "no program missing/x beneath {project}/spawn/bin"
+						}
+					},
+					"find_in": {
+						"value": null
+					}
+				},
+				"tool/x": {
+					"program_in": {
+						"threw": {
+							"class": "SpawnError",
+							"message": "not_found: tool/x",
+							"kind": "not_found",
+							"program": "tool/x",
+							"cause": "no program tool/x beneath {project}/spawn/bin"
+						}
+					},
+					"find_in": {
+						"value": null
+					}
+				},
+				"sub/../tool": {
+					"program_in": {
+						"value": {
+							"name": "sub/../tool",
+							"path": "{project}/spawn/bin/tool"
+						}
+					},
+					"find_in": {
+						"value": {
+							"name": "sub/../tool",
+							"path": "{project}/spawn/bin/tool"
+						}
+					}
+				},
+				"./tool": {
+					"program_in": {
+						"value": {
+							"name": "./tool",
+							"path": "{project}/spawn/bin/tool"
+						}
+					},
+					"find_in": {
+						"value": {
+							"name": "./tool",
+							"path": "{project}/spawn/bin/tool"
+						}
+					}
+				},
+				".": {
+					"program_in": {
+						"threw": {
+							"class": "SpawnError",
+							"message": "not_found: .",
+							"kind": "not_found",
+							"program": ".",
+							"cause": "no program . beneath {project}/spawn/bin"
+						}
+					},
+					"find_in": {
+						"value": null
+					}
+				},
+				"tool/": {
+					"program_in": {
+						"threw": {
+							"class": "SpawnError",
+							"message": "not_found: tool/",
+							"kind": "not_found",
+							"program": "tool/",
+							"cause": "no program tool/ beneath {project}/spawn/bin"
+						}
+					},
+					"find_in": {
+						"value": null
+					}
+				},
+				"tool/.": {
+					"program_in": {
+						"threw": {
+							"class": "SpawnError",
+							"message": "not_found: tool/.",
+							"kind": "not_found",
+							"program": "tool/.",
+							"cause": "no program tool/. beneath {project}/spawn/bin"
+						}
+					},
+					"find_in": {
+						"value": null
+					}
+				},
+				"../bin/tool": {
+					"program_in": {
+						"threw": {
+							"class": "SpawnError",
+							"message": "not_granted: ../bin/tool",
+							"kind": "not_granted",
+							"program": "../bin/tool",
+							"cause": "../bin/tool leads outside its directory handle"
+						}
+					},
+					"find_in": {
+						"threw": {
+							"class": "SpawnError",
+							"message": "not_granted: ../bin/tool",
+							"kind": "not_granted",
+							"program": "../bin/tool",
+							"cause": "../bin/tool leads outside its directory handle"
+						}
+					}
+				},
+				"../../spawn/bin/tool": {
+					"program_in": {
+						"threw": {
+							"class": "SpawnError",
+							"message": "not_granted: ../../spawn/bin/tool",
+							"kind": "not_granted",
+							"program": "../../spawn/bin/tool",
+							"cause": "../../spawn/bin/tool leads outside its directory handle"
+						}
+					},
+					"find_in": {
+						"threw": {
+							"class": "SpawnError",
+							"message": "not_granted: ../../spawn/bin/tool",
+							"kind": "not_granted",
+							"program": "../../spawn/bin/tool",
+							"cause": "../../spawn/bin/tool leads outside its directory handle"
+						}
+					}
+				},
+				"/bin/sh": {
+					"program_in": {
+						"threw": {
+							"class": "SpawnError",
+							"message": "not_granted: /bin/sh",
+							"kind": "not_granted",
+							"program": "/bin/sh",
+							"cause": "/bin/sh leads outside its directory handle"
+						}
+					},
+					"find_in": {
+						"threw": {
+							"class": "SpawnError",
+							"message": "not_granted: /bin/sh",
+							"kind": "not_granted",
+							"program": "/bin/sh",
+							"cause": "/bin/sh leads outside its directory handle"
+						}
+					}
+				}
+			},
+			"nested": {
+				"program_in": {
+					"value": {
+						"name": "bin/tool",
+						"path": "{project}/spawn/bin/tool"
+					}
+				},
+				"find_in": {
+					"value": {
+						"name": "bin/tool",
+						"path": "{project}/spawn/bin/tool"
+					}
+				}
+			},
+			"read_only": {
+				"program_in": {
+					"value": {
+						"name": "tool",
+						"path": "{project}/spawn/bin/tool"
+					}
+				},
+				"find_in": {
+					"value": {
+						"name": "tool",
+						"path": "{project}/spawn/bin/tool"
+					}
+				}
+			},
+			"argv0": {
+				"fulfilled": {
+					"fields": {
+						"kind": "exited",
+						"code": 0,
+						"stdout": "{project}/spawn/bin/emit",
+						"stderr": "",
+						"truncated": false
+					},
+					"frozen": true,
+					"null_prototype": true
+				}
+			},
+			"args": {
+				"fulfilled": {
+					"fields": {
+						"kind": "exited",
+						"code": 0,
+						"stdout": "[a]",
+						"stderr": "",
+						"truncated": false
+					},
+					"frozen": true,
+					"null_prototype": true
+				}
+			},
+			"pwd": {
+				"fulfilled": {
+					"fields": {
+						"kind": "exited",
+						"code": 0,
+						"stdout": "{project}/spawn/bin\n",
+						"stderr": "",
+						"truncated": false
+					},
+					"frozen": true,
+					"null_prototype": true
+				}
+			},
+			"forged": [
+				{
+					"threw": {
+						"class": "TypeError",
+						"message": "expected an fs directory handle from this copy of Gro",
+						"cause": "undefined"
+					}
+				},
+				{
+					"threw": {
+						"class": "TypeError",
+						"message": "expected an fs directory handle from this copy of Gro",
+						"cause": "undefined"
+					}
+				},
+				{
+					"threw": {
+						"class": "TypeError",
+						"message": "expected an fs directory handle from this copy of Gro",
+						"cause": "undefined"
+					}
+				},
+				{
+					"threw": {
+						"class": "TypeError",
+						"message": "expected an fs directory handle from this copy of Gro",
+						"cause": "undefined"
+					}
+				}
+			],
+			"narrowed": {
+				"threw": {
+					"class": "SpawnError",
+					"message": "not_granted: tool",
+					"kind": "not_granted",
+					"program": "tool",
+					"cause": "a narrowed spawn can't run tool beneath a directory: build the program at the root"
+				}
+			},
+			"forwarded": {
+				"value": {
+					"name": "tool",
+					"path": "{project}/spawn/bin/tool"
+				}
+			}
+		}
+	},
+	"spawn_in_granted": {
+		"code": 0,
+		"output": {
+			"names": {
+				"tool": {
+					"program_in": {
+						"value": {
+							"name": "tool",
+							"path": "{project}/spawn/bin/tool"
+						}
+					},
+					"find_in": {
+						"value": {
+							"name": "tool",
+							"path": "{project}/spawn/bin/tool"
+						}
+					}
+				},
+				"link": {
+					"program_in": {
+						"value": {
+							"name": "link",
+							"path": "{project}/spawn/bin/tool"
+						}
+					},
+					"find_in": {
+						"value": {
+							"name": "link",
+							"path": "{project}/spawn/bin/tool"
+						}
+					}
+				},
+				"elf": {
+					"program_in": {
+						"value": {
+							"name": "elf",
+							"path": "{project}/spawn/bin/elf"
+						}
+					},
+					"find_in": {
+						"value": {
+							"name": "elf",
+							"path": "{project}/spawn/bin/elf"
+						}
+					}
+				},
+				"bare": {
+					"program_in": {
+						"value": {
+							"name": "bare",
+							"path": "{project}/spawn/bin/bare"
+						}
+					},
+					"find_in": {
+						"value": {
+							"name": "bare",
+							"path": "{project}/spawn/bin/bare"
+						}
+					}
+				},
+				"noexec": {
+					"program_in": {
+						"threw": {
+							"class": "SpawnError",
+							"message": "not_executable: noexec",
+							"kind": "not_executable",
+							"program": "noexec",
+							"cause": "{project}/spawn/bin/noexec isn't executable"
+						}
+					},
+					"find_in": {
+						"threw": {
+							"class": "SpawnError",
+							"message": "not_executable: noexec",
+							"kind": "not_executable",
+							"program": "noexec",
+							"cause": "{project}/spawn/bin/noexec isn't executable"
+						}
+					}
+				},
+				"text": {
+					"program_in": {
+						"threw": {
+							"class": "SpawnError",
+							"message": "not_executable: text",
+							"kind": "not_executable",
+							"program": "text",
+							"cause": "text at {project}/spawn/bin/text starts with neither #! nor a native binary's magic"
+						}
+					},
+					"find_in": {
+						"threw": {
+							"class": "SpawnError",
+							"message": "not_executable: text",
+							"kind": "not_executable",
+							"program": "text",
+							"cause": "text at {project}/spawn/bin/text starts with neither #! nor a native binary's magic"
+						}
+					}
+				},
+				"run.cmd": {
+					"program_in": {
+						"threw": {
+							"class": "SpawnError",
+							"message": "not_executable: run.cmd",
+							"kind": "not_executable",
+							"program": "run.cmd",
+							"cause": "run.cmd at run.cmd is a .bat or .cmd file, which only a shell runs"
+						}
+					},
+					"find_in": {
+						"threw": {
+							"class": "SpawnError",
+							"message": "not_executable: run.cmd",
+							"kind": "not_executable",
+							"program": "run.cmd",
+							"cause": "run.cmd at run.cmd is a .bat or .cmd file, which only a shell runs"
+						}
+					}
+				},
+				"RUN.CMD. ": {
+					"program_in": {
+						"threw": {
+							"class": "SpawnError",
+							"message": "not_executable: RUN.CMD. ",
+							"kind": "not_executable",
+							"program": "RUN.CMD. ",
+							"cause": "RUN.CMD.  at RUN.CMD.  is a .bat or .cmd file, which only a shell runs"
+						}
+					},
+					"find_in": {
+						"threw": {
+							"class": "SpawnError",
+							"message": "not_executable: RUN.CMD. ",
+							"kind": "not_executable",
+							"program": "RUN.CMD. ",
+							"cause": "RUN.CMD.  at RUN.CMD.  is a .bat or .cmd file, which only a shell runs"
+						}
+					}
+				},
+				"missing": {
+					"program_in": {
+						"threw": {
+							"class": "SpawnError",
+							"message": "not_found: missing",
+							"kind": "not_found",
+							"program": "missing",
+							"cause": "no program missing beneath {project}/spawn/bin"
+						}
+					},
+					"find_in": {
+						"value": null
+					}
+				},
+				"missing/x": {
+					"program_in": {
+						"threw": {
+							"class": "SpawnError",
+							"message": "not_found: missing/x",
+							"kind": "not_found",
+							"program": "missing/x",
+							"cause": "no program missing/x beneath {project}/spawn/bin"
+						}
+					},
+					"find_in": {
+						"value": null
+					}
+				},
+				"tool/x": {
+					"program_in": {
+						"threw": {
+							"class": "SpawnError",
+							"message": "not_found: tool/x",
+							"kind": "not_found",
+							"program": "tool/x",
+							"cause": "no program tool/x beneath {project}/spawn/bin"
+						}
+					},
+					"find_in": {
+						"value": null
+					}
+				},
+				"sub/../tool": {
+					"program_in": {
+						"value": {
+							"name": "sub/../tool",
+							"path": "{project}/spawn/bin/tool"
+						}
+					},
+					"find_in": {
+						"value": {
+							"name": "sub/../tool",
+							"path": "{project}/spawn/bin/tool"
+						}
+					}
+				},
+				"./tool": {
+					"program_in": {
+						"value": {
+							"name": "./tool",
+							"path": "{project}/spawn/bin/tool"
+						}
+					},
+					"find_in": {
+						"value": {
+							"name": "./tool",
+							"path": "{project}/spawn/bin/tool"
+						}
+					}
+				},
+				".": {
+					"program_in": {
+						"threw": {
+							"class": "SpawnError",
+							"message": "not_found: .",
+							"kind": "not_found",
+							"program": ".",
+							"cause": "no program . beneath {project}/spawn/bin"
+						}
+					},
+					"find_in": {
+						"value": null
+					}
+				},
+				"tool/": {
+					"program_in": {
+						"threw": {
+							"class": "SpawnError",
+							"message": "not_found: tool/",
+							"kind": "not_found",
+							"program": "tool/",
+							"cause": "no program tool/ beneath {project}/spawn/bin"
+						}
+					},
+					"find_in": {
+						"value": null
+					}
+				},
+				"tool/.": {
+					"program_in": {
+						"threw": {
+							"class": "SpawnError",
+							"message": "not_found: tool/.",
+							"kind": "not_found",
+							"program": "tool/.",
+							"cause": "no program tool/. beneath {project}/spawn/bin"
+						}
+					},
+					"find_in": {
+						"value": null
+					}
+				},
+				"../bin/tool": {
+					"program_in": {
+						"threw": {
+							"class": "SpawnError",
+							"message": "not_granted: ../bin/tool",
+							"kind": "not_granted",
+							"program": "../bin/tool",
+							"cause": "../bin/tool leads outside its directory handle"
+						}
+					},
+					"find_in": {
+						"threw": {
+							"class": "SpawnError",
+							"message": "not_granted: ../bin/tool",
+							"kind": "not_granted",
+							"program": "../bin/tool",
+							"cause": "../bin/tool leads outside its directory handle"
+						}
+					}
+				},
+				"../../spawn/bin/tool": {
+					"program_in": {
+						"threw": {
+							"class": "SpawnError",
+							"message": "not_granted: ../../spawn/bin/tool",
+							"kind": "not_granted",
+							"program": "../../spawn/bin/tool",
+							"cause": "../../spawn/bin/tool leads outside its directory handle"
+						}
+					},
+					"find_in": {
+						"threw": {
+							"class": "SpawnError",
+							"message": "not_granted: ../../spawn/bin/tool",
+							"kind": "not_granted",
+							"program": "../../spawn/bin/tool",
+							"cause": "../../spawn/bin/tool leads outside its directory handle"
+						}
+					}
+				},
+				"/bin/sh": {
+					"program_in": {
+						"threw": {
+							"class": "SpawnError",
+							"message": "not_granted: /bin/sh",
+							"kind": "not_granted",
+							"program": "/bin/sh",
+							"cause": "/bin/sh leads outside its directory handle"
+						}
+					},
+					"find_in": {
+						"threw": {
+							"class": "SpawnError",
+							"message": "not_granted: /bin/sh",
+							"kind": "not_granted",
+							"program": "/bin/sh",
+							"cause": "/bin/sh leads outside its directory handle"
+						}
+					}
+				}
+			},
+			"nested": {
+				"program_in": {
+					"value": {
+						"name": "bin/tool",
+						"path": "{project}/spawn/bin/tool"
+					}
+				},
+				"find_in": {
+					"value": {
+						"name": "bin/tool",
+						"path": "{project}/spawn/bin/tool"
+					}
+				}
+			},
+			"read_only": {
+				"program_in": {
+					"value": {
+						"name": "tool",
+						"path": "{project}/spawn/bin/tool"
+					}
+				},
+				"find_in": {
+					"value": {
+						"name": "tool",
+						"path": "{project}/spawn/bin/tool"
+					}
+				}
+			},
+			"argv0": {
+				"fulfilled": {
+					"fields": {
+						"kind": "exited",
+						"code": 0,
+						"stdout": "{project}/spawn/bin/emit",
+						"stderr": "",
+						"truncated": false
+					},
+					"frozen": true,
+					"null_prototype": true
+				}
+			},
+			"args": {
+				"fulfilled": {
+					"fields": {
+						"kind": "exited",
+						"code": 0,
+						"stdout": "[a]",
+						"stderr": "",
+						"truncated": false
+					},
+					"frozen": true,
+					"null_prototype": true
+				}
+			},
+			"pwd": {
+				"fulfilled": {
+					"fields": {
+						"kind": "exited",
+						"code": 0,
+						"stdout": "{project}/spawn/bin\n",
+						"stderr": "",
+						"truncated": false
+					},
+					"frozen": true,
+					"null_prototype": true
+				}
+			},
+			"forged": [
+				{
+					"threw": {
+						"class": "TypeError",
+						"message": "expected an fs directory handle from this copy of Gro",
+						"cause": "undefined"
+					}
+				},
+				{
+					"threw": {
+						"class": "TypeError",
+						"message": "expected an fs directory handle from this copy of Gro",
+						"cause": "undefined"
+					}
+				},
+				{
+					"threw": {
+						"class": "TypeError",
+						"message": "expected an fs directory handle from this copy of Gro",
+						"cause": "undefined"
+					}
+				},
+				{
+					"threw": {
+						"class": "TypeError",
+						"message": "expected an fs directory handle from this copy of Gro",
+						"cause": "undefined"
+					}
+				}
+			],
+			"narrowed": {
+				"threw": {
+					"class": "SpawnError",
+					"message": "not_granted: tool",
+					"kind": "not_granted",
+					"program": "tool",
+					"cause": "a narrowed spawn can't run tool beneath a directory: build the program at the root"
+				}
+			},
+			"forwarded": {
+				"value": {
+					"name": "tool",
+					"path": "{project}/spawn/bin/tool"
+				}
+			}
+		}
+	},
+	"spawn_in_outside": {
+		"code": 0,
+		"output": {
+			"project": {
+				"value": {
+					"name": "./spawn/bin/tool",
+					"path": "{project}/spawn/bin/tool"
+				}
+			},
+			"above": {
+				"value": {
+					"name": "bin/tool",
+					"path": "{project}/spawn/bin/tool"
+				}
+			}
+		}
+	},
+	"spawn_in_scratch": {
+		"code": 0,
+		"output": {
+			"built": {
+				"name": "built",
+				"path": "{project}/spawn_scratch/built"
+			},
+			"ran": {
+				"fulfilled": {
+					"fields": {
+						"kind": "exited",
+						"code": 0,
+						"stdout": "built",
+						"stderr": "",
+						"truncated": false
+					},
+					"frozen": true,
+					"null_prototype": true
+				}
+			},
+			"links": {
+				"inside": {
+					"value": {
+						"name": "inside",
+						"path": "{project}/spawn_scratch/built"
+					}
+				},
+				"absolute": {
+					"threw": {
+						"class": "SpawnError",
+						"message": "not_granted: absolute",
+						"kind": "not_granted",
+						"program": "absolute",
+						"cause": "absolute leads outside its directory handle"
+					}
+				},
+				"escape": {
+					"threw": {
+						"class": "SpawnError",
+						"message": "not_granted: escape",
+						"kind": "not_granted",
+						"program": "escape",
+						"cause": "escape leads outside its directory handle"
+					}
+				},
+				"dangling": {
+					"value": null
+				},
+				"loop": {
+					"threw": {
+						"class": "SpawnError",
+						"message": "not_executable: loop",
+						"kind": "not_executable",
+						"program": "loop",
+						"cause": "loop can't be resolved beneath its directory handle"
+					}
+				}
+			}
+		}
 	}
 }

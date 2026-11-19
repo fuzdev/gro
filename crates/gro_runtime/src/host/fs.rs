@@ -590,6 +590,27 @@ pub(in crate::host) fn open_handle_dir(
     Ok((opened, path))
 }
 
+/// The absolute real path of the directory `value`, an fs handle of
+/// `kind` or a kind extending it, names, read from its state as an op on
+/// it reads it: its root's real path and its directory's beneath that,
+/// for another host module that matches a handle's directory against its
+/// own grant, as spawn finds the exec root holding one. Nothing is opened
+/// or looked up, and what the handle may do isn't asked.
+pub(in crate::host) fn handle_dir_path(
+    state: &OpState,
+    scope: &v8::PinScope<'_, '_>,
+    kind: &HandleKind,
+    value: v8::Local<'_, v8::Value>,
+) -> Result<String, HandleDirFault> {
+    let handle = read_handle(scope, kind, value).map_err(|_| HandleDirFault::NotAHandle)?;
+    let table = run_roots(state).map_err(|_| HandleDirFault::NotAHandle)?;
+    let root = table
+        .roots()
+        .get(handle.root)
+        .ok_or(HandleDirFault::NotAHandle)?;
+    Ok(join(root.handle_base(), &handle.beneath))
+}
+
 /// Makes a handle of `kind` of `prototype` on the directory `beneath` the
 /// root at `index`, whose path is `root_path`, doing what `access` says.
 fn make_dir<'s>(

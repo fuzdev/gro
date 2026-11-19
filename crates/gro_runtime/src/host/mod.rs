@@ -670,7 +670,7 @@ native_members! {
     fn program_in(state, _granted: SpawnGrant; scope, dir, name, options)
         for "@fuzdev/gro/spawn.ts" on SPAWN(handle) throws SPAWN_ERROR(errors)
     {
-        spawn::program_in(state, scope, "program_in", handle, dir, name, options, errors)
+        spawn::program_in(state, scope, spawn::Missing::Throws, handle, dir, name, options, errors)
     }
 
     /// `spawn.find_in(dir, name, options?)`, called on `handle`
@@ -678,7 +678,7 @@ native_members! {
     fn find_in(state, _granted: SpawnGrant; scope, dir, name, options) for "@fuzdev/gro/spawn.ts"
         on SPAWN(handle) throws SPAWN_ERROR(errors)
     {
-        spawn::program_in(state, scope, "find_in", handle, dir, name, options, errors)
+        spawn::program_in(state, scope, spawn::Missing::Null, handle, dir, name, options, errors)
     }
 
     /// `spawn.narrow(names)`, called on `handle` ([`spawn::narrow`]).

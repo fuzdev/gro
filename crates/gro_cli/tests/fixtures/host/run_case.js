@@ -7,11 +7,12 @@
 /**
  * @param {string} module - the host module's name, like `cwd`
  * @param {Array<string>} rest - the arguments after it
- * @param {(module: string) => Promise<object>} load - imports the host module's namespace
+ * @param {(module: string) => Promise<object>} load - imports a host module's namespace, which a
+ * scenario is handed too, for a second module it needs
  */
 export const run_case = async (module, rest, load) => {
 	const { default: scenario } = await import(`./cases/${module}.js`);
 	const print = (/** @type {unknown} */ value) => console.log(JSON.stringify(value));
-	const result = await scenario(await load(module), rest, print);
+	const result = await scenario(await load(module), rest, print, load);
 	if (result !== undefined) print(result);
 };

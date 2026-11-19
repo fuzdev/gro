@@ -28,7 +28,9 @@
 //! what the pin runs, and a file rewritten in place, which keeps its
 //! identity, is refused at launch, as is one whose mode, owner, or links
 //! changed since, since no program of this user's can write a file without
-//! moving its change time ([`Pin::check_launch`]).
+//! moving its change time ([`Pin::check_launch`]). The change time moves by
+//! the filesystem clock's tick, so a change within the tick of the file's
+//! last change before its pin leaves it as pinned, and isn't seen.
 //!
 //! A fault is kept as the fault, so a program asked for later meets it
 //! then, as the Node module's call-time resolution would.
@@ -170,10 +172,6 @@ pub enum PinKind {
 
 /// Why a name pins nothing, which a call asking for it meets.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[expect(
-    clippy::enum_variant_names,
-    reason = "each is the `SpawnError` kind a call meets, named as the kind is"
-)]
 pub enum Fault {
     /// Nothing runnable is at the name.
     NotFound,
@@ -181,6 +179,15 @@ pub enum Fault {
     NotExecutable(String),
     /// The name leads outside what a name may reach, as this explains.
     NotGranted(String),
+    /// The name couldn't be resolved, as `cause` says, a `not_executable`
+    /// whose cause's own cause is `why`, what the OS or the run said: a
+    /// failure that is no missing file, which is never read as one.
+    Unresolved {
+        /// The cause's message.
+        cause: String,
+        /// Why.
+        why: String,
+    },
 }
 
 /// What `name` resolves to and pins: a bare name walked on `path`, the
@@ -223,7 +230,7 @@ pub fn is_refused_extension(path: &str) -> bool {
 }
 
 /// The fault of `name`, found at `path`, a `.bat` or `.cmd` file.
-fn refused_extension(name: &str, path: &str) -> Fault {
+pub fn refused_extension(name: &str, path: &str) -> Fault {
     Fault::NotExecutable(format!(
         "{name} at {path} is a .bat or .cmd file, which only a shell runs"
     ))
@@ -293,7 +300,7 @@ fn walk_path(name: &str, path: Option<&str>) -> Result<Option<String>, Fault> {
 
 /// What a `..` with nothing before it does in [`lexical_segments`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Climb {
+pub enum Climb {
     /// Stays at the start, as `/..` is `/`.
     Clamp,
     /// Makes the result `None`.
@@ -303,7 +310,7 @@ enum Climb {
 /// `path`'s segments, resolved by their text: empty and `.` segments
 /// dropped, each `..` removing the one before it, and one with none before
 /// it as `climb` says.
-fn lexical_segments(path: &str, climb: Climb) -> Option<Vec<&str>> {
+pub fn lexical_segments(path: &str, climb: Climb) -> Option<Vec<&str>> {
     let mut segments = Vec::new();
     for segment in path.split('/') {
         match segment {
@@ -379,13 +386,33 @@ fn pin(name: &str, found: &str, argv0: &str) -> Result<Pin, Fault> {
     if is_refused_extension(&real) {
         return Err(refused_extension(name, &real));
     }
-    let unreadable = || Fault::NotExecutable(format!("{name} at {real} can't be read"));
     let held: OwnedFd = std::fs::OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_PATH)
         .open(&real)
-        .map_err(|_| unreadable())?
+        .map_err(|_| Fault::NotExecutable(format!("{name} at {real} can't be read")))?
         .into();
+    pin_held(name, held, real, found, argv0)
+}
+
+/// Pins the file `held` names, opened as a path only, found at `found`,
+/// whose real path is `real` and whose `argv[0]` is `argv0`: what a pin of
+/// a found path does once it's opened, and what `program_in` does with the
+/// file it opened beneath its directory.
+///
+/// # Errors
+///
+/// Returns [`Fault::NotExecutable`] for a file that can't be read but for
+/// a denied read, and one whose first bytes are neither `#!` nor ELF's
+/// magic.
+pub fn pin_held(
+    name: &str,
+    held: OwnedFd,
+    real: String,
+    found: &str,
+    argv0: &str,
+) -> Result<Pin, Fault> {
+    let unreadable = || Fault::NotExecutable(format!("{name} at {real} can't be read"));
     let held = File::from(held);
     let metadata = held.metadata().map_err(|_| unreadable())?;
     let id = FileId::of(&metadata);

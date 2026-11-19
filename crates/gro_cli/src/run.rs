@@ -5,9 +5,9 @@
 //! [`exit_code`] is the one place the run's exit code is decided, however
 //! the run ended.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use gro_runtime::confine::Confinement;
 use gro_runtime::engine::{EngineOptions, init_engine};
@@ -15,15 +15,15 @@ use gro_runtime::file_id::FileId;
 use gro_runtime::phases::{self, Phase};
 use gro_runtime::resolver::normalize;
 use gro_runtime::{
-    ArgsGrant, Authority, CHILD_BASE_ENV, EnvGrant, EnvPattern, EnvVars, Exit, ExitGrant, FsGrant,
-    FsNeed, GrantedDir, Grants, NameKind, NeededGrant, ProgramGrant, Refusal, Refusals, RefusedBy,
-    RunOutcome, RuntimeOptions, SpawnGrant, env_name_fault,
+    ArgsGrant, Authority, CHILD_BASE_ENV, EnvGrant, EnvPattern, EnvVars, ExecRootGrant, Exit,
+    ExitGrant, FsGrant, FsNeed, GrantedDir, Grants, NameKind, NeededGrant, ProgramGrant, Refusal,
+    Refusals, RefusedBy, RunOutcome, RuntimeOptions, SpawnGrant, env_name_fault,
 };
 
 use crate::EXIT_FAILURE;
 use crate::cli::{
-    ALLOW_ENV, ALLOW_READ, ALLOW_RUN, ALLOW_RUN_ENV, ALLOW_TEMP, ALLOW_WRITE, DirFlag, FlagDirs,
-    RunGrant, RunInvocation,
+    ALLOW_ENV, ALLOW_READ, ALLOW_RUN, ALLOW_RUN_ENV, ALLOW_RUN_IN, ALLOW_TEMP, ALLOW_WRITE,
+    DirFlag, FlagDirs, RunGrant, RunInvocation,
 };
 use crate::color;
 use crate::error::{CliError, DirFault};
@@ -117,32 +117,32 @@ const fn exit_code(ended: Ended, refused: bool) -> u8 {
 /// # Errors
 ///
 /// Returns why the working directory, a directory a flag grants
-/// ([`fs_grant`]), or the engine failed, before anything ran.
+/// ([`granted_dirs`]), or the engine failed, before anything ran.
 fn start_and_run(run: &RunInvocation) -> Result<RunOutcome, CliError> {
     // read here, not in the runtime, which takes it as an input
     let cwd = std::env::current_dir().map_err(CliError::Cwd)?;
-    let (fs, notes) = fs_grant(&run.dirs, &cwd)?;
+    let (dirs, notes) = granted_dirs(&run.dirs, &cwd)?;
     // a directory `-A` names grants nothing more, so there's nothing to note
     if !matches!(run.grant, RunGrant::All) {
         for note in notes {
             stderr_line(note);
         }
     }
-    if grants_programs(&run.grant) {
+    if grants_programs(&run.grant, &run.dirs) {
         ready_to_spawn(gro_sys::raise_open_files_limit).map_err(CliError::SpawnReady)?;
     }
     let engine = init_engine(Confinement::Unconfined, &EngineOptions::default())?;
     phases::mark(Phase::Engine);
-    let options = runtime_options(run, &ProcessEnvironment, fs, &cwd);
+    let options = runtime_options(run, &ProcessEnvironment, dirs, &cwd);
     Ok(gro_runtime::run_main(engine, &options, &run.file, &cwd))
 }
 
-/// Whether `grant` lets the run start a program: `-A`, or a program
-/// `--allow-run=` names.
-fn grants_programs(grant: &RunGrant) -> bool {
+/// Whether the run may start a program: `-A`, a program `--allow-run=`
+/// names in `grant`, or an exec root `--allow-run-in=` lists in `dirs`.
+fn grants_programs(grant: &RunGrant, dirs: &FlagDirs) -> bool {
     match grant {
         RunGrant::All => true,
-        RunGrant::Named { run, .. } => !run.is_empty(),
+        RunGrant::Named { run, .. } => !run.is_empty() || !dirs.run_in.is_empty(),
     }
 }
 
@@ -168,21 +168,34 @@ fn ready_to_spawn(raise: fn() -> std::io::Result<u64>) -> std::io::Result<()> {
     Ok(())
 }
 
-/// The fs grant of the directories `dirs` lists, each resolved against
-/// `cwd` when it's relative and held to be a directory now: its real path
-/// read, then the identity of the directory there, by one `stat`, which
-/// the grant keeps ([`GrantedDir`]), the read ones first, then the written
-/// ones. The runtime opens each by that real path when the run first
-/// imports `fs` and holds it to that identity, so a directory moved or
-/// replaced between, like one gone by then, fails every op through it, and
-/// the roots nest as these real paths do. With it, the notes ([`grant_note`])
-/// for the directories whose real path isn't their text.
+/// The directories the flags grant: the fs grant's, read and written, and
+/// the spawn grant's exec roots.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct GrantedDirs {
+    /// The fs grant of the directories `--allow-read=` and
+    /// `--allow-write=` list.
+    fs: FsGrant,
+    /// The exec roots `--allow-run-in=` lists, each by the path it was
+    /// granted as.
+    exec_roots: BTreeMap<PathBuf, GrantedDir>,
+}
+
+/// The grants of the directories `dirs` lists, each resolved against `cwd`
+/// when it's relative and held to be a directory now: its real path read,
+/// then the identity of the directory there, by one `stat`, which the
+/// grant keeps ([`GrantedDir`]), the read ones first, then the written
+/// ones, then the exec roots. The runtime opens each fs root by that real
+/// path when the run first imports `fs`, and each exec root as the run
+/// starts, and holds it to that identity, so a directory moved or replaced
+/// between, like one gone by then, fails every op through it, and the fs
+/// roots nest as these real paths do. With them, the notes
+/// ([`grant_note`]) for the directories whose real path isn't their text.
 ///
 /// # Errors
 ///
 /// Returns [`CliError::NoDir`] for the first that's missing, isn't a
 /// directory, or can't be looked at.
-fn fs_grant(dirs: &FlagDirs, cwd: &Path) -> Result<(FsGrant, Vec<String>), CliError> {
+fn granted_dirs(dirs: &FlagDirs, cwd: &Path) -> Result<(GrantedDirs, Vec<String>), CliError> {
     let mut notes = Vec::new();
     let mut check = |flag: DirFlag, dir: &String| {
         let path = cwd.join(dir);
@@ -216,7 +229,12 @@ fn fs_grant(dirs: &FlagDirs, cwd: &Path) -> Result<(FsGrant, Vec<String>), CliEr
             .collect::<Result<_, _>>()?,
         temp: false,
     };
-    Ok((fs, notes))
+    let exec_roots = dirs
+        .run_in
+        .iter()
+        .map(|dir| check(DirFlag::RunIn, dir))
+        .collect::<Result<_, _>>()?;
+    Ok((GrantedDirs { fs, exec_roots }, notes))
 }
 
 /// The note, if one is due, that `flag` listing `dir`, the text typed,
@@ -300,7 +318,8 @@ fn refusal_line(refusal: &Refusal) -> String {
 /// `--allow-run=` naming each program that's a [`hint_program`], and one
 /// for `--allow-run-env=` naming each variable that's a [`hint_name`], a
 /// glob never, each saying `some of what` when it can't show every name
-/// of its kind; then each fs line once, fixed text naming no path.
+/// of its kind; then each fs line once, then the exec root's, fixed text
+/// naming no path.
 /// `src/docs/run.md` §Errors and exit codes states the rules.
 fn grant_hints(refused: &Refusals) -> Vec<String> {
     let mut names: Vec<&str> = Vec::new();
@@ -312,8 +331,8 @@ fn grant_hints(refused: &Refusals) -> Vec<String> {
         more(NameKind::Run),
         more(NameKind::RunEnv),
     );
-    let (mut read, mut link, mut write, mut open_dir, mut temp) =
-        (false, false, false, false, false);
+    let (mut read, mut link, mut write, mut open_dir, mut temp, mut run_in) =
+        (false, false, false, false, false, false);
     for needed in &refused.needed {
         match needed {
             NeededGrant::Env(name) if hint_name(name) => names.push(name),
@@ -327,6 +346,7 @@ fn grant_hints(refused: &Refusals) -> Vec<String> {
             NeededGrant::Fs(FsNeed::Write) => write = true,
             NeededGrant::Fs(FsNeed::OpenDir) => open_dir = true,
             NeededGrant::Fs(FsNeed::Temp) => temp = true,
+            NeededGrant::RunIn => run_in = true,
         }
     }
     let mut hints = Vec::new();
@@ -372,6 +392,11 @@ fn grant_hints(refused: &Refusals) -> Vec<String> {
     }
     if temp {
         hints.push(format!("hint: add {ALLOW_TEMP} to grant what fs refused"));
+    }
+    if run_in {
+        hints.push(format!(
+            "hint: add {ALLOW_RUN_IN} naming the directory to grant what spawn refused"
+        ));
     }
     hints
 }
@@ -430,7 +455,7 @@ impl Environment for ProcessEnvironment {
 fn runtime_options(
     run: &RunInvocation,
     environment: &impl Environment,
-    fs: FsGrant,
+    dirs: GrantedDirs,
     cwd: &Path,
 ) -> RuntimeOptions {
     let temp = matches!(
@@ -441,10 +466,13 @@ fn runtime_options(
     let spawn_env = match &run.grant {
         // the same read, every variable
         RunGrant::All => env.clone(),
-        RunGrant::Named { run, run_env, .. } => spawn_env(run, run_env, environment),
+        RunGrant::Named { run, run_env, .. } => {
+            let granted = !run.is_empty() || !dirs.exec_roots.is_empty();
+            spawn_env(granted, run_env, environment)
+        }
     };
     RuntimeOptions {
-        authority: authority(&run.grant, fs),
+        authority: authority(&run.grant, dirs),
         env,
         spawn_env,
         temp_dir: temp.then(|| real_temp_dir(&cwd.join(temp_dir(environment)))),
@@ -460,11 +488,13 @@ fn runtime_options(
 /// writes every directory, `fs`'s directories adding nothing; else the
 /// project's own modules granted the args host module, the exit host
 /// module, the fs host module, reading the project's tree and the
-/// directories `fs` grants as it grants them, and, when `--allow-env=`
+/// directories `dirs` grants as it grants them, and, when `--allow-env=`
 /// named any variable, the env host module with those names, and, when
-/// `--allow-run=` named any program, the spawn host module with those
-/// programs, each forwarded what `--allow-run-env=` lists.
-fn authority(grant: &RunGrant, fs: FsGrant) -> Authority {
+/// `--allow-run=` named any program or `--allow-run-in=` any exec root,
+/// the spawn host module with those programs and exec roots, each
+/// forwarded what `--allow-run-env=` lists.
+fn authority(grant: &RunGrant, dirs: GrantedDirs) -> Authority {
+    let GrantedDirs { fs, exec_roots } = dirs;
     match grant {
         RunGrant::All => Authority::Unconfined,
         RunGrant::Named {
@@ -477,7 +507,7 @@ fn authority(grant: &RunGrant, fs: FsGrant) -> Authority {
             exit: Some(ExitGrant {}),
             env: (!env.is_empty()).then(|| EnvGrant { names: env.clone() }),
             fs: Some(FsGrant { temp: *temp, ..fs }),
-            spawn: (!run.is_empty()).then(|| SpawnGrant {
+            spawn: (!run.is_empty() || !exec_roots.is_empty()).then(|| SpawnGrant {
                 programs: run
                     .iter()
                     .map(|name| {
@@ -487,13 +517,21 @@ fn authority(grant: &RunGrant, fs: FsGrant) -> Authority {
                         (name.clone(), program)
                     })
                     .collect(),
+                exec_roots: exec_roots
+                    .into_iter()
+                    .map(|(path, dir)| {
+                        let forward = run_env.iter().cloned().collect();
+                        (path, ExecRootGrant { dir, forward })
+                    })
+                    .collect(),
             }),
         }),
     }
 }
 
 /// The environment variables a confined run's children may be passed,
-/// read from `environment`: none when `run` grants no program; else the
+/// read from `environment`: none when the run grants no program and no
+/// exec root, as `granted` says; else the
 /// base set every child is given ([`CHILD_BASE_ENV`]), then each exact
 /// name `run_env` lists, each asked for by name, and, only when it lists
 /// a glob, every variable a glob covers, from the whole environment's
@@ -501,11 +539,11 @@ fn authority(grant: &RunGrant, fs: FsGrant) -> Authority {
 /// that isn't UTF-8 is decoded with U+FFFD in place of each invalid
 /// sequence, as Node reads one.
 fn spawn_env(
-    run: &BTreeSet<String>,
+    granted: bool,
     run_env: &BTreeSet<EnvPattern>,
     environment: &impl Environment,
 ) -> EnvVars {
-    if run.is_empty() {
+    if !granted {
         return EnvVars::default();
     }
     let exact = run_env.iter().filter_map(|pattern| match pattern {
@@ -539,7 +577,7 @@ fn spawn_env(
 /// and not empty, else `/tmp`, a trailing `/` dropped but from `/` itself.
 /// A value that isn't UTF-8 is decoded with U+FFFD in place of each invalid
 /// sequence, as Node reads one.
-fn temp_dir(environment: &impl Environment) -> std::path::PathBuf {
+fn temp_dir(environment: &impl Environment) -> PathBuf {
     let set = ["TMPDIR", "TMP", "TEMP"]
         .into_iter()
         .filter_map(|name| environment.var(name))
@@ -549,7 +587,7 @@ fn temp_dir(environment: &impl Environment) -> std::path::PathBuf {
     if dir.len() > 1 && dir.ends_with('/') {
         dir.pop();
     }
-    std::path::PathBuf::from(dir)
+    PathBuf::from(dir)
 }
 
 /// `dir`, the OS's temporary directory, an absolute path, by its real path
@@ -559,7 +597,7 @@ fn temp_dir(environment: &impl Environment) -> std::path::PathBuf {
 /// and `..` resolved by their text ([`normalize`]): `fs.temp_dir` fails
 /// on it until the run makes it, by no symlink, and always when a symlink
 /// is on it.
-fn real_temp_dir(dir: &Path) -> std::path::PathBuf {
+fn real_temp_dir(dir: &Path) -> PathBuf {
     std::fs::canonicalize(dir).unwrap_or_else(|_| normalize(dir))
 }
 
@@ -594,13 +632,14 @@ fn env_vars(grant: &RunGrant, environment: &impl Environment) -> EnvVars {
 #[cfg(test)]
 mod tests {
     use std::cell::{Cell, RefCell};
+    use std::collections::BTreeMap;
     use std::ffi::OsString;
     use std::os::unix::ffi::OsStringExt as _;
     use std::path::{Path, PathBuf};
 
     use super::{
-        EXIT_FAILURE, Ended, Environment, FsGrant, GrantedDir, RUNTIME_VERSION, exit_code,
-        exit_now, real_temp_dir, runtime_options,
+        EXIT_FAILURE, Ended, Environment, FsGrant, GrantedDir, GrantedDirs, RUNTIME_VERSION,
+        exit_code, exit_now, real_temp_dir, runtime_options,
     };
     use crate::cli::{Invocation, RunInvocation, Task, parse};
 
@@ -670,7 +709,7 @@ mod tests {
             let options = runtime_options(
                 &invocation(args),
                 &environment,
-                FsGrant::default(),
+                GrantedDirs::default(),
                 Path::new("/w"),
             );
             (options, environment.asked.take())
@@ -789,7 +828,7 @@ mod tests {
             runtime_options(
                 &run,
                 &TestEnvironment::default(),
-                FsGrant::default(),
+                GrantedDirs::default(),
                 Path::new("/w")
             )
             .args,
@@ -802,7 +841,7 @@ mod tests {
             runtime_options(
                 &run,
                 &TestEnvironment::default(),
-                FsGrant::default(),
+                GrantedDirs::default(),
                 Path::new("/w")
             )
             .args
@@ -820,7 +859,7 @@ mod tests {
             runtime_options(
                 &run,
                 &TestEnvironment::default(),
-                FsGrant::default(),
+                GrantedDirs::default(),
                 Path::new("/w")
             )
             .runtime_version,
@@ -835,7 +874,7 @@ mod tests {
     fn the_run_grants_args_exit_and_fs() {
         let run = invocation(&["a.js"]);
         let environment = TestEnvironment::of(&[(b"HOME", b"/home/a")]);
-        let options = runtime_options(&run, &environment, FsGrant::default(), Path::new("/w"));
+        let options = runtime_options(&run, &environment, GrantedDirs::default(), Path::new("/w"));
         assert_eq!(
             options.authority,
             gro_runtime::Authority::Confined(gro_runtime::Grants {
@@ -872,7 +911,7 @@ mod tests {
         ]);
         let environment =
             TestEnvironment::of(&[(b"A", b"1"), (b"B", b"b\xff"), (b"D", b"4"), (b"E", b"5")]);
-        let options = runtime_options(&run, &environment, FsGrant::default(), Path::new("/w"));
+        let options = runtime_options(&run, &environment, GrantedDirs::default(), Path::new("/w"));
         assert_eq!(
             options.authority,
             gro_runtime::Authority::Confined(gro_runtime::Grants {
@@ -910,7 +949,8 @@ mod tests {
                 (b"A", b"1"),
                 (b"B", b"again"),
             ]);
-            let options = runtime_options(&run, &environment, FsGrant::default(), Path::new("/w"));
+            let options =
+                runtime_options(&run, &environment, GrantedDirs::default(), Path::new("/w"));
             assert_eq!(
                 options.authority,
                 gro_runtime::Authority::Unconfined,
@@ -947,7 +987,10 @@ mod tests {
         let options = runtime_options(
             &run,
             &TestEnvironment::default(),
-            fs.clone(),
+            GrantedDirs {
+                fs: fs.clone(),
+                ..GrantedDirs::default()
+            },
             Path::new("/w"),
         );
         let gro_runtime::Authority::Confined(grants) = options.authority else {
@@ -955,7 +998,11 @@ mod tests {
         };
         assert_eq!(grants.fs, Some(fs.clone()));
         let run = invocation(&["--allow-read=/r", "-A", "a.js"]);
-        let options = runtime_options(&run, &TestEnvironment::default(), fs, Path::new("/w"));
+        let dirs = GrantedDirs {
+            fs,
+            ..GrantedDirs::default()
+        };
+        let options = runtime_options(&run, &TestEnvironment::default(), dirs, Path::new("/w"));
         assert_eq!(options.authority, gro_runtime::Authority::Unconfined);
     }
 
@@ -1223,7 +1270,7 @@ mod tests {
             "a.js",
         ]);
         let environment = TestEnvironment::of(vars);
-        let options = runtime_options(&run, &environment, FsGrant::default(), Path::new("/w"));
+        let options = runtime_options(&run, &environment, GrantedDirs::default(), Path::new("/w"));
         let forward = vec![
             EnvPattern::Exact("TOKEN".to_owned()),
             EnvPattern::Exact("UNSET".to_owned()),
@@ -1240,6 +1287,7 @@ mod tests {
                     ("git".to_owned(), program),
                 ]
                 .into(),
+                exec_roots: BTreeMap::new(),
             })
         );
         assert_eq!(
@@ -1262,7 +1310,7 @@ mod tests {
 
         let run = invocation(&["--allow-run=git", "--allow-run-env=CARGO_*", "a.js"]);
         let environment = TestEnvironment::of(vars);
-        let options = runtime_options(&run, &environment, FsGrant::default(), Path::new("/w"));
+        let options = runtime_options(&run, &environment, GrantedDirs::default(), Path::new("/w"));
         assert!(environment.listed.get());
         let read: Vec<(&str, &str)> = options.spawn_env.iter().collect();
         assert_eq!(
@@ -1278,16 +1326,70 @@ mod tests {
         // granting no program reads nothing for children
         let run = invocation(&["--allow-env=HOME", "a.js"]);
         let environment = TestEnvironment::of(vars);
-        let options = runtime_options(&run, &environment, FsGrant::default(), Path::new("/w"));
+        let options = runtime_options(&run, &environment, GrantedDirs::default(), Path::new("/w"));
         assert_eq!(*environment.asked.borrow(), ["HOME"]);
         assert_eq!(options.spawn_env, gro_runtime::EnvVars::default());
 
         let run = invocation(&["--allow-run=git", "-A", "a.js"]);
         let environment = TestEnvironment::of(vars);
-        let options = runtime_options(&run, &environment, FsGrant::default(), Path::new("/w"));
+        let options = runtime_options(&run, &environment, GrantedDirs::default(), Path::new("/w"));
         assert_eq!(options.authority, gro_runtime::Authority::Unconfined);
         assert_eq!(options.spawn_env, options.env);
         assert_eq!(options.spawn_env.iter().count(), 6);
+    }
+
+    /// `--allow-run-in=` grants `spawn` with its exec roots, each as the
+    /// flags resolved it, passed what `--allow-run-env=` forwards, though
+    /// no program is named, and reads what a child may be given; with
+    /// neither flag, the run grants no `spawn` and reads nothing for
+    /// children.
+    #[test]
+    fn allow_run_in_grants_exec_roots_and_reads_what_children_may_get() {
+        let id = gro_runtime::file_id::FileId {
+            dev: 1,
+            ino: 2,
+            born: None,
+        };
+        let dir = GrantedDir {
+            real: "/real/x".into(),
+            id,
+        };
+        let dirs = GrantedDirs {
+            exec_roots: [(PathBuf::from("/x"), dir.clone())].into(),
+            ..GrantedDirs::default()
+        };
+        let run = invocation(&["--allow-run-in=/x", "--allow-run-env=A", "a.js"]);
+        assert!(super::grants_programs(&run.grant, &run.dirs));
+        let environment = TestEnvironment::of(&[(b"A", b"1"), (b"PATH", b"/bin")]);
+        let options = runtime_options(&run, &environment, dirs, Path::new("/w"));
+        let gro_runtime::Authority::Confined(grants) = options.authority else {
+            panic!("a run without -A is confined");
+        };
+        let forward = vec![gro_runtime::EnvPattern::Exact("A".to_owned())];
+        assert_eq!(
+            grants.spawn,
+            Some(gro_runtime::SpawnGrant {
+                programs: BTreeMap::new(),
+                exec_roots: [(
+                    PathBuf::from("/x"),
+                    gro_runtime::ExecRootGrant { dir, forward }
+                )]
+                .into(),
+            })
+        );
+        assert_eq!(
+            options.spawn_env.iter().collect::<Vec<_>>(),
+            [("PATH", "/bin"), ("A", "1")]
+        );
+        let run = invocation(&["--allow-read=/x", "a.js"]);
+        assert!(!super::grants_programs(&run.grant, &run.dirs));
+        let environment = TestEnvironment::of(&[(b"PATH", b"/bin")]);
+        let options = runtime_options(&run, &environment, GrantedDirs::default(), Path::new("/w"));
+        let gro_runtime::Authority::Confined(grants) = options.authority else {
+            panic!("a run without -A is confined");
+        };
+        assert_eq!(grants.spawn, None);
+        assert!(environment.asked.borrow().is_empty());
     }
 
     /// The variable a child of [`a_refused_raise_of_the_open_files_limit_fails_nothing`]
@@ -1326,7 +1428,7 @@ mod tests {
     fn the_variables_debug_prints_no_value() {
         let run = invocation(&["--allow-env=TOKEN", "a.js"]);
         let environment = TestEnvironment::of(&[(b"TOKEN", b"secret-value")]);
-        let options = runtime_options(&run, &environment, FsGrant::default(), Path::new("/w"));
+        let options = runtime_options(&run, &environment, GrantedDirs::default(), Path::new("/w"));
         let printed = format!("{options:?}");
         assert!(printed.contains("TOKEN"), "{printed}");
         assert!(!printed.contains("secret-value"), "{printed}");

@@ -402,10 +402,37 @@ pub const CHILD_BASE_ENV: [&str; 6] = ["PATH", "HOME", "TMPDIR", "TERM", "NO_COL
 /// the root refuses a name outside its own. An unconfined run's root makes
 /// a handle of any name, found when it's asked for, and passes any
 /// variable, whatever this holds.
+///
+/// Beside the programs, its exec roots: the directories `program_in` and
+/// `find_in` find a program beneath, each by the path it was granted as,
+/// with the directory it named as the run started, as the fs grant holds
+/// its directories ([`GrantedDir`]). The run opens each by that real path
+/// as it starts, beside the pins, and holds it to that identity, so a
+/// directory replaced between is refused; a program is then found beneath
+/// the exec root's own descriptor, never by a path the kernel resolves
+/// from `/`, so an exec root stays its directory wherever it's moved,
+/// though a script found beneath one launches by the path it was found
+/// at. An exec root that is also a directory the fs grant writes
+/// runs what the run writes there. An unconfined run's roots find a
+/// program beneath any directory.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SpawnGrant {
     /// The programs granted, by name.
     pub programs: BTreeMap<String, ProgramGrant>,
+    /// The exec roots granted, each by the path it was granted as.
+    pub exec_roots: BTreeMap<PathBuf, ExecRootGrant>,
+}
+
+/// An exec root the spawn grant holds: the directory it named as the run
+/// started, and what a program found beneath it may be passed of the
+/// environment beyond the base set.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExecRootGrant {
+    /// The directory, by its real path and identity then.
+    pub dir: GrantedDir,
+    /// What each program found beneath it may be passed, as a granted
+    /// program's grant says ([`ProgramGrant::forward`]).
+    pub forward: Vec<EnvPattern>,
 }
 
 /// What one granted program may be passed of the environment beyond the

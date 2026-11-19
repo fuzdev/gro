@@ -156,7 +156,7 @@ fn a_base_set_name_is_held_and_any_other_needs_its_forwarding() {
         check_forwarding(
             "tool",
             &options(PassEnv::Patterns(patterns), None),
-            &granted,
+            &granted.forward,
         )
     };
     for base in CHILD_BASE_ENV {
@@ -180,7 +180,7 @@ fn a_base_set_name_is_held_and_any_other_needs_its_forwarding() {
         check_forwarding(
             "tool",
             &options(PassEnv::All(BTreeSet::new()), None),
-            &granted
+            &granted.forward
         ),
         Err(Failure::NotGranted { needed: None, .. })
     ));

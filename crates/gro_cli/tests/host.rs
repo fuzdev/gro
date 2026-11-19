@@ -1720,6 +1720,14 @@ fn fs_flag_directories_are_checked_as_the_run_starts() {
             &["--allow-read=dir", "--allow-write=gone"],
             format!("a --allow-write directory doesn't exist: {p}/gone"),
         ),
+        (
+            &["--allow-run-in=dir,file.txt"],
+            format!("a --allow-run-in directory isn't a directory: {p}/file.txt"),
+        ),
+        (
+            &["-A", "--allow-run-in=missing"],
+            format!("a --allow-run-in directory doesn't exist: {p}/missing"),
+        ),
     ] {
         let args = [&["run"][..], args, &["main.js"]].concat();
         let mut command = fgro_command(&args);
@@ -1733,7 +1741,11 @@ fn fs_flag_directories_are_checked_as_the_run_starts() {
         assert_eq!(output.stdout, b"", "{args:?}");
         assert_eq!(output.status.code(), Some(2), "{args:?}");
     }
-    for args in [&["--allow-read=dir,.,/"][..], &["-A", "--allow-write=dir"]] {
+    for args in [
+        &["--allow-read=dir,.,/"][..],
+        &["-A", "--allow-write=dir"],
+        &["--allow-run-in=dir"],
+    ] {
         let args = [&["run"][..], args, &["main.js"]].concat();
         let mut command = fgro_command(&args);
         command.env_clear().current_dir(&project.0);
@@ -4202,11 +4214,11 @@ console.log(JSON.stringify([
 ";
 
 /// `program_in` and `find_in` check their directory, a handle `fs` made,
-/// then refuse what no exec root holds, which a run declares none of yet:
-/// in a confined run `not_granted`, listed and failing the run, with no
-/// hint, since no flag grants one; under `-A`, where every directory would
-/// be one, resolving beneath it isn't built. A narrowed root refuses it
-/// either way, as the Node module's does.
+/// then refuse what no exec root holds: in a confined run that grants
+/// none, `not_granted`, listed and failing the run, with the hint naming
+/// the flag that grants one and no path; under `-A`, where every directory
+/// is beneath one, the name resolves, here to nothing. A narrowed root
+/// refuses it either way, as the Node module's does.
 #[test]
 fn spawn_program_in_needs_an_exec_root() {
     let project = Scratch::new(
@@ -4243,15 +4255,16 @@ fn spawn_program_in_needs_an_exec_root() {
     assert_eq!(
         stderr,
         "error: spawn refused: not_granted: bin/tool\n\
-         error: a refusal fails the run, whether or not the program caught it\n"
+         error: a refusal fails the run, whether or not the program caught it\n\
+         hint: add --allow-run-in naming the directory to grant what spawn refused\n"
     );
     assert_eq!(code, Some(1));
     let (code, stderr, printed) = run(&["-A"]);
     assert_eq!(
         printed,
         serde_json::json!([
-            "Error: program_in of @fuzdev/gro/spawn.ts isn't built on fgro yet",
-            "Error: find_in of @fuzdev/gro/spawn.ts isn't built on fgro yet",
+            "SpawnError: not_found: bin/tool",
+            "made",
             type_error,
             not_granted
         ])

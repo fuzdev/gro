@@ -1,7 +1,7 @@
 //! The directories the crate's disk tests write in, and the grants their
 //! runs hold.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use crate::{
@@ -34,6 +34,7 @@ pub fn run_authority() -> Authority {
         fs: Some(FsGrant::default()),
         spawn: Some(SpawnGrant {
             programs: [("gro_test_program".to_owned(), ProgramGrant::default())].into(),
+            exec_roots: BTreeMap::new(),
         }),
     })
 }

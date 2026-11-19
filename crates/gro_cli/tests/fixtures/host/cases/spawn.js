@@ -139,6 +139,29 @@ const NAMES = [
 	'sh'
 ];
 
+/** The names a case asks for beneath `spawn/bin` by `program_in` and `find_in`. */
+const IN_NAMES = [
+	'tool',
+	'link',
+	'elf',
+	'bare',
+	'noexec',
+	'text',
+	'run.cmd',
+	'RUN.CMD. ',
+	'missing',
+	'missing/x',
+	'tool/x',
+	'sub/../tool',
+	'./tool',
+	'.',
+	'tool/',
+	'tool/.',
+	'../bin/tool',
+	'../../spawn/bin/tool',
+	'/bin/sh'
+];
+
 /** The names a case asks for that only an unconfined run reaches: absolute, and climbing out. */
 const OUTSIDE = ['/bin/sh', '../spawn/bin/tool', 'spawn/../../x'];
 
@@ -146,7 +169,7 @@ const OUTSIDE = ['/bin/sh', '../spawn/bin/tool', 'spawn/../../x'];
  * @param {typeof import('../../../../../../src/lib/spawn.ts')} ns
  * @param {Array<string>} args
  */
-export default async (ns, [scenario, cwd]) => {
+export default async (ns, [scenario, cwd], _print, /** @type {any} */ load) => {
 	const { spawn } = ns;
 	project = /** @type {string} */ (cwd);
 	const prototype = Object.getPrototypeOf(spawn);
@@ -416,6 +439,51 @@ export default async (ns, [scenario, cwd]) => {
 					[1, { cwd: {} }, { timeout_ms: 0 }].map((options) =>
 						called(() => emit.run(['exit', '0'], /** @type {any} */ (options)))
 					)
+				)
+			};
+		}
+		case 'in': {
+			const { fs } = /** @type {any} */ (await load('fs'));
+			const bin = fs.project.dir('spawn/bin');
+			const ask_in = (/** @type {any} */ dir, /** @type {string} */ name) => ({
+				program_in: outcome(() => spawn.program_in(dir, name)),
+				find_in: outcome(() => spawn.find_in(dir, name))
+			});
+			return {
+				names: Object.fromEntries(IN_NAMES.map((name) => [name, ask_in(bin, name)])),
+				nested: ask_in(fs.project.dir('spawn'), 'bin/tool'),
+				read_only: ask_in(bin.readonly(), 'tool'),
+				argv0: await called_relative(() => spawn.program_in(bin, 'emit').out(['argv0'])),
+				args: await called(() => spawn.program_in(bin, 'emit').out(['args', 'a'])),
+				pwd: await called_relative(() => spawn.program_in(bin, 'emit').out(['pwd'], { cwd: bin })),
+				forged: [{}, null, { path: bin.path }, Object.create(Object.getPrototypeOf(bin))].map(
+					(dir) => outcome(() => spawn.find_in(/** @type {any} */ (dir), 'tool'))
+				),
+				narrowed: outcome(() => spawn.narrow([]).find_in(bin, 'tool')),
+				forwarded: outcome(() => spawn.find_in(bin, 'tool', { pass_env: ['GRO_A'] }))
+			};
+		}
+		case 'in_outside': {
+			const { fs } = /** @type {any} */ (await load('fs'));
+			return {
+				project: outcome(() => spawn.find_in(fs.project, './spawn/bin/tool')),
+				above: outcome(() => spawn.find_in(fs.project.dir('spawn'), 'bin/tool'))
+			};
+		}
+		case 'in_scratch': {
+			const { fs } = /** @type {any} */ (await load('fs'));
+			const scratch = await fs.open_dir(`${project}/spawn_scratch`);
+			await scratch.write('built', '#!/bin/sh\nprintf built\n');
+			await scratch.set_mode('built', 0o755);
+			const built = spawn.program_in(scratch, 'built');
+			return {
+				built: show_program(built),
+				ran: await called(() => built.out([])),
+				links: Object.fromEntries(
+					['inside', 'absolute', 'escape', 'dangling', 'loop'].map((name) => [
+						name,
+						outcome(() => spawn.find_in(scratch, name))
+					])
 				)
 			};
 		}

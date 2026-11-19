@@ -106,8 +106,16 @@ pub const ALLOW_RUN: &str = "--allow-run";
 /// `--allow-run`'s spelling with its names, which follow it.
 const ALLOW_RUN_NAMES: &str = "--allow-run=";
 
-/// The option that forwards to the programs `--allow-run` grants the
-/// environment variables it lists, when a program's `pass_env` names them.
+/// The option that grants the spawn host module the directories it lists
+/// as exec roots, beneath which `program_in` and `find_in` find a program.
+pub const ALLOW_RUN_IN: &str = "--allow-run-in";
+
+/// `--allow-run-in`'s spelling with its directories, which follow it.
+const ALLOW_RUN_IN_DIRS: &str = "--allow-run-in=";
+
+/// The option that forwards to the programs `--allow-run` grants, and those
+/// found beneath what `--allow-run-in` grants, the environment variables it
+/// lists, when a program's `pass_env` names them.
 pub const ALLOW_RUN_ENV: &str = "--allow-run-env";
 
 /// `--allow-run-env`'s spelling with its names, which follow it.
@@ -121,8 +129,8 @@ fn run_help() -> String {
     [
         &format!(
             "Usage: fgro {RUN} [{ALLOW_ENV}=<names>] [{ALLOW_READ}=<dirs>] [{ALLOW_WRITE}=<dirs>] \
-             [{ALLOW_TEMP}] [{ALLOW_RUN}=<names>] [{ALLOW_RUN_ENV}=<names>] [{ALLOW_ALL}] [--] \
-             <file> [<args...>]"
+             [{ALLOW_TEMP}] [{ALLOW_RUN}=<names>] [{ALLOW_RUN_IN}=<dirs>] \
+             [{ALLOW_RUN_ENV}=<names>] [{ALLOW_ALL}] [--] <file> [<args...>]"
         ),
         "",
         RUN_DESCRIPTION,
@@ -161,11 +169,21 @@ fn run_help() -> String {
         "                    arguments or environment, a shell, git, and cargo among",
         "                    them, and the root's env values set any variable; hand",
         "                    library code a narrowed root, which refuses env values",
+        "  --allow-run-in=<dirs>",
+        "                    grant the project's modules `@fuzdev/gro/spawn.ts` making",
+        "                    programs found beneath these directories with program_in",
+        "                    and find_in, as --allow-read lists them, each held as the",
+        "                    run starts; repeatable. A directory also granted by",
+        "                    --allow-write runs what the run writes there; as for",
+        "                    --allow-run, granting one is close to granting what -A",
+        "                    grants",
         "  --allow-run-env=<names>",
-        "                    let the programs --allow-run grants be passed these",
+        "                    let the programs --allow-run grants, and those found",
+        "                    beneath what --allow-run-in grants, be passed these",
         "                    environment variables, when a program's pass_env names",
         "                    them, a comma-separated list of exact names or PREFIX_*",
-        "                    globs; repeatable; only beside --allow-run",
+        "                    globs; repeatable; only beside --allow-run or",
+        "                    --allow-run-in",
         "  -A                run unconfined: every grant at its widest, to every module,",
         "                    every environment variable and every directory among them",
         "  --help, help      display usage information",
@@ -181,8 +199,9 @@ pub enum RunGrant {
     /// writes those `--allow-write=` lists ([`FlagDirs`]), and `env` for the
     /// names `--allow-env=` listed, when it listed any, and fresh
     /// temporary directories when `--allow-temp` was given, and `spawn`
-    /// for the programs `--allow-run=` listed, when it listed any, each
-    /// passed the variables `--allow-run-env=` lists.
+    /// for the programs `--allow-run=` listed and the exec roots
+    /// `--allow-run-in=` listed ([`FlagDirs`]), when it listed any of
+    /// either, each passed the variables `--allow-run-env=` lists.
     Named {
         /// The environment variables granted, each an exact name.
         env: BTreeSet<String>,
@@ -199,15 +218,17 @@ pub enum RunGrant {
     All,
 }
 
-/// The directories `--allow-read=` and `--allow-write=` list, each as
-/// written, not yet resolved or checked: a run checks each, under `-A`
-/// too, before it starts.
+/// The directories `--allow-read=`, `--allow-write=`, and
+/// `--allow-run-in=` list, each as written, not yet resolved or checked: a
+/// run checks each, under `-A` too, before it starts.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct FlagDirs {
     /// The directories `--allow-read=` lists.
     pub read: BTreeSet<String>,
     /// The directories `--allow-write=` lists.
     pub write: BTreeSet<String>,
+    /// The directories `--allow-run-in=` lists.
+    pub run_in: BTreeSet<String>,
 }
 
 /// `fgro run`'s arguments, checked.
@@ -231,8 +252,9 @@ impl RunInvocation {
     /// follows it; `--allow-env=<names>`, repeatable, its names one set;
     /// `--allow-read=<dirs>` and `--allow-write=<dirs>`, each repeatable,
     /// its directories one set; `--allow-temp`, which takes no value;
-    /// `--allow-run=<names>` and `--allow-run-env=<names>`, each repeatable,
-    /// its names one set, the second only beside the first; and `-A`, which
+    /// `--allow-run=<names>`, `--allow-run-in=<dirs>`, and
+    /// `--allow-run-env=<names>`, each repeatable, its names or directories
+    /// one set, the last only beside one of the others; and `-A`, which
     /// grants everything, so names, directories, and `--allow-temp` given
     /// beside it are checked and add nothing. A file starting with `-`
     /// comes after `--`.
@@ -244,12 +266,14 @@ impl RunInvocation {
     /// `--allow-read`, or `--allow-write` among them, which grants
     /// nothing, and `--allow-temp` given a value), a name `--allow-env=`
     /// lists that no variable can have
-    /// ([`check_env_flag_names`]), a directory `--allow-read=` or
-    /// `--allow-write=` lists that no path can be ([`check_dir_flag`]), a
+    /// ([`check_env_flag_names`]), a directory `--allow-read=`,
+    /// `--allow-write=`, or `--allow-run-in=` lists that no path can be
+    /// ([`check_dir_flag`]), a
     /// name `--allow-run=` lists that names no program it can grant
     /// ([`check_run_flag_names`]), or one `--allow-run-env=` lists that
     /// names no variable or glob ([`check_run_env_flag_names`]); then
-    /// `--allow-run-env=` without `--allow-run=`; then no file.
+    /// `--allow-run-env=` without `--allow-run=` or `--allow-run-in=`; then
+    /// no file.
     fn check(args: RunArgs) -> Result<Task, CliError> {
         let mut help = false;
         let mut all = false;
@@ -288,6 +312,12 @@ impl RunInvocation {
                 Some(ref arg) if let Some(names) = arg.strip_prefix(ALLOW_RUN_NAMES) => {
                     run.extend(check_run_flag_names(names)?);
                 }
+                Some(arg) if arg == ALLOW_RUN_IN => {
+                    return Err(CliError::AllowDirsBare(DirFlag::RunIn));
+                }
+                Some(ref arg) if let Some(listed) = arg.strip_prefix(ALLOW_RUN_IN_DIRS) => {
+                    dirs.run_in.extend(check_dir_flag(DirFlag::RunIn, listed)?);
+                }
                 Some(arg) if arg == ALLOW_RUN_ENV => return Err(CliError::AllowRunEnvBare),
                 Some(ref arg) if let Some(names) = arg.strip_prefix(ALLOW_RUN_ENV_NAMES) => {
                     run_env.extend(check_run_env_flag_names(names)?);
@@ -296,7 +326,7 @@ impl RunInvocation {
                 file => break file,
             }
         };
-        if !run_env.is_empty() && run.is_empty() {
+        if !run_env.is_empty() && run.is_empty() && dirs.run_in.is_empty() {
             return Err(CliError::AllowRunEnvAlone);
         }
         match (help, file) {
@@ -551,14 +581,18 @@ pub enum DirFlag {
     Read,
     /// `--allow-write`.
     Write,
+    /// `--allow-run-in`.
+    RunIn,
 }
 
 impl DirFlag {
-    /// The flag as it's spelled, `--allow-read` or `--allow-write`.
+    /// The flag as it's spelled, `--allow-read`, `--allow-write`, or
+    /// `--allow-run-in`.
     pub const fn spelled(self) -> &'static str {
         match self {
             Self::Read => ALLOW_READ,
             Self::Write => ALLOW_WRITE,
+            Self::RunIn => ALLOW_RUN_IN,
         }
     }
 }
@@ -592,8 +626,8 @@ fn check_dir_flag(flag: DirFlag, listed: &str) -> Result<Vec<String>, CliError> 
         .collect()
 }
 
-/// Why a directory `--allow-read=` or `--allow-write=` lists can't be
-/// granted, before it's looked at.
+/// Why a directory `--allow-read=`, `--allow-write=`, or `--allow-run-in=`
+/// lists can't be granted, before it's looked at.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DirFlagFault {
     /// An empty path: a list that's empty, or starts, ends, or doubles a
@@ -1059,6 +1093,10 @@ mod tests {
                 &["run", "-A", "--allow-write", "a.js"],
                 AllowDirsBare(DirFlag::Write),
             ),
+            (
+                &["run", "--allow-run-in", "a.js"],
+                AllowDirsBare(DirFlag::RunIn),
+            ),
             // the temp flag: bare, never given a value, a script's after the file
             (&["run", "--allow-temp", "a.js"], runs("a.js", &[])),
             (
@@ -1293,27 +1331,41 @@ mod tests {
                 "--allow-read=b,/a",
                 "--allow-write=b",
                 "--allow-read=./c, d,/a",
+                "--allow-run-in=x,b",
+                "--allow-run-in=x",
                 "a.js",
                 "--allow-read=e",
             ]),
             (
-                env(&[]),
+                RunGrant::Named {
+                    env: BTreeSet::new(),
+                    temp: false,
+                    run: BTreeSet::new(),
+                    run_env: BTreeSet::new(),
+                },
                 FlagDirs {
                     read: set(&["/a", " d", "./c", "b"]),
                     write: set(&["b"]),
+                    run_in: set(&["b", "x"]),
                 }
             )
         );
         assert_eq!(
-            dirs(&["--allow-write=w", "-A", "a.js"]),
+            dirs(&["--allow-write=w", "--allow-run-in=w", "-A", "a.js"]),
             (
                 RunGrant::All,
                 FlagDirs {
                     read: set(&[]),
                     write: set(&["w"]),
+                    run_in: set(&["w"]),
                 }
             )
         );
+        // the variables' flag passes on to programs an exec root finds
+        assert!(matches!(
+            parse(&["run", "--allow-run-in=x", "--allow-run-env=A", "a.js"]),
+            Ok(Invocation::Sized(Task::Run(_)))
+        ));
     }
 
     /// The usage errors of the grant options say what was wrong without
@@ -1428,8 +1480,19 @@ mod tests {
         assert_eq!(
             message(&["--allow-run-env=A", "a.js"]),
             format!(
-                "--allow-run-env lets the programs --allow-run grants be passed variables, and \
-                 no --allow-run grants one{help}"
+                "--allow-run-env lets the programs --allow-run and --allow-run-in grant be passed \
+                 variables, and neither grants one{help}"
+            )
+        );
+        assert_eq!(
+            message(&["--allow-run-in", "a.js"]),
+            format!("--allow-run-in takes the directories it grants, as --allow-run-in=a,/b{help}")
+        );
+        assert_eq!(
+            message(&["--allow-run-in=a,,b", "a.js"]),
+            format!(
+                "a --allow-run-in directory is empty: --allow-run-in=a,/b lists directories \
+                 separated by single commas{help}"
             )
         );
     }
@@ -1440,7 +1503,7 @@ mod tests {
     #[test]
     fn run_s_help_reads_as_argh_s() {
         const EXPECTED: &str = "\
-Usage: fgro run [--allow-env=<names>] [--allow-read=<dirs>] [--allow-write=<dirs>] [--allow-temp] [--allow-run=<names>] [--allow-run-env=<names>] [-A] [--] <file> [<args...>]
+Usage: fgro run [--allow-env=<names>] [--allow-read=<dirs>] [--allow-write=<dirs>] [--allow-temp] [--allow-run=<names>] [--allow-run-in=<dirs>] [--allow-run-env=<names>] [-A] [--] <file> [<args...>]
 
 run an ES module (.js, .mjs, .ts, or .mts) from disk
 
@@ -1478,11 +1541,21 @@ Options:
                     arguments or environment, a shell, git, and cargo among
                     them, and the root's env values set any variable; hand
                     library code a narrowed root, which refuses env values
+  --allow-run-in=<dirs>
+                    grant the project's modules `@fuzdev/gro/spawn.ts` making
+                    programs found beneath these directories with program_in
+                    and find_in, as --allow-read lists them, each held as the
+                    run starts; repeatable. A directory also granted by
+                    --allow-write runs what the run writes there; as for
+                    --allow-run, granting one is close to granting what -A
+                    grants
   --allow-run-env=<names>
-                    let the programs --allow-run grants be passed these
+                    let the programs --allow-run grants, and those found
+                    beneath what --allow-run-in grants, be passed these
                     environment variables, when a program's pass_env names
                     them, a comma-separated list of exact names or PREFIX_*
-                    globs; repeatable; only beside --allow-run
+                    globs; repeatable; only beside --allow-run or
+                    --allow-run-in
   -A                run unconfined: every grant at its widest, to every module,
                     every environment variable and every directory among them
   --help, help      display usage information";

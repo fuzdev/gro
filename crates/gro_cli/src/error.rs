@@ -65,8 +65,8 @@ pub enum CliError {
     /// `run --allow-env=` listing a name no variable can have.
     #[error("{0}\nRun fgro run --help for more information.")]
     AllowEnvName(EnvFlagFault),
-    /// `run --allow-read` or `--allow-write` with no directories, which
-    /// grants none.
+    /// `run --allow-read`, `--allow-write`, or `--allow-run-in` with no
+    /// directories, which grants none.
     #[error(
         "{0} takes the directories it grants, as {0}=a,/b\n\
          Run fgro run --help for more information."
@@ -100,16 +100,16 @@ pub enum CliError {
     /// glob.
     #[error("{0}\nRun fgro run --help for more information.")]
     AllowRunEnvName(RunEnvFlagFault),
-    /// `run --allow-run-env=` without `--allow-run=`, which grants no
-    /// program to pass a variable to.
+    /// `run --allow-run-env=` without `--allow-run=` or `--allow-run-in=`,
+    /// which grant no program to pass a variable to.
     #[error(
-        "--allow-run-env lets the programs --allow-run grants be passed variables, and no \
-         --allow-run grants one\n\
+        "--allow-run-env lets the programs --allow-run and --allow-run-in grant be passed \
+         variables, and neither grants one\n\
          Run fgro run --help for more information."
     )]
     AllowRunEnvAlone,
-    /// `run --allow-read=` or `--allow-write=` listing a path that names
-    /// nothing.
+    /// `run --allow-read=`, `--allow-write=`, or `--allow-run-in=` listing
+    /// a path that names nothing.
     #[error(
         "{}\nRun fgro run --help for more information.",
         match .1 {
@@ -122,9 +122,10 @@ pub enum CliError {
         }
     )]
     AllowDir(DirFlag, DirFlagFault),
-    /// A directory `--allow-read=` or `--allow-write=` lists isn't one as
-    /// the run starts: missing, something else, or unreadable. Its path is
-    /// named as resolved against the working directory, escaped.
+    /// A directory `--allow-read=`, `--allow-write=`, or `--allow-run-in=`
+    /// lists isn't one as the run starts: missing, something else, or
+    /// unreadable. Its path is named as resolved against the working
+    /// directory, escaped.
     #[error(
         "a {flag} directory {}: {}{}\nRun fgro run --help for more information.",
         match fault {

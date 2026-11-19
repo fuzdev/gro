@@ -101,6 +101,9 @@ pub enum SpawnNeed {
     /// A variable forwarded to a granted program, by its name, or the glob
     /// a program's `pass_env` gave ([`NeededGrant::RunEnv`]).
     Forward(String),
+    /// An exec root holding the directory a program was asked for beneath
+    /// ([`NeededGrant::RunIn`]), by kind alone, as an fs grant's directory.
+    ExecRoot,
 }
 
 impl From<SpawnNeed> for NeededGrant {
@@ -108,6 +111,7 @@ impl From<SpawnNeed> for NeededGrant {
         match need {
             SpawnNeed::Program(name) => Self::Run(name),
             SpawnNeed::Forward(name) => Self::RunEnv(name),
+            SpawnNeed::ExecRoot => Self::RunIn,
         }
     }
 }
@@ -126,7 +130,9 @@ impl From<SpawnNeed> for NeededGrant {
 /// holds what `--allow-env=` granted the project; a program refused by
 /// `spawn`'s, which holds the programs `--allow-run=` granted; a variable
 /// to pass that a granted program's grant doesn't forward, which
-/// `--allow-run-env=` widens whichever root the call was made on; an fs
+/// `--allow-run-env=` widens whichever root the call was made on; a
+/// directory no exec root of the scope the root names holds, which
+/// `--allow-run-in=` grants; an fs
 /// reach no root holds; one that left every root holding it through a
 /// symlink, which the link or the path the program opens lets through,
 /// where a grant of the target's directory needn't; and an op a handle's
@@ -145,6 +151,9 @@ pub enum NeededGrant {
     /// A variable to forward to a granted program, by its name, or the
     /// glob a program's `pass_env` gave.
     RunEnv(String),
+    /// An exec root holding the directory a program was asked for
+    /// beneath, by kind alone, as an fs grant's directory is.
+    RunIn,
 }
 
 impl NeededGrant {
@@ -154,7 +163,7 @@ impl NeededGrant {
             Self::Env(_) => Some(NameKind::Env),
             Self::Run(_) => Some(NameKind::Run),
             Self::RunEnv(_) => Some(NameKind::RunEnv),
-            Self::Fs(_) => None,
+            Self::Fs(_) | Self::RunIn => None,
         }
     }
 }

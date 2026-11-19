@@ -1238,5 +1238,74 @@
 		"flags": ["-A"],
 		"env": {"PATH": "{cwd}/spawn/nm/node_modules/.bin:spawn/rel::{cwd}/spawn/dir:{cwd}/spawn/bin/:/usr/bin:/bin", "GRO_A": "a", "GRO_B": "b", "GRO_P_X": "x", "GRO_SECRET": "s"},
 		"differs": []
+	},
+	{
+		"name": "spawn_in",
+		"module": "spawn",
+		"refused": ["error: spawn refused: not_granted: ../bin/tool", "error: spawn refused: not_granted: ../../spawn/bin/tool", "error: spawn refused: not_granted: /bin/sh", "error: spawn refused: not_granted: tool", "error: a refusal fails the run, whether or not the program caught it"],
+		"args": ["in", "{cwd}"],
+		"flags": ["-A"],
+		"env": {"PATH": "{cwd}/spawn/nm/node_modules/.bin:spawn/rel::{cwd}/spawn/dir:{cwd}/spawn/bin/:/usr/bin:/bin", "GRO_A": "a", "GRO_B": "b", "GRO_P_X": "x", "GRO_SECRET": "s"},
+		"differs": []
+	},
+	{
+		"name": "spawn_in_granted",
+		"module": "spawn",
+		"refused": ["error: spawn refused: not_granted: ../bin/tool", "error: spawn refused: not_granted: ../../spawn/bin/tool", "error: spawn refused: not_granted: /bin/sh", "error: spawn refused: not_granted: tool", "error: a refusal fails the run, whether or not the program caught it", "hint: add --allow-run-env=GRO_A to grant what spawn refused"],
+		"args": ["in", "{cwd}"],
+		"flags": ["--allow-run-in=spawn/bin,spawn"],
+		"env": {"PATH": "{cwd}/spawn/nm/node_modules/.bin:spawn/rel::{cwd}/spawn/dir:{cwd}/spawn/bin/:/usr/bin:/bin", "GRO_A": "a", "GRO_B": "b", "GRO_P_X": "x", "GRO_SECRET": "s"},
+		"differs": [
+			{
+				"at": "/forwarded",
+				"fgro": {
+					"threw": {"class": "SpawnError", "message": "not_granted: tool", "kind": "not_granted", "program": "tool", "cause": "tool isn't granted GRO_A to be passed: --allow-run-env names what a program may be passed"}
+				},
+				"why": "fgro passes a program found beneath an exec root only the variables --allow-run-env forwards, as it passes a granted program, where Node's passes any"
+			}
+		]
+	},
+	{
+		"name": "spawn_in_outside",
+		"module": "spawn",
+		"refused": ["error: spawn refused: not_granted: ./spawn/bin/tool", "error: spawn refused: not_granted: bin/tool", "error: a refusal fails the run, whether or not the program caught it", "hint: add --allow-run-in naming the directory to grant what spawn refused"],
+		"args": ["in_outside", "{cwd}"],
+		"flags": ["--allow-run-in=spawn/bin"],
+		"env": {"PATH": "{cwd}/spawn/nm/node_modules/.bin:spawn/rel::{cwd}/spawn/dir:{cwd}/spawn/bin/:/usr/bin:/bin", "GRO_A": "a", "GRO_B": "b", "GRO_P_X": "x", "GRO_SECRET": "s"},
+		"differs": [
+			{
+				"at": "/project",
+				"fgro": {
+					"threw": {"class": "SpawnError", "message": "not_granted: ./spawn/bin/tool", "kind": "not_granted", "program": "./spawn/bin/tool", "cause": "./spawn/bin/tool beneath {project} is in no exec root the run grants"}
+				},
+				"why": "fgro's root finds a program beneath a directory only within an exec root --allow-run-in grants, where Node's finds one beneath any"
+			},
+			{
+				"at": "/above",
+				"fgro": {
+					"threw": {"class": "SpawnError", "message": "not_granted: bin/tool", "kind": "not_granted", "program": "bin/tool", "cause": "bin/tool beneath {project}/spawn is in no exec root the run grants"}
+				},
+				"why": "an exec root holds the directories beneath it, never one above it, though the name leads back in"
+			}
+		]
+	},
+	{
+		"name": "spawn_in_scratch",
+		"module": "spawn",
+		"refused": ["error: spawn refused: not_granted: absolute", "error: spawn refused: not_granted: escape", "error: a refusal fails the run, whether or not the program caught it"],
+		"args": ["in_scratch", "{cwd}"],
+		"flags": ["--allow-write=spawn_scratch", "--allow-run-in=spawn_scratch"],
+		"env": {"PATH": "{cwd}/spawn/nm/node_modules/.bin:spawn/rel::{cwd}/spawn/dir:{cwd}/spawn/bin/:/usr/bin:/bin", "GRO_A": "a", "GRO_B": "b", "GRO_P_X": "x", "GRO_SECRET": "s"},
+		"scratch": {
+			"dir": "spawn_scratch",
+			"links": {
+				"inside": "built",
+				"absolute": "/bin/sh",
+				"escape": "../spawn/bin/tool",
+				"dangling": "missing",
+				"loop": "loop"
+			}
+		},
+		"differs": []
 	}
 ]

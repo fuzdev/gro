@@ -14,7 +14,9 @@
 //! from the root it's called on, reading the scope its state names, never
 //! the run's as a whole: a narrowed root holds names its scope held when it
 //! was narrowed, and refuses what the Node module's narrowed root refuses
-//! (`env`, `pass_env: 'all'`, and a `pass_env` glob).
+//! (`env`, `pass_env: 'all'`, a `pass_env` glob, and `program_in`). A
+//! scope's exec roots are its own too ([`exec_roots`]), opened as the run
+//! starts, beside the pins.
 //!
 //! A program is a handle of [`SPAWN_PROGRAM`]'s kind, holding the name it
 //! was asked for and its pin's real path as its `name` and `path`, and, as
@@ -48,10 +50,11 @@
 //! never a name a narrowed root's set lacks, which no grant widens.
 //!
 //! `program_in` and `find_in` check their handle, name, and options, and
-//! then the directory against the exec roots of the root's scope, which a
-//! run declares none of yet: in a confined run's scope that's
-//! `not_granted`, and in an unconfined one's, where every directory would
-//! be one, resolving beneath it isn't built.
+//! then the directory, by its real path, against the exec roots of the
+//! root's scope: one the scope holds none of is `not_granted`, needing an
+//! exec root, and beneath one, the name resolves from the exec root's own
+//! descriptor, by the handle's rules, and pins as a granted program does
+//! ([`exec_roots`]). An unconfined scope's exec root is `/`.
 //!
 //! A program's `run`, `out`, and `out_bytes` launch a child and settle in a
 //! later turn ([`launch`]), its watch a task on the event loop's own
@@ -60,6 +63,7 @@
 //! built: each checks its receiver and fails with a plain `Error` saying
 //! so.
 
+pub mod exec_roots;
 pub mod launch;
 pub mod pins;
 pub mod watch;
@@ -81,6 +85,7 @@ use super::{
 use crate::loader::RefusalLog;
 use crate::loader::refused::{NOT_GRANTED, NotGranted, SpawnNeed};
 use crate::{Authority, CHILD_BASE_ENV, EnvPattern, EnvPatternFault, EnvVars, Grants};
+use exec_roots::ExecRoot;
 use pins::{Fault, Pin};
 use watch::Children;
 
@@ -142,9 +147,20 @@ pub struct SpawnRun {
     pins: RefCell<Vec<Pin>>,
 }
 
-/// What the roots naming a scope may make.
+/// What the roots naming a scope may make: its programs, and the exec
+/// roots `program_in` and `find_in` find one beneath.
 #[derive(Debug)]
-enum Scope {
+struct Scope {
+    /// The programs it makes by name.
+    programs: Programs,
+    /// Its exec roots, each opened as the run started: an unconfined
+    /// scope's one, `/`, or those its grant names.
+    exec_roots: Vec<ExecRoot>,
+}
+
+/// The programs a scope makes by name.
+#[derive(Debug)]
+enum Programs {
     /// Any program, found when it's asked for, passed any variable.
     Unconfined,
     /// The programs granted, by name.
@@ -165,7 +181,9 @@ impl SpawnRun {
     /// variables the embedder read for children, `project` the project's
     /// root: none for a run that doesn't grant `spawn`; for one whose grant
     /// names programs, each pinned now, by the rules [`pins::resolve`]
-    /// mirrors, a bare name found on `env`'s `PATH`.
+    /// mirrors, a bare name found on `env`'s `PATH`, and each exec root it
+    /// names opened now and held to the identity it was granted with
+    /// ([`ExecRoot::open`]); for an unconfined one, `/` its exec root.
     pub fn start(authority: &Authority, env: &EnvVars, project: &Path) -> Option<Self> {
         let grant = match authority {
             Authority::Unconfined => None,
@@ -177,25 +195,36 @@ impl SpawnRun {
         let project_path = project;
         let project = project.to_str().map(ToOwned::to_owned);
         let mut pins = Vec::new();
-        let scope = grant.map_or(Scope::Unconfined, |grant| {
-            Scope::Granted(
-                grant
-                    .programs
+        let scope = grant.map_or_else(
+            || Scope {
+                programs: Programs::Unconfined,
+                exec_roots: vec![ExecRoot::whole()],
+            },
+            |grant| Scope {
+                programs: Programs::Granted(
+                    grant
+                        .programs
+                        .iter()
+                        .map(|(name, program)| {
+                            let pin = pin(name, env, project.as_deref()).map(|pin| {
+                                pins.push(pin);
+                                pins.len() - 1
+                            });
+                            let granted = GrantedProgram {
+                                pin,
+                                forward: program.forward.clone(),
+                            };
+                            (name.clone(), granted)
+                        })
+                        .collect(),
+                ),
+                exec_roots: grant
+                    .exec_roots
                     .iter()
-                    .map(|(name, program)| {
-                        let pin = pin(name, env, project.as_deref()).map(|pin| {
-                            pins.push(pin);
-                            pins.len() - 1
-                        });
-                        let granted = GrantedProgram {
-                            pin,
-                            forward: program.forward.clone(),
-                        };
-                        (name.clone(), granted)
-                    })
+                    .map(|(path, root)| ExecRoot::open(path, &root.dir, root.forward.clone()))
                     .collect(),
-            )
-        });
+            },
+        );
         let project_dir = std::fs::OpenOptions::new()
             .read(true)
             .custom_flags(libc::O_PATH | libc::O_DIRECTORY)
@@ -264,16 +293,21 @@ impl SpawnRun {
     }
 
     /// `name` resolved and pinned now, for an unconfined run's root, and
-    /// its place in the table: an entry already there that pins the same
-    /// file the same way, or a new one.
+    /// its place in the table ([`SpawnRun::hold_pin`]).
     fn pin_now(&self, name: &str) -> Result<usize, Fault> {
         let found = pin(name, &self.env, self.project.as_deref())?;
+        Ok(self.hold_pin(found))
+    }
+
+    /// The place of `found` in the run's table: an entry already there
+    /// that pins the same file the same way, or a new one.
+    fn hold_pin(&self, found: Pin) -> usize {
         let mut pins = self.pins.borrow_mut();
         if let Some(at) = pins.iter().position(|held| held.same(&found)) {
-            return Ok(at);
+            return at;
         }
         pins.push(found);
-        Ok(pins.len() - 1)
+        pins.len() - 1
     }
 }
 
@@ -319,16 +353,10 @@ enum Failure {
     /// A `TypeError` of this message: an argument or receiver that's none.
     Type(String),
     /// A `SpawnError` of `kind` about `program`, its `cause` an `Error` of
-    /// this message.
+    /// this message, whose own `cause`, when there's `inner`, is an `Error`
+    /// of that message: what the OS said.
     Spawn {
         kind: SpawnErrorKind,
-        program: String,
-        cause: String,
-    },
-    /// `launch_failed` about `program`, its `cause` an `Error` of this
-    /// message, whose own `cause`, when there's `inner`, is an `Error` of
-    /// that message: what the OS said.
-    Launch {
         program: String,
         cause: String,
         inner: Option<String>,
@@ -354,11 +382,19 @@ impl Failure {
                 kind: SpawnErrorKind::NotFound,
                 program: name.to_owned(),
                 cause: format!("no program {name}"),
+                inner: None,
             },
             Fault::NotExecutable(cause) => Self::Spawn {
                 kind: SpawnErrorKind::NotExecutable,
                 program: name.to_owned(),
                 cause,
+                inner: None,
+            },
+            Fault::Unresolved { cause, why } => Self::Spawn {
+                kind: SpawnErrorKind::NotExecutable,
+                program: name.to_owned(),
+                cause,
+                inner: Some(why),
             },
             Fault::NotGranted(cause) => Self::NotGranted {
                 program: name.to_owned(),
@@ -382,14 +418,10 @@ fn throw(state: &OpState, scope: &v8::PinScope<'_, '_>, errors: DeclaredFamily, 
             kind,
             program,
             cause,
-        } => (kind.as_str(), program, cause),
-        Failure::Launch {
-            program,
-            cause,
             inner: why,
         } => {
             inner = why;
-            (SpawnErrorKind::LaunchFailed.as_str(), program, cause)
+            (kind.as_str(), program, cause)
         }
         Failure::NotGranted {
             program,
@@ -599,7 +631,7 @@ pub fn program<'s>(
         let granted = allowed(scope, run, &root, &name, Reach::Program)?;
         let pin = match granted {
             Some(granted) => {
-                check_forwarding(&name, &options, granted)?;
+                check_forwarding(&name, &options, &granted.forward)?;
                 granted.pin.clone()
             }
             None => run.pin_now(&name),
@@ -615,12 +647,16 @@ pub fn program<'s>(
 
 /// `spawn.program_in(dir, name, options?)` and `spawn.find_in(dir, name,
 /// options?)`, `member` naming which, called on `receiver`: the directory
-/// checked to be an fs handle, then the name, the options, a narrowed
-/// root's refusal, and the directory against the run's exec roots, which
-/// the run declares none of, so a confined run's root refuses it,
-/// `not_granted`, and an unconfined one's resolving beneath it isn't
-/// built; `errors`, `SpawnError`'s family as the member declares it.
-/// Always `None`, with the exception pending.
+/// checked to be an fs handle, then the name, the options, and a narrowed
+/// root's refusal; then the directory, by its real path, against the exec
+/// roots of the scope the root names, `not_granted` needing one when none
+/// holds it, and, in a confined scope, that the exec root's grant forwards
+/// what `pass_env` names, as [`program`] checks a granted program's; then
+/// `name` resolved beneath the directory from the exec root's own
+/// descriptor and pinned ([`ExecRoot::resolve`]), a program handle for it,
+/// or, for nothing runnable there, `null` or `not_found` as `missing`
+/// says; `errors`, `SpawnError`'s family as the member declares it. `None`
+/// with the exception pending when it throws.
 #[expect(
     clippy::too_many_arguments,
     reason = "a member's receiver, its three arguments, and what the macro hands it"
@@ -628,7 +664,7 @@ pub fn program<'s>(
 pub fn program_in<'s>(
     state: &OpState,
     scope: &v8::PinScope<'s, '_>,
-    member: &str,
+    missing: Missing,
     receiver: v8::Local<'s, v8::Value>,
     dir: v8::Local<'s, v8::Value>,
     name: v8::Local<'s, v8::Value>,
@@ -638,11 +674,11 @@ pub fn program_in<'s>(
     let result = (|| {
         let run = run_state(state)?;
         let root = read_root(scope, receiver)?;
-        let Some((handle, _)) = handle::read(scope, &FS_READ_DIR, dir) else {
+        if handle::read(scope, &FS_READ_DIR, dir).is_none() {
             return Err(Failure::Type(NOT_AN_FS_HANDLE.to_owned()));
-        };
+        }
         let name = program_name(scope, name)?;
-        read_program_options(scope, options)?;
+        let options = read_program_options(scope, options)?;
         if root.narrowed() {
             return Err(Failure::NotGranted {
                 cause: format!(
@@ -653,24 +689,34 @@ pub fn program_in<'s>(
                 needed: None,
             });
         }
-        match run.scope(&root)? {
-            Scope::Unconfined => Err(Failure::Plain(format!(
-                "{member} of {MODULE} isn't built on fgro yet"
-            ))),
-            Scope::Granted(_) => {
-                // an fs handle's own `path`, frozen data the host defined
-                let key = super::name(scope, "path").ok_or(Failure::Thrown)?;
-                let path = own_data(scope, handle, key)
-                    .ok()
-                    .flatten()
-                    .filter(|path| path.is_string())
-                    .map_or_else(String::new, |path| path.to_rust_string_lossy(scope));
-                Err(Failure::NotGranted {
-                    cause: format!("{name} beneath {path} is in no exec root the run declares"),
-                    program: name,
-                    needed: None,
-                })
+        // the directory's real path, read across rows from the fs handle's
+        // state
+        let dir_path = super::fs::handle_dir_path(state, scope, &FS_READ_DIR, dir)
+            .map_err(|_| Failure::Type(NOT_AN_FS_HANDLE.to_owned()))?;
+        let held = run.scope(&root)?;
+        let Some(exec_root) = exec_roots::holding(&held.exec_roots, &dir_path) else {
+            return Err(Failure::NotGranted {
+                cause: format!("{name} beneath {dir_path} is in no exec root the run grants"),
+                program: name,
+                needed: Some(SpawnNeed::ExecRoot),
+            });
+        };
+        if let Some(forward) = &exec_root.forward {
+            check_forwarding(&name, &options, forward)?;
+        }
+        match exec_root.resolve(&name, &dir_path) {
+            Ok(Some(found)) => {
+                let at = run.hold_pin(found);
+                make_program(state, scope, run, at, &name, &options)
             }
+            Ok(None) if missing == Missing::Null => Ok(v8::null(scope).into()),
+            Ok(None) => Err(Failure::Spawn {
+                kind: SpawnErrorKind::NotFound,
+                cause: format!("no program {name} beneath {dir_path}"),
+                program: name,
+                inner: None,
+            }),
+            Err(fault) => Err(Failure::of(&name, fault)),
         }
     })();
     finish(state, scope, errors, result)
@@ -785,9 +831,9 @@ fn allowed<'r>(
             });
         }
     }
-    match run.scope(root)? {
-        Scope::Unconfined => Ok(None),
-        Scope::Granted(programs) => programs.get(name).map(Some).ok_or_else(|| {
+    match &run.scope(root)?.programs {
+        Programs::Unconfined => Ok(None),
+        Programs::Granted(programs) => programs.get(name).map(Some).ok_or_else(|| {
             Failure::NotGranted {
                 program: name.to_owned(),
                 cause: format!("{name} isn't a program the run grants"),
@@ -1115,17 +1161,18 @@ fn check_narrowed_options(
     }
 }
 
-/// Refuses what a confined scope's grant of `name`, `granted`, doesn't
-/// forward: `pass_env: 'all'`, which only an unconfined run passes, and
-/// each name or glob none of its patterns holds but an exact name of the
-/// base set, which every child is given, `not_granted`, needing the
-/// variable, which `--allow-run-env=` grants whichever root the call was
-/// made on: a narrowed root passes on only exact names, each one its
-/// program's grant decides.
+/// Refuses what a confined scope's grant of `name`, the patterns it
+/// forwards, `forward`, doesn't: `pass_env: 'all'`, which only an
+/// unconfined run passes, and each name or glob none of its patterns
+/// holds but an exact name of the base set, which every child is given,
+/// `not_granted`, needing the variable, which `--allow-run-env=` grants
+/// whichever root the call was made on: a narrowed root passes on only
+/// exact names, each one its program's grant decides. A program found
+/// beneath an exec root is granted what the exec root forwards.
 fn check_forwarding(
     name: &str,
     options: &ProgramOptions,
-    granted: &GrantedProgram,
+    forward: &[EnvPattern],
 ) -> Result<(), Failure> {
     match &options.pass {
         PassEnv::All(_) => Err(Failure::NotGranted {
@@ -1139,7 +1186,7 @@ fn check_forwarding(
         PassEnv::Patterns(patterns) => patterns
             .iter()
             .find(|pattern| {
-                !in_base_set(pattern) && !granted.forward.iter().any(|held| held.holds(pattern))
+                !in_base_set(pattern) && !forward.iter().any(|held| held.holds(pattern))
             })
             .map_or(Ok(()), |pattern| {
                 Err(Failure::NotGranted {
@@ -1252,17 +1299,22 @@ fn make_program<'s>(
         .ok_or(Failure::Thrown)
 }
 
+/// A scope as a test makes it: the programs it grants, each with the
+/// patterns it forwards, and its exec roots.
+#[cfg(test)]
+pub type TestScope<'a> = (&'a [(&'a str, &'a [&'a str])], Vec<ExecRoot>);
+
 /// A run whose table holds a confined scope for each of `scopes`, in
 /// order, the project's first: each grants its programs, each found
-/// nowhere, with the patterns it lists to forward. No run's start makes a
-/// second scope yet, so this is how a test holds a method to the scope its
-/// root names.
+/// nowhere, with the patterns it lists to forward, and its exec roots. No
+/// run's start makes a second scope yet, so this is how a test holds a
+/// method to the scope its root names.
 #[cfg(test)]
-pub fn run_of_scopes(scopes: &[&[(&str, &[&str])]]) -> SpawnRun {
+pub fn run_of_scopes(scopes: Vec<TestScope<'_>>) -> SpawnRun {
     let scopes = scopes
-        .iter()
-        .map(|programs| {
-            Scope::Granted(
+        .into_iter()
+        .map(|(programs, exec_roots)| Scope {
+            programs: Programs::Granted(
                 programs
                     .iter()
                     .map(|(name, forward)| {
@@ -1276,7 +1328,8 @@ pub fn run_of_scopes(scopes: &[&[(&str, &[&str])]]) -> SpawnRun {
                         ((*name).to_owned(), granted)
                     })
                     .collect(),
-            )
+            ),
+            exec_roots,
         })
         .collect();
     SpawnRun {
