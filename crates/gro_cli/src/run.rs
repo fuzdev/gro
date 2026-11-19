@@ -129,7 +129,7 @@ fn start_and_run(run: &RunInvocation) -> Result<RunOutcome, CliError> {
         }
     }
     if grants_programs(&run.grant) {
-        ready_to_spawn().map_err(CliError::SpawnReady)?;
+        ready_to_spawn(gro_sys::raise_open_files_limit).map_err(CliError::SpawnReady)?;
     }
     let engine = init_engine(Confinement::Unconfined, &EngineOptions::default())?;
     phases::mark(Phase::Engine);
@@ -149,19 +149,23 @@ fn grants_programs(grant: &RunGrant) -> bool {
 /// Makes the process ready to start programs, as a run that grants one
 /// does before anything runs: every descriptor it inherited above stderr
 /// marked close-on-exec, so a child is handed only stdin, stdout, and
-/// stderr, `SIGCHLD` at its default where it was inherited ignored, so
-/// the kernel leaves each child for its pidfd to reap, and the soft limit
-/// on open descriptors raised to the hard one, as Node raises it, so a run
-/// holding many children, each with its pipes, isn't refused at a low soft
-/// limit.
+/// stderr, and `SIGCHLD` at its default where it was inherited ignored, so
+/// the kernel leaves each child for its pidfd to reap; then the soft limit
+/// on open descriptors raised to the hard one by `raise`, as Node raises
+/// it, so a run holding many children, each with its pipes, isn't refused
+/// at a low soft limit. The raise is best-effort, as Node's is: one the
+/// kernel refuses leaves the limit as it was and the run going.
 ///
 /// # Errors
 ///
-/// Returns the call's error that failed.
-fn ready_to_spawn() -> std::io::Result<()> {
+/// Returns the error of the step that failed, but the raise's.
+fn ready_to_spawn(raise: fn() -> std::io::Result<u64>) -> std::io::Result<()> {
     gro_sys::cloexec_inherited_fds()?;
     gro_sys::child::default_child_signal()?;
-    gro_sys::raise_open_files_limit().map(drop)
+    // a refused raise leaves the soft limit, which the run starts with as
+    // a run that grants no program does
+    let _ = raise();
+    Ok(())
 }
 
 /// The fs grant of the directories `dirs` lists, each resolved against
@@ -1284,6 +1288,37 @@ mod tests {
         assert_eq!(options.authority, gro_runtime::Authority::Unconfined);
         assert_eq!(options.spawn_env, options.env);
         assert_eq!(options.spawn_env.iter().count(), 6);
+    }
+
+    /// The variable a child of [`a_refused_raise_of_the_open_files_limit_fails_nothing`]
+    /// runs its half by.
+    const READY_CHILD: &str = "GRO_CLI_TEST_READY_CHILD";
+
+    /// A run that grants a program is made ready to start them though the
+    /// kernel refuses to raise the soft limit on open descriptors, as Node
+    /// goes on: the raise is best-effort. In a child process, since making
+    /// ready marks every inherited descriptor close-on-exec.
+    #[test]
+    fn a_refused_raise_of_the_open_files_limit_fails_nothing() {
+        if std::env::var_os(READY_CHILD).is_some() {
+            let refused = || Err(std::io::Error::from(std::io::ErrorKind::PermissionDenied));
+            assert!(super::ready_to_spawn(refused).is_ok());
+            return;
+        }
+        let test = "run::tests::a_refused_raise_of_the_open_files_limit_fails_nothing";
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([test, "--exact", "--nocapture", "--quiet"])
+            .env(READY_CHILD, "1")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        // a filter that matches no test exits 0 as well
+        assert!(String::from_utf8_lossy(&output.stdout).contains(" 1 passed;"));
     }
 
     /// The variables' `Debug` names them and prints no value.

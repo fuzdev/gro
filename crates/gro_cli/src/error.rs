@@ -183,8 +183,9 @@ pub enum CliError {
     #[error("failed to read the working directory: {0}")]
     Cwd(#[source] std::io::Error),
     /// A run that grants programs couldn't make ready to start them: the
-    /// inherited descriptors marked close-on-exec, `SIGCHLD` at its default,
-    /// the soft limit on open descriptors raised to the hard one.
+    /// inherited descriptors marked close-on-exec, `SIGCHLD` at its default.
+    /// The soft limit on open descriptors is raised best-effort, never
+    /// failing the run.
     #[error("failed to make ready to start programs: {0}")]
     SpawnReady(#[source] std::io::Error),
     /// `fgro run`'s module failed, printed as [`run_failure`] prints it.
