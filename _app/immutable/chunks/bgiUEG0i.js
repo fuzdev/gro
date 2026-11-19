@@ -1,0 +1,1 @@
+var e=e=>e.length>1&&e.endsWith(`/`)?e.slice(0,-1):e,t=(t,n)=>{if(!URL.canParse(t,n.href))return!1;let r=new URL(t,n.href);return r.origin===n.origin&&e(r.pathname)===e(n.pathname)};export{t};
