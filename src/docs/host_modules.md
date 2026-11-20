@@ -1194,7 +1194,7 @@ It documents each gap rather than weakening the API to match, and is a review si
   so no op throws `not_granted`, which the runtime's throws for a reach outside the run's grants.
 - Any module can import `node:fs` and the `process` global stays,
   so a narrowed handle bounds only the code that uses handles.
-- `fs.project` is the working directory when the module loads, as for Gro's `paths.root`,
+- `fs.project` is the working directory when the module loads, as for the cwd host module's `cwd`,
   so importing the module throws when the working directory has been removed.
   The runtime's is the entry's [project root](glossary.md#project-root), and spawn's project root with it,
   so the working directory carries no authority.

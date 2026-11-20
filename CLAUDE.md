@@ -383,7 +383,7 @@ Key utilities:
   on Node and the native crate on `fgro`, grant-free ([docs](src/docs/host_modules.md#blake3))
 - Network: `net.ts`, the net host module, `net.fetch` and `narrow` bound to hosts, following redirects itself so each `Location` is checked; `net_error.ts`, its `NetError` and `is_net_error`, grant-free ([docs](src/docs/host_modules.md#net))
 - Watch: `watch.ts`, the watch host module, `watch.dir(handle, {recursive, signal, max_pending})` resolving, once the watch is in place, to a `Watcher`, an async iterable of `add`/`update`/`delete`/`rescan` events with paths relative to the handle, symlinks never followed, buffered to `max_pending`, over chokidar imported on first call and apart from the Filer's `internal/watch_dir.ts`; its errors are `FsError` ([docs](src/docs/host_modules.md#watch))
-- Package modules: the library modules that load as a package on `fgro` (`fs_paths.ts`, `git.ts`,
+- Package modules: the library modules that can load as a package on `fgro` (`fs_paths.ts`, `git.ts`,
   `task.ts`, `paths.ts`, `modules.ts`, and the rest of `PACKAGE_MODULES`), where `src/lib`'s
   relative imports of its host modules would load the Node files: their static closure holds no
   `node:` builtin and no host module's Node file, beside the grant-free error modules, and they
