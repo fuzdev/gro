@@ -176,6 +176,75 @@ It loads on first use, so a task that never touches it never starts a watch;
 `config.watch` sets what it watches.
 A task invoked with `invoke_task` shares its invoker's `graph`.
 
+### a builtin's `host` and `grants`
+
+Gro's builtin tasks are exported, so a builtin that imported a granted host module
+would lend that grant to every module that can import the builtin.
+Instead the composition root (`invoke.ts` on Node) builds the handles, a `BuiltinHostRoot`
+(`builtin_host.ts`), and `invoke_task` carries it in its options to every task it runs,
+never onto a task's context.
+Each builtin declares what it needs as its task's `grants`, a `BuiltinTaskGrants`,
+so a module re-exporting the `task` carries them:
+
+- `fs` - the paths it reads and writes, relative to the project root, `.` the project
+- `env` - the environment variables it reads, exact names
+- `programs` - the programs it starts by name, each with how its environment is built
+- `invokes` - the builtins it invokes
+
+The genfile that writes the builtin summaries also writes them as `GRO_BUILTIN_TASK_GRANTS`
+(`gro_builtin_tasks.ts`), data a runtime reads without importing the task,
+held by `gro gen --check`.
+`run_task` cuts the root's handles by that table into the builtin's `host`,
+a `BuiltinTaskContext` field present only on a builtin's context:
+`fs_paths` with an `fs` grant, `env` narrowed to the names,
+`programs` with `program` and `find` for the named programs, as `spawn`'s pair resolves them,
+each program's environment fixed by its grant,
+and its own frozen copy of the `raw_rest_args` it was invoked with.
+A builtin invoking a task its `invokes` doesn't name fails with a `TaskError`,
+and its `invoke_task` is typed so that doesn't compile.
+Each builtin it invokes gets a `host` cut from the root's by that builtin's own grants,
+so what a builtin can reach is its grants and those of every builtin it `invokes`, transitively.
+
+A builtin runs only by its name. Its task run by path, like `gro task src/lib/check.task.ts`,
+or re-exported from a project file, has `grants` but no name to find them by in the table,
+so it's refused with a `TaskError` naming the builtin to run instead.
+
+A project task's context has no `host`. Its `invoke_task` of a builtin
+runs the builtin with the builtin's own grants, so a project task needs no handle a builtin uses.
+A project task can import a host module itself:
+on Node every module can, and the cut above is a review signal, as Node's narrowed roots are,
+not an enforced boundary (`env` is narrowed and `programs` refuses an ungranted name,
+but `fs_paths` is the root's whole `FsPaths`, and code in the same realm,
+which can patch the intrinsics or the grants the cut reads, isn't held by it).
+
+A builtin's body is a function over its own `*Deps`, picked from its `host` and context,
+so its `run` is one call and a test passes plain objects:
+
+```ts
+// src/lib/check.task.ts
+const grants = {
+	fs: {read: ['.']},
+	env: ['CI'],
+	programs: {git: {pass_env: GIT_LOCAL_PASS_ENV}},
+	invokes: ['sync', 'build', 'typecheck', 'test', 'gen', 'format', 'lint'],
+} as const satisfies BuiltinTaskGrants;
+
+export const task: BuiltinTask<Args, typeof grants> = {
+	summary: 'check that everything is ready to commit',
+	Args,
+	grants,
+	run: ({task_args, config, invoke_task, log, host}) =>
+		run_check(
+			task_args,
+			{map_package_json: config.map_package_json, raw_rest_args: host.raw_rest_args},
+			{fs_paths: host.fs_paths, env: host.env, programs: host.programs, invoke_task, log},
+		),
+};
+```
+
+A builtin that declares no grants imports the host modules it uses, its entry `null` in the table,
+and gets no `host`.
+
 ### run a task inside another task with `invoke_task`
 
 Because Gro tasks are just functions,

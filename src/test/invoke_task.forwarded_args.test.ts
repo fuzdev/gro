@@ -13,7 +13,7 @@ import {
 	to_removed_builtin_prefix_message,
 	to_task_path_without_verb_message
 } from '#lib/internal/task_hints.ts';
-import { create_mock_module_graph } from './test_helpers.ts';
+import { create_mock_module_graph, create_throwing_builtin_host_root } from './test_helpers.ts';
 import { create_project_fs_paths } from './fs_test_helpers.ts';
 import { to_raw_rest_args } from '#lib/task_args.ts';
 import { import_module_node } from '#lib/internal/node_import_module.ts';
@@ -66,6 +66,7 @@ describe('invoke_task forwarded args', () => {
 				fs_paths,
 				raw_rest_args,
 				import_module: import_module_node,
+				host_root: create_throwing_builtin_host_root(),
 				graph: create_mock_module_graph()
 			}
 		);
@@ -91,6 +92,7 @@ describe('invoke_task forwarded args', () => {
 				fs_paths,
 				raw_rest_args,
 				import_module: import_module_node,
+				host_root: create_throwing_builtin_host_root(),
 				graph: create_mock_module_graph()
 			}
 		);
@@ -117,6 +119,7 @@ describe('invoke_task forwarded args', () => {
 				fs_paths,
 				raw_rest_args,
 				import_module: import_module_node,
+				host_root: create_throwing_builtin_host_root(),
 				graph: create_mock_module_graph()
 			}
 		);
@@ -140,6 +143,7 @@ describe('invoke_task forwarded args', () => {
 				fs_paths,
 				raw_rest_args,
 				import_module: import_module_node,
+				host_root: create_throwing_builtin_host_root(),
 				graph: create_mock_module_graph()
 			}
 		);
@@ -158,6 +162,7 @@ describe('invoke_task forwarded args', () => {
 						fs_paths,
 						raw_rest_args,
 						import_module: import_module_node,
+						host_root: create_throwing_builtin_host_root(),
 						graph: create_mock_module_graph()
 					}
 				)
@@ -190,6 +195,7 @@ describe('invoke_task forwarded args', () => {
 				fs_paths,
 				raw_rest_args,
 				import_module: import_module_node,
+				host_root: create_throwing_builtin_host_root(),
 				graph: create_mock_module_graph()
 			}
 		);

@@ -1,57 +1,62 @@
 import { describe, test, assert, vi, beforeEach } from 'vitest';
 
-import { task as check_task, type Args } from '#lib/check.task.ts';
+import { run_check, type Args, type CheckDeps } from '#lib/check.task.ts';
 import { TaskError } from '#lib/task_error.ts';
+import type { SpawnProgram } from '#lib/spawn.ts';
 
-import { create_mock_task_context } from './test_helpers.ts';
-import { get_mock_spawn } from './spawn_mocks.ts';
-import { git_ops, install_mock_git } from './git_mocks.ts';
+import { create_mock_logger } from './test_helpers.ts';
+import { create_mock_fs_paths } from './fs_mocks.ts';
+import { create_mock_git_program, git_ops } from './git_mocks.ts';
 
-vi.mock('#lib/spawn.ts', async () => (await import('./spawn_mocks.ts')).create_mock_spawn_module());
+const ARGS = {
+	typecheck: false,
+	test: false,
+	gen: false,
+	format: false,
+	package_json: false,
+	lint: false,
+	build: false,
+	sync: false,
+	install: false,
+	workspace: true
+} as unknown as Args;
 
-const create_ctx = () =>
-	create_mock_task_context<Args>({ workspace: true }, {}, {
-		typecheck: false,
-		test: false,
-		gen: false,
-		format: false,
-		package_json: false,
-		lint: false,
-		build: false,
-		sync: false,
-		install: false,
-		workspace: true
-	} as unknown as Args);
+const create_deps = (git: SpawnProgram | null): CheckDeps => ({
+	fs_paths: create_mock_fs_paths(),
+	env: { get: () => undefined },
+	programs: { find: vi.fn(() => git) },
+	invoke_task: vi.fn(),
+	log: create_mock_logger()
+});
+
+const run = (deps: CheckDeps): Promise<void> =>
+	run_check(ARGS, { map_package_json: null, raw_rest_args: [] }, deps);
 
 describe('gro check --workspace', () => {
-	beforeEach(async () => {
+	beforeEach(() => {
 		vi.clearAllMocks();
-		(await get_mock_spawn()).reset();
 	});
 
 	test('warns and passes with no git on PATH, the check not having run', async () => {
-		// `available` by default finds only a project's local bins, so no `git`
-		const ctx = create_ctx();
-		await check_task.run(ctx);
-		assert.include(vi.mocked(ctx.log.warn).mock.calls[0]?.[0] as string, 'git not found');
+		const deps = create_deps(null);
+		await run(deps);
+		assert.include(vi.mocked(deps.log.warn).mock.calls[0]?.[0] as string, 'git not found');
+		assert.deepEqual(vi.mocked(deps.programs.find).mock.calls, [['git']]);
 	});
 
 	test('passes a clean workspace without a warning', async () => {
-		install_mock_git(await get_mock_spawn());
 		git_ops.git_check_clean_workspace.mockResolvedValue(null);
-		const ctx = create_ctx();
-		await check_task.run(ctx);
-		assert.strictEqual(vi.mocked(ctx.log.warn).mock.calls.length, 0);
+		const deps = create_deps(create_mock_git_program());
+		await run(deps);
+		assert.strictEqual(vi.mocked(deps.log.warn).mock.calls.length, 0);
 	});
 
 	test('fails a dirty workspace', async () => {
-		const mock_spawn = await get_mock_spawn();
-		install_mock_git(mock_spawn);
 		git_ops.git_check_clean_workspace.mockResolvedValue('git has unstaged changes');
 		git_ops.git_command.mockResolvedValue({ kind: 'exited', code: 0 });
 		let error: unknown;
 		try {
-			await check_task.run(create_ctx());
+			await run(create_deps(create_mock_git_program()));
 		} catch (e) {
 			error = e;
 		}

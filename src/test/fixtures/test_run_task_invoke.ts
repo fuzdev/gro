@@ -13,6 +13,7 @@ import { create_fs_paths } from '#lib/fs_paths.ts';
 import { cwd } from '#lib/cwd.ts';
 import { env } from '#lib/env.ts';
 import { create_node_module_graph } from '#lib/module_graph_node.ts';
+import { spawn } from '#lib/spawn.ts';
 import { import_module_node } from '#lib/internal/node_import_module.ts';
 
 async function runTest() {
@@ -50,6 +51,8 @@ async function runTest() {
 			fs_paths,
 			raw_rest_args: [],
 			import_module: import_module_node,
+			host_root: { env, spawn },
+			grants: null,
 			graph,
 			log,
 			timings: new Timings()

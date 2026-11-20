@@ -24,6 +24,7 @@ reaches Node fails until it moves to `PACKAGE_MODULES`.
 */
 
 const PACKAGE_MODULES = [
+	'builtin_host.ts',
 	'cli.ts',
 	'constants.ts',
 	'error_detail.ts',

@@ -13,9 +13,12 @@ import { task as run_task_task } from '#lib/run.task.ts';
 import { FsError } from '#lib/fs_error.ts';
 import { NetError } from '#lib/net_error.ts';
 import { SpawnError } from '#lib/spawn_error.ts';
-import { EnvError } from '#lib/env_error.ts';
+import { EnvError, is_env_error } from '#lib/env_error.ts';
 import { StdioError } from '#lib/stdio_error.ts';
 import { import_module_node } from '#lib/internal/node_import_module.ts';
+import { env } from '#lib/env.ts';
+import type { BuiltinTaskContext } from '#lib/builtin_host.ts';
+import { GRO_BUILTIN_TASK_SUMMARIES } from '#lib/gro_builtin_tasks.ts';
 
 import {
 	TEST_TIMEOUT_MD,
@@ -23,7 +26,9 @@ import {
 	create_mock_config,
 	create_mock_module_graph,
 	create_mock_logger,
-	create_mock_timings
+	create_mock_timings,
+	create_throwing_builtin_host_root,
+	assert_throws_matching
 } from './test_helpers.ts';
 import { create_mock_fs_paths } from './fs_mocks.ts';
 
@@ -89,6 +94,8 @@ const create_mock_run_task_options = async (): Promise<RunTaskOptions> => ({
 	fs_paths: create_mock_fs_paths(),
 	raw_rest_args: [],
 	import_module: import_module_node,
+	host_root: create_throwing_builtin_host_root(),
+	grants: null,
 	graph: create_mock_module_graph(),
 	log: create_mock_logger(),
 	timings: create_mock_timings()
@@ -237,9 +244,10 @@ test('run_task reports any other error as unexpected, with the reinstall hint', 
 	assert.include(result.reason, 'install` and `gro clean`');
 });
 
-test('run_task passes the graph to the task, and it and `fs_paths` to the tasks it invokes', async () => {
+test('run_task passes the graph to the task, and it, `fs_paths`, and `host_root` to the tasks it invokes', async () => {
 	const graph = create_mock_module_graph();
 	const fs_paths = create_mock_fs_paths();
+	const host_root = create_throwing_builtin_host_root();
 	const invoke_task = vi.fn((..._args: Array<unknown>) => Promise.resolve());
 	const config = await create_mock_config();
 	const other_config = await create_mock_config({ pm_cli: 'other_pm_cli' });
@@ -265,6 +273,8 @@ test('run_task passes the graph to the task, and it and `fs_paths` to the tasks 
 			fs_paths,
 			raw_rest_args: ['--', 'x'],
 			import_module: import_module_node,
+			host_root,
+			grants: null,
 			graph,
 			log: create_mock_logger(),
 			timings: create_mock_timings()
@@ -276,11 +286,14 @@ test('run_task passes the graph to the task, and it and `fs_paths` to the tasks 
 	assert.ok(!('fs_paths' in ctx));
 	assert.ok(!('raw_rest_args' in ctx));
 	assert.ok(!('import_module' in ctx));
+	assert.ok(!('host_root' in ctx));
+	assert.ok(!('host' in ctx));
 	expect(invoke_task).toHaveBeenNthCalledWith(1, 'other', undefined, {
 		config,
 		fs_paths,
 		raw_rest_args: ['--', 'x'],
 		import_module: import_module_node,
+		host_root,
 		graph,
 		timings: expect.anything(),
 		parent_log: expect.anything()
@@ -290,8 +303,133 @@ test('run_task passes the graph to the task, and it and `fs_paths` to the tasks 
 		fs_paths,
 		raw_rest_args: ['--', 'x'],
 		import_module: import_module_node,
+		host_root,
 		graph,
 		timings: expect.anything(),
 		parent_log: expect.anything()
 	});
+});
+
+test('run_task gives a builtin with grants a `host` cut by them, and a project task none', async () => {
+	const fs_paths = create_mock_fs_paths();
+	const run = (ctx: TaskContext) => ctx;
+	const options = {
+		...(await create_mock_run_task_options()),
+		fs_paths,
+		raw_rest_args: ['--', 'x'],
+		host_root: { env, spawn }
+	};
+	const project = await run_task(
+		{ name: 'src/lib/check.task.ts', id: '/p/src/lib/check.task.ts', mod: { task: { run } } },
+		{},
+		options
+	);
+	assert(project.ok);
+	assert.ok(!('host' in (project.output as TaskContext)));
+	const builtin = await run_task(
+		{ name: 'greet', id: '/p/src/lib/greet.task.ts', mod: { task: { run } } },
+		{},
+		{ ...options, grants: { fs: { read: ['.'] }, env: ['CI'] } }
+	);
+	assert(builtin.ok);
+	const { host } = builtin.output as BuiltinTaskContext<
+		object,
+		{ fs: { read: ['.'] }; env: ['CI'] }
+	>;
+	assert.deepEqual(Object.keys(host), ['raw_rest_args', 'fs_paths', 'env']);
+	assert.strictEqual(host.fs_paths, fs_paths);
+	assert.deepEqual(host.raw_rest_args, ['--', 'x']);
+	assert_throws_matching(
+		() => host.env.get('HOME'),
+		(error: unknown) => is_env_error(error, 'not_granted')
+	);
+});
+
+test('run_task refuses a builtin invoking a task its grants do not name', async () => {
+	const invoke_task = vi.fn((..._args: Array<unknown>) => Promise.resolve());
+	const result = await run_task(
+		{
+			name: 'greet',
+			id: '/p/src/lib/greet.task.ts',
+			mod: {
+				task: {
+					run: async (ctx) => {
+						await ctx.invoke_task('gen');
+						await ctx.invoke_task('lint');
+					}
+				}
+			}
+		},
+		{},
+		{ ...(await create_mock_run_task_options()), invoke_task, grants: { invokes: ['gen'] } }
+	);
+	assert(!result.ok);
+	assert.instanceOf(result.error, TaskError);
+	assert.include(result.reason, "invokes `lint`, which its grants don't name");
+	assert.deepEqual(
+		invoke_task.mock.calls.map((c) => c[0]),
+		['gen']
+	);
+});
+
+test('run_task refuses every invoke of a builtin whose grants name no `invokes`', async () => {
+	const invoke_task = vi.fn((..._args: Array<unknown>) => Promise.resolve());
+	const result = await run_task(
+		{
+			name: 'greet',
+			id: '/p/src/lib/greet.task.ts',
+			mod: { task: { run: (ctx) => ctx.invoke_task('gen') } }
+		},
+		{},
+		{ ...(await create_mock_run_task_options()), invoke_task, grants: {} }
+	);
+	assert(!result.ok);
+	assert.include(result.reason, "invokes `gen`, which its grants don't name");
+	assert.strictEqual(invoke_task.mock.calls.length, 0);
+});
+
+test('run_task refuses a task with grants run without its builtin grants, naming the builtin', async () => {
+	const run = vi.fn();
+	const run_with = async (summary: string) =>
+		run_task(
+			{
+				name: 'src/lib/x.task.ts',
+				id: '/p/src/lib/x.task.ts',
+				mod: { task: { summary, grants: {}, run } as never }
+			},
+			{},
+			await create_mock_run_task_options()
+		);
+	const named = await run_with(GRO_BUILTIN_TASK_SUMMARIES.check);
+	assert(!named.ok);
+	assert.instanceOf(named.error, TaskError);
+	assert.include(named.reason, 'declares `grants`, so it runs only as a builtin, by name');
+	assert.include(named.reason, "`gro check`, or `invoke_task('check')`");
+	const unnamed = await run_with('no builtin has this summary');
+	assert(!unnamed.ok);
+	assert.include(unnamed.reason, 'runs only as a builtin, by name.');
+	assert.strictEqual(run.mock.calls.length, 0);
+});
+test('run_task refuses a builtin invoking a builtin its `invokes` leaves out', async () => {
+	const invoke_task = vi.fn((..._args: Array<unknown>) => Promise.resolve());
+	const run_invoking = async (name: string) =>
+		run_task(
+			{
+				name: 'greet',
+				id: '/p/src/lib/greet.task.ts',
+				mod: { task: { run: (ctx) => ctx.invoke_task(name) } }
+			},
+			{},
+			{ ...(await create_mock_run_task_options()), invoke_task, grants: { invokes: ['gen'] } }
+		);
+	assert((await run_invoking('gen')).ok);
+	for (const name of ['publish', 'deploy', 'check']) {
+		const result = await run_invoking(name);
+		assert(!result.ok);
+		assert.include(result.reason, `invokes \`${name}\`, which its grants don't name`);
+	}
+	assert.deepEqual(
+		invoke_task.mock.calls.map((call) => call[0]),
+		['gen']
+	);
 });

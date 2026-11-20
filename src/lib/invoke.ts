@@ -89,7 +89,8 @@ if (!env.get('NO_COLOR')) {
 	configure_print_colors(st);
 }
 
-// the CLI's composition root, where the fs and spawn host modules and the project loader enter
+// the CLI's composition root, where the fs, env, and spawn host modules and the project loader enter,
+// the builtins getting what their grants name from the env and spawn roots
 const fs_paths = create_fs_paths(fs, { cwd: cwd(), home: env.get('HOME') });
 
 await sveltekit_sync_if_obviously_needed(fs_paths, spawn);
@@ -107,5 +108,6 @@ await invoke_cli(
 	task_args,
 	await load_gro_config(fs_paths, import_module_node),
 	to_raw_rest_args(args),
-	import_module_node
+	import_module_node,
+	{ env, spawn }
 );

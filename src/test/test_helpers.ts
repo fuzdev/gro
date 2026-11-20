@@ -10,11 +10,42 @@ import { create_paths } from '#lib/paths.ts';
 import type { ModuleGraph } from '#lib/module_graph.ts';
 import type { ParsedSvelteConfig } from '#lib/svelte_config.ts';
 import type { TaskContext } from '#lib/task.ts';
+import type { BuiltinHostRoot } from '#lib/builtin_host.ts';
 
 /**
  * The paths of the project the tests run in, Gro's own repo, from the working directory.
  */
 export const paths = create_paths(process.cwd());
+
+/**
+ * A `BuiltinHostRoot` whose handles throw on any use, for a test whose tasks get no `host`,
+ * so a task that reaches one fails rather than running on real handles.
+ */
+export const create_throwing_builtin_host_root = (): BuiltinHostRoot => {
+	const create_stub = <T extends object>(label: string): T =>
+		new Proxy({} as T, {
+			get: (_target, key) => {
+				throw Error(`the throwing builtin host root's \`${label}\` was used: ${String(key)}`);
+			}
+		});
+	return { env: create_stub('env'), spawn: create_stub('spawn') };
+};
+
+/**
+ * Asserts that `fn` throws an error `matches` accepts.
+ */
+export const assert_throws_matching = (
+	fn: () => unknown,
+	matches: (error: unknown) => boolean
+): void => {
+	try {
+		fn();
+	} catch (error) {
+		assert.ok(matches(error), `unexpected error: ${String(error)}`);
+		return;
+	}
+	assert.fail('expected a throw');
+};
 
 /**
  * Creates a mock logger for testing.

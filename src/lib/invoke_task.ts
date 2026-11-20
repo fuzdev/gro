@@ -38,7 +38,8 @@ import type { GroConfig } from './gro_config.ts';
 import { create_node_module_graph } from './module_graph_node.ts';
 import type { ModuleGraph } from './module_graph.ts';
 import { task_registry_find, type TaskRegistryEntry } from './task_registry.ts';
-import { GRO_BUILTIN_TASK_SUMMARIES } from './gro_builtin_tasks.ts';
+import { GRO_BUILTIN_TASK_GRANTS, GRO_BUILTIN_TASK_SUMMARIES } from './gro_builtin_tasks.ts';
+import type { BuiltinHostRoot } from './builtin_host.ts';
 import { LIB_DIR, SOURCE_DIR } from './constants.ts';
 import { print_path } from './paths.ts';
 import type { FileInfo } from './fs.ts';
@@ -63,8 +64,9 @@ export interface InvokeTaskOptions {
 	fs_paths: FsPaths;
 	/**
 	 * The CLI args from the first `--` on, from `to_raw_rest_args`, passed to nested tasks.
-	 * The `gro` sections in them forward args to Gro tasks; a task forwarding to an outside
-	 * tool reads that tool's section from the `args` host module itself.
+	 * The `gro` sections in them forward args to Gro tasks; a builtin with grants reads them
+	 * from its `host`, and a task forwarding to an outside tool without one reads that tool's
+	 * section from the `args` host module itself.
 	 */
 	raw_rest_args: ReadonlyArray<string>;
 	/**
@@ -72,6 +74,11 @@ export interface InvokeTaskOptions {
 	 * given by the composition root and passed to nested tasks.
 	 */
 	import_module: ImportModule;
+	/**
+	 * The root's handles, cut by a builtin's grants into its `host`,
+	 * built by the composition root and passed to nested tasks.
+	 */
+	host_root: BuiltinHostRoot;
 	/**
 	 * The `graph` from the invoking task,
 	 * created from `config.watch` and closed on finish when absent.
@@ -116,6 +123,7 @@ export const invoke_task = async (
 		fs_paths,
 		raw_rest_args,
 		import_module,
+		host_root,
 		graph: initial_graph,
 		timings: initial_timings,
 		parent_log
@@ -173,6 +181,9 @@ export const invoke_task = async (
 			fs_paths,
 			raw_rest_args,
 			import_module,
+			host_root,
+			// a name that resolved is a builtin, a path never is
+			grants: is_builtin_task_name(task.name) ? GRO_BUILTIN_TASK_GRANTS[task.name] : null,
 			graph,
 			log,
 			timings
@@ -324,13 +335,15 @@ const to_no_builtin_reasons = async (
  * @param config - the Gro configuration
  * @param raw_rest_args - the CLI args from the first `--` on, from `to_raw_rest_args`
  * @param import_module - loads the project's task modules
+ * @param host_root - the root's handles, cut into each builtin's `host`
  */
 export const invoke_cli = async (
 	fs_paths: FsPaths,
 	task_args: CliTaskArgs,
 	config: GroConfig,
 	raw_rest_args: ReadonlyArray<string>,
-	import_module: ImportModule
+	import_module: ImportModule,
+	host_root: BuiltinHostRoot
 ): Promise<void> => {
 	const { task_name, task_path, args } = task_args;
 
@@ -347,7 +360,13 @@ export const invoke_cli = async (
 
 	if (task_name === TASK_VERB) {
 		if (task_path !== null && is_task_path(task_path)) {
-			await invoke_task(task_path, args, { config, fs_paths, raw_rest_args, import_module });
+			await invoke_task(task_path, args, {
+				config,
+				fs_paths,
+				raw_rest_args,
+				import_module,
+				host_root
+			});
 			return;
 		}
 		await list_tasks(fs_paths, task_path, config, import_module, new Logger('gro task'));
@@ -366,6 +385,7 @@ export const invoke_cli = async (
 		fs_paths,
 		raw_rest_args,
 		import_module,
+		host_root,
 		timings: task_name === RUN_TASK_NAME ? new Timings() : undefined
 	});
 };

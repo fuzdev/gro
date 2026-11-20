@@ -10,12 +10,12 @@ import { log_builtin_tasks, log_error_reasons, log_tasks } from '#lib/task_loggi
 import { create_empty_gro_config, type GroConfig } from '#lib/gro_config.ts';
 import { to_builtin_task_id } from '#lib/task.ts';
 import { ReportedError } from '#lib/task_error.ts';
-import { GRO_BUILTIN_TASK_SUMMARIES } from '#lib/gro_builtin_tasks.ts';
+import { GRO_BUILTIN_TASK_GRANTS, GRO_BUILTIN_TASK_SUMMARIES } from '#lib/gro_builtin_tasks.ts';
 import { to_task_args, type CliTaskArgs } from '#lib/task_args.ts';
 import type { ImportModule } from '#lib/modules.ts';
 import { import_module_node } from '#lib/internal/node_import_module.ts';
 import { create_project_fs_paths } from './fs_test_helpers.ts';
-import { paths } from './test_helpers.ts';
+import { create_throwing_builtin_host_root, paths } from './test_helpers.ts';
 
 vi.mock('#lib/run_task.ts', () => ({
 	run_task: vi.fn(async () => ({ ok: true }))
@@ -66,7 +66,8 @@ const cli = async (task_args: CliTaskArgs, cli_config: GroConfig): Promise<void>
 		task_args,
 		cli_config,
 		[],
-		import_module_node
+		import_module_node,
+		create_throwing_builtin_host_root()
 	);
 
 const error_text = (): string =>
@@ -524,7 +525,8 @@ describe('the `import_module` option', () => {
 				config,
 				fs_paths: await create_project_fs_paths(dir),
 				raw_rest_args: [],
-				import_module
+				import_module,
+				host_root: create_throwing_builtin_host_root()
 			}
 		);
 		assert.deepEqual(ids, [join(dir, 'src/x.task.ts')]);
@@ -541,7 +543,8 @@ describe('the `import_module` option', () => {
 			cli_task_args('task'),
 			config,
 			[],
-			import_module
+			import_module,
+			create_throwing_builtin_host_root()
 		);
 		assert.deepEqual(ids, [join(dir, 'src/a.task.ts'), join(dir, 'src/b.task.ts')]);
 		const listed = vi.mocked(log_tasks).mock.calls[0]![1];
@@ -549,5 +552,38 @@ describe('the `import_module` option', () => {
 			listed.map((t) => t.mod),
 			[fake_task, fake_task]
 		);
+	});
+});
+
+describe('the grants `run_task` gets', () => {
+	const fake_task = { task: { run: () => {} } };
+	const import_module: ImportModule = () => Promise.resolve(fake_task);
+	const invoke = async (task_name: string): Promise<void> =>
+		invoke_task(
+			task_name,
+			{},
+			{
+				config,
+				fs_paths: await create_project_fs_paths(dir),
+				raw_rest_args: [],
+				import_module,
+				host_root: create_throwing_builtin_host_root()
+			}
+		);
+
+	test("a builtin runs with its generated grants, a project task of a builtin's file name with none", async () => {
+		write_tasks(['check.task.ts']);
+		await invoke('check');
+		await invoke('check.task.ts');
+		await invoke('lint');
+		const calls = vi.mocked(run_task).mock.calls;
+		assert.deepEqual(
+			calls.map(([task_meta]) => task_meta.name),
+			['check', 'check.task.ts', 'lint']
+		);
+		assert.ok(GRO_BUILTIN_TASK_GRANTS.check);
+		assert.strictEqual(calls[0]![2].grants, GRO_BUILTIN_TASK_GRANTS.check);
+		assert.strictEqual(calls[1]![2].grants, null);
+		assert.strictEqual(calls[2]![2].grants, GRO_BUILTIN_TASK_GRANTS.lint);
 	});
 });

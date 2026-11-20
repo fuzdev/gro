@@ -1027,14 +1027,18 @@ Its results are the Node module's, held to them by the differential cases on Gro
   and resolves beneath a handle only what it got from that handle, like a listing's entries,
   so confinement applies to those.
   Every library module that reaches the filesystem takes an `FsPaths` or a narrow handle as a parameter,
-  and only roots import `fs` and build one: the builtin tasks, the CLI's entry (`invoke.ts`),
+  and only roots import `fs` and build one: the CLI's entry (`invoke.ts`), the builtin tasks that declare no grants,
   genfiles, the default config, and the plugin modules like `gro_plugin_sveltekit_library`.
+  A builtin whose task declares `grants` is no root: it imports no host module, as Gro's tasks are exported
+  and a granted import would lend its grant to every importer,
+  and takes its handles from its `host`, cut from the CLI entry's ([task.md](task.md#a-builtins-host-and-grants)).
   The process modules follow the same rule: those roots and the CLI's bootstrap (`gro.ts`)
   import `env`, `args`, `exit`, the streams, and the observations, and library code takes what it needs as parameters,
   a plain record, a `cwd` string, the CLI args, or a stream,
   so `fs_paths.ts` reads nothing of the process and imports no host module.
   The CLI's entry passes its own `FsPaths` to the config's loading and `invoke_task`,
-  which carries it in its options to the tasks a task invokes, never on the task's context.
+  which carries it in its options to the tasks a task invokes, never on the task's context
+  but in a builtin's `host` when its grants name `fs`, with the `env` and `spawn` roots it cuts the rest from.
   The rendered `$app/env/public` and `$app/env/private` modules are roots too,
   importing `fs` and `create_fs_paths` to read the `.env` files, and `env` and `cwd`
   for the ambient env and the `FsPaths`' protected directories, when they run, so a module importing `$app/env/*` shows those reads in its import graph,

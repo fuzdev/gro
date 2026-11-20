@@ -16,7 +16,7 @@ import { create_gen_context } from '#lib/gen.ts';
 import { gen_inputs_match } from '#lib/gen_helpers.ts';
 import { create_empty_gro_config } from '#lib/gro_config.ts';
 import { to_builtin_task_id, type InvokeTask } from '#lib/task.ts';
-import { GRO_BUILTIN_TASK_SUMMARIES } from '#lib/gro_builtin_tasks.ts';
+import { GRO_BUILTIN_TASK_GRANTS, GRO_BUILTIN_TASK_SUMMARIES } from '#lib/gro_builtin_tasks.ts';
 import { fs } from '#lib/fs.ts';
 import { LIB_PATH } from '#lib/constants.ts';
 import { import_module_node } from '#lib/internal/node_import_module.ts';
@@ -139,7 +139,7 @@ describe('task_registry_find', () => {
 });
 
 describe('task_registry_find_builtins', () => {
-	test("finds Gro's builtins with their summaries, matching the generated ones", async () => {
+	test("finds Gro's builtins with their summaries and grants, matching the generated ones", async () => {
 		const entries = await task_registry_find_builtins(
 			fs.project.dir(LIB_PATH).readonly(),
 			import_module_node
@@ -149,10 +149,23 @@ describe('task_registry_find_builtins', () => {
 			GRO_BUILTIN_TASK_SUMMARIES
 		);
 		assert.deepEqual(
+			Object.fromEntries(entries.map((e) => [e.name, e.grants])),
+			GRO_BUILTIN_TASK_GRANTS
+		);
+		assert.deepEqual(
 			entries.map((e) => e.id),
 			entries.map((e) => to_builtin_task_id(e.name as keyof typeof GRO_BUILTIN_TASK_SUMMARIES))
 		);
 	});
+});
+
+test("the builtins' summaries are non-empty and unique, as a refusal by path names a builtin by its summary", () => {
+	const summaries = Object.values(GRO_BUILTIN_TASK_SUMMARIES);
+	assert.deepEqual(
+		summaries.filter((summary) => summary.trim() === ''),
+		[]
+	);
+	assert.strictEqual(new Set(summaries).size, summaries.length);
 });
 
 describe('task_registry_render', () => {
@@ -211,8 +224,13 @@ describe('task_registry_render', () => {
 	test('renders the GroBuiltinTasks interface and the summaries', () => {
 		const rendered = task_registry_render_builtins(
 			[
-				{ name: 'greet', id: '/p/src/lib/greet.task.ts', summary: "says 'hi'" },
-				{ name: 'quiet', id: '/p/src/lib/quiet.task.ts', summary: '' }
+				{
+					name: 'greet',
+					id: '/p/src/lib/greet.task.ts',
+					summary: "says 'hi'",
+					grants: { env: ['CI'], programs: { git: { pass_env: ['GIT_*'] } }, invokes: ['gen'] }
+				},
+				{ name: 'quiet', id: '/p/src/lib/quiet.task.ts', summary: '', grants: null }
 			],
 			'/p/src/lib',
 			'x.gen.ts'
@@ -226,6 +244,15 @@ describe('task_registry_render', () => {
 		);
 		assert.include(rendered, `\tgreet: "says 'hi'",\n`);
 		assert.include(rendered, '\tquiet: "",\n');
+		assert.include(
+			rendered,
+			'export const GRO_BUILTIN_TASK_GRANTS: Record<keyof GroBuiltinTasks, BuiltinTaskGrants | null> = {'
+		);
+		assert.include(
+			rendered,
+			'\tgreet: {"env":["CI"],"programs":{"git":{"pass_env":["GIT_*"]}},"invokes":["gen"]},\n'
+		);
+		assert.include(rendered, '\tquiet: null,\n');
 	});
 });
 

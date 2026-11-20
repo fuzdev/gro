@@ -1,28 +1,30 @@
 import * as s from '@fuzdev/fuz_schema/schema.ts';
 import { meta } from '@fuzdev/fuz_schema/meta.ts';
 import { plural } from '@fuzdev/fuz_util/string.ts';
-import { styleText as st } from 'node:util';
+import { st } from '@fuzdev/fuz_util/print.ts';
+import type { Logger } from '@fuzdev/fuz_util/log.ts';
 
-import { to_task_command, type Task } from './task.ts';
+import { to_task_command } from './task.ts';
 import { TaskError } from './task_error.ts';
-import { to_forwarded_args_by_command, to_forwarded_argv, to_raw_rest_args } from './task_args.ts';
+import { to_forwarded_args_by_command, to_forwarded_argv } from './task_args.ts';
 import { VITEST_CLI } from './constants.ts';
 import { is_fs_error } from './fs_error.ts';
 import { package_json_sync } from './package_json.ts';
-import { fs } from './fs.ts';
-import { create_fs_paths, type FsPaths } from './fs_paths.ts';
-import { cwd } from './cwd.ts';
+import type { FsPaths } from './fs_paths.ts';
 import { GIT_LOCAL_PASS_ENV, git_check_clean_workspace } from './git.ts';
-import { spawn } from './spawn.ts';
-import { args } from './args.ts';
-import { env } from './env.ts';
-import { create_paths, to_root_path } from './paths.ts';
+import type { Env } from './env.ts';
+import type { GroConfig } from './gro_config.ts';
+import { create_paths, to_root_path, type Paths } from './paths.ts';
 import { find_test_files, project_has_vitest } from './vitest_helpers.ts';
 import type { FsSearchResult } from './fs_search.ts';
 import { format_error_detail } from './error_detail.ts';
-
-// the project's paths, from the working directory, its root
-const paths = create_paths(cwd());
+import type {
+	BuiltinInvokes,
+	BuiltinInvokeTask,
+	BuiltinPrograms,
+	BuiltinTask,
+	BuiltinTaskGrants
+} from './builtin_host.ts';
 
 const TEST_FILES_PRINTED_MAX = 5;
 
@@ -64,128 +66,185 @@ export const Args = s.object({
 });
 export type Args = s.Infer<typeof Args>;
 
+const grants = {
+	// reads `package.json`, `src/` for test files, and the root's listing for `TODO*.md`
+	fs: { read: ['.'] },
+	env: ['CI'],
+	// `--workspace` reads the local repo's status
+	programs: { git: { pass_env: GIT_LOCAL_PASS_ENV } },
+	invokes: ['sync', 'build', 'typecheck', 'test', 'gen', 'format', 'lint']
+} as const satisfies BuiltinTaskGrants;
+
 /** @nodocs */
-export const task: Task<Args> = {
+export const task: BuiltinTask<Args, typeof grants> = {
 	summary: 'check that everything is ready to commit',
 	Args,
-	run: async ({ task_args, invoke_task, log, config }) => {
-		const {
-			typecheck,
-			test,
-			gen,
-			format,
-			package_json,
-			lint,
-			build,
-			force_build,
-			sync,
-			install,
-			workspace
-		} = task_args;
-		const fs_paths = create_fs_paths(fs, { cwd: cwd(), home: env.get('HOME') });
+	grants,
+	run: ({ task_args, config, invoke_task, log, host }) =>
+		run_check(
+			task_args,
+			{ map_package_json: config.map_package_json, raw_rest_args: host.raw_rest_args },
+			{ fs_paths: host.fs_paths, env: host.env, programs: host.programs, invoke_task, log }
+		)
+};
 
-		// When checking the workspace, which was added for CI, never sync.
-		// Setup like installing packages and `sveltekit-sync` should be done in the CI setup.
-		if (!workspace) {
-			if (sync || install) {
-				if (!sync) log.warn('sync is false but install is true, so ignoring the sync option');
-				await invoke_task('sync', { install, gen: false }); // never generate because `gro gen --check` runs below
-			}
+/**
+ * The data `run_check` takes beside its args.
+ */
+export interface CheckOptions {
+	map_package_json: GroConfig['map_package_json'];
+	/**
+	 * The CLI args from the first `--` on, whose `gro test` or `vitest` section asks for the tests.
+	 */
+	raw_rest_args: ReadonlyArray<string>;
+}
+
+/**
+ * What `run_check` reaches, picked from a builtin's `host` and context.
+ */
+export interface CheckDeps {
+	fs_paths: FsPaths;
+	env: Pick<Env, 'get'>;
+	programs: Pick<BuiltinPrograms<'git'>, 'find'>;
+	invoke_task: BuiltinInvokeTask<BuiltinInvokes<typeof grants>>;
+	log: Logger;
+}
+
+/**
+ * Checks that everything is ready to commit, `gro check`'s body.
+ * @param args - the task's parsed args
+ * @param options - the config's `map_package_json` and the forwarded args
+ * @param deps - the project's boundary, `CI`, git, the nested tasks, and the log
+ */
+export const run_check = async (
+	args: Args,
+	options: CheckOptions,
+	deps: CheckDeps
+): Promise<void> => {
+	const { map_package_json, raw_rest_args } = options;
+	const { fs_paths, env, programs, invoke_task, log } = deps;
+	const {
+		typecheck,
+		test,
+		gen,
+		format,
+		package_json,
+		lint,
+		build,
+		force_build,
+		sync,
+		install,
+		workspace
+	} = args;
+	const paths = create_paths(fs_paths.project.path);
+
+	// When checking the workspace, which was added for CI, never sync.
+	// Setup like installing packages and `sveltekit-sync` should be done in the CI setup.
+	if (!workspace) {
+		if (sync || install) {
+			if (!sync) log.warn('sync is false but install is true, so ignoring the sync option');
+			await invoke_task('sync', { install, gen: false }); // never generate because `gro gen --check` runs below
 		}
+	}
 
-		// Build before typechecking and tests so there can be a dependency
-		if (build) {
-			// Skip sync/gen/install since check handles those separately
-			await invoke_task('build', { sync: false, gen: false, install: false, force_build });
+	// Build before typechecking and tests so there can be a dependency
+	if (build) {
+		// Skip sync/gen/install since check handles those separately
+		await invoke_task('build', { sync: false, gen: false, install: false, force_build });
+	}
+
+	if (typecheck) {
+		await invoke_task('typecheck');
+	}
+
+	if (test) {
+		// forwarded args for the tests ask for them, so the test task decides
+		if (
+			has_forwarded_test_args(raw_rest_args, fs_paths) ||
+			(await project_has_vitest(fs_paths, log))
+		) {
+			await invoke_task('test');
+		} else {
+			const test_files = await find_test_files_or_throw(fs_paths, paths);
+			if (test_files.length > 0)
+				throw new TaskError(to_undeclared_vitest_message(test_files, paths));
+			log.info('vitest is not declared and no test files were found; skipping tests');
 		}
+	}
 
-		if (typecheck) {
-			await invoke_task('typecheck');
+	if (gen) {
+		await invoke_task('gen', { check: true });
+	}
+
+	if (package_json && map_package_json) {
+		const { changed } = await package_json_sync(fs_paths, map_package_json, log, false);
+		if (changed) {
+			throw new TaskError('package.json is out of date, run `gro sync` to update it');
+		} else {
+			log.info('check passed for package.json');
 		}
+	}
 
-		if (test) {
-			// forwarded args for the tests ask for them, so the test task decides
-			if (has_forwarded_test_args(fs_paths) || (await project_has_vitest(fs_paths, log))) {
-				await invoke_task('test');
-			} else {
-				const test_files = await find_test_files_or_throw(fs_paths);
-				if (test_files.length > 0) throw new TaskError(to_undeclared_vitest_message(test_files));
-				log.info('vitest is not declared and no test files were found; skipping tests');
-			}
+	if (format) {
+		await invoke_task('format', { check: true });
+	}
+
+	// Run the linter last to surface every other kind of problem first.
+	// It's not the ideal order when the linter would catch errors that cause failing tests,
+	// but it's better for most usage.
+	if (lint) {
+		await invoke_task('lint');
+	}
+
+	// Disallow TODO*.md files in the project root on CI.
+	if (env.get('CI') === 'true') {
+		const todo_files: Array<string> = [];
+		for await (const { name } of fs_paths.project.list()) {
+			if (name.startsWith('TODO') && name.endsWith('.md')) todo_files.push(name);
 		}
-
-		if (gen) {
-			await invoke_task('gen', { check: true });
+		todo_files.sort();
+		if (todo_files.length > 0) {
+			throw new TaskError(
+				'Found disallowed TODO*.md files in project root: ' + todo_files.join(', ')
+			);
 		}
+	}
 
-		if (package_json && config.map_package_json) {
-			const { changed } = await package_json_sync(fs_paths, config.map_package_json, log, false);
-			if (changed) {
-				throw new TaskError('package.json is out of date, run `gro sync` to update it');
-			} else {
-				log.info('check passed for package.json');
-			}
-		}
-
-		if (format) {
-			await invoke_task('format', { check: true });
-		}
-
-		// Run the linter last to surface every other kind of problem first.
-		// It's not the ideal order when the linter would catch errors that cause failing tests,
-		// but it's better for most usage.
-		if (lint) {
-			await invoke_task('lint');
-		}
-
-		// Disallow TODO*.md files in the project root on CI.
-		if (env.get('CI') === 'true') {
-			const todo_files: Array<string> = [];
-			for await (const { name } of fs_paths.project.list()) {
-				if (name.startsWith('TODO') && name.endsWith('.md')) todo_files.push(name);
-			}
-			todo_files.sort();
-			if (todo_files.length > 0) {
+	if (workspace) {
+		// only reads the local repo, so the named set is all it needs
+		const git = programs.find('git');
+		if (!git) {
+			// no git means nothing to compare against, the same as a directory that's no repo
+			log.warn(st('yellow', 'git not found on PATH, skipping the workspace check'));
+		} else {
+			const error_message = await git_check_clean_workspace(git);
+			if (error_message) {
+				log.error(st('red', 'git status'));
+				await git.run(['status']);
 				throw new TaskError(
-					'Found disallowed TODO*.md files in project root: ' + todo_files.join(', ')
+					'Failed check for git_check_clean_workspace:' +
+						error_message +
+						' - do you need to run `gro sync` or commit some files?'
 				);
-			}
-		}
-
-		if (workspace) {
-			// only reads the local repo, so the named set is all it needs
-			const git = spawn.find('git', { pass_env: GIT_LOCAL_PASS_ENV });
-			if (!git) {
-				// no git means nothing to compare against, the same as a directory that's no repo
-				log.warn(st('yellow', 'git not found on PATH, skipping the workspace check'));
-			} else {
-				const error_message = await git_check_clean_workspace(git);
-				if (error_message) {
-					log.error(st('red', 'git status'));
-					await git.run(['status']);
-					throw new TaskError(
-						'Failed check for git_check_clean_workspace:' +
-							error_message +
-							' - do you need to run `gro sync` or commit some files?'
-					);
-				}
 			}
 		}
 	}
 };
 
 // a `-- gro test` section, which can name another `dir`, or args forwarded to vitest
-const has_forwarded_test_args = (fs_paths: FsPaths): boolean => {
-	const raw_rest_args = to_raw_rest_args(args);
-	return (
-		Object.hasOwn(
-			to_forwarded_args_by_command(raw_rest_args, fs_paths.project.path),
-			to_task_command('test')
-		) || to_forwarded_argv(VITEST_CLI, raw_rest_args).length > 0
-	);
-};
+const has_forwarded_test_args = (
+	raw_rest_args: ReadonlyArray<string>,
+	fs_paths: FsPaths
+): boolean =>
+	Object.hasOwn(
+		to_forwarded_args_by_command(raw_rest_args, fs_paths.project.path),
+		to_task_command('test')
+	) || to_forwarded_argv(VITEST_CLI, raw_rest_args).length > 0;
 
-const find_test_files_or_throw = async (fs_paths: FsPaths): Promise<Array<FsSearchResult>> => {
+const find_test_files_or_throw = async (
+	fs_paths: FsPaths,
+	paths: Paths
+): Promise<Array<FsSearchResult>> => {
 	try {
 		return await find_test_files(fs_paths, paths.source);
 	} catch (error) {
@@ -198,7 +257,7 @@ const find_test_files_or_throw = async (fs_paths: FsPaths): Promise<Array<FsSear
 	}
 };
 
-const to_undeclared_vitest_message = (test_files: Array<FsSearchResult>): string => {
+const to_undeclared_vitest_message = (test_files: Array<FsSearchResult>, paths: Paths): string => {
 	const count = test_files.length;
 	const printed = test_files
 		.slice(0, TEST_FILES_PRINTED_MAX)

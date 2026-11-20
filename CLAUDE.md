@@ -64,8 +64,19 @@ errors and exit codes. Where it lives:
   ([docs](src/docs/task.md#types-for-invoke_task))
 - Fs boundary - `invoke_task` takes the root's `FsPaths` as `fs_paths` in
   `InvokeTaskOptions`, built by the CLI entry (`invoke.ts`), and `run_task`
-  passes it to the tasks a task invokes; it's never on `TaskContext`, so a task
-  that reaches fs imports the host module itself
+  passes it to the tasks a task invokes; it's never on `TaskContext`, so a
+  project task that reaches fs imports the host module itself
+- Builtin host - a builtin declares its `task.grants` (`BuiltinTaskGrants`
+  in `builtin_host.ts`: fs, env, programs, the builtins it `invokes`),
+  emitted as `GRO_BUILTIN_TASK_GRANTS` by the summaries genfile; the root's
+  `BuiltinHostRoot` (`env`, `spawn`) rides `InvokeTaskOptions` as `host_root`,
+  and `run_task` cuts it by the table (`create_builtin_host`) into the `host`
+  of a `BuiltinTaskContext`, only for a builtin, refusing an invoke its grants
+  don't name, and refusing a task with `grants` run by path or re-exported,
+  as a builtin runs only by its name; the body is a function over the task's own `*Deps`
+  ([docs](src/docs/task.md#a-builtins-host-and-grants)). On Node the cut is a
+  review signal, not an enforced boundary. A builtin with no `grants` (`null`
+  in the table) imports its host modules and gets no `host`
 - Project loader - every project file Gro loads (tasks, genfiles, `gro.config.ts`) goes
   through an `ImportModule` (`modules.ts`) taken as a parameter: `invoke_task` takes the
   root's as `import_module` in `InvokeTaskOptions`, passed down as `fs_paths` is, and the
@@ -356,8 +367,9 @@ Key utilities:
   well-known path) becomes a handle, its symlinks followed, built at a composition root with
   `create_fs_paths(fs, {cwd: cwd(), home: env.get('HOME')})` and passed down, its machinery
   in `internal/fs_boundary.ts` with `is_protected_dir` guarding every removal; library code
-  takes an `FsPaths` or a narrow handle as a parameter, and only roots (tasks, `invoke.ts`, genfiles, the default config,
-  plugin modules, the rendered `$app/env/*` shims) import `fs`, as they import the process
+  takes an `FsPaths` or a narrow handle as a parameter, and only roots (`invoke.ts`, the builtins that declare no
+  `grants`, project tasks, genfiles, the default config, plugin modules, the rendered `$app/env/*` shims) import
+  `fs`, as they import the process
   modules, one per kind of authority: `env.ts`, `args.ts`, `exit.ts` (`exit`, `set_exit_code`),
   `stdin.ts`, `stdout.ts` (with `ProcessOutput`, the type `stderr.ts` shares), `stderr.ts`,
   `cwd.ts`, `pid.ts`, `runtime_version.ts`, the two streams' implementation in
