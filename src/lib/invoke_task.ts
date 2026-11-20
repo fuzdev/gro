@@ -164,6 +164,16 @@ export const invoke_task = async (
 		log_error_reasons(log, [error.message]);
 		throw new ReportedError();
 	}
+	// a forwarded `--help` would print the task's help in place of its run, and the step would pass,
+	// a guardrail against a slip like the one each builtin's tool section has
+	if (forwarded.help) {
+		const command = to_task_command(task.name);
+		log_error_reasons(log, [
+			`\`--help\` forwarded to \`${command}\` asks it for its help, not a run, ` +
+				`so the step could pass without one - run \`${command} --help\``
+		]);
+		throw new ReportedError();
+	}
 
 	// the graph loads lazily, so a task that never uses it never loads chokidar
 	const owns_graph = !initial_graph;

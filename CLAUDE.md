@@ -52,7 +52,9 @@ errors and exit codes. Where it lives:
   `invoke_task` (`gro test --a 1 -- gro test --a 2` → `{a: 2}`). The functions
   take the CLI args after the CLI's own path (`args`, from `args.ts`), and a root or
   `invoke_task`'s `raw_rest_args` option passes them, every task's `TaskContext`
-  holding a frozen copy as its `raw_rest_args`
+  holding a frozen copy as its `raw_rest_args`; each builtin refuses its tool's exact help and
+  version flags where it reads the tool's section (`internal/forwarded_info_flags.ts`), and
+  `invoke_task` a forwarded `gro` section's `--help`
 - Exit code - `to_exit_code` in `invoke.ts` reads a `TaskError`'s `exit_code`
   (how `gro run` passes on its script's code) from the CLI-invoked task's
   failure

@@ -11,6 +11,14 @@ import { VITE_CLI } from './constants.ts';
 import type { Plugin } from './plugin.ts';
 import { spawn, type SpawnChild } from './spawn.ts';
 import { TaskError } from './task_error.ts';
+import { assert_no_forwarded_info_flag } from './internal/forwarded_info_flags.ts';
+
+// Vite ignores a version flag after the command Gro gives it, so only help is refused
+const to_vite_forwarded_argv = (): Array<string> => {
+	const forwarded_argv = to_forwarded_argv(VITE_CLI, to_raw_rest_args(args));
+	assert_no_forwarded_info_flag(VITE_CLI, forwarded_argv, false);
+	return forwarded_argv;
+};
 
 export const gro_plugin_sveltekit_app = (): Plugin => {
 	let sveltekit_process: SpawnChild | undefined = undefined;
@@ -26,7 +34,7 @@ export const gro_plugin_sveltekit_app = (): Plugin => {
 			if (dev) {
 				// `vite dev` in development mode
 				if (watch) {
-					const serialized_args = ['dev', ...to_forwarded_argv(VITE_CLI, to_raw_rest_args(args))];
+					const serialized_args = ['dev', ...to_vite_forwarded_argv()];
 					sveltekit_process = await spawn_cli_process(found_vite_cli, serialized_args, log);
 				} else {
 					log.debug(
@@ -36,7 +44,7 @@ export const gro_plugin_sveltekit_app = (): Plugin => {
 				}
 			} else {
 				// `vite build` in production mode
-				const serialized_args = ['build', ...to_forwarded_argv(VITE_CLI, to_raw_rest_args(args))];
+				const serialized_args = ['build', ...to_vite_forwarded_argv()];
 				const result = await spawn_cli(found_vite_cli, serialized_args, log);
 				if (!spawn_result_is_ok(result)) {
 					throw new TaskError(`${VITE_CLI} build failed: ${to_spawn_result_message(result)}`);

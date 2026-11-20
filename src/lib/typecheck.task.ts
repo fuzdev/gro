@@ -4,6 +4,7 @@ import type { Logger } from '@fuzdev/fuz_util/log.ts';
 import { plural } from '@fuzdev/fuz_util/string.ts';
 
 import { has_forwarded_flag, to_forwarded_argv } from './task_args.ts';
+import { assert_no_forwarded_info_flag } from './internal/forwarded_info_flags.ts';
 import type { ProcessOutput } from './stdout.ts';
 import { configure_colored_output_with_path_replacement } from './child_process_logging.ts';
 import {
@@ -133,6 +134,7 @@ export const run_typecheck = async (
 			throw new TaskError(`${SVELTE_CHECK_CLI} is a dependency but not installed; run \`npm i\`?`);
 		}
 		const forwarded_argv = to_forwarded_argv(SVELTE_CHECK_CLI, raw_rest_args);
+		assert_no_forwarded_info_flag(SVELTE_CHECK_CLI, forwarded_argv, true);
 		const svelte_check_child = await spawn_cli_process(
 			found_svelte_check_cli,
 			forwarded_argv,
@@ -172,6 +174,7 @@ export const run_typecheck = async (
 		throw new TaskError(`${TYPESCRIPT_DEP_NAME} is a dependency but not installed; run \`npm i\`?`);
 	}
 	const forwarded_argv = to_forwarded_argv(TYPESCRIPT_CLI, raw_rest_args);
+	assert_no_forwarded_info_flag(TYPESCRIPT_CLI, forwarded_argv, true);
 	// tsc's flags are case-insensitive, so a forwarded `--noemit` overrides too,
 	// and `--noEmit` goes last because `--build` must be tsc's first arg
 	const tsc_argv = has_forwarded_flag(forwarded_argv, 'noEmit', true)

@@ -135,3 +135,23 @@ describe('the checkers', () => {
 		expect(calls[0]!.program_options).toEqual({ pass_env: 'all', env: { FORCE_COLOR: '1' } });
 	});
 });
+
+test('a forwarded help or version flag is refused before either checker runs', async () => {
+	for (const [found, flag] of [
+		['svelte-check', '-h'],
+		['svelte-check', '--version'],
+		['tsc', '--help'],
+		['tsc', '-v']
+	] as const) {
+		await find_only(found);
+		await expect(
+			task.run(
+				await create_mock_builtin_context(task, ARGS, {
+					name: 'typecheck',
+					cli_args: ['typecheck', '--', found, flag]
+				})
+			)
+		).rejects.toThrow(`\`${flag}\` forwarded to ${found} asks it for its `);
+	}
+	expect((await get_mock_spawn()).calls).toHaveLength(0);
+});

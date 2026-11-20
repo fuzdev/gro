@@ -3,6 +3,7 @@ import { meta } from '@fuzdev/fuz_schema/meta.ts';
 import type { Logger } from '@fuzdev/fuz_util/log.ts';
 
 import { to_forwarded_argv } from './task_args.ts';
+import { assert_no_forwarded_info_flag } from './internal/forwarded_info_flags.ts';
 import { spawn_cli, spawn_result_is_ok, to_spawn_result_message } from './cli.ts';
 import { VITEST_CLI } from './constants.ts';
 import { create_paths } from './paths.ts';
@@ -99,6 +100,13 @@ export const run_test = async (args: Args, options: TestOptions, deps: TestDeps)
 		throw new TaskError('vitest is a dependency but not installed; run `npm i`?');
 	}
 
+	// `gro test -- --watch` when the CLI invoked `test`, and `-- vitest --watch` at any depth;
+	// Vitest ignores a version flag after `run`, so only help is refused
+	const implicit_argv = implicit_rest_args[0] === VITEST_CLI ? [] : implicit_rest_args;
+	const forwarded_argv = to_forwarded_argv(VITEST_CLI, raw_rest_args);
+	assert_no_forwarded_info_flag(VITEST_CLI, implicit_argv, false);
+	assert_no_forwarded_info_flag(VITEST_CLI, forwarded_argv, false);
+
 	const vitest_args = ['run', ...patterns];
 	if (dir) {
 		vitest_args.push('--dir', dir);
@@ -109,9 +117,7 @@ export const run_test = async (args: Args, options: TestOptions, deps: TestDeps)
 	if (t) {
 		vitest_args.push('-t', t);
 	}
-	// `gro test -- --watch` when the CLI invoked `test`, and `-- vitest --watch` at any depth
-	if (implicit_rest_args[0] !== VITEST_CLI) vitest_args.push(...implicit_rest_args);
-	vitest_args.push(...to_forwarded_argv(VITEST_CLI, raw_rest_args));
+	vitest_args.push(...implicit_argv, ...forwarded_argv);
 
 	const result = await spawn_cli(vitest, vitest_args);
 	if (!spawn_result_is_ok(result)) {

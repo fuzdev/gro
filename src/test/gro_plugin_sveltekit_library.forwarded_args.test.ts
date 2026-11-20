@@ -58,3 +58,19 @@ describe('gro_plugin_sveltekit_library forwarded output', () => {
 		expect(await to_rewritten_dir(null)).toBe('dist');
 	});
 });
+
+test('a forwarded help or version flag is refused before `svelte-package` runs', async () => {
+	const { run_svelte_package } = vi.mocked(await import('#lib/sveltekit_helpers.ts'));
+	for (const flag of ['-h', '--version']) {
+		set_mock_args(['build', '--', 'svelte-package', flag]);
+		const ctx = {
+			...create_mock_task_context(),
+			dev: false,
+			watch: false
+		} as unknown as PluginContext;
+		await expect(gro_plugin_sveltekit_library().setup!(ctx)).rejects.toThrow(
+			`\`${flag}\` forwarded to svelte-package asks it for its `
+		);
+	}
+	expect(run_svelte_package).not.toHaveBeenCalled();
+});

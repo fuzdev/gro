@@ -66,3 +66,18 @@ test("ESLint gets its own section, not another tool's", async () => {
 	expect(calls[0]!.name).toBe('node_modules/.bin/eslint');
 	expect(calls[0]!.args).toEqual(['--max-warnings', '0', '--y']);
 });
+
+test('a forwarded help or version flag is refused before ESLint runs', async () => {
+	for (const flag of ['--help', '-v']) {
+		await expect(
+			task.run(
+				await create_mock_builtin_context(
+					task,
+					{ _: [] },
+					{ name: 'lint', cli_args: ['lint', '--', 'eslint', '--cache', flag] }
+				)
+			)
+		).rejects.toThrow(`\`${flag}\` forwarded to eslint asks it for its `);
+	}
+	expect((await get_mock_spawn()).calls).toHaveLength(0);
+});

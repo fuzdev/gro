@@ -530,6 +530,18 @@ as `tsc --build` must come first.
 A literal `--` can't be forwarded, because it separates the sections
 (except to [`gro run`](#gro-run)'s script).
 
+A builtin refuses its tool's help and version flags in the section it reads,
+as the tool would print them in place of running and the step would pass:
+`gro check -- eslint --help` fails naming `eslint --help` to run directly.
+`lint` refuses `--help`, `-h`, `--version`, and `-v` in the `-- eslint` section,
+`typecheck` in its `-- svelte-check` and `-- tsc` ones, and the SvelteKit library plugin in `-- svelte-package`;
+`test` (in its `-- vitest` section and its first one) and the SvelteKit app plugin (in `-- vite`)
+refuse only `--help` and `-h`, as Vitest and Vite ignore a version flag after the command Gro gives them.
+A `gro` section's `--help`, like `-- gro lint --help`, is refused naming `gro lint --help`.
+This is a guardrail against slips, not a complete check: only those whole args are matched,
+so a spelling like `--help=x` or `-hv` still reaches the tool,
+and a section only a project task reads, like one for `rg`, where `-v` inverts the match, is its own.
+
 `gro test` also forwards to `vitest` the first section, unless it starts with `gro`
 or the tool's own name (`vitest`), only up to the next `--`,
 and only when the CLI invoked `gro test` directly or the task invoking it passes it on purpose:

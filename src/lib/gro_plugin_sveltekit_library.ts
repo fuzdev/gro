@@ -12,6 +12,7 @@ import { cwd } from './cwd.ts';
 import { env } from './env.ts';
 import { spawn } from './spawn.ts';
 import { format_error_detail } from './error_detail.ts';
+import { assert_no_forwarded_info_flag } from './internal/forwarded_info_flags.ts';
 
 export interface GroPluginSveltekitLibraryOptions {
 	/**
@@ -50,6 +51,7 @@ export const gro_plugin_sveltekit_library = ({
 			if (!dev) {
 				const package_json = await package_json_load(fs_paths);
 				const forwarded_argv = to_forwarded_argv(SVELTE_PACKAGE_CLI, to_raw_rest_args(args));
+				assert_no_forwarded_info_flag(SVELTE_PACKAGE_CLI, forwarded_argv, true);
 				await run_svelte_package(fs_paths, spawn, {
 					package_json,
 					svelte_package_options,

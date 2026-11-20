@@ -49,6 +49,7 @@ const PACKAGE_MODULES = [
 	'internal/env_name.ts',
 	'internal/error_class.ts',
 	'internal/error_report.ts',
+	'internal/forwarded_info_flags.ts',
 	'internal/fs_boundary.ts',
 	'internal/fs_handles.ts',
 	'internal/posix_path.ts',

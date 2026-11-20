@@ -3,6 +3,7 @@ import { meta } from '@fuzdev/fuz_schema/meta.ts';
 import type { Logger } from '@fuzdev/fuz_util/log.ts';
 
 import { has_forwarded_flag, to_forwarded_argv } from './task_args.ts';
+import { assert_no_forwarded_info_flag } from './internal/forwarded_info_flags.ts';
 import { spawn_cli, spawn_result_is_ok, to_spawn_result_message } from './cli.ts';
 import { TaskError } from './task_error.ts';
 import { ESLINT_CLI } from './constants.ts';
@@ -80,6 +81,7 @@ export const run_lint = async (args: Args, options: LintOptions, deps: LintDeps)
 
 	// the forwarded text goes verbatim after Gro's own args, which drop what it overrides
 	const forwarded_argv = to_forwarded_argv(ESLINT_CLI, options.raw_rest_args);
+	assert_no_forwarded_info_flag(ESLINT_CLI, forwarded_argv, true);
 	const serialized_args = [..._];
 	if (!has_forwarded_flag(forwarded_argv, 'max-warnings')) {
 		serialized_args.push('--max-warnings', '0');

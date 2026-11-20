@@ -533,6 +533,16 @@ describe('to_raw_rest_args', () => {
 	});
 });
 
+test("a section's help and version flags reach a project task's tool, never refused here", () => {
+	// a project task forwarding to `rg`, where `-v` inverts the match
+	const raw_rest_args = to_raw_rest_args(['task', 'src/lib/x.task.ts', '--', 'rg', '-v', 'foo']);
+	expect(raw_rest_args).toEqual(['--', 'rg', '-v', 'foo']);
+	expect(to_forwarded_argv('rg', raw_rest_args)).toEqual(['-v', 'foo']);
+	expect(
+		to_implicit_rest_args(to_raw_rest_args(['task', 'x.task.ts', '--', '-h', '--help']))
+	).toEqual(['-h', '--help']);
+});
+
 describe('to_forwarded_args', () => {
 	test('returns args for a gro task command', () => {
 		const raw_rest_args = to_raw_rest_args('check -- gro test --fix'.split(' '));

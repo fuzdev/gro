@@ -176,6 +176,52 @@ describe('invoke_task forwarded args', () => {
 		]);
 	});
 
+	test("a `gro` section's `--help` is refused, naming the task's own help, and the task never runs", async () => {
+		for (const [cli_args, message] of [
+			[
+				['check', '--', 'gro', 'check', '--help'],
+				'`--help` forwarded to `gro check` asks it for its help, not a run, ' +
+					'so the step could pass without one - run `gro check --help`'
+			],
+			[
+				['check', '--', 'gro', 'task', './src/lib/check.task.ts', '--help=x'],
+				'`--help` forwarded to `gro task src/lib/check.task.ts` asks it for its help, not a run, ' +
+					'so the step could pass without one - run `gro task src/lib/check.task.ts --help`'
+			]
+		] as const) {
+			const task_name = cli_args[3] === 'task' ? cli_args[4] : 'check';
+			await expect(
+				invoke_task(task_name, undefined, {
+					config: {} as unknown as GroConfig,
+					fs_paths,
+					raw_rest_args: to_raw_rest_args(cli_args),
+					import_module: import_module_node,
+					host_root: create_throwing_builtin_host_root(),
+					graph: create_mock_module_graph()
+				})
+			).rejects.toBeInstanceOf(ReportedError);
+			expect(vi.mocked(log_error_reasons).mock.calls.at(-1)![1]).toEqual([message]);
+		}
+		expect(vi.mocked(run_task)).not.toHaveBeenCalled();
+	});
+
+	test("a `gro` section's `--no-help` and a direct `--help` aren't refused", async () => {
+		for (const [args, cli_args] of [
+			[{}, ['check', '--', 'gro', 'check', '--no-help']],
+			[{ help: true }, ['check', '--help']]
+		] as const) {
+			await invoke_task('check', args, {
+				config: {} as unknown as GroConfig,
+				fs_paths,
+				raw_rest_args: to_raw_rest_args(cli_args),
+				import_module: import_module_node,
+				host_root: create_throwing_builtin_host_root(),
+				graph: create_mock_module_graph()
+			});
+		}
+		expect(vi.mocked(run_task)).toHaveBeenCalledTimes(2);
+	});
+
 	test("a tool section is never parsed, so a malformed one doesn't fail a task", async () => {
 		const raw_rest_args = to_raw_rest_args([
 			'check',

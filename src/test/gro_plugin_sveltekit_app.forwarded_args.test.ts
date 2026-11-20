@@ -40,3 +40,23 @@ describe('gro_plugin_sveltekit_app forwarded args', () => {
 		expect(calls[0]!.program_options).toEqual({ pass_env: 'all' });
 	});
 });
+
+test('a forwarded help flag is refused for `vite dev` and `vite build`, a version flag left to vite', async () => {
+	for (const dev of [true, false]) {
+		set_mock_args([dev ? 'dev' : 'build', '--', 'vite', '--help']);
+		const ctx = { ...create_mock_task_context(), dev, watch: true } as unknown as PluginContext;
+		await expect(gro_plugin_sveltekit_app().setup!(ctx)).rejects.toThrow(
+			'`--help` forwarded to vite asks it for its help'
+		);
+	}
+	expect((await get_mock_spawn()).calls).toHaveLength(0);
+	// Vite ignores a version flag after the command Gro gives it
+	set_mock_args(['build', '--', 'vite', '-v']);
+	const ctx = {
+		...create_mock_task_context(),
+		dev: false,
+		watch: true
+	} as unknown as PluginContext;
+	await gro_plugin_sveltekit_app().setup!(ctx);
+	expect((await get_mock_spawn()).calls[0]!.args).toEqual(['build', '-v']);
+});

@@ -117,3 +117,34 @@ describe('test task forwarded args', () => {
 test("`dir` defaults to the working directory's `src/`", () => {
 	expect(s.parse_or_throw(Args, {}).dir).toBe(create_paths(cwd()).source);
 });
+
+describe('test task help and version flags', () => {
+	const run_cli = async (cli: Array<string>): Promise<unknown> => {
+		try {
+			await run_test(cli);
+			return null;
+		} catch (error) {
+			return error;
+		}
+	};
+
+	test('a help flag for vitest is refused, in its section or the implicit one', async () => {
+		for (const cli of [
+			['test', '--', 'vitest', '--help'],
+			// a filter before it names no tool, the args all being Vitest's
+			['test', '--', 'foo', '-h']
+		]) {
+			const error = await run_cli(cli);
+			expect(is_task_error(error) && error.message).toMatch(
+				/^`-?-h(elp)?` forwarded to vitest asks/
+			);
+		}
+		expect((await get_mock_spawn()).calls).toHaveLength(0);
+	});
+
+	test('a version flag after `run` is left to vitest, which ignores it and runs the tests', async () => {
+		expect(await run_test(['test', '--', 'vitest', '--version'])).toEqual(['--version']);
+		(await get_mock_spawn()).reset();
+		expect(await run_test(['test', '--', '-v'])).toEqual(['-v']);
+	});
+});
