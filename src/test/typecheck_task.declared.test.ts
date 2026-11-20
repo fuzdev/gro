@@ -82,7 +82,7 @@ test('svelte-check undeclared with Svelte files fails naming them and the fix, r
 	assert_task_error(
 		error,
 		"found 2 Svelte files in src but svelte-check isn't declared in package.json: " +
-			'src/lib/A.svelte, src/routes/+page.svelte - add svelte-check to devDependencies'
+			'src/lib/A.svelte, src/routes/+page.svelte - add svelte-check to devDependencies, remove the Svelte files, or pass --no-typecheck to gro check'
 	);
 	// neither checker is looked up, so one found on `PATH` never runs
 	assert.deepEqual(finds, []);
@@ -96,7 +96,7 @@ test('svelte-check only peered counts as undeclared', async () => {
 	assert_task_error(
 		error,
 		"found 1 Svelte file in src but svelte-check isn't declared in package.json: " +
-			'src/A.svelte - add svelte-check to devDependencies'
+			'src/A.svelte - add svelte-check to devDependencies, remove the Svelte files, or pass --no-typecheck to gro check'
 	);
 });
 

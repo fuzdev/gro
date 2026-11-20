@@ -414,8 +414,16 @@ and then `gro check` fails naming it; `gro check --no-lint` skips the step witho
 svelte-check runs when it's declared, and a nonempty `-- tsc` section then fails, as tsc doesn't run;
 else a nonempty `-- svelte-check` section fails,
 as it asks for svelte-check, and when the project's `src/` has `.svelte` files,
-which only svelte-check checks, it fails naming them;
+which only svelte-check checks, it fails naming them and the fixes
+(add svelte-check to devDependencies, remove the files, or pass `--no-typecheck` to `gro check`);
 otherwise tsc runs when `typescript` is declared, and with neither declared it fails saying what to add.
+The search for `.svelte` files skips what TypeScript's wildcards skip, a name starting with `.`
+and `node_modules`, `bower_components`, and `jspm_packages`, and follows symlinks
+as svelte-check does with a tsconfig, through TypeScript's directory reads:
+out of the project too, a link to a file counting by its own name, one that doesn't resolve skipped,
+and each real directory searched once; a directory it can't read fails the step.
+The test files' search follows them as Vitest does
+([test](./test.md#when-vitest-isnt-declared)).
 A declared checker not installed in the project's `node_modules/.bin` fails with the install hint.
 `gro check` always runs its typecheck step, so a project with no checker declared fails there,
 where its test and lint steps would be skipped; `gro check --no-typecheck` turns the step off.

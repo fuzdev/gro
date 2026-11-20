@@ -231,6 +231,6 @@ const to_undeclared_svelte_check_message = (
 		`found ${count} Svelte file${plural(count)} in ${to_root_path(source_dir, root)} but ${SVELTE_CHECK_CLI} isn't declared in package.json: ` +
 		printed.join(', ') +
 		(unprinted > 0 ? ` and ${unprinted} more` : '') +
-		` - add ${SVELTE_CHECK_CLI} to devDependencies`
+		` - add ${SVELTE_CHECK_CLI} to devDependencies, remove the Svelte files, or pass --no-typecheck to gro check`
 	);
 };
