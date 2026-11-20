@@ -383,12 +383,15 @@ Key utilities:
   on Node and the native crate on `fgro`, grant-free ([docs](src/docs/host_modules.md#blake3))
 - Network: `net.ts`, the net host module, `net.fetch` and `narrow` bound to hosts, following redirects itself so each `Location` is checked; `net_error.ts`, its `NetError` and `is_net_error`, grant-free ([docs](src/docs/host_modules.md#net))
 - Watch: `watch.ts`, the watch host module, `watch.dir(handle, {recursive, signal, max_pending})` resolving, once the watch is in place, to a `Watcher`, an async iterable of `add`/`update`/`delete`/`rescan` events with paths relative to the handle, symlinks never followed, buffered to `max_pending`, over chokidar imported on first call and apart from the Filer's `internal/watch_dir.ts`; its errors are `FsError` ([docs](src/docs/host_modules.md#watch))
-- Package modules: `fs_paths.ts`, `git.ts`, and `task_error.ts` load as a package on `fgro`, where
-  `src/lib`'s relative imports of its host modules would load the Node files: their static
-  closure holds no `node:` builtin and no host module's Node file, beside the grant-free error
-  modules, and they read nothing of the process when they load, as
-  `src/test/package_module_closure.test.ts` holds (`PACKAGE_MODULES`); paths there are text
-  through `internal/posix_path.ts`, and color through fuz_util's `st`, which `invoke.ts` configures
+- Package modules: the library modules that load as a package on `fgro` (`fs_paths.ts`, `git.ts`,
+  `task.ts`, `paths.ts`, `modules.ts`, and the rest of `PACKAGE_MODULES`), where `src/lib`'s
+  relative imports of its host modules would load the Node files: their static closure holds no
+  `node:` builtin and no host module's Node file, beside the grant-free error modules, and they
+  read nothing of the process when they load, as `src/test/package_module_closure.test.ts` holds;
+  paths there are text through `internal/posix_path.ts`, and color through fuz_util's `st`, which
+  `invoke.ts` configures. The same test sorts every module `invoke.ts` reaches into those, the
+  roots, the host modules, the Node-only machinery, and the exceptions still reaching Node, each
+  with what it reaches
 - Git: `git.ts`, library code over a `git` `SpawnProgram` a root builds with `to_git_program`;
   a read of the local repo captures with `out`, anything that may prompt uses `run` (or `out` with
   `stdin: 'inherit'` when its output is needed), a caller's

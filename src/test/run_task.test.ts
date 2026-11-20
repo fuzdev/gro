@@ -275,6 +275,7 @@ test('run_task passes the graph to the task, and it and `fs_paths` to the tasks 
 	assert.strictEqual(ctx.graph, graph);
 	assert.ok(!('fs_paths' in ctx));
 	assert.ok(!('raw_rest_args' in ctx));
+	assert.ok(!('import_module' in ctx));
 	expect(invoke_task).toHaveBeenNthCalledWith(1, 'other', undefined, {
 		config,
 		fs_paths,
