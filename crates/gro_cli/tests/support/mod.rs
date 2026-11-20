@@ -7,13 +7,14 @@
 #![expect(clippy::unwrap_used, reason = "a test's setup fails by panicking")]
 #![expect(clippy::panic, reason = "a hung child fails its test by panicking")]
 
+use std::fs::{File, FileTimes};
 use std::io::{BufRead as _, BufReader, Read, Write as _};
 use std::ops::{Deref, DerefMut};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Output, Stdio};
 use std::sync::mpsc::Receiver;
 use std::thread::JoinHandle;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 /// The binary under test.
 pub const FGRO: &str = env!("CARGO_BIN_EXE_fgro");
@@ -314,6 +315,16 @@ impl Scratch {
     /// Sets the mode of `path`, relative to the directory.
     pub fn set_mode(&self, path: &str, mode: u32) {
         set_mode(&self.0.join(path), mode);
+    }
+
+    /// Sets the access and modification times of the file at `path`,
+    /// relative to the directory, to `time`.
+    pub fn set_times(&self, path: &str, time: SystemTime) {
+        let times = FileTimes::new().set_accessed(time).set_modified(time);
+        File::open(self.0.join(path))
+            .unwrap()
+            .set_times(times)
+            .unwrap();
     }
 }
 

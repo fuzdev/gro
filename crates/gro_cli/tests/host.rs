@@ -50,6 +50,7 @@ mod support;
 use std::collections::BTreeSet;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
+use std::time::{Duration, UNIX_EPOCH};
 
 use gro_runtime::resolver::BUILTINS;
 use serde_json::Value;
@@ -561,7 +562,11 @@ const PATCHED_FILES: [&str; 7] = [
 /// builtin table, `modules.js`, importing every row's namespace with its
 /// exports, each marked when its value is the process's own, and
 /// `names.js`, the names to trap; and `skips.js`, the calls to skip, none
-/// ([`write_skips`]).
+/// ([`skips_module`]). Its `package.json` has a name, so it's no type
+/// marker and the project is its own root wherever the target's temporary
+/// directory lies, never a project above it. Each file's times are
+/// [`PROJECT_FILE_TIME`], so a file's `stat` shows the same in two such
+/// projects however far apart they're made.
 fn patched_project(name: &str) -> Scratch {
     let fixtures = fixtures().join("patched");
     let fixture = |file: &str| std::fs::read_to_string(fixtures.join(file)).unwrap();
@@ -595,7 +600,10 @@ fn patched_project(name: &str) -> Scratch {
     let sources = PATCHED_FILES.map(fixture);
     let skips = skips_module(&[]);
     let mut files = vec![
-        ("package.json", "{\"type\": \"module\"}\n"),
+        (
+            "package.json",
+            "{\"name\": \"patched\", \"type\": \"module\"}\n",
+        ),
         ("w/.keep", ""),
         ("bin/tool", "#!/bin/sh\nexit 0\n"),
         ("modules.js", modules.as_str()),
@@ -609,8 +617,21 @@ fn patched_project(name: &str) -> Scratch {
     );
     let project = Scratch::new(name, &files);
     project.set_mode("bin/tool", 0o755);
+    for (file, _) in &files {
+        project.set_times(file, UNIX_EPOCH + PROJECT_FILE_TIME);
+    }
     project
 }
+
+/// The access and modification times of every file [`patched_project`]
+/// makes, past the epoch, with a fraction of a millisecond, which the
+/// file's `mtime_ms` shows as [`PROJECT_FILE_MTIME_MS`]. A file's times are
+/// the kernel's coarse clock when it's written, a tick apart in two
+/// projects made across one.
+const PROJECT_FILE_TIME: Duration = Duration::new(1_700_000_000, 123_250_000);
+
+/// [`PROJECT_FILE_TIME`] as a `stat`'s `mtime_ms` is shown.
+const PROJECT_FILE_MTIME_MS: &str = "mtime_ms [ecw]: number 1700000000123.25;";
 
 /// The module naming the calls a run skips, `ended`: the ones an earlier
 /// run of the same entry ended the process in.
@@ -876,7 +897,9 @@ fn run_past_ends(project: &Scratch, entry: &str) -> (Reports, Vec<(String, i32)>
 /// run it cut short reported no trap and no touch before it ended; any
 /// other call that ends a run fails here. Each run has a project of its own, so what a
 /// builtin's function did to one's files the other doesn't find, and a
-/// path under it is shown as `{project}`.
+/// path under it is shown as `{project}`; their files have the same times
+/// ([`PROJECT_FILE_TIME`]), which a `stat` of the project's `package.json`
+/// shows in both.
 #[test]
 fn every_builtin_is_the_same_in_a_patched_realm_and_uses_none_of_it() {
     for (specifier, export) in PER_PROCESS {
@@ -905,6 +928,15 @@ fn every_builtin_is_the_same_in_a_patched_realm_and_uses_none_of_it() {
     assert_reviewed_traps(&patched.traps(), true);
     let lines = plain.lines(&plain_dir);
     assert_eq!(patched.lines(&patched_dir), lines);
+    // a `stat` shows the file's own times, the same in both projects
+    for call in [
+        "stat_sync(arguments 1): returned",
+        "stat(arguments 1) settled: fulfilled",
+    ] {
+        let stat = format!("@fuzdev/gro/fs.ts fs.project.{call} ");
+        let shown = |line: &String| line.starts_with(&stat) && line.contains(PROJECT_FILE_MTIME_MS);
+        assert!(lines.iter().any(shown), "{stat}: {lines:?}");
+    }
     // the two projects are two directories, which a row that shows one tells apart
     assert_ne!(patched.strings("line"), plain.strings("line"));
     // a run a call ended used nothing before it did: its traps reported as they fired
@@ -3801,7 +3833,7 @@ fn fs_reads_refuse_a_fifo_at_once() {
     command.env_clear().current_dir(&project.0);
     let started = std::time::Instant::now();
     let output = spawn(command, b"");
-    assert!(started.elapsed() < std::time::Duration::from_secs(20));
+    assert!(started.elapsed() < Duration::from_secs(20));
     drop(held);
     assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
     assert_eq!(output.status.code(), Some(0));
