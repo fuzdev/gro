@@ -2,7 +2,6 @@ import { map_concurrent } from '@fuzdev/fuz_util/async.ts';
 import type { Logger } from '@fuzdev/fuz_util/log.ts';
 import type { PathFilter } from '@fuzdev/fuz_util/path.ts';
 import { isAbsolute, join, matchesGlob, relative, resolve } from 'node:path';
-import { IgnoreStack } from '@fuzdev/tsv';
 
 import { GRO_CONFIG_FILENAME, VITE_CONFIG_FILENAMES } from './constants.ts';
 import { format_file } from './format_file.ts';
@@ -10,6 +9,7 @@ import { to_search_filters_relative } from './paths.ts';
 import type { FsDir } from './fs.ts';
 import { is_fs_error } from './fs_error.ts';
 import { fs_search } from './fs_search.ts';
+import { create_ignore_stack } from './tsv.ts';
 import type { FsPaths } from './fs_paths.ts';
 import { format_error_detail } from './error_detail.ts';
 
@@ -186,7 +186,7 @@ export type FormatIgnore = (id: string) => boolean;
 /**
  * Reads the root's ignore file into a matcher of gitignore-style patterns,
  * with tsv's shadowing rule: `.formatignore`, or where the root has none, `.prettierignore`.
- * Only the root's ignore files are read, in a git repo or out of one. The patterns are anchored at the root, as tsv's `IgnoreStack` matches them:
+ * Only the root's ignore files are read, in a git repo or out of one. The patterns are anchored at the root, as the tsv host module's ignore stack matches them:
  * a pattern with no `/` matches at any depth, a pattern with `/` is anchored to the root,
  * a directory pattern skips everything beneath it, and `!` re-includes. A file outside
  * the root is never skipped, and no ignore file skips nothing.
@@ -202,7 +202,7 @@ export const read_format_ignore = async (
 		const opened = await fs_paths.open_path(resolve(root, name));
 		return opened.dir.read_text_if_exists(opened.path);
 	};
-	const stack = new IgnoreStack();
+	const stack = create_ignore_stack();
 	const formatignore = await read(FORMATIGNORE_FILENAME);
 	if (formatignore !== null) {
 		stack.push_formatignore('', formatignore);

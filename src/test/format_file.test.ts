@@ -1,8 +1,7 @@
 import { test, expect, assert } from 'vitest';
 
-import type { FormatError } from '@fuzdev/tsv';
-
 import { format_file } from '#lib/format_file.ts';
+import type { TsvError } from '#lib/tsv.ts';
 
 test('format ts', () => {
 	const ts_unformatted = 'hey (1)';
@@ -54,7 +53,7 @@ test('invalid source throws with the located frame', () => {
 		error = err;
 	}
 	assert(error instanceof Error);
-	const cause = error.cause as FormatError;
+	const cause = error.cause as TsvError;
 	assert.strictEqual(error.message, `${cause.message}\n${cause.frame}`);
 	assert.strictEqual(cause.kind, 'parse');
 });

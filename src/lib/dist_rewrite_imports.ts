@@ -1,11 +1,11 @@
 import { map_concurrent } from '@fuzdev/fuz_util/async.ts';
 import type { Logger } from '@fuzdev/fuz_util/log.ts';
-import { parse_imports_svelte, parse_imports_typescript } from '@fuzdev/tsv';
 
 import { SVELTE_SCRIPT_MATCHER, SVELTEKIT_DIST_DIRNAME } from './constants.ts';
 import { fs_search } from './fs_search.ts';
 import type { FsPaths } from './fs_paths.ts';
 import { posix_resolve } from './internal/posix_path.ts';
+import { parse_imports_svelte, parse_imports_typescript } from './tsv.ts';
 
 /*
 

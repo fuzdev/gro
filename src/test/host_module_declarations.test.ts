@@ -26,7 +26,7 @@ because it isn't on the list.
 
 // each host module with its error module, apart from it so matching an error grants nothing;
 // `watch.ts` throws `FsError`, the three stdio modules share `stdio_error.ts`, and `args.ts`,
-// `exit.ts`, `cwd.ts`, `pid.ts`, `runtime_version.ts`, and `blake3.ts` throw none of their own
+// `exit.ts`, `cwd.ts`, `pid.ts`, `runtime_version.ts`, `blake3.ts`, and `tsv.ts` throw none of their own
 const HOST_MODULES = [
 	'fs.ts',
 	'fs_error.ts',
@@ -44,6 +44,7 @@ const HOST_MODULES = [
 	'pid.ts',
 	'runtime_version.ts',
 	'blake3.ts',
+	'tsv.ts',
 	'net.ts',
 	'net_error.ts',
 	'watch.ts'

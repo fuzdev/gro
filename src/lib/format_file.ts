@@ -1,9 +1,10 @@
-import { format_css, format_svelte, format_typescript, type FormatResult } from '@fuzdev/tsv';
 import { extname } from 'node:path';
+
+import { format_css, format_svelte, format_typescript, type TsvFormatResult } from './tsv.ts';
 
 /**
  * The source languages Gro can format in-process, backed by
- * `@fuzdev/tsv` (`typescript`/`svelte`/`css`) plus a builtin `json`
+ * the tsv host module (`typescript`/`svelte`/`css`) plus a builtin `json`
  * formatter. Anything else passes through unchanged.
  */
 export type FormatLang = 'typescript' | 'svelte' | 'css' | 'json';
@@ -44,7 +45,7 @@ export const format_file = (content: string, options: FormatFileOptions = {}): s
  * Unwraps a tsv format result, throwing its error with the excerpt and caret
  * under the one-line message, as the `tsv` CLI prints it.
  */
-const unwrap_format_result = (result: FormatResult): string => {
+const unwrap_format_result = (result: TsvFormatResult): string => {
 	if (result.ok) return result.code;
 	const { error } = result;
 	throw new Error(`${error.message}\n${error.frame}`, { cause: error });

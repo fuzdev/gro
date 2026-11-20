@@ -1,14 +1,14 @@
-import {
-	parse_imports_svelte,
-	parse_imports_typescript,
-	type ImportsResult,
-	type TsvParseError
-} from '@fuzdev/tsv';
 import type { Flavored } from '@fuzdev/fuz_schema/schema.ts';
 import type { Result } from '@fuzdev/fuz_util/result.ts';
 import type { PathId } from '@fuzdev/fuz_util/path.ts';
 
 import { JS_MATCHER, TS_MATCHER, SVELTE_MATCHER } from '../constants.ts';
+import {
+	parse_imports_svelte,
+	parse_imports_typescript,
+	type TsvError,
+	type TsvImportsResult
+} from '../tsv.ts';
 
 export type ImportSpecifier = Flavored<string, 'ImportSpecifier'>;
 
@@ -28,8 +28,8 @@ export type ImportSpecifier = Flavored<string, 'ImportSpecifier'>;
 export const parse_imports = (
 	id: PathId,
 	contents: string
-): Result<{ specifiers: Array<ImportSpecifier> }, { error: TsvParseError }> => {
-	let result: ImportsResult;
+): Result<{ specifiers: Array<ImportSpecifier> }, { error: TsvError }> => {
+	let result: TsvImportsResult;
 	if (SVELTE_MATCHER.test(id)) {
 		// TODO a dynamic import in the markup (`{#await import('./x.ts')}`) is a dependency too,
 		// but `parse_imports_svelte` reads only the `<script>` blocks

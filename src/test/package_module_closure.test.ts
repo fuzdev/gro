@@ -90,7 +90,7 @@ const NODE_ONLY = [
 
 // library modules whose closure still reaches Node, each with what it reaches
 const EXCEPTIONS = [
-	// tsv's N-API binding, `@fuzdev/tsv`, which loads through `node:module`
+	// the tsv host module, whose Node file a relative import loads
 	'dist_rewrite_imports.ts',
 	'gen_helpers.ts',
 	// the Svelte config, read through Vite, a package on `node:*`
@@ -124,6 +124,7 @@ const HOST_MODULES: ReadonlySet<string> = new Set(
 		'pid.ts',
 		'runtime_version.ts',
 		'blake3.ts',
+		'tsv.ts',
 		'net.ts',
 		'watch.ts'
 	].map((name) => join(paths.lib, name))
