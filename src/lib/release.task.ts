@@ -1,13 +1,15 @@
 import * as s from '@fuzdev/fuz_schema/schema.ts';
 import { meta } from '@fuzdev/fuz_schema/meta.ts';
 
-import type { Task } from './task.ts';
 import { has_sveltekit_library, has_sveltekit_app } from './sveltekit_helpers.ts';
 import { package_json_load } from './package_json.ts';
-import { fs } from './fs.ts';
-import { create_fs_paths } from './fs_paths.ts';
-import { cwd } from './cwd.ts';
-import { env } from './env.ts';
+import type { FsPaths } from './fs_paths.ts';
+import type {
+	BuiltinInvokes,
+	BuiltinInvokeTask,
+	BuiltinTask,
+	BuiltinTaskGrants
+} from './builtin_host.ts';
 
 /** @nodocs */
 export const Args = s.object({
@@ -43,39 +45,62 @@ export const Args = s.object({
 });
 export type Args = s.Infer<typeof Args>;
 
+const grants = {
+	// reads `package.json` and what tells a library or an app
+	fs: { read: ['.'] },
+	invokes: ['publish', 'deploy']
+} as const satisfies BuiltinTaskGrants;
+
 /** @nodocs */
-export const task: Task<Args> = {
+export const task: BuiltinTask<Args, typeof grants> = {
 	summary: 'publish and deploy',
 	Args,
-	run: async ({ task_args, invoke_task }) => {
-		const { dry, check, build, pull, sync, install, gen, force_build } = task_args;
+	grants,
+	run: ({ task_args, invoke_task, host }) =>
+		run_release(task_args, { fs_paths: host.fs_paths, invoke_task })
+};
 
-		const fs_paths = create_fs_paths(fs, { cwd: cwd(), home: env.get('HOME') });
-		const package_json = await package_json_load(fs_paths);
+/**
+ * What `run_release` reaches, picked from a builtin's `host` and context.
+ */
+export interface ReleaseDeps {
+	fs_paths: FsPaths;
+	invoke_task: BuiltinInvokeTask<BuiltinInvokes<typeof grants>>;
+}
 
-		const publish = (await has_sveltekit_library(fs_paths, package_json)).ok;
-		if (publish) {
-			await invoke_task('publish', {
-				optional: true,
-				dry,
-				check,
-				build,
-				pull,
-				sync,
-				install,
-				force_build
-			});
-		}
-		if (has_sveltekit_app(package_json).ok) {
-			await invoke_task('deploy', {
-				build: build && !publish,
-				dry,
-				pull,
-				sync,
-				install,
-				gen,
-				force_build
-			});
-		}
+/**
+ * Publishes a library and deploys an app, `gro release`'s body.
+ * @param args - the task's parsed args
+ * @param deps - the project's boundary and the nested tasks
+ */
+export const run_release = async (args: Args, deps: ReleaseDeps): Promise<void> => {
+	const { dry, check, build, pull, sync, install, gen, force_build } = args;
+	const { fs_paths, invoke_task } = deps;
+
+	const package_json = await package_json_load(fs_paths);
+
+	const publish = (await has_sveltekit_library(fs_paths, package_json)).ok;
+	if (publish) {
+		await invoke_task('publish', {
+			optional: true,
+			dry,
+			check,
+			build,
+			pull,
+			sync,
+			install,
+			force_build
+		});
+	}
+	if (has_sveltekit_app(package_json).ok) {
+		await invoke_task('deploy', {
+			build: build && !publish,
+			dry,
+			pull,
+			sync,
+			install,
+			gen,
+			force_build
+		});
 	}
 };

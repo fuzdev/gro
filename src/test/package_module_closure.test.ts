@@ -61,7 +61,7 @@ const PACKAGE_MODULES = [
 ];
 
 // the builtin tasks that take their handles from their `host`
-const BUILTIN_TASKS = ['check.task.ts'];
+const BUILTIN_TASKS = ['check.task.ts', 'release.task.ts'];
 
 // the package modules the CLI's entry doesn't reach, loaded by tasks and genfiles
 const PACKAGE_MODULES_BEYOND_THE_CLI = ['git.ts'];

@@ -1,8 +1,8 @@
 import { test, assert, vi } from 'vitest';
 
-import { task as release_task, type Args } from '#lib/release.task.ts';
+import { run_release, type Args, type ReleaseDeps } from '#lib/release.task.ts';
 
-import { create_mock_task_context } from './test_helpers.ts';
+import { create_mock_fs_paths } from './fs_mocks.ts';
 
 vi.mock('#lib/package_json.ts', async (import_original) => ({
 	...(await import_original<typeof import('#lib/package_json.ts')>()),
@@ -15,9 +15,8 @@ vi.mock('#lib/sveltekit_helpers.ts', () => ({
 }));
 
 test('--force_build reaches publish, whose build it is', async () => {
-	const ctx = create_mock_task_context<Args>(
-		{ force_build: true },
-		{},
+	const deps: ReleaseDeps = { fs_paths: create_mock_fs_paths(), invoke_task: vi.fn() };
+	await run_release(
 		{
 			dry: false,
 			check: true,
@@ -32,11 +31,11 @@ test('--force_build reaches publish, whose build it is', async () => {
 			'no-install': false,
 			gen: true,
 			'no-gen': false,
-			force_build: false
-		}
+			force_build: true
+		} satisfies Args,
+		deps
 	);
-	await release_task.run(ctx);
-	const [name, args] = vi.mocked(ctx.invoke_task).mock.calls[0]!;
+	const [name, args] = vi.mocked(deps.invoke_task).mock.calls[0]!;
 	assert.equal(name, 'publish');
 	assert.equal((args as Record<string, unknown>).force_build, true);
 });

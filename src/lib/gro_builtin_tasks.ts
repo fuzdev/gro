@@ -90,7 +90,7 @@ export const GRO_BUILTIN_TASK_GRANTS: Record<keyof GroBuiltinTasks, BuiltinTaskG
 	lint: null,
 	publish: null,
 	reinstall: null,
-	release: null,
+	release: { fs: { read: ['.'] }, invokes: ['publish', 'deploy'] },
 	run: null,
 	sync: null,
 	test: null,
