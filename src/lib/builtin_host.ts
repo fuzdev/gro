@@ -9,7 +9,7 @@ import type { GroBuiltinTasks } from './gro_builtin_tasks.ts';
 import type { ImportModule } from './modules.ts';
 import type { InvokeTaskRest, TaskContext } from './task.ts';
 import { SpawnError } from './spawn_error.ts';
-import { find_cli, find_local_cli } from './cli.ts';
+import { find_local_cli, to_local_cli_path } from './cli.ts';
 import { create_record } from './internal/records.ts';
 
 /*
@@ -49,10 +49,10 @@ export interface BuiltinProgramGrant {
 	 */
 	readonly name: string;
 	/**
-	 * Whether the program is looked up in the project's `node_modules/.bin` first, then on `PATH`,
-	 * as `find_cli` looks.
+	 * Whether the program is the project's own install, `node_modules/.bin/<name>`,
+	 * never one on `PATH`, as `find_local_cli` looks.
 	 */
-	readonly local_first?: true;
+	readonly local?: true;
 	/**
 	 * The host variables the program sees beyond the base set.
 	 */
@@ -136,21 +136,20 @@ export interface BuiltinHostInvocation {
 /**
  * The programs a builtin's grants name, by role, each the grant's `name` built by the root's `spawn`
  * with the grant's environment, as `Spawn`'s `program` and `find` resolve them,
- * the project's `node_modules/.bin` first for a grant that's `local_first`, as `find_cli` looks.
+ * only in the project's `node_modules/.bin` for a grant that's `local`, as `find_local_cli` looks.
  * A role the grants don't list throws `SpawnError` `not_granted`.
  */
 export interface BuiltinPrograms<TRole extends string = string> {
 	/**
 	 * @param role - the grant's key
 	 * @throws `SpawnError` - `not_found` and the rest `Spawn.program` throws, or `not_granted`
-	 * @throws `TaskError` - for a `local_first` grant, as `find_cli` throws
 	 */
 	program(role: TRole): SpawnProgram;
 	/**
 	 * @param role - the grant's key
 	 * @returns the program, or `null` when it isn't found
 	 * @throws `SpawnError` - as `Spawn.find` does, or `not_granted`
-	 * @throws `TaskError` - for a `local_first` grant, as `find_cli` throws
+	 * @throws `TaskError` - for a `local` grant, as `find_local_cli` throws
 	 */
 	find(role: TRole): SpawnProgram | null;
 }
@@ -245,15 +244,12 @@ export const create_builtin_host = <TGrants extends BuiltinTaskGrants>(
 			create_record({
 				program: (role: string): SpawnProgram => {
 					const { grant, options } = to_granted(role);
-					return (
-						(grant.local_first ? find_local_cli(spawn, grant.name, options) : null) ??
-						spawn.program(grant.name, options)
-					);
+					return spawn.program(grant.local ? to_local_cli_path(grant.name) : grant.name, options);
 				},
 				find: (role: string): SpawnProgram | null => {
 					const { grant, options } = to_granted(role);
-					return grant.local_first
-						? find_cli(spawn, grant.name, options)
+					return grant.local
+						? find_local_cli(spawn, grant.name, options)
 						: spawn.find(grant.name, options);
 				}
 			})

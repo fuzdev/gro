@@ -58,16 +58,20 @@ describe('sveltekit_sync_if_obviously_needed', () => {
 	});
 });
 
-test('`to_cli_finder` finds through the root spawn with its options, the project first', () => {
+test("`to_cli_finder` finds only in the project's `node_modules/.bin`, with its options", () => {
 	const spawn = create_mock_spawn();
-	spawn.available = (name) => name === 'svelte-kit';
 	const recorded: Array<unknown> = [];
 	const find = spawn.find.bind(spawn);
 	spawn.find = (name, options) => {
 		recorded.push(options);
 		return find(name, options);
 	};
-	assert.ok(to_cli_finder(spawn, SVELTEKIT_PROGRAM_OPTIONS).find('svelte-kit'));
-	assert.deepEqual(spawn.finds, ['node_modules/.bin/svelte-kit', 'svelte-kit']);
+	const finder = to_cli_finder(spawn, SVELTEKIT_PROGRAM_OPTIONS);
+	// only a copy on `PATH`, which never runs in place of the project's
+	spawn.available = (name) => name === 'svelte-kit';
+	assert.strictEqual(finder.find('svelte-kit'), null);
+	spawn.available = (name) => name === 'node_modules/.bin/svelte-kit';
+	assert.ok(finder.find('svelte-kit'));
+	assert.deepEqual(spawn.finds, ['node_modules/.bin/svelte-kit', 'node_modules/.bin/svelte-kit']);
 	assert.deepEqual(recorded, [SVELTEKIT_PROGRAM_OPTIONS, SVELTEKIT_PROGRAM_OPTIONS]);
 });

@@ -109,7 +109,7 @@ export const GRO_BUILTIN_TASK_GRANTS: Record<keyof GroBuiltinTasks, BuiltinTaskG
 		gen: { fs: { read: ['.'], write: ['.'] }, project_modules: true },
 		lint: {
 			fs: { read: ['.'] },
-			programs: { eslint_cli: { name: 'eslint', local_first: true, pass_env: 'all' } }
+			programs: { eslint_cli: { name: 'eslint', local: true, pass_env: 'all' } }
 		},
 		publish: null,
 		reinstall: null,
@@ -123,26 +123,26 @@ export const GRO_BUILTIN_TASK_GRANTS: Record<keyof GroBuiltinTasks, BuiltinTaskG
 					pass_env: 'all',
 					omit_env: ['NODE_ENV', 'npm_config_production', 'npm_config_omit']
 				},
-				sveltekit_cli: { name: 'svelte-kit', local_first: true, pass_env: 'all' }
+				sveltekit_cli: { name: 'svelte-kit', local: true, pass_env: 'all' }
 			},
 			stderr: true,
 			invokes: ['gen']
 		},
 		test: {
 			fs: { read: ['.'] },
-			programs: { vitest_cli: { name: 'vitest', local_first: true, pass_env: 'all' } }
+			programs: { vitest_cli: { name: 'vitest', local: true, pass_env: 'all' } }
 		},
 		typecheck: {
 			fs: { read: ['.'] },
 			programs: {
-				sveltekit_cli: { name: 'svelte-kit', local_first: true, pass_env: 'all' },
+				sveltekit_cli: { name: 'svelte-kit', local: true, pass_env: 'all' },
 				svelte_check_cli: {
 					name: 'svelte-check',
-					local_first: true,
+					local: true,
 					pass_env: 'all',
 					env: { FORCE_COLOR: '1' }
 				},
-				typescript_cli: { name: 'tsc', local_first: true, pass_env: 'all' }
+				typescript_cli: { name: 'tsc', local: true, pass_env: 'all' }
 			},
 			stdout: true,
 			stderr: true

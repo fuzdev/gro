@@ -39,7 +39,7 @@ const grants = {
 	// reads `package.json` for the vitest dependency
 	fs: { read: ['.'] },
 	// vitest loads the project's config and tests, code whose environment Gro can't know
-	programs: { vitest_cli: { name: VITEST_CLI, local_first: true, pass_env: 'all' } }
+	programs: { vitest_cli: { name: VITEST_CLI, local: true, pass_env: 'all' } }
 } as const satisfies BuiltinTaskGrants;
 
 /** @nodocs */

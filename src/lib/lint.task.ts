@@ -21,7 +21,7 @@ const grants = {
 	fs: { read: ['.'] },
 	// ESLint loads the project's config and plugins, code whose environment Gro can't know
 	programs: {
-		eslint_cli: { name: ESLINT_CLI, local_first: true, pass_env: 'all' }
+		eslint_cli: { name: ESLINT_CLI, local: true, pass_env: 'all' }
 	}
 } as const satisfies BuiltinTaskGrants;
 

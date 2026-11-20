@@ -337,9 +337,11 @@ const result = await check.closed;
   so the entries `npm run` and `deno task` put ahead of the rest are never searched,
   and a dependency's `.bin/git` in one can't shadow `spawn.program('git')`.
   An entry reaching a `.bin` directory through a symlink, or a directory a tool fills with bins under another name, is walked.
-  A project's tools are reached only by a name containing `/`. Gro's own tasks find them, like `vite` and `eslint`,
-  with `find_cli` (`cli.ts`), which tries the project's `node_modules/.bin/<name>` first and then the bare name on `PATH`,
-  or a builtin through its `host.programs`, whose `local_first` program grants look the same way,
+  A project's tools are reached only by a name containing `/`. Gro's own tasks find a tool the project declares,
+  like `eslint` and `svelte-kit`, only there, a builtin through its `host.programs`, whose `local` program grants
+  look with `find_local_cli` (`cli.ts`) at the project's `node_modules/.bin/<name>`, and a root with `to_cli_finder`;
+  one the project needn't declare, like `vite` and Gro itself, with `find_cli`, which tries that path first
+  and then the bare name on `PATH`,
   so a tool installed only in an ancestor's `node_modules`, as a workspace hoists one, isn't found;
   `git`, `node`, and the package manager go straight to `spawn`.
 - A name containing `/` resolves against the project root. It's a lexical check:

@@ -210,7 +210,7 @@ so a module re-exporting the `task` carries them:
   its dashes dropped or made underscores (`sveltekit_cli`, `svelte_check_cli`),
   the tool being the product when its program is named otherwise (`typescript_cli` runs `tsc`).
   A grant has the program's `name`, the only program the role runs,
-  `local_first` to look in the project's `node_modules/.bin` before `PATH`,
+  `local` for the project's own install, `node_modules/.bin/<name>`, never one on `PATH`,
   and its environment as `SpawnProgramOptions` has it, `pass_env`, `omit_env`, and `env`
 - `stdout`, `stderr` - that it writes to them
 - `project_modules` - that it loads the project's modules, like `gen`'s genfiles,
@@ -224,7 +224,7 @@ held by `gro gen --check`.
 a `BuiltinTaskContext` field present only on a builtin's context:
 `fs_paths` with an `fs` grant, `env` narrowed to the names,
 `programs` with `program(role)` and `find(role)` for the granted roles,
-each the grant's `name` as `spawn`'s pair resolves it (`find_cli`'s way for a `local_first` one),
+each the grant's `name` as `spawn`'s pair resolves it (`find_local_cli`'s way for a `local` one),
 each program's environment fixed by its grant, `stdout` and `stderr` when granted,
 and with `project_modules` the root's project loader as `import_module`, the one every task loads through.
 A builtin invoking a task its `invokes` doesn't name fails with a `TaskError`,
@@ -400,10 +400,11 @@ copy an existing task and customize it,
 rewrite it from scratch, compose several, or whatever each project needs.
 
 `gro test`, `gro lint`, and `gro typecheck` run their tool only when the project's `package.json` declares it,
-in `dependencies` or `devDependencies`, so an undeclared copy on `PATH` never runs.
+in `dependencies` or `devDependencies`, and only the project's own install in `node_modules/.bin`,
+so the tool that runs is the one `package.json` names, never a copy on `PATH`;
+`svelte-kit`, from `@sveltejs/kit`, is found the same way.
 Vitest's rule is in [test](./test.md#when-vitest-isnt-declared), and ESLint's follows it:
-`gro lint` fails when ESLint isn't declared, and when it's declared but found neither
-in the project's `node_modules/.bin` nor on `PATH`.
+`gro lint` fails when ESLint isn't declared, and when it's declared but not installed in the project.
 `gro check` runs its lint step only when ESLint is declared or args are forwarded to the linter,
 a `-- gro lint` section or a nonempty `-- eslint` one.
 Without either, the step is skipped with a log line, unless the project's root has an ESLint config
@@ -413,7 +414,7 @@ and then `gro check` fails naming it; `gro check --no-lint` skips the step witho
 svelte-check runs when it's declared, else, when the project's `src/` has `.svelte` files,
 which only svelte-check checks, it fails naming them;
 otherwise tsc runs when `typescript` is declared, and with neither declared it fails saying what to add.
-A declared checker found neither in the project's `node_modules/.bin` nor on `PATH` fails with the install hint.
+A declared checker not installed in the project's `node_modules/.bin` fails with the install hint.
 `gro check` always runs its typecheck step, so a project with no checker declared fails there,
 where its test and lint steps would be skipped; `gro check --no-typecheck` turns the step off.
 

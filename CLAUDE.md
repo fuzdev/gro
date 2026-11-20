@@ -74,7 +74,8 @@ errors and exit codes. Where it lives:
   the builtins it `invokes`; a program grant, a `BuiltinProgramGrant`, is keyed by
   role, its tool's name with `_cli` (`eslint_cli`, `npm_cli`, `vitest_cli`, `git_cli`),
   with the program's `name`, the only one the role runs,
-  `local_first`, and its environment as `SpawnProgramOptions` has it),
+  `local` for the project's own install in `node_modules/.bin`, never one on `PATH`,
+  and its environment as `SpawnProgramOptions` has it),
   emitted as `GRO_BUILTIN_TASK_GRANTS` by the summaries genfile; the root's
   `BuiltinHostRoot` (`env`, `spawn`, `stdout`, `stderr`) rides `InvokeTaskOptions` as `host_root`,
   and `run_task` cuts it by the table (`create_builtin_host`) into the `host`
@@ -399,10 +400,11 @@ Key utilities:
 - Spawn: `spawn.ts`, the spawn host module, `program`/`find`/`program_in`/`find_in`/`narrow`
   making pinned `SpawnProgram` handles with an explicit environment; `spawn_error.ts`, its
   `SpawnError` and `is_spawn_error`, grant-free ([docs](src/docs/host_modules.md#spawn))
-- CLIs: `cli.ts` - `find_cli(spawn, name)` tries the project's `node_modules/.bin` and then
-  `PATH`, resolved through a `Spawn`, so only roots import the spawn host module, as for `fs`;
-  helpers that find a CLI (`sveltekit_sync`) take a `CliFinder`, `to_cli_finder(spawn, options)`
-  at a root or a builtin's `host.programs`, and the install helpers an `InstallPrograms`
+- CLIs: `cli.ts` - `find_local_cli(spawn, name)` finds a tool the project declares only in its
+  `node_modules/.bin`, and `find_cli(spawn, name)` one it needn't declare (`vite`, `changeset`, Gro
+  itself) there and then on `PATH`, resolved through a `Spawn`, so only roots import the spawn host
+  module, as for `fs`; helpers that find a CLI (`sveltekit_sync`) take a `CliFinder`, local-only,
+  `to_cli_finder(spawn, options)` at a root or a builtin's `host.programs`, and the install helpers an `InstallPrograms`
   (`to_install_programs(spawn)` at a root)
 - Hashing: `blake3.ts`, the blake3 host module, BLAKE3 over bytes, `hash` and hashers from
   `create_hasher`, `create_keyed_hasher`, `create_derive_key_hasher`, over `@fuzdev/blake3-wasm`

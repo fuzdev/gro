@@ -19,6 +19,12 @@ import { format_error_detail } from './error_detail.ts';
 const LOCAL_BIN_PREFIX = `${NODE_MODULES_DIRNAME}/.bin/`;
 
 /**
+ * The project's own install of the CLI `name`, `node_modules/.bin/<name>`,
+ * relative to the project, a name `Spawn` resolves as a path.
+ */
+export const to_local_cli_path = (name: string): string => LOCAL_BIN_PREFIX + name;
+
+/**
  * A program that couldn't be reached or started fails the task with that message and its cause's,
  * a known failure rather than an unexpected error.
  */
@@ -51,10 +57,12 @@ export const find_local_cli = (
 	spawn: Spawn,
 	name: string,
 	options?: SpawnProgramOptions
-): SpawnProgram | null => find_program(spawn, LOCAL_BIN_PREFIX + name, options);
+): SpawnProgram | null => find_program(spawn, to_local_cli_path(name), options);
 
 /**
- * Finds the CLI `name`, first in the project's `node_modules/.bin` and then on `PATH`.
+ * Finds the CLI `name`, first in the project's `node_modules/.bin` and then on `PATH`,
+ * for a tool the project needn't declare, like Gro itself; a declared tool is found with
+ * `find_local_cli`, so a copy on `PATH` never runs in place of the project's.
  * Only the first lookup reads a `node_modules/.bin`, as a name containing `/`: the `PATH` walk
  * skips the `node_modules/.bin` entries `npm run` adds, so a dependency's `.bin/git` can't shadow
  * a bare `spawn.program('git')`, and a tool installed only in an ancestor's `node_modules` isn't found.
@@ -73,13 +81,14 @@ export const find_cli = (
 	find_local_cli(spawn, name, options) ?? find_program(spawn, name, options);
 
 /**
- * What finds a CLI by name, the project's `node_modules/.bin` first and then `PATH`:
- * `to_cli_finder` over a root's spawn, or a builtin's `host.programs` for a `local_first` grant.
+ * What finds a CLI the project declares by name, only in the project's `node_modules/.bin`,
+ * so a copy on `PATH` never runs in place of the declared one:
+ * `to_cli_finder` over a root's spawn, or a builtin's `host.programs` for a `local` grant.
  */
 export interface CliFinder {
 	/**
-	 * @returns the program, or `null` if not found locally or on `PATH`
-	 * @throws `TaskError` - as `find_cli` throws
+	 * @returns the program, or `null` if the project doesn't have it
+	 * @throws `TaskError` - as `find_local_cli` throws
 	 */
 	find(name: string): SpawnProgram | null;
 }
@@ -90,7 +99,7 @@ export interface CliFinder {
  * @param options - the programs' environment
  */
 export const to_cli_finder = (spawn: Spawn, options?: SpawnProgramOptions): CliFinder => ({
-	find: (name) => find_cli(spawn, name, options)
+	find: (name) => find_local_cli(spawn, name, options)
 });
 
 /**

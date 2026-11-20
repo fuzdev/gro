@@ -45,7 +45,7 @@ const grants = {
 		// `--install`
 		npm_cli: NPM_CLI_PROGRAM_GRANT,
 		// `svelte-kit sync` loads the project's Vite config, code whose environment Gro can't know
-		sveltekit_cli: { name: SVELTEKIT_CLI, local_first: true, pass_env: 'all' }
+		sveltekit_cli: { name: SVELTEKIT_CLI, local: true, pass_env: 'all' }
 	},
 	// the install's output
 	stderr: true,

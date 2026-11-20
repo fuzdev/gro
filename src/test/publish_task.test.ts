@@ -126,7 +126,7 @@ describe('publish_task version bump', () => {
 		});
 		assert.strictEqual(sveltekit_sync.mock.calls.length, 1);
 		assert.strictEqual(sveltekit_sync.mock.calls[0]!.length, 1);
-		// the root's spawn, finding the SvelteKit CLI with the whole environment
+		// the root's spawn, finding the project's SvelteKit CLI with the whole environment, never on `PATH`
 		const mock_spawn = await get_mock_spawn();
 		const finds = mock_spawn.finds.length;
 		const find = mock_spawn.find.bind(mock_spawn);
@@ -137,8 +137,8 @@ describe('publish_task version bump', () => {
 		};
 		sveltekit_sync.mock.calls[0]![0].find('svelte-kit');
 		mock_spawn.find = find;
-		assert.deepEqual(mock_spawn.finds.slice(finds), ['node_modules/.bin/svelte-kit', 'svelte-kit']);
-		assert.deepEqual(find_options, [{ pass_env: 'all' }, { pass_env: 'all' }]);
+		assert.deepEqual(mock_spawn.finds.slice(finds), ['node_modules/.bin/svelte-kit']);
+		assert.deepEqual(find_options, [{ pass_env: 'all' }]);
 
 		const gen_call_index = invoke_task.mock.calls.findIndex(([name]) => name === 'gen');
 		assert.ok(gen_call_index !== -1, 'expected gen to run after the version bump');

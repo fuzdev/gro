@@ -169,39 +169,46 @@ test('`programs` is a frozen null-prototype record', () => {
 });
 
 describe('a program grant', () => {
-	test('`local_first` looks in `node_modules/.bin` first, then `PATH`, as `find_cli` does', () => {
+	test("`local` finds only the project's `node_modules/.bin`, never `PATH`", () => {
 		const root = create_root();
+		// only a copy on `PATH`, which never runs in place of the project's
 		root.find.mockImplementation(((name: string) => (name === 'vitest' ? program : null)) as never);
 		const host = create_builtin_host(
 			root,
-			{ programs: { vitest_cli: { name: 'vitest', local_first: true } } },
+			{ programs: { vitest_cli: { name: 'vitest', local: true } } },
 			to_invocation()
 		);
-		assert.strictEqual(host.programs.find('vitest_cli'), program);
-		assert.deepEqual(
-			root.find.mock.calls.map((c) => c[0]),
-			['node_modules/.bin/vitest', 'vitest']
-		);
-		root.find.mockClear();
-		assert.strictEqual(host.programs.program('vitest_cli'), program);
+		assert.strictEqual(host.programs.find('vitest_cli'), null);
 		assert.deepEqual(
 			root.find.mock.calls.map((c) => c[0]),
 			['node_modules/.bin/vitest']
 		);
-		assert.deepEqual(
-			root.program.mock.calls.map((c) => c[0]),
-			['vitest']
+		root.find.mockImplementation(((name: string) =>
+			name === 'node_modules/.bin/vitest' ? program : null) as never
 		);
+		assert.strictEqual(host.programs.find('vitest_cli'), program);
 	});
 
-	test('`local_first` turns a lookup failure into a `TaskError`, as `find_cli` does', () => {
+	test("`program` on a `local` grant resolves only the project's install", () => {
+		const root = create_root();
+		const host = create_builtin_host(
+			root,
+			{ programs: { vitest_cli: { name: 'vitest', local: true, pass_env: 'all' } } },
+			to_invocation()
+		);
+		assert.strictEqual(host.programs.program('vitest_cli'), program);
+		assert.deepEqual(root.program.mock.calls, [['node_modules/.bin/vitest', { pass_env: 'all' }]]);
+		assert.deepEqual(root.find.mock.calls, []);
+	});
+
+	test('`local` turns a lookup failure into a `TaskError`, as `find_local_cli` does', () => {
 		const root = create_root();
 		root.find.mockImplementation(() => {
 			throw new SpawnError('not_executable', 'node_modules/.bin/vitest');
 		});
 		const host = create_builtin_host(
 			root,
-			{ programs: { vitest_cli: { name: 'vitest', local_first: true } } },
+			{ programs: { vitest_cli: { name: 'vitest', local: true } } },
 			to_invocation()
 		);
 		assert_throws_matching(
@@ -210,24 +217,38 @@ describe('a program grant', () => {
 		);
 	});
 
-	test("`program` on a `local_first` grant found nowhere throws `spawn.program`'s `SpawnError`", () => {
+	test("`program` on a `local` grant the project doesn't have throws `spawn.program`'s `SpawnError`", () => {
 		const root = create_root();
-		root.find.mockImplementation(() => null);
 		root.program.mockImplementation(() => {
-			throw new SpawnError('not_found', 'vitest');
+			throw new SpawnError('not_found', 'node_modules/.bin/vitest');
 		});
 		const host = create_builtin_host(
 			root,
-			{ programs: { vitest_cli: { name: 'vitest', local_first: true } } },
+			{ programs: { vitest_cli: { name: 'vitest', local: true } } },
 			to_invocation()
 		);
 		assert_throws_matching(
 			() => host.programs.program('vitest_cli'),
 			(error) => is_spawn_error(error, 'not_found')
 		);
+	});
+
+	test('a grant without `local` resolves its bare name, as `PATH` does', () => {
+		const root = create_root();
+		const host = create_builtin_host(
+			root,
+			{ programs: { git_cli: { name: 'git' } } },
+			to_invocation()
+		);
+		assert.strictEqual(host.programs.find('git_cli'), program);
+		assert.strictEqual(host.programs.program('git_cli'), program);
 		assert.deepEqual(
 			root.find.mock.calls.map((c) => c[0]),
-			['node_modules/.bin/vitest']
+			['git']
+		);
+		assert.deepEqual(
+			root.program.mock.calls.map((c) => c[0]),
+			['git']
 		);
 	});
 

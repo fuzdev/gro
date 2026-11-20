@@ -49,15 +49,15 @@ const grants = {
 	fs: { read: ['.'] },
 	// each loads the project's config and code, whose environment Gro can't know
 	programs: {
-		sveltekit_cli: { name: SVELTEKIT_CLI, local_first: true, pass_env: 'all' },
+		sveltekit_cli: { name: SVELTEKIT_CLI, local: true, pass_env: 'all' },
 		svelte_check_cli: {
 			name: SVELTE_CHECK_CLI,
-			local_first: true,
+			local: true,
 			pass_env: 'all',
 			// for svelte-check's colors through the pipe its output is mapped on
 			env: { FORCE_COLOR: '1' }
 		},
-		typescript_cli: { name: TYPESCRIPT_CLI, local_first: true, pass_env: 'all' }
+		typescript_cli: { name: TYPESCRIPT_CLI, local: true, pass_env: 'all' }
 	},
 	// svelte-check's output, its paths replaced
 	stdout: true,
