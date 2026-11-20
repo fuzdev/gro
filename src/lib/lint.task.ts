@@ -1,6 +1,7 @@
 import * as s from '@fuzdev/fuz_schema/schema.ts';
 import { meta } from '@fuzdev/fuz_schema/meta.ts';
 import type { Logger } from '@fuzdev/fuz_util/log.ts';
+import { st } from '@fuzdev/fuz_util/print.ts';
 
 import { has_forwarded_flag, to_forwarded_argv } from './task_args.ts';
 import { spawn_cli, spawn_result_is_ok, to_spawn_result_message } from './cli.ts';
@@ -61,8 +62,8 @@ export const run_lint = async (args: Args, options: LintOptions, deps: LintDeps)
 
 	const found_eslint_cli = programs.find('eslint_cli');
 	if (!found_eslint_cli) {
-		// TODO maybe make this an option?
-		log.info('ESLint is not installed; skipping linting');
+		// the exit code stays 0, so the warning is what says less ran than the task's name
+		log.warn(st('yellow', 'ESLint is not installed, so nothing was linted'));
 		return;
 	}
 
