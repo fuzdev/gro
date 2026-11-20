@@ -23,7 +23,13 @@
 import * as s from '@fuzdev/fuz_schema/schema.ts';
 
 import { spawn_result_is_ok, to_spawn_result_message } from './cli.ts';
-import type { SpawnCallOptions, SpawnOutput, SpawnProgram, SpawnProgramOptions } from './spawn.ts';
+import type {
+	Spawn,
+	SpawnCallOptions,
+	SpawnOutput,
+	SpawnProgram,
+	SpawnProgramOptions
+} from './spawn.ts';
 import { TaskError } from './task_error.ts';
 
 /**
@@ -53,21 +59,27 @@ export const GitBranch = s.flavor(s.string, 'GitBranch');
 export type GitBranch = s.Infer<typeof GitBranch>;
 
 /**
- * What finds `git`: a root's spawn host module, or a builtin's `host.programs`,
- * whose grant fixes the environment.
+ * What finds `git` with its environment already fixed, a builtin's `host.programs`
+ * granted the `git_cli` role, whose grant decides the environment.
+ * It's `BuiltinPrograms`' `find`, so a root's `Spawn`, whose `find` takes options, doesn't fit it.
  */
 export interface GitFinder {
-	find(name: 'git', options?: SpawnProgramOptions): SpawnProgram | null;
+	find(role: 'git_cli', name?: string): SpawnProgram | null;
 }
 
 /**
- * Finds `git`, on `PATH` only, so a `node_modules/.bin/git` can't shadow it.
- * @param spawn - the root's spawn host module, or a builtin's `host.programs`
- * @param options - the program's environment, fixed when its handle is made
+ * Finds `git`, on `PATH` only, so a `node_modules/.bin/git` can't shadow it:
+ * through a root's spawn host module with the program's `options`,
+ * or through a builtin's `host.programs`, which takes none, as its grant fixes the environment.
  * @throws `TaskError` - if `git` isn't on `PATH`
  */
-export const to_git_program = (spawn: GitFinder, options?: SpawnProgramOptions): SpawnProgram => {
-	const git = spawn.find('git', options);
+export const to_git_program: {
+	(spawn: Spawn, options: SpawnProgramOptions): SpawnProgram;
+	(programs: GitFinder): SpawnProgram;
+} = (finder: Spawn | GitFinder, options?: SpawnProgramOptions): SpawnProgram => {
+	// a host's programs are asked for the role, a root's spawn for the program
+	const git =
+		options === undefined ? finder.find('git_cli') : (finder as Spawn).find('git', options);
 	if (!git) throw new TaskError('git not found on PATH: install git to run this task');
 	return git;
 };

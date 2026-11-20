@@ -6,7 +6,11 @@ import { invoke_cli } from './invoke_task.ts';
 import { to_raw_rest_args, to_task_args, type CliTaskArgs } from './task_args.ts';
 import { ReportedError, is_reported_error, is_task_error } from './task_error.ts';
 import { load_gro_config } from './gro_config.ts';
-import { sveltekit_sync_if_obviously_needed } from './sveltekit_helpers.ts';
+import {
+	SVELTEKIT_PROGRAM_OPTIONS,
+	sveltekit_sync_if_obviously_needed
+} from './sveltekit_helpers.ts';
+import { to_cli_finder } from './cli.ts';
 import { fs } from './fs.ts';
 import { spawn } from './spawn.ts';
 import { create_fs_paths } from './fs_paths.ts';
@@ -89,11 +93,11 @@ if (!env.get('NO_COLOR')) {
 	configure_print_colors(st);
 }
 
-// the CLI's composition root, where the fs, env, and spawn host modules and the project loader enter,
-// the builtins getting what their grants name from the env and spawn roots
+// the CLI's composition root, where the fs, env, spawn, and stream host modules and the project loader enter,
+// the builtins getting what their grants name from the env, spawn, and stream roots
 const fs_paths = create_fs_paths(fs, { cwd: cwd(), home: env.get('HOME') });
 
-await sveltekit_sync_if_obviously_needed(fs_paths, spawn);
+await sveltekit_sync_if_obviously_needed(fs_paths, to_cli_finder(spawn, SVELTEKIT_PROGRAM_OPTIONS));
 
 let task_args: CliTaskArgs;
 try {
@@ -109,5 +113,5 @@ await invoke_cli(
 	await load_gro_config(fs_paths, import_module_node),
 	to_raw_rest_args(args),
 	import_module_node,
-	{ env, spawn }
+	{ env, spawn, stdout, stderr }
 );

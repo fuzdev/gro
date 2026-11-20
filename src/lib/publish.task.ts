@@ -15,10 +15,14 @@ import {
 	git_tag_exists,
 	to_git_program
 } from './git.ts';
-import { install_with_cache_healing_or_throw } from './npm_install_helpers.ts';
+import { install_with_cache_healing_or_throw, to_install_programs } from './npm_install_helpers.ts';
 import { package_json_load, package_json_parse_repo_url } from './package_json.ts';
-import { find_cli, spawn_cli, spawn_result_is_ok } from './cli.ts';
-import { has_sveltekit_library, sveltekit_sync } from './sveltekit_helpers.ts';
+import { find_cli, spawn_cli, spawn_result_is_ok, to_cli_finder } from './cli.ts';
+import {
+	has_sveltekit_library,
+	SVELTEKIT_PROGRAM_OPTIONS,
+	sveltekit_sync
+} from './sveltekit_helpers.ts';
 import { update_changelog } from './changelog.ts';
 import { load_from_env } from './env_files.ts';
 import { CHANGESET_CLI, changeset_has_pending } from './changeset_helpers.ts';
@@ -229,14 +233,16 @@ export const task: Task<Args> = {
 
 			// Update package-lock.json to reflect the new version.
 			if (install) {
-				await install_with_cache_healing_or_throw(spawn, config.pm_cli, {
+				await install_with_cache_healing_or_throw(to_install_programs(spawn), config.pm_cli, {
 					log,
 					stderr,
 					context: 'after version bump'
 				});
 				// npm prunes SvelteKit's generated `node_modules/$app` (not a package) on install,
 				// so re-sync before gen reads a tsconfig that extends `$app/tsconfig`.
-				await sveltekit_sync(spawn, { pm_cli: config.pm_cli });
+				await sveltekit_sync(to_cli_finder(spawn, SVELTEKIT_PROGRAM_OPTIONS), {
+					pm_cli: config.pm_cli
+				});
 			}
 
 			// Regenerate files that depend on package.json version.

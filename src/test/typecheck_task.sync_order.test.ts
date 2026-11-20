@@ -4,7 +4,7 @@ import { task } from '#lib/typecheck.task.ts';
 import { SVELTEKIT_DEP_NAME } from '#lib/constants.ts';
 
 import { get_mock_spawn } from './spawn_mocks.ts';
-import { create_mock_task_context } from './test_helpers.ts';
+import { create_mock_builtin_context } from './test_helpers.ts';
 
 vi.mock('#lib/spawn.ts', async () => (await import('./spawn_mocks.ts')).create_mock_spawn_module());
 
@@ -45,7 +45,9 @@ test('syncs first, naming the configured package manager, reporting a bad packag
 		spawned_before_sync = mock_spawn.calls.length;
 	});
 
-	const ctx = create_mock_task_context(ARGS, { pm_cli: 'pnpm' });
+	const ctx = await create_mock_builtin_context(task, ARGS, {
+		config_overrides: { pm_cli: 'pnpm' }
+	});
 	await task.run(ctx);
 
 	assert.strictEqual(spawned_before_sync, 0);

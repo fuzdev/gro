@@ -1,7 +1,7 @@
 import * as s from '@fuzdev/fuz_schema/schema.ts';
 
 import type { Task } from './task.ts';
-import { install_with_cache_healing_or_throw } from './npm_install_helpers.ts';
+import { install_with_cache_healing_or_throw, to_install_programs } from './npm_install_helpers.ts';
 import { stderr } from './stderr.ts';
 import { LOCKFILE_FILENAME, NODE_MODULES_DIRNAME } from './constants.ts';
 import { fs } from './fs.ts';
@@ -22,7 +22,7 @@ export const task: Task<Args> = {
 		const fs_paths = create_fs_paths(fs, { cwd: cwd(), home: env.get('HOME') });
 
 		log.info(`running the initial \`${config.pm_cli} install\``);
-		await install_with_cache_healing_or_throw(spawn, config.pm_cli, {
+		await install_with_cache_healing_or_throw(to_install_programs(spawn), config.pm_cli, {
 			log,
 			stderr,
 			context: '(initial)'
@@ -38,7 +38,7 @@ export const task: Task<Args> = {
 				NODE_MODULES_DIRNAME
 			}, this can take a while...`
 		);
-		await install_with_cache_healing_or_throw(spawn, config.pm_cli, {
+		await install_with_cache_healing_or_throw(to_install_programs(spawn), config.pm_cli, {
 			log,
 			stderr,
 			context: `after deleting ${LOCKFILE_FILENAME} and ${NODE_MODULES_DIRNAME}`
@@ -49,7 +49,7 @@ export const task: Task<Args> = {
 		// like a native tool's many packages for each platform.
 		await fs_paths.remove_path(LOCKFILE_FILENAME);
 		log.info(`running \`${config.pm_cli} install\` one last time to clean ${LOCKFILE_FILENAME}`);
-		await install_with_cache_healing_or_throw(spawn, config.pm_cli, {
+		await install_with_cache_healing_or_throw(to_install_programs(spawn), config.pm_cli, {
 			log,
 			stderr
 		});

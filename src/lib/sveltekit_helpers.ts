@@ -4,11 +4,11 @@ import type { Result } from '@fuzdev/fuz_util/result.ts';
 
 import { has_forwarded_flag } from './task_args.ts';
 import {
-	find_cli,
 	find_local_cli,
 	spawn_cli,
 	spawn_result_is_ok,
-	to_spawn_result_message
+	to_spawn_result_message,
+	type CliFinder
 } from './cli.ts';
 import {
 	PM_CLI_DEFAULT,
@@ -99,21 +99,24 @@ export interface SveltekitSyncOptions {
 	pm_cli?: string; // TODO source from config when possible, is just needed for error messages
 }
 
-// `svelte-kit sync` loads the project's Vite config, code whose environment Gro can't know
-const SVELTEKIT_PROGRAM_OPTIONS = { pass_env: 'all' } as const;
+/**
+ * The SvelteKit CLI's environment: `svelte-kit sync` loads the project's Vite config,
+ * code whose environment Gro can't know.
+ */
+export const SVELTEKIT_PROGRAM_OPTIONS = { pass_env: 'all' } as const;
 
 /**
  * Runs `svelte-kit sync`, with nothing checking that the project uses SvelteKit.
  * Callers gate on `project_has_sveltekit_app` unless something else already establishes it.
- * @param spawn - finds and runs the CLI
+ * @param finder - finds the CLI, with its environment
  * @param options - the CLI's name and the install hint
  * @throws `TaskError` if the CLI isn't found or fails
  */
 export const sveltekit_sync = async (
-	spawn: Spawn,
+	finder: CliFinder,
 	{ sveltekit_cli = SVELTEKIT_CLI, pm_cli = PM_CLI_DEFAULT }: SveltekitSyncOptions = {}
 ): Promise<void> => {
-	const found_sveltekit_cli = find_cli(spawn, sveltekit_cli, SVELTEKIT_PROGRAM_OPTIONS);
+	const found_sveltekit_cli = finder.find(sveltekit_cli);
 	if (!found_sveltekit_cli) {
 		throw new TaskError(
 			`Failed to find SvelteKit CLI \`${sveltekit_cli}\`, do you need to run \`${pm_cli} install\`?`
@@ -138,13 +141,13 @@ const run_sveltekit_sync = async (
  * it lives in `node_modules`, which reinstalls wipe. A project with both pays only their checks.
  * A CLI that isn't found skips rather than throws, so `gro sync --install` runs on a fresh clone.
  * @param fs_paths - checks for the project's synced files and reads its `package.json`
- * @param spawn - finds and runs the CLI
+ * @param finder - finds the CLI, with its environment
  * @param sveltekit_cli - the SvelteKit CLI's name
  * @throws `TaskError` if the CLI fails
  */
 export const sveltekit_sync_if_obviously_needed = async (
 	fs_paths: FsPaths,
-	spawn: Spawn,
+	finder: CliFinder,
 	sveltekit_cli: string = SVELTEKIT_CLI
 ): Promise<void> => {
 	if (
@@ -154,7 +157,7 @@ export const sveltekit_sync_if_obviously_needed = async (
 		return;
 	}
 	if (!(await project_has_sveltekit_app(fs_paths))) return;
-	const found_sveltekit_cli = find_cli(spawn, sveltekit_cli, SVELTEKIT_PROGRAM_OPTIONS);
+	const found_sveltekit_cli = finder.find(sveltekit_cli);
 	if (found_sveltekit_cli) await run_sveltekit_sync(found_sveltekit_cli, sveltekit_cli);
 };
 

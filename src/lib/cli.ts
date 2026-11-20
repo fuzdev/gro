@@ -73,6 +73,27 @@ export const find_cli = (
 	find_local_cli(spawn, name, options) ?? find_program(spawn, name, options);
 
 /**
+ * What finds a CLI by name, the project's `node_modules/.bin` first and then `PATH`:
+ * `to_cli_finder` over a root's spawn, or a builtin's `host.programs` for a `local_first` grant.
+ */
+export interface CliFinder {
+	/**
+	 * @returns the program, or `null` if not found locally or on `PATH`
+	 * @throws `TaskError` - as `find_cli` throws
+	 */
+	find(name: string): SpawnProgram | null;
+}
+
+/**
+ * A `CliFinder` over a root's spawn, each program's environment fixed by `options`.
+ * @param spawn - the root's spawn host module
+ * @param options - the programs' environment
+ */
+export const to_cli_finder = (spawn: Spawn, options?: SpawnProgramOptions): CliFinder => ({
+	find: (name) => find_cli(spawn, name, options)
+});
+
+/**
  * A program's name for a log line, a local bin by its bare name.
  */
 const to_cli_name = ({ name }: SpawnProgram): string =>

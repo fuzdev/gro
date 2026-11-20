@@ -28,7 +28,7 @@ import { GRO_BUILTIN_TASK_SUMMARIES } from './gro_builtin_tasks.ts';
 
 // copied when this module loads; the grants and the table are still read when a task runs,
 // so code in the same realm isn't held by the invokes check
-const { hasOwn, keys } = Object;
+const { freeze, hasOwn, keys } = Object;
 
 /**
  * A task's run: its return value as `output`, or why it failed, with the error.
@@ -76,6 +76,12 @@ export interface RunTaskOptions {
 	 */
 	host_root: BuiltinHostRoot;
 	/**
+	 * The section the task reads as its own forwarded args without naming a tool,
+	 * its context's own frozen copy, never passed to the tasks it invokes
+	 * unless its `invoke_task` is given one.
+	 */
+	implicit_rest_args: ReadonlyArray<string>;
+	/**
 	 * The task's grants when it's a builtin that declares them, cutting `host_root` into its `host`,
 	 * and `null` for a project task, whose context has no `host`.
 	 */
@@ -106,6 +112,7 @@ export const run_task = async (
 		raw_rest_args,
 		import_module,
 		host_root,
+		implicit_rest_args,
 		grants,
 		graph,
 		log,
@@ -152,6 +159,10 @@ export const run_task = async (
 			raw_rest_args,
 			import_module,
 			host_root,
+			// none unless the invoking task passes one on purpose
+			...(invoked_options?.implicit_rest_args && {
+				implicit_rest_args: invoked_options.implicit_rest_args
+			}),
 			graph,
 			timings,
 			parent_log: log
@@ -175,7 +186,8 @@ export const run_task = async (
 					}
 					await invoke_project_task(invoked_task_name, invoked_args, invoked_options);
 				}
-			: invoke_project_task
+			: invoke_project_task,
+		implicit_rest_args: freeze([...implicit_rest_args])
 	};
 	if (grants) {
 		(ctx as BuiltinTaskContext<Args>).host = create_builtin_host(host_root, grants, {

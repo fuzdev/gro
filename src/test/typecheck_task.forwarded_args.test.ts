@@ -1,11 +1,8 @@
 import { describe, test, expect, vi, afterEach } from 'vitest';
 
 import { task } from '#lib/typecheck.task.ts';
-import { create_mock_task_context } from './test_helpers.ts';
+import { create_mock_builtin_context } from './test_helpers.ts';
 import { get_mock_spawn } from './spawn_mocks.ts';
-import { set_mock_args } from './args_mocks.ts';
-
-vi.mock('#lib/args.ts', async () => (await import('./args_mocks.ts')).create_mock_args_module());
 
 vi.mock('#lib/spawn.ts', async () => (await import('./spawn_mocks.ts')).create_mock_spawn_module());
 
@@ -15,7 +12,6 @@ vi.mock('#lib/sveltekit_helpers.ts', async (import_original) => ({
 }));
 
 afterEach(async () => {
-	set_mock_args([]);
 	vi.clearAllMocks();
 	(await get_mock_spawn()).reset();
 });
@@ -34,8 +30,12 @@ const find_only = async (found: string): Promise<void> => {
 
 const run_tsc = async (forwarded: Array<string>): Promise<Array<string>> => {
 	await find_only('tsc');
-	set_mock_args(['typecheck', '--', 'tsc', ...forwarded]);
-	await task.run(create_mock_task_context(ARGS));
+	await task.run(
+		await create_mock_builtin_context(task, ARGS, {
+			name: 'typecheck',
+			cli_args: ['typecheck', '--', 'tsc', ...forwarded]
+		})
+	);
 	const { calls } = await get_mock_spawn();
 	expect(calls).toHaveLength(1);
 	expect(calls[0]!.method).toBe('run');
@@ -47,8 +47,12 @@ describe('typecheck task forwarded args', () => {
 	test('svelte-check gets the text verbatim', async () => {
 		await find_only('svelte-check');
 		const forwarded = ['--threshold', 'error', '--tsconfig', './x.json', '--no-cache', '--x='];
-		set_mock_args(['typecheck', '--', 'svelte-check', ...forwarded]);
-		await task.run(create_mock_task_context(ARGS));
+		await task.run(
+			await create_mock_builtin_context(task, ARGS, {
+				name: 'typecheck',
+				cli_args: ['typecheck', '--', 'svelte-check', ...forwarded]
+			})
+		);
 		const { calls } = await get_mock_spawn();
 		expect(calls[0]!.method).toBe('start');
 		expect(calls[0]!.args).toEqual(forwarded);
@@ -78,5 +82,43 @@ describe('typecheck task forwarded args', () => {
 			(await get_mock_spawn()).reset();
 			expect(await run_tsc(forwarded)).toEqual(forwarded);
 		}
+	});
+});
+
+describe('a chosen checker', () => {
+	test('`--typescript_cli` names the program run, and its own section is forwarded', async () => {
+		await find_only('tsgo');
+		await task.run(
+			await create_mock_builtin_context(
+				task,
+				{ ...ARGS, typescript_cli: 'tsgo' },
+				{ name: 'typecheck', cli_args: ['typecheck', '--', 'tsgo', '--x', '--', 'tsc', '--y'] }
+			)
+		);
+		const { finds, calls } = await get_mock_spawn();
+		expect(finds).toContain('node_modules/.bin/tsgo');
+		expect(calls).toHaveLength(1);
+		expect(calls[0]!.name).toBe('node_modules/.bin/tsgo');
+		expect(calls[0]!.args).toEqual(['--x', '--noEmit']);
+		expect(calls[0]!.program_options).toEqual({ pass_env: 'all' });
+	});
+
+	test('`--svelte_check_cli` names the program run, and its own section is forwarded', async () => {
+		await find_only('svelte-check-next');
+		await task.run(
+			await create_mock_builtin_context(
+				task,
+				{ ...ARGS, svelte_check_cli: 'svelte-check-next' },
+				{
+					name: 'typecheck',
+					cli_args: ['typecheck', '--', 'svelte-check-next', '--x', '--', 'svelte-check', '--y']
+				}
+			)
+		);
+		const { calls } = await get_mock_spawn();
+		expect(calls).toHaveLength(1);
+		expect(calls[0]!.name).toBe('node_modules/.bin/svelte-check-next');
+		expect(calls[0]!.args).toEqual(['--x']);
+		expect(calls[0]!.program_options).toEqual({ pass_env: 'all', env: { FORCE_COLOR: '1' } });
 	});
 });

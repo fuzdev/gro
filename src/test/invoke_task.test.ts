@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { Logger } from '@fuzdev/fuz_util/log.ts';
 import { dirname, join, relative } from 'node:path';
 
-import { invoke_cli, invoke_task, resolve_task } from '#lib/invoke_task.ts';
+import { invoke_cli, invoke_task, resolve_task, type InvokeTaskOptions } from '#lib/invoke_task.ts';
 import { run_task } from '#lib/run_task.ts';
 import { log_builtin_tasks, log_error_reasons, log_tasks } from '#lib/task_logging.ts';
 import { create_empty_gro_config, type GroConfig } from '#lib/gro_config.ts';
@@ -60,12 +60,16 @@ const resolve = async (task_name: string, root: string = dir) =>
 	resolve_task(await create_project_fs_paths(root), task_name, root);
 
 // invokes the CLI with a real `FsPaths` whose project is the cwd when called, as the CLI's is
-const cli = async (task_args: CliTaskArgs, cli_config: GroConfig): Promise<void> =>
+const cli = async (
+	task_args: CliTaskArgs,
+	cli_config: GroConfig,
+	raw_rest_args: ReadonlyArray<string> = []
+): Promise<void> =>
 	invoke_cli(
 		await create_project_fs_paths(process.cwd()),
 		task_args,
 		cli_config,
-		[],
+		raw_rest_args,
 		import_module_node,
 		create_throwing_builtin_host_root()
 	);
@@ -264,10 +268,16 @@ describe('invoke_cli', () => {
 		assert.strictEqual(vi.mocked(run_task).mock.calls.length, 0);
 	});
 
-	test('`gro <name>` runs the builtin', async () => {
-		await cli(cli_task_args('typecheck'), config);
+	test('`gro <name>` runs the builtin, given the first section after `--` as its own', async () => {
+		await cli(cli_task_args('typecheck'), config, ['--', '--watch', '--', 'vitest', 'x']);
 		assert.strictEqual(vi.mocked(run_task).mock.calls.length, 1);
 		assert.strictEqual(vi.mocked(run_task).mock.calls[0]![0].name, 'typecheck');
+		assert.deepEqual(vi.mocked(run_task).mock.calls[0]![2].implicit_rest_args, ['--watch']);
+	});
+
+	test("a first section starting with `gro` is a Gro task's, so the CLI's task gets none", async () => {
+		await cli(cli_task_args('test'), config, ['--', 'gro', 'test', 'x']);
+		assert.deepEqual(vi.mocked(run_task).mock.calls[0]![2].implicit_rest_args, []);
 	});
 
 	test('`gro task <path>` runs the task file, named by its root-relative path', async () => {
@@ -280,6 +290,9 @@ describe('invoke_cli', () => {
 		assert.strictEqual(task_meta.name, relative(process.cwd(), id));
 		assert.strictEqual(task_meta.mod.task.summary, 'does src/lib/greet.task.ts');
 		assert.deepEqual(args, { a: 1 });
+		assert.deepEqual(vi.mocked(run_task).mock.calls[0]![2].implicit_rest_args, []);
+		await cli(cli_task_args('task', id), config, ['--', 'x']);
+		assert.deepEqual(vi.mocked(run_task).mock.calls[1]![2].implicit_rest_args, ['x']);
 	});
 
 	test('`gro task <dir>` lists the tasks under it, without running them', async () => {
@@ -558,16 +571,20 @@ describe('the `import_module` option', () => {
 describe('the grants `run_task` gets', () => {
 	const fake_task = { task: { run: () => {} } };
 	const import_module: ImportModule = () => Promise.resolve(fake_task);
-	const invoke = async (task_name: string): Promise<void> =>
+	const invoke = async (
+		task_name: string,
+		options?: Pick<InvokeTaskOptions, 'implicit_rest_args'>
+	): Promise<void> =>
 		invoke_task(
 			task_name,
 			{},
 			{
 				config,
 				fs_paths: await create_project_fs_paths(dir),
-				raw_rest_args: [],
+				raw_rest_args: ['--', '--watch'],
 				import_module,
-				host_root: create_throwing_builtin_host_root()
+				host_root: create_throwing_builtin_host_root(),
+				...options
 			}
 		);
 
@@ -585,5 +602,15 @@ describe('the grants `run_task` gets', () => {
 		assert.strictEqual(calls[0]![2].grants, GRO_BUILTIN_TASK_GRANTS.check);
 		assert.strictEqual(calls[1]![2].grants, null);
 		assert.strictEqual(calls[2]![2].grants, GRO_BUILTIN_TASK_GRANTS.lint);
+		// `invoke_task` without `implicit_rest_args`, as a task invokes another, gets none
+		assert.deepEqual(
+			calls.map(([, , options]) => options.implicit_rest_args),
+			[[], [], []]
+		);
+	});
+
+	test('a caller passing `implicit_rest_args` means them, passed as given', async () => {
+		await invoke('test', { implicit_rest_args: ['gro', 'x'] });
+		assert.deepEqual(vi.mocked(run_task).mock.calls[0]![2].implicit_rest_args, ['gro', 'x']);
 	});
 });

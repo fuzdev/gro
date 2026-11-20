@@ -10,7 +10,17 @@ import { create_paths } from '#lib/paths.ts';
 import type { ModuleGraph } from '#lib/module_graph.ts';
 import type { ParsedSvelteConfig } from '#lib/svelte_config.ts';
 import type { TaskContext } from '#lib/task.ts';
-import type { BuiltinHostRoot } from '#lib/builtin_host.ts';
+import {
+	create_builtin_host,
+	type BuiltinHostRoot,
+	type BuiltinTask,
+	type BuiltinTaskContext,
+	type BuiltinTaskGrants
+} from '#lib/builtin_host.ts';
+import type { Spawn } from '#lib/spawn.ts';
+import type { ProcessOutput } from '#lib/stdout.ts';
+import type { FsPaths } from '#lib/fs_paths.ts';
+import { to_implicit_rest_args, to_raw_rest_args, to_task_args } from '#lib/task_args.ts';
 
 /**
  * The paths of the project the tests run in, Gro's own repo, from the working directory.
@@ -28,7 +38,77 @@ export const create_throwing_builtin_host_root = (): BuiltinHostRoot => {
 				throw Error(`the throwing builtin host root's \`${label}\` was used: ${String(key)}`);
 			}
 		});
-	return { env: create_stub('env'), spawn: create_stub('spawn') };
+	return {
+		env: create_stub('env'),
+		spawn: create_stub('spawn'),
+		stdout: create_stub('stdout'),
+		stderr: create_stub('stderr')
+	};
+};
+
+/**
+ * What `create_mock_builtin_context` builds a builtin's context from beside its args.
+ */
+export interface MockBuiltinContextOptions {
+	/**
+	 * The CLI's args, as `invoke.ts` reads them: their rest from the first `--` is the host's
+	 * `raw_rest_args`, and its first section the context's `implicit_rest_args`
+	 * when they name `name`, as `invoke_cli` gives the task it invokes.
+	 */
+	cli_args?: ReadonlyArray<string>;
+	/**
+	 * The builtin's name, compared with the task `cli_args` names.
+	 */
+	name?: string;
+	config_overrides?: Partial<GroConfig>;
+	/**
+	 * The root's spawn, by default the spawn host module, which a test may mock.
+	 */
+	spawn?: Spawn;
+	stdout?: ProcessOutput;
+	stderr?: ProcessOutput;
+	fs_paths?: FsPaths;
+}
+
+/**
+ * A builtin's context with a real `host` cut by its grants from a root of the env host module,
+ * the spawn host module (or `spawn`), and the given streams,
+ * so a test sees the programs and environment the grants give.
+ */
+export const create_mock_builtin_context = async <
+	TArgs extends object,
+	TGrants extends BuiltinTaskGrants
+>(
+	task: BuiltinTask<TArgs, TGrants>,
+	task_args: Partial<TArgs>,
+	options: MockBuiltinContextOptions = {}
+): Promise<BuiltinTaskContext<TArgs, TGrants>> => {
+	const { cli_args = [], name, config_overrides } = options;
+	const spawn = options.spawn ?? (await import('#lib/spawn.ts')).spawn;
+	const { env } = await import('#lib/env.ts');
+	const { create_fs_paths } = await import('#lib/fs_paths.ts');
+	const { fs } = await import('#lib/fs.ts');
+	const no_output: ProcessOutput = { write: () => Promise.resolve() } as unknown as ProcessOutput;
+	const host = create_builtin_host(
+		{ env, spawn, stdout: options.stdout ?? no_output, stderr: options.stderr ?? no_output },
+		task.grants,
+		{
+			fs_paths:
+				options.fs_paths ?? create_fs_paths(fs, { cwd: process.cwd(), home: process.env.HOME }),
+			import_module: vi.fn(),
+			invoke_project_task: vi.fn(),
+			raw_rest_args: to_raw_rest_args(cli_args)
+		}
+	);
+	return {
+		...create_mock_task_context<TArgs>(task_args, config_overrides),
+		implicit_rest_args: Object.freeze(
+			name !== undefined && to_task_args(cli_args).task_name === name
+				? to_implicit_rest_args(to_raw_rest_args(cli_args))
+				: []
+		),
+		host
+	} as unknown as BuiltinTaskContext<TArgs, TGrants>;
 };
 
 /**
@@ -156,7 +236,8 @@ export const create_mock_task_context = <TArgs extends object = any>(
 	graph: create_mock_module_graph(),
 	log: create_mock_logger(),
 	timings: create_mock_timings(),
-	invoke_task: vi.fn()
+	invoke_task: vi.fn(),
+	implicit_rest_args: []
 });
 
 /**

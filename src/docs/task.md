@@ -167,6 +167,7 @@ export interface TaskContext<TArgs = object> {
 	log: Logger;
 	timings: Timings;
 	invoke_task: InvokeTask;
+	implicit_rest_args: ReadonlyArray<string>;
 }
 ```
 
@@ -175,6 +176,15 @@ and their changes).
 It loads on first use, so a task that never touches it never starts a watch;
 `config.watch` sets what it watches.
 A task invoked with `invoke_task` shares its invoker's `graph`.
+
+`implicit_rest_args` is the forwarded section the task reads as its own without naming a tool,
+frozen, data about the command line rather than authority.
+The task the CLI invoked gets the CLI's first section after `--`,
+none when it starts with `gro` (see [args forwarding](#task-args-forwarding)),
+so `gro task src/lib/foo.task.ts -- x` sees `['x']`.
+A task another task invokes gets none, unless the invoking task passes one on purpose
+as `invoke_task`'s `implicit_rest_args` option, like a wrapper forwarding its own to `test`:
+`await invoke_task('test', undefined, {implicit_rest_args: ctx.implicit_rest_args})`.
 
 ### a builtin's `host` and `grants`
 
@@ -188,7 +198,15 @@ so a module re-exporting the `task` carries them:
 
 - `fs` - the paths it reads and writes, relative to the project root, `.` the project
 - `env` - the environment variables it reads, exact names
-- `programs` - the programs it starts by name, each with how its environment is built
+- `programs` - the programs it starts, keyed by role, each a `BuiltinProgramGrant`.
+  A role whose program an arg or the Gro config may choose is keyed by that arg's or field's name
+  (`eslint_cli`, `typescript_cli`, `pm_cli`), and a fixed tool's is the tool's name with `_cli`
+  (`vitest_cli`, `git_cli`). A grant has its default `name`, `name_from` (`'arg'` or `'config'`)
+  when another name may come from the arg or config field the role names
+  (on Node the role's handle is built for whichever name was chosen),
+  `local_first` to look in the project's `node_modules/.bin` before `PATH`,
+  and its environment as `SpawnProgramOptions` has it, `pass_env`, `omit_env`, and `env`
+- `stdout`, `stderr` - that it writes to them
 - `project_modules` - that it loads the project's modules, like `gen`'s genfiles,
   which run as the project's code
 - `invokes` - the builtins it invokes
@@ -199,8 +217,10 @@ held by `gro gen --check`.
 `run_task` cuts the root's handles by that table into the builtin's `host`,
 a `BuiltinTaskContext` field present only on a builtin's context:
 `fs_paths` with an `fs` grant, `env` narrowed to the names,
-`programs` with `program` and `find` for the named programs, as `spawn`'s pair resolves them,
-each program's environment fixed by its grant,
+`programs` with `program(role, name?)` and `find(role, name?)` for the granted roles,
+as `spawn`'s pair resolves them (`find_cli`'s way for a `local_first` one),
+refusing a name other than the role's default unless its grant has `name_from`,
+each program's environment fixed by its grant, `stdout` and `stderr` when granted,
 with `project_modules` the root's project loader as `import_module`, the one every task loads through,
 and `invoke_project_task`, the `invoke_task` a project task has, for the project's modules it loads,
 and its own frozen copy of the `raw_rest_args` it was invoked with.
@@ -220,7 +240,8 @@ A project task's context has no `host`. Its `invoke_task` of a builtin
 runs the builtin with the builtin's own grants, so a project task needs no handle a builtin uses.
 A project task can import a host module itself:
 on Node every module can, and the cut above is a review signal, as Node's narrowed roots are,
-not an enforced boundary (`env` is narrowed and `programs` refuses an ungranted name,
+not an enforced boundary (`env` is narrowed and `programs` refuses an ungranted role,
+or a name other than the role's default when its grant has no `name_from`,
 but `fs_paths` is the root's whole `FsPaths`, and code in the same realm,
 which can patch the intrinsics or the grants the cut reads, isn't held by it).
 
@@ -232,7 +253,7 @@ so its `run` is one call and a test passes plain objects:
 const grants = {
 	fs: {read: ['.']},
 	env: ['CI'],
-	programs: {git: {pass_env: GIT_LOCAL_PASS_ENV}},
+	programs: {git_cli: {name: 'git', pass_env: GIT_LOCAL_PASS_ENV}},
 	invokes: ['sync', 'build', 'typecheck', 'test', 'gen', 'format', 'lint'],
 } as const satisfies BuiltinTaskGrants;
 
@@ -444,9 +465,14 @@ A literal `--` can't be forwarded, because it separates the sections
 
 `gro test` also forwards to `vitest` the first section, unless it starts with `gro`
 or the tool's own name (`vitest`), only up to the next `--`,
-and only when the CLI invoked `gro test` directly:
+and only when the CLI invoked `gro test` directly or the task invoking it passes it on purpose:
 `gro test -- --watch` passes `--watch` to `vitest`,
 but `gro check -- --watch` passes nothing to the `test` that `check` invokes.
+The CLI gives the task it invokes that section as its context's `implicit_rest_args`
+(`to_implicit_rest_args`, empty when it starts with `gro`), and `test` drops one starting with `vitest`.
+A task another task invokes gets none, unless the invoking task passes one
+as `invoke_task`'s `implicit_rest_args` option, and a direct call to the exported `invoke_task`
+gets what its `InvokeTaskOptions` pass.
 
 There's one special case for task args forwarding: running Gro tasks.
 If `gro` is the command following a `--`, the args after the task are parsed and forwarded to it:

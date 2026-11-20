@@ -4,11 +4,8 @@ import type { PackageJson } from '@fuzdev/fuz_util/package_json.ts';
 import { task } from '#lib/test.task.ts';
 import { is_task_error } from '#lib/task_error.ts';
 
-import { create_mock_task_context } from './test_helpers.ts';
+import { create_mock_builtin_context } from './test_helpers.ts';
 import { get_mock_spawn } from './spawn_mocks.ts';
-import { set_mock_args } from './args_mocks.ts';
-
-vi.mock('#lib/args.ts', async () => (await import('./args_mocks.ts')).create_mock_args_module());
 
 vi.mock('#lib/spawn.ts', async () => (await import('./spawn_mocks.ts')).create_mock_spawn_module());
 
@@ -22,7 +19,11 @@ const run_with = async (package_json: Partial<PackageJson>): Promise<unknown> =>
 	package_json_load.mockResolvedValue({ name: 'a', version: '0', ...package_json });
 	try {
 		await task.run(
-			create_mock_task_context({ _: ['.test.'], dir: 'src', fail_without_tests: false })
+			await create_mock_builtin_context(task, {
+				_: ['.test.'],
+				dir: 'src',
+				fail_without_tests: false
+			})
 		);
 	} catch (error) {
 		return error;
@@ -34,7 +35,6 @@ const NO_RUNNER = 'no test runner found, add vitest to devDependencies';
 
 beforeEach(async () => {
 	vi.clearAllMocks();
-	set_mock_args(['test']);
 	(await get_mock_spawn()).reset();
 });
 

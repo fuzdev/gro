@@ -6,6 +6,8 @@ import * as s from '@fuzdev/fuz_schema/schema.ts';
 
 import { spawn_with_loader } from '#lib/gro_helpers.ts';
 import { spawn } from '#lib/spawn.ts';
+import { stdout } from '#lib/stdout.ts';
+import { stderr } from '#lib/stderr.ts';
 import { run_task, type RunTaskOptions } from '#lib/run_task.ts';
 import type { Task, TaskContext } from '#lib/task.ts';
 import { ReportedError, TaskError } from '#lib/task_error.ts';
@@ -95,6 +97,7 @@ const create_mock_run_task_options = async (): Promise<RunTaskOptions> => ({
 	raw_rest_args: [],
 	import_module: import_module_node,
 	host_root: create_throwing_builtin_host_root(),
+	implicit_rest_args: [],
 	grants: null,
 	graph: create_mock_module_graph(),
 	log: create_mock_logger(),
@@ -274,6 +277,7 @@ test('run_task passes the graph to the task, and it, `fs_paths`, and `host_root`
 			raw_rest_args: ['--', 'x'],
 			import_module: import_module_node,
 			host_root,
+			implicit_rest_args: ['x'],
 			grants: null,
 			graph,
 			log: create_mock_logger(),
@@ -317,7 +321,8 @@ test('run_task gives a builtin with grants a `host` cut by them, and a project t
 		...(await create_mock_run_task_options()),
 		fs_paths,
 		raw_rest_args: ['--', 'x'],
-		host_root: { env, spawn }
+		host_root: { env, spawn, stdout, stderr },
+		implicit_rest_args: ['x']
 	};
 	const project = await run_task(
 		{ name: 'src/lib/check.task.ts', id: '/p/src/lib/check.task.ts', mod: { task: { run } } },
@@ -343,6 +348,64 @@ test('run_task gives a builtin with grants a `host` cut by them, and a project t
 		() => host.env.get('HOME'),
 		(error: unknown) => is_env_error(error, 'not_granted')
 	);
+});
+
+test('run_task gives every task its own frozen copy of `implicit_rest_args`', async () => {
+	const implicit_rest_args = ['--watch'];
+	const options = { ...(await create_mock_run_task_options()), implicit_rest_args };
+	const run = (ctx: TaskContext) => ctx;
+	for (const grants of [null, { fs: { read: ['.'] } }]) {
+		const result = await run_task(
+			{ name: 'greet', id: '/p/src/lib/greet.task.ts', mod: { task: { run } } },
+			{},
+			{ ...options, grants }
+		);
+		assert(result.ok);
+		const ctx = result.output as TaskContext;
+		assert.deepEqual(ctx.implicit_rest_args, ['--watch']);
+		assert.notStrictEqual(ctx.implicit_rest_args, implicit_rest_args);
+		assert.ok(Object.isFrozen(ctx.implicit_rest_args));
+	}
+	implicit_rest_args.push('x');
+	const result = await run_task(
+		{ name: 'greet', id: '/p/src/lib/greet.task.ts', mod: { task: { run } } },
+		{},
+		await create_mock_run_task_options()
+	);
+	assert(result.ok);
+	assert.deepEqual((result.output as TaskContext).implicit_rest_args, []);
+});
+
+test("a task's `invoke_task` passes `implicit_rest_args` only when given them", async () => {
+	const invoke_task = vi.fn((..._args: Array<unknown>) => Promise.resolve());
+	const options = {
+		...(await create_mock_run_task_options()),
+		invoke_task,
+		implicit_rest_args: ['--watch']
+	};
+	for (const grants of [null, { invokes: ['test'] as const }]) {
+		invoke_task.mockClear();
+		const result = await run_task(
+			{
+				name: 'greet',
+				id: '/p/src/lib/greet.task.ts',
+				mod: {
+					task: {
+						run: async (ctx) => {
+							await ctx.invoke_task('test');
+							await ctx.invoke_task('test', undefined, { implicit_rest_args: ['--bail', '1'] });
+						}
+					}
+				}
+			},
+			{},
+			{ ...options, grants }
+		);
+		assert(result.ok);
+		const passed = invoke_task.mock.calls.map((call) => call[2] as Record<string, unknown>);
+		assert.ok(!('implicit_rest_args' in passed[0]!));
+		assert.deepEqual(passed[1]!.implicit_rest_args, ['--bail', '1']);
+	}
 });
 
 test("run_task gives a builtin granted `project_modules` its own project loader and a project task's `invoke_task`", async () => {

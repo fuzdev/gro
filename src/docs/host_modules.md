@@ -339,6 +339,7 @@ const result = await check.closed;
   An entry reaching a `.bin` directory through a symlink, or a directory a tool fills with bins under another name, is walked.
   A project's tools are reached only by a name containing `/`. Gro's own tasks find them, like `vite` and `eslint`,
   with `find_cli` (`cli.ts`), which tries the project's `node_modules/.bin/<name>` first and then the bare name on `PATH`,
+  or a builtin through its `host.programs`, whose `local_first` program grants look the same way,
   so a tool installed only in an ancestor's `node_modules`, as a workspace hoists one, isn't found;
   `git`, `node`, and the package manager go straight to `spawn`.
 - A name containing `/` resolves against the project root. It's a lexical check:
@@ -1038,7 +1039,7 @@ Its results are the Node module's, held to them by the differential cases on Gro
   so `fs_paths.ts` reads nothing of the process and imports no host module.
   The CLI's entry passes its own `FsPaths` to the config's loading and `invoke_task`,
   which carries it in its options to the tasks a task invokes, never on the task's context
-  but in a builtin's `host` when its grants name `fs`, with the `env` and `spawn` roots it cuts the rest from,
+  but in a builtin's `host` when its grants name `fs`, with the `env`, `spawn`, `stdout`, and `stderr` roots it cuts the rest from,
   and the project loader it carries the same way, in the `host` of a builtin that loads the project's modules.
   The rendered `$app/env/public` and `$app/env/private` modules are roots too,
   importing `fs` and `create_fs_paths` to read the `.env` files, and `env` and `cwd`

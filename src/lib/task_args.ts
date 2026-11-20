@@ -253,39 +253,20 @@ export const to_forwarded_argv = (
 		?.slice(1) ?? [];
 
 /**
- * Gets the verbatim args of the first section after a `--`
- * for a tool run by `task_name` without naming it, like `gro test -- --watch` for vitest,
- * only when `task_name` is the task the CLI invoked, so a nested task gets none.
- * A first section starting with `gro` (a Gro task's) or with `command` (an explicit section,
- * read by `to_forwarded_argv`) is none.
- * @param task_name - the asking task's name, a builtin name or a normalized task path
- * @param cli_args - the args after the CLI's own path, as in the `args` host module
- * @param root - the project root a task path in `cli_args` is relative to
- * @param command - the tool's CLI name, whose explicit section isn't implicit
- * @returns the first section's args, empty when absent or not for `task_name`
+ * Gets the verbatim args of the first section after a `--`,
+ * the section the CLI gives the task it invokes as its `implicit_rest_args`,
+ * for a tool the task runs without the section naming it, like `gro test -- --watch` for vitest.
+ * A first section starting with `gro` is a Gro task's, so it's none;
+ * a task drops one starting with its own tool's name, an explicit section `to_forwarded_argv` reads.
+ * @param raw_rest_args - the CLI args from the first `--` on
+ * @returns the first section's args, empty when absent
  */
-export const to_implicit_forwarded_argv = (
-	task_name: string,
-	cli_args: ReadonlyArray<string>,
-	root: string,
-	command?: string
-): Array<string> => {
-	const raw_rest_args = to_raw_rest_args(cli_args);
+export const to_implicit_rest_args = (raw_rest_args: ReadonlyArray<string>): Array<string> => {
 	if (!raw_rest_args.length) return [];
-	const cli = to_task_args(cli_args);
-	const cli_task_name =
-		cli.task_name === TASK_VERB
-			? cli.task_path === null
-				? null
-				: to_task_path(cli.task_path, root)
-			: cli.task_name;
-	if (cli_task_name !== task_name) return [];
 	// only the section right after the first `--`, empty when another `--` follows at once
 	const end = raw_rest_args.indexOf('--', 1);
 	const section = raw_rest_args.slice(1, end === -1 ? undefined : end);
-	const first = section[0];
-	if (first === GRO_COMMAND || (command !== undefined && first === command)) return [];
-	return section;
+	return section[0] === GRO_COMMAND ? [] : section;
 };
 
 /**

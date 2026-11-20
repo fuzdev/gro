@@ -5,8 +5,11 @@ import type { SpawnResult } from '#lib/spawn.ts';
 import { is_task_error } from '#lib/task_error.ts';
 import { task } from '#lib/typecheck.task.ts';
 
+import { stdout as stdout_module, type ProcessOutput } from '#lib/stdout.ts';
+import { stderr as stderr_module } from '#lib/stderr.ts';
+
 import { create_mock_child, create_mock_stream, get_mock_spawn } from './spawn_mocks.ts';
-import { create_mock_task_context } from './test_helpers.ts';
+import { create_mock_builtin_context } from './test_helpers.ts';
 
 vi.mock('#lib/spawn.ts', async () => (await import('./spawn_mocks.ts')).create_mock_spawn_module());
 
@@ -43,7 +46,14 @@ const start = async () => {
 	mock.create_child = () =>
 		create_mock_child({ closed: closed.promise, stdout: stdout.stream, stderr: stderr.stream });
 	let settled = false;
-	const run = Promise.resolve(task.run(create_mock_task_context(ARGS))).finally(() => {
+	const run = Promise.resolve(
+		task.run(
+			await create_mock_builtin_context(task, ARGS, {
+				stdout: stdout_module,
+				stderr: stderr_module
+			})
+		)
+	).finally(() => {
 		settled = true;
 	});
 	await wait(0);
@@ -90,4 +100,44 @@ describe('typecheck task waits for svelte-check', () => {
 		assert.ok(is_task_error(error));
 		assert.strictEqual(error.message, 'Failed to typecheck. code 2');
 	});
+});
+
+test("svelte-check's output goes to the host's streams, the working directory replaced", async () => {
+	const decoder = new TextDecoder();
+	const to_capture = (written: Array<string>): ProcessOutput => ({
+		is_terminal: false,
+		write: async (data: string | Uint8Array) => {
+			written.push(typeof data === 'string' ? data : decoder.decode(data));
+			return true;
+		}
+	});
+	const out: Array<string> = [];
+	const err: Array<string> = [];
+	const stdout = create_mock_stream();
+	const stderr = create_mock_stream();
+	const mock = await get_mock_spawn();
+	mock.available = (name) => name === 'node_modules/.bin/svelte-check';
+	mock.create_child = () =>
+		create_mock_child({
+			closed: Promise.resolve(OK),
+			stdout: stdout.stream,
+			stderr: stderr.stream
+		});
+	const run = Promise.resolve(
+		task.run(
+			await create_mock_builtin_context(task, ARGS, {
+				stdout: to_capture(out),
+				stderr: to_capture(err)
+			})
+		)
+	);
+	await wait(0);
+	stdout.push(new TextEncoder().encode('error in /project/src/a.ts\n'));
+	stderr.push(new TextEncoder().encode('warning in /project/src/b.ts\n'));
+	stdout.end();
+	stderr.end();
+	await run;
+	assert.include(out.join(''), 'error in ./src/a.ts');
+	assert.notInclude(out.join(''), 'warning');
+	assert.include(err.join(''), 'warning in ./src/b.ts');
 });

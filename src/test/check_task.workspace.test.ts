@@ -41,7 +41,7 @@ describe('gro check --workspace', () => {
 		const deps = create_deps(null);
 		await run(deps);
 		assert.include(vi.mocked(deps.log.warn).mock.calls[0]?.[0] as string, 'git not found');
-		assert.deepEqual(vi.mocked(deps.programs.find).mock.calls, [['git']]);
+		assert.deepEqual(vi.mocked(deps.programs.find).mock.calls, [['git_cli']]);
 	});
 
 	test('passes a clean workspace without a warning', async () => {

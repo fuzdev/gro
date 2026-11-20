@@ -4,10 +4,12 @@ import type { Schema } from '@fuzdev/fuz_schema/schema.ts';
 import type { Env } from './env.ts';
 import type { FsPaths } from './fs_paths.ts';
 import type { Spawn, SpawnProgram, SpawnProgramOptions } from './spawn.ts';
+import type { ProcessOutput } from './stdout.ts';
 import type { GroBuiltinTasks } from './gro_builtin_tasks.ts';
 import type { ImportModule } from './modules.ts';
 import type { InvokeTask, InvokeTaskRest, TaskContext } from './task.ts';
 import { SpawnError } from './spawn_error.ts';
+import { find_cli, find_local_cli } from './cli.ts';
 import { create_record } from './internal/records.ts';
 
 /*
@@ -20,7 +22,8 @@ The root's project loader is the one every task and the project's modules load t
 so a builtin that loads the project's modules takes it from its `host` rather than importing Node's.
 
 On the Node Gro the cut is a review signal, as a narrowed root is, not an enforced boundary:
-`env` is narrowed and `programs` refuses a name the grants don't list,
+`env` is narrowed and `programs` refuses a role the grants don't list,
+or a name other than the role's default when its grant has no `name_from`,
 but `fs_paths` is the root's whole `FsPaths`, and any module can still import a host module.
 `Object.freeze` and `Object.hasOwn` are copied when this module loads, and the host and its
 `programs` are null-prototype records, but the grants are read by plain property access and the
@@ -32,14 +35,44 @@ or the grants isn't held by the cut.
 const { freeze, hasOwn } = Object;
 
 /**
- * A program a builtin starts, keyed in its grants by the name `spawn.program` resolves,
- * and how the root builds its environment.
+ * A program a builtin starts, keyed in its grants by its role: the program's name,
+ * where another may come from, how it's found,
+ * and how the root builds its environment, as `SpawnProgramOptions` has it.
+ * A role is named by Gro's `_cli` vocabulary: a role whose program an arg or the Gro config
+ * may choose is keyed by that arg's or config field's own name (`eslint_cli`, `typescript_cli`,
+ * `pm_cli`), and a fixed tool's role is the tool's name with `_cli` (`vitest_cli`, `git_cli`),
+ * so only a role keyed by an arg or a config field has `name_from`.
+ * Data a runtime reads from the table without importing the task.
  */
 export interface BuiltinProgramGrant {
 	/**
-	 * The host variables the program sees beyond the base set, as `SpawnProgramOptions`.
+	 * The program run when the task names no other, as `spawn.program` resolves it.
+	 */
+	readonly name: string;
+	/**
+	 * Where a name other than `name` may come from, the task's arg or the Gro config's field
+	 * named by the role; without it, any other name is refused.
+	 * On the Node Gro the role's handle is built for whichever name was chosen;
+	 * a runtime reading the table can require a name other than the default to be granted too.
+	 */
+	readonly name_from?: 'arg' | 'config';
+	/**
+	 * Whether the program is looked up in the project's `node_modules/.bin` first, then on `PATH`,
+	 * as `find_cli` looks.
+	 */
+	readonly local_first?: true;
+	/**
+	 * The host variables the program sees beyond the base set.
 	 */
 	readonly pass_env?: ReadonlyArray<string> | 'all';
+	/**
+	 * The variables left out of what `pass_env` passes.
+	 */
+	readonly omit_env?: ReadonlyArray<string>;
+	/**
+	 * The variables set for the program, whatever the host's are.
+	 */
+	readonly env?: Readonly<Record<string, string>>;
 }
 
 /**
@@ -71,6 +104,14 @@ export interface BuiltinTaskGrants {
 	 */
 	readonly project_modules?: true;
 	/**
+	 * Whether the task writes to standard output, `host.stdout`.
+	 */
+	readonly stdout?: true;
+	/**
+	 * Whether the task writes to standard error, `host.stderr`.
+	 */
+	readonly stderr?: true;
+	/**
 	 * The builtins the task invokes, each run with its own grants;
 	 * invoking any other task through its own `invoke_task` is an error,
 	 * though with `project_modules` the modules it loads invoke any task, unchecked.
@@ -85,6 +126,8 @@ export interface BuiltinTaskGrants {
 export interface BuiltinHostRoot {
 	readonly env: Env;
 	readonly spawn: Spawn;
+	readonly stdout: ProcessOutput;
+	readonly stderr: ProcessOutput;
 }
 
 /**
@@ -112,20 +155,28 @@ export interface BuiltinHostInvocation {
 }
 
 /**
- * The programs a builtin's grants name, each built by the root's `spawn` with the grant's
- * environment, as `Spawn`'s `program` and `find` resolve them.
- * A name the grants don't list throws `SpawnError` `not_granted`.
+ * The programs a builtin's grants name, by role, each built by the root's `spawn`
+ * with the grant's environment, as `Spawn`'s `program` and `find` resolve them,
+ * the project's `node_modules/.bin` first for a grant that's `local_first`, as `find_cli` looks.
+ * A role the grants don't list, or a name other than the role's default
+ * when its grant has no `name_from`, throws `SpawnError` `not_granted`.
  */
-export interface BuiltinPrograms<TName extends string = string> {
+export interface BuiltinPrograms<TRole extends string = string> {
 	/**
+	 * @param role - the grant's key
+	 * @param name - the program to run, the grant's `name` by default
 	 * @throws `SpawnError` - `not_found` and the rest `Spawn.program` throws, or `not_granted`
+	 * @throws `TaskError` - for a `local_first` grant, as `find_cli` throws
 	 */
-	program(name: TName): SpawnProgram;
+	program(role: TRole, name?: string): SpawnProgram;
 	/**
+	 * @param role - the grant's key
+	 * @param name - the program to find, the grant's `name` by default
 	 * @returns the program, or `null` when it isn't found
 	 * @throws `SpawnError` - as `Spawn.find` does, or `not_granted`
+	 * @throws `TaskError` - for a `local_first` grant, as `find_cli` throws
 	 */
-	find(name: TName): SpawnProgram | null;
+	find(role: TRole, name?: string): SpawnProgram | null;
 }
 
 /**
@@ -138,6 +189,8 @@ export type BuiltinHost<TGrants extends BuiltinTaskGrants = BuiltinTaskGrants> =
 	readonly raw_rest_args: ReadonlyArray<string>;
 } & (TGrants extends { fs: BuiltinFsGrant } ? { readonly fs_paths: FsPaths } : unknown) &
 	(TGrants extends { env: ReadonlyArray<string> } ? { readonly env: Env } : unknown) &
+	(TGrants extends { stdout: true } ? { readonly stdout: ProcessOutput } : unknown) &
+	(TGrants extends { stderr: true } ? { readonly stderr: ProcessOutput } : unknown) &
 	(TGrants extends { project_modules: true }
 		? { readonly import_module: ImportModule; readonly invoke_project_task: InvokeTask }
 		: unknown) &
@@ -202,6 +255,8 @@ export const create_builtin_host = <TGrants extends BuiltinTaskGrants>(
 	});
 	if (grants.fs) host.fs_paths = invocation.fs_paths;
 	if (grants.env) host.env = root.env.narrow(grants.env);
+	if (grants.stdout) host.stdout = root.stdout;
+	if (grants.stderr) host.stderr = root.stderr;
 	if (grants.project_modules) {
 		host.import_module = invocation.import_module;
 		host.invoke_project_task = invocation.invoke_project_task;
@@ -209,15 +264,37 @@ export const create_builtin_host = <TGrants extends BuiltinTaskGrants>(
 	const { programs } = grants;
 	if (programs) {
 		const { spawn } = root;
-		const to_options = (name: string): SpawnProgramOptions | undefined => {
-			const grant = hasOwn(programs, name) ? programs[name] : undefined;
-			if (!grant) throw new SpawnError('not_granted', name);
-			return grant.pass_env === undefined ? undefined : { pass_env: grant.pass_env };
+		// the grant of `role` and the name to run, refusing a role or a name it doesn't grant
+		const to_granted = (
+			role: string,
+			name: string | undefined
+		): { grant: BuiltinProgramGrant; name: string; options: SpawnProgramOptions } => {
+			const grant = hasOwn(programs, role) ? programs[role] : undefined;
+			if (!grant) throw new SpawnError('not_granted', role);
+			const chosen = name ?? grant.name;
+			if (chosen !== grant.name && !grant.name_from) throw new SpawnError('not_granted', chosen);
+			const options: SpawnProgramOptions = {};
+			if (grant.pass_env !== undefined) options.pass_env = grant.pass_env;
+			if (grant.omit_env !== undefined) options.omit_env = grant.omit_env;
+			if (grant.env !== undefined) options.env = grant.env;
+			return { grant, name: chosen, options };
 		};
 		host.programs = freeze(
 			create_record({
-				program: (name: string): SpawnProgram => spawn.program(name, to_options(name)),
-				find: (name: string): SpawnProgram | null => spawn.find(name, to_options(name))
+				program: (role: string, name?: string): SpawnProgram => {
+					const granted = to_granted(role, name);
+					return (
+						(granted.grant.local_first
+							? find_local_cli(spawn, granted.name, granted.options)
+							: null) ?? spawn.program(granted.name, granted.options)
+					);
+				},
+				find: (role: string, name?: string): SpawnProgram | null => {
+					const granted = to_granted(role, name);
+					return granted.grant.local_first
+						? find_cli(spawn, granted.name, granted.options)
+						: spawn.find(granted.name, granted.options);
+				}
 			})
 		);
 	}

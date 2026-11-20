@@ -3,7 +3,7 @@ import { chmod, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { install_with_cache_healing } from '#lib/npm_install_helpers.ts';
+import { install_with_cache_healing, to_install_programs } from '#lib/npm_install_helpers.ts';
 import { spawn } from '#lib/spawn.ts';
 import { fs } from '#lib/fs.ts';
 import { create_mock_process_output } from './process_output_mocks.ts';
@@ -55,7 +55,7 @@ describe('install_with_cache_healing, through the spawn module', () => {
 		vi.stubEnv('npm_config_registry', 'https://registry.example/');
 		vi.stubEnv('npm_config_foo', 'bar');
 
-		const result = await install_with_cache_healing(spawn, 'npm', {
+		const result = await install_with_cache_healing(to_install_programs(spawn), 'npm', {
 			stderr: create_mock_process_output()
 		});
 
@@ -75,10 +75,14 @@ describe('install_with_cache_healing, through the spawn module', () => {
 			`[ "\${LC_ALL+x}" = x ] && echo set > "$DIR/lc" || echo unset > "$DIR/lc"`
 		);
 		vi.stubEnv('LC_ALL', undefined);
-		await install_with_cache_healing(spawn, 'npm', { stderr: create_mock_process_output() });
+		await install_with_cache_healing(to_install_programs(spawn), 'npm', {
+			stderr: create_mock_process_output()
+		});
 		expect((await readFile(join(dir, 'lc'), 'utf8')).trim()).toBe('unset');
 		vi.stubEnv('LC_ALL', 'C');
-		await install_with_cache_healing(spawn, 'npm', { stderr: create_mock_process_output() });
+		await install_with_cache_healing(to_install_programs(spawn), 'npm', {
+			stderr: create_mock_process_output()
+		});
 		expect((await readFile(join(dir, 'lc'), 'utf8')).trim()).toBe('set');
 	});
 
@@ -87,7 +91,9 @@ describe('install_with_cache_healing, through the spawn module', () => {
 			`"${process.execPath}" -p "'LC_ALL' in process.env" > "$DIR/lc"`
 		);
 		vi.stubEnv('LC_ALL', undefined);
-		await install_with_cache_healing(spawn, 'npm', { stderr: create_mock_process_output() });
+		await install_with_cache_healing(to_install_programs(spawn), 'npm', {
+			stderr: create_mock_process_output()
+		});
 		expect((await readFile(join(dir, 'lc'), 'utf8')).trim()).toBe('false');
 	});
 
@@ -105,7 +111,7 @@ fi
 exit 0`);
 		const stderr = create_mock_process_output();
 
-		const result = await install_with_cache_healing(spawn, 'npm', { stderr });
+		const result = await install_with_cache_healing(to_install_programs(spawn), 'npm', { stderr });
 
 		expect(result.ok).toBe(true);
 		const teed = stderr.written.map((chunk) => new TextDecoder().decode(chunk as Uint8Array));
@@ -119,7 +125,7 @@ exit 0`);
 
 	test('a failure with no ETARGET surfaces without healing, naming how it ended', async () => {
 		const dir = await create_fake_npm(`echo called >> "$DIR/calls"\nexit 3`);
-		const result = await install_with_cache_healing(spawn, 'npm', {
+		const result = await install_with_cache_healing(to_install_programs(spawn), 'npm', {
 			stderr: create_mock_process_output()
 		});
 		expect(result).toEqual({ ok: false, stderr: '', detail: 'code 3' });
@@ -131,7 +137,7 @@ exit 0`);
 		const work = join(dir, 'work');
 		await mkdir(work);
 		const handle = await fs.open_dir(work);
-		await install_with_cache_healing(spawn, 'npm', {
+		await install_with_cache_healing(to_install_programs(spawn), 'npm', {
 			stderr: create_mock_process_output(),
 			cwd: handle
 		});
@@ -140,7 +146,7 @@ exit 0`);
 
 	test('names a missing program in a failed result', async () => {
 		vi.stubEnv('PATH', '/nonexistent');
-		const result = await install_with_cache_healing(spawn, 'npm', {
+		const result = await install_with_cache_healing(to_install_programs(spawn), 'npm', {
 			stderr: create_mock_process_output()
 		});
 		expect(result.ok).toBe(false);

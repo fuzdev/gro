@@ -1,24 +1,16 @@
 import * as s from '@fuzdev/fuz_schema/schema.ts';
 import { meta } from '@fuzdev/fuz_schema/meta.ts';
+import type { Logger } from '@fuzdev/fuz_util/log.ts';
 
-import { to_forwarded_argv, to_implicit_forwarded_argv, to_raw_rest_args } from './task_args.ts';
-import { find_cli, spawn_cli, spawn_result_is_ok, to_spawn_result_message } from './cli.ts';
+import { to_forwarded_argv } from './task_args.ts';
+import { spawn_cli, spawn_result_is_ok, to_spawn_result_message } from './cli.ts';
 import { VITEST_CLI } from './constants.ts';
 import { create_paths } from './paths.ts';
-import { fs } from './fs.ts';
-import { spawn } from './spawn.ts';
-import { args } from './args.ts';
 import { cwd } from './cwd.ts';
-import { create_fs_paths } from './fs_paths.ts';
-import { env } from './env.ts';
-import type { Task } from './task.ts';
+import type { FsPaths } from './fs_paths.ts';
 import { TaskError } from './task_error.ts';
 import { project_has_vitest, TEST_FILE_PATTERN } from './vitest_helpers.ts';
-
-// the project's paths, from the working directory, its root
-const paths = create_paths(cwd());
-
-const TEST_TASK_NAME = 'test';
+import type { BuiltinPrograms, BuiltinTask, BuiltinTaskGrants } from './builtin_host.ts';
 
 /** @nodocs */
 export const Args = s.object({
@@ -26,7 +18,10 @@ export const Args = s.object({
 		meta(s.array(s.string), { description: 'file patterns to filter tests' }),
 		() => [TEST_FILE_PATTERN]
 	),
-	dir: s.with_default(meta(s.string, { description: 'working directory for tests' }), paths.source),
+	dir: s.with_default_fn(
+		meta(s.string, { description: 'working directory for tests' }),
+		() => create_paths(cwd()).source
+	),
 	fail_without_tests: s.with_default(
 		meta(s.boolean, { description: 'opt out of `passWithNoTests`' }),
 		false
@@ -39,43 +34,86 @@ export const Args = s.object({
 });
 export type Args = s.Infer<typeof Args>;
 
+const grants = {
+	// reads `package.json` for the vitest dependency
+	fs: { read: ['.'] },
+	// vitest loads the project's config and tests, code whose environment Gro can't know
+	programs: { vitest_cli: { name: VITEST_CLI, local_first: true, pass_env: 'all' } }
+} as const satisfies BuiltinTaskGrants;
+
 /** @nodocs */
-export const task: Task<Args> = {
+export const task: BuiltinTask<Args, typeof grants> = {
 	summary: 'run tests with vitest',
 	Args,
-	run: async ({ task_args, log }): Promise<void> => {
-		const { _: patterns, dir, fail_without_tests, t } = task_args;
+	grants,
+	run: ({ task_args, implicit_rest_args, log, host }) =>
+		run_test(
+			task_args,
+			{ raw_rest_args: host.raw_rest_args, implicit_rest_args },
+			{ fs_paths: host.fs_paths, programs: host.programs, log }
+		)
+};
 
-		if (
-			!(await project_has_vitest(create_fs_paths(fs, { cwd: cwd(), home: env.get('HOME') }), log))
-		) {
-			throw new TaskError('no test runner found, add vitest to devDependencies');
-		}
+/**
+ * The data `run_test` takes beside its args.
+ */
+export interface TestOptions {
+	/**
+	 * The CLI args from the first `--` on, whose `vitest` section is forwarded to vitest.
+	 */
+	raw_rest_args: ReadonlyArray<string>;
+	/**
+	 * The section forwarded to vitest without naming it, like `gro test -- --watch`,
+	 * dropped when it starts with `vitest`, as that's the explicit section.
+	 */
+	implicit_rest_args: ReadonlyArray<string>;
+}
 
-		const vitest = find_cli(spawn, VITEST_CLI, { pass_env: 'all' });
-		if (!vitest) {
-			throw new TaskError('vitest is a dependency but not installed; run `npm i`?');
-		}
+/**
+ * What `run_test` reaches, picked from a builtin's `host` and context.
+ */
+export interface TestDeps {
+	fs_paths: FsPaths;
+	programs: Pick<BuiltinPrograms<'vitest_cli'>, 'find'>;
+	log: Logger;
+}
 
-		const vitest_args = ['run', ...patterns];
-		if (dir) {
-			vitest_args.push('--dir', dir);
-		}
-		if (!fail_without_tests) {
-			vitest_args.push('--passWithNoTests');
-		}
-		if (t) {
-			vitest_args.push('-t', t);
-		}
-		// `gro test -- --watch` when the CLI invoked `test`, and `-- vitest --watch` at any depth
-		vitest_args.push(
-			...to_implicit_forwarded_argv(TEST_TASK_NAME, args, cwd(), VITEST_CLI),
-			...to_forwarded_argv(VITEST_CLI, to_raw_rest_args(args))
-		);
+/**
+ * Runs the project's tests with vitest, `gro test`'s body.
+ * @param args - the task's parsed args
+ * @param options - the forwarded args
+ * @param deps - the project's boundary, vitest, and the log
+ */
+export const run_test = async (args: Args, options: TestOptions, deps: TestDeps): Promise<void> => {
+	const { _: patterns, dir, fail_without_tests, t } = args;
+	const { raw_rest_args, implicit_rest_args } = options;
+	const { fs_paths, programs, log } = deps;
 
-		const result = await spawn_cli(vitest, vitest_args);
-		if (!spawn_result_is_ok(result)) {
-			throw new TaskError(`vitest failed: ${to_spawn_result_message(result)}`);
-		}
+	if (!(await project_has_vitest(fs_paths, log))) {
+		throw new TaskError('no test runner found, add vitest to devDependencies');
+	}
+
+	const vitest = programs.find('vitest_cli');
+	if (!vitest) {
+		throw new TaskError('vitest is a dependency but not installed; run `npm i`?');
+	}
+
+	const vitest_args = ['run', ...patterns];
+	if (dir) {
+		vitest_args.push('--dir', dir);
+	}
+	if (!fail_without_tests) {
+		vitest_args.push('--passWithNoTests');
+	}
+	if (t) {
+		vitest_args.push('-t', t);
+	}
+	// `gro test -- --watch` when the CLI invoked `test`, and `-- vitest --watch` at any depth
+	if (implicit_rest_args[0] !== VITEST_CLI) vitest_args.push(...implicit_rest_args);
+	vitest_args.push(...to_forwarded_argv(VITEST_CLI, raw_rest_args));
+
+	const result = await spawn_cli(vitest, vitest_args);
+	if (!spawn_result_is_ok(result)) {
+		throw new TaskError(`vitest failed: ${to_spawn_result_message(result)}`);
 	}
 };

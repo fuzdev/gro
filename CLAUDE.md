@@ -46,7 +46,9 @@ errors and exit codes. Where it lives:
   the project's tasks under `src/` to read their summaries
 - Args forwarding - `to_forwarded_argv` (verbatim, never parsed and
   reserialized) and `has_forwarded_flag` (a forwarded flag replaces a task's
-  own) in `task_args.ts`; CLI-forwarded args override args passed to
+  own) in `task_args.ts`; `invoke_cli` passes the task it invokes its first section
+  after `--` (`to_implicit_rest_args`) as its `TaskContext`'s `implicit_rest_args`, which
+  a task it invokes gets only when its `invoke_task` passes one; CLI-forwarded args override args passed to
   `invoke_task` (`gro test --a 1 -- gro test --a 2` → `{a: 2}`). The functions
   take the CLI args after the CLI's own path (`args`, from `args.ts`), and a root or
   `invoke_task`'s `raw_rest_args` option passes them
@@ -67,10 +69,14 @@ errors and exit codes. Where it lives:
   passes it to the tasks a task invokes; it's never on `TaskContext`, so a
   project task that reaches fs imports the host module itself
 - Builtin host - a builtin declares its `task.grants` (`BuiltinTaskGrants`
-  in `builtin_host.ts`: fs, env, programs, `project_modules`, the builtins it
-  `invokes`),
+  in `builtin_host.ts`: fs, env, programs, `stdout`, `stderr`, `project_modules`,
+  the builtins it `invokes`; a program grant, a `BuiltinProgramGrant`, is keyed by
+  role, the `_cli` name of the arg or config field that may choose its program
+  (`eslint_cli`, `pm_cli`) or of its fixed tool (`vitest_cli`, `git_cli`),
+  with its default `name`, `name_from` (`'arg'` or `'config'`) for another,
+  `local_first`, and its environment as `SpawnProgramOptions` has it),
   emitted as `GRO_BUILTIN_TASK_GRANTS` by the summaries genfile; the root's
-  `BuiltinHostRoot` (`env`, `spawn`) rides `InvokeTaskOptions` as `host_root`,
+  `BuiltinHostRoot` (`env`, `spawn`, `stdout`, `stderr`) rides `InvokeTaskOptions` as `host_root`,
   and `run_task` cuts it by the table (`create_builtin_host`) into the `host`
   of a `BuiltinTaskContext`, only for a builtin, refusing an invoke its grants
   don't name (a `project_modules` builtin's loaded modules invoke unchecked, so it
@@ -394,7 +400,10 @@ Key utilities:
   making pinned `SpawnProgram` handles with an explicit environment; `spawn_error.ts`, its
   `SpawnError` and `is_spawn_error`, grant-free ([docs](src/docs/host_modules.md#spawn))
 - CLIs: `cli.ts` - `find_cli(spawn, name)` tries the project's `node_modules/.bin` and then
-  `PATH`, resolved through a `Spawn`, so only roots import the spawn host module, as for `fs`
+  `PATH`, resolved through a `Spawn`, so only roots import the spawn host module, as for `fs`;
+  helpers that find a CLI (`sveltekit_sync`) take a `CliFinder`, `to_cli_finder(spawn, options)`
+  at a root or a builtin's `host.programs`, and the install helpers an `InstallPrograms`
+  (`to_install_programs(spawn)` at a root)
 - Hashing: `blake3.ts`, the blake3 host module, BLAKE3 over bytes, `hash` and hashers from
   `create_hasher`, `create_keyed_hasher`, `create_derive_key_hasher`, over `@fuzdev/blake3-wasm`
   on Node and the native crate on `fgro`, grant-free ([docs](src/docs/host_modules.md#blake3))

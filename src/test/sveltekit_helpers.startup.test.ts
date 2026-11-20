@@ -1,6 +1,10 @@
 import { test, assert, describe, vi } from 'vitest';
 
-import { sveltekit_sync_if_obviously_needed } from '#lib/sveltekit_helpers.ts';
+import {
+	SVELTEKIT_PROGRAM_OPTIONS,
+	sveltekit_sync_if_obviously_needed
+} from '#lib/sveltekit_helpers.ts';
+import { to_cli_finder } from '#lib/cli.ts';
 import {
 	SVELTEKIT_DEP_NAME,
 	SVELTEKIT_DEV_DIRNAME,
@@ -30,7 +34,10 @@ describe('sveltekit_sync_if_obviously_needed', () => {
 		});
 		const open_path = vi.spyOn(fs_paths, 'open_path');
 		const spawn = create_mock_spawn();
-		await sveltekit_sync_if_obviously_needed(fs_paths, spawn);
+		await sveltekit_sync_if_obviously_needed(
+			fs_paths,
+			to_cli_finder(spawn, SVELTEKIT_PROGRAM_OPTIONS)
+		);
 		assert.strictEqual(count_syncs(spawn), 0);
 		for (const [path] of open_path.mock.calls) {
 			assert.notInclude(path, 'package.json');
@@ -45,8 +52,22 @@ describe('sveltekit_sync_if_obviously_needed', () => {
 		const spawn = create_mock_spawn();
 		await sveltekit_sync_if_obviously_needed(
 			to_project({ 'package.json': DECLARED, [present]: '{}' }),
-			spawn
+			to_cli_finder(spawn, SVELTEKIT_PROGRAM_OPTIONS)
 		);
 		assert.strictEqual(count_syncs(spawn), 1);
 	});
+});
+
+test('`to_cli_finder` finds through the root spawn with its options, the project first', () => {
+	const spawn = create_mock_spawn();
+	spawn.available = (name) => name === 'svelte-kit';
+	const recorded: Array<unknown> = [];
+	const find = spawn.find.bind(spawn);
+	spawn.find = (name, options) => {
+		recorded.push(options);
+		return find(name, options);
+	};
+	assert.ok(to_cli_finder(spawn, SVELTEKIT_PROGRAM_OPTIONS).find('svelte-kit'));
+	assert.deepEqual(spawn.finds, ['node_modules/.bin/svelte-kit', 'svelte-kit']);
+	assert.deepEqual(recorded, [SVELTEKIT_PROGRAM_OPTIONS, SVELTEKIT_PROGRAM_OPTIONS]);
 });

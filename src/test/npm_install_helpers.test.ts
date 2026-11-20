@@ -4,7 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import {
-	to_install_program_options,
+	PM_CLI_PROGRAM_GRANT,
+	to_install_programs,
 	is_etarget_error,
 	install_with_cache_healing,
 	install_with_cache_healing_or_throw,
@@ -18,9 +19,11 @@ import type { FsPaths } from '#lib/fs_paths.ts';
 import { create_project_fs_paths } from './fs_test_helpers.ts';
 import { create_mock_spawn, type MockSpawn } from './spawn_mocks.ts';
 
-describe('to_install_program_options', () => {
-	test('forwards the whole environment but the pruning names', () => {
-		expect(to_install_program_options()).toEqual({
+describe('PM_CLI_PROGRAM_GRANT', () => {
+	test("forwards the whole environment but the pruning names, the name from the config's `pm_cli`", () => {
+		expect(PM_CLI_PROGRAM_GRANT).toEqual({
+			name: 'npm',
+			name_from: 'config',
 			pass_env: 'all',
 			omit_env: ['NODE_ENV', 'npm_config_production', 'npm_config_omit']
 		});
@@ -88,7 +91,9 @@ const make_spawn = (): MockSpawn & { program_options: Array<unknown> } => {
 describe('install_with_cache_healing', () => {
 	test('succeeds on the first attempt without cache cleaning', async () => {
 		const { run, calls } = make_run([{ ok: true }]);
-		const result = await install_with_cache_healing(make_spawn(), 'npm', { run });
+		const result = await install_with_cache_healing(to_install_programs(make_spawn()), 'npm', {
+			run
+		});
 		expect(result.ok).toBe(true);
 		expect(calls).toHaveLength(1);
 		expect(calls[0]!.args).toEqual(['install']);
@@ -96,7 +101,9 @@ describe('install_with_cache_healing', () => {
 
 	test('returns a non-ETARGET failure immediately without healing', async () => {
 		const { run, calls } = make_run([{ ok: false, stderr: 'npm error EACCES permission denied' }]);
-		const result = await install_with_cache_healing(make_spawn(), 'npm', { run });
+		const result = await install_with_cache_healing(to_install_programs(make_spawn()), 'npm', {
+			run
+		});
 		expect(result.ok).toBe(false);
 		expect(calls).toHaveLength(1);
 	});
@@ -107,7 +114,9 @@ describe('install_with_cache_healing', () => {
 			{ ok: true }, // cache clean
 			{ ok: true } // retry install
 		]);
-		const result = await install_with_cache_healing(make_spawn(), 'npm', { run });
+		const result = await install_with_cache_healing(to_install_programs(make_spawn()), 'npm', {
+			run
+		});
 		expect(result.ok).toBe(true);
 		expect(calls).toHaveLength(3);
 		expect(calls[1]!.args).toEqual(['cache', 'clean', '--force']);
@@ -116,7 +125,7 @@ describe('install_with_cache_healing', () => {
 
 	test('with `heal_cache: false` returns an ETARGET failure without cleaning the cache', async () => {
 		const { run, calls } = make_run([{ ok: false, stderr: 'npm error code ETARGET' }]);
-		const result = await install_with_cache_healing(make_spawn(), 'npm', {
+		const result = await install_with_cache_healing(to_install_programs(make_spawn()), 'npm', {
 			run,
 			heal_cache: false
 		});
@@ -130,7 +139,9 @@ describe('install_with_cache_healing', () => {
 			{ ok: true }, // cache clean
 			{ ok: false, stderr: 'ETARGET still', detail: 'code 1' } // retry install
 		]);
-		const result = await install_with_cache_healing(make_spawn(), 'npm', { run });
+		const result = await install_with_cache_healing(to_install_programs(make_spawn()), 'npm', {
+			run
+		});
 		expect(result.ok).toBe(false);
 		expect(calls).toHaveLength(3);
 	});
@@ -140,7 +151,9 @@ describe('install_with_cache_healing', () => {
 			{ ok: false, stderr: 'ETARGET' },
 			{ ok: false, detail: 'code 1' } // cache clean fails
 		]);
-		const result = await install_with_cache_healing(make_spawn(), 'npm', { run });
+		const result = await install_with_cache_healing(to_install_programs(make_spawn()), 'npm', {
+			run
+		});
 		expect(result.ok).toBe(false);
 		expect(result.detail).toContain('cache clean');
 		expect(calls).toHaveLength(2);
@@ -149,7 +162,7 @@ describe('install_with_cache_healing', () => {
 	test('builds the program with the whole environment but the pruning names', async () => {
 		const { run } = make_run([{ ok: true }]);
 		const spawn = make_spawn();
-		await install_with_cache_healing(spawn, 'npm', { run });
+		await install_with_cache_healing(to_install_programs(spawn), 'npm', { run });
 		expect(spawn.program_options).toEqual([
 			{
 				pass_env: 'all',
@@ -161,14 +174,16 @@ describe('install_with_cache_healing', () => {
 	test('pins one program for the install, the cache clean, and the retry', async () => {
 		const { run, calls } = make_run([{ ok: false, stderr: 'ETARGET' }, { ok: true }, { ok: true }]);
 		const spawn = make_spawn();
-		await install_with_cache_healing(spawn, 'npm', { run });
+		await install_with_cache_healing(to_install_programs(spawn), 'npm', { run });
 		expect(spawn.program_options).toHaveLength(1);
 		expect(calls.map((c) => c.args[0])).toEqual(['install', 'cache', 'install']);
 	});
 
 	test('a program that cannot be found is a failed result, never healed', async () => {
 		const spawn = create_mock_spawn(); // `npm` isn't available
-		const result = await install_with_cache_healing(spawn, 'npm', { run: vi.fn() });
+		const result = await install_with_cache_healing(to_install_programs(spawn), 'npm', {
+			run: vi.fn()
+		});
 		assert(!result.ok);
 		expect(result.detail).toContain('not_found');
 		expect(spawn.calls).toEqual([]);
@@ -180,7 +195,7 @@ describe('install_with_cache_healing', () => {
 			{ ok: true }, // cache clean
 			{ ok: true } // retry install
 		]);
-		const result = await install_with_cache_healing(make_spawn(), 'npm', {
+		const result = await install_with_cache_healing(to_install_programs(make_spawn()), 'npm', {
 			run,
 			install_args: ['foo@latest', '--force']
 		});
@@ -192,7 +207,11 @@ describe('install_with_cache_healing', () => {
 
 	test('only npm self-heals — a non-npm pm_cli surfaces ETARGET without cache cleaning', async () => {
 		const { run, calls } = make_run([{ ok: false, stderr: 'npm error code ETARGET' }]);
-		const result = await install_with_cache_healing(make_spawn(), 'some-other-cli', { run });
+		const result = await install_with_cache_healing(
+			to_install_programs(make_spawn()),
+			'some-other-cli',
+			{ run }
+		);
 		expect(result.ok).toBe(false);
 		expect(calls).toHaveLength(1); // no cache clean, no retry
 	});
@@ -202,13 +221,13 @@ describe('install_with_cache_healing_or_throw', () => {
 	test('resolves without throwing on success', async () => {
 		const { run } = make_run([{ ok: true }]);
 		await expect(
-			install_with_cache_healing_or_throw(make_spawn(), 'npm', { run })
+			install_with_cache_healing_or_throw(to_install_programs(make_spawn()), 'npm', { run })
 		).resolves.toBeUndefined();
 	});
 
 	test('throws a TaskError naming the command, context, and detail on failure', async () => {
 		const { run } = make_run([{ ok: false, detail: 'code 1' }]);
-		const promise = install_with_cache_healing_or_throw(make_spawn(), 'npm', {
+		const promise = install_with_cache_healing_or_throw(to_install_programs(make_spawn()), 'npm', {
 			run,
 			install_args: ['foo@latest'],
 			context: 'after version bump'
@@ -314,7 +333,7 @@ describe('install_with_cache_healing_or_throw with throw_if_gro_packages_changed
 			await write_package_json(join(root, 'node_modules/dep_a'), { version: '1.2.0' });
 			return { ok: true, stderr: '', detail: '' };
 		};
-		const promise = install_with_cache_healing_or_throw(make_spawn(), 'npm', {
+		const promise = install_with_cache_healing_or_throw(to_install_programs(make_spawn()), 'npm', {
 			run,
 			gro_dir,
 			throw_if_gro_packages_changed: true,
@@ -332,7 +351,7 @@ describe('install_with_cache_healing_or_throw with throw_if_gro_packages_changed
 		const { gro_dir, fs_paths } = await create_project();
 		const { run } = make_run([{ ok: false, detail: 'code 1' }]);
 		await expect(
-			install_with_cache_healing_or_throw(make_spawn(), 'npm', {
+			install_with_cache_healing_or_throw(to_install_programs(make_spawn()), 'npm', {
 				run,
 				gro_dir,
 				throw_if_gro_packages_changed: true,
@@ -345,7 +364,7 @@ describe('install_with_cache_healing_or_throw with throw_if_gro_packages_changed
 		const { gro_dir, fs_paths } = await create_project();
 		const { run } = make_run([{ ok: true }]);
 		await expect(
-			install_with_cache_healing_or_throw(make_spawn(), 'npm', {
+			install_with_cache_healing_or_throw(to_install_programs(make_spawn()), 'npm', {
 				run,
 				gro_dir,
 				throw_if_gro_packages_changed: true,
@@ -361,7 +380,7 @@ describe('install_with_cache_healing_or_throw with throw_if_gro_packages_changed
 			return { ok: true, stderr: '', detail: '' };
 		};
 		await expect(
-			install_with_cache_healing_or_throw(make_spawn(), 'npm', { run })
+			install_with_cache_healing_or_throw(to_install_programs(make_spawn()), 'npm', { run })
 		).resolves.toBeUndefined();
 	});
 });

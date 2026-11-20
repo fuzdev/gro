@@ -71,7 +71,7 @@ const grants = {
 	fs: { read: ['.'] },
 	env: ['CI'],
 	// `--workspace` reads the local repo's status
-	programs: { git: { pass_env: GIT_LOCAL_PASS_ENV } },
+	programs: { git_cli: { name: 'git', pass_env: GIT_LOCAL_PASS_ENV } },
 	invokes: ['sync', 'build', 'typecheck', 'test', 'gen', 'format', 'lint']
 } as const satisfies BuiltinTaskGrants;
 
@@ -105,7 +105,7 @@ export interface CheckOptions {
 export interface CheckDeps {
 	fs_paths: FsPaths;
 	env: Pick<Env, 'get'>;
-	programs: Pick<BuiltinPrograms<'git'>, 'find'>;
+	programs: Pick<BuiltinPrograms<'git_cli'>, 'find'>;
 	invoke_task: BuiltinInvokeTask<BuiltinInvokes<typeof grants>>;
 	log: Logger;
 }
@@ -212,7 +212,7 @@ export const run_check = async (
 
 	if (workspace) {
 		// only reads the local repo, so the named set is all it needs
-		const git = programs.find('git');
+		const git = programs.find('git_cli');
 		if (!git) {
 			// no git means nothing to compare against, the same as a directory that's no repo
 			log.warn(st('yellow', 'git not found on PATH, skipping the workspace check'));

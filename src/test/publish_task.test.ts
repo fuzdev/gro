@@ -24,12 +24,14 @@ vi.mock('#lib/spawn.ts', async () =>
 	(await import('./git_mocks.ts')).create_mock_git_spawn_module()
 );
 
-vi.mock('#lib/sveltekit_helpers.ts', () => ({
+vi.mock('#lib/sveltekit_helpers.ts', async (import_original) => ({
+	...(await import_original<typeof import('#lib/sveltekit_helpers.ts')>()),
 	has_sveltekit_library: vi.fn(),
 	sveltekit_sync: vi.fn()
 }));
 
-vi.mock('#lib/npm_install_helpers.ts', () => ({
+vi.mock('#lib/npm_install_helpers.ts', async (import_original) => ({
+	...(await import_original<typeof import('#lib/npm_install_helpers.ts')>()),
 	install_with_cache_healing_or_throw: vi.fn()
 }));
 
@@ -124,7 +126,20 @@ describe('publish_task version bump', () => {
 			context: 'after version bump'
 		});
 		assert.strictEqual(sveltekit_sync.mock.calls.length, 1);
-		assert.deepEqual(sveltekit_sync.mock.calls[0], [await get_mock_spawn(), { pm_cli: 'npm' }]);
+		assert.deepEqual(sveltekit_sync.mock.calls[0]![1], { pm_cli: 'npm' });
+		// the root's spawn, finding the SvelteKit CLI with the whole environment
+		const mock_spawn = await get_mock_spawn();
+		const finds = mock_spawn.finds.length;
+		const find = mock_spawn.find.bind(mock_spawn);
+		const find_options: Array<unknown> = [];
+		mock_spawn.find = (name, options) => {
+			find_options.push(options);
+			return find(name, options);
+		};
+		sveltekit_sync.mock.calls[0]![0].find('svelte-kit');
+		mock_spawn.find = find;
+		assert.deepEqual(mock_spawn.finds.slice(finds), ['node_modules/.bin/svelte-kit', 'svelte-kit']);
+		assert.deepEqual(find_options, [{ pass_env: 'all' }, { pass_env: 'all' }]);
 
 		const gen_call_index = invoke_task.mock.calls.findIndex(([name]) => name === 'gen');
 		assert.ok(gen_call_index !== -1, 'expected gen to run after the version bump');

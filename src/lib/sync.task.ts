@@ -1,16 +1,24 @@
 import * as s from '@fuzdev/fuz_schema/schema.ts';
 import { meta } from '@fuzdev/fuz_schema/meta.ts';
+import type { Logger } from '@fuzdev/fuz_util/log.ts';
 
-import type { Task } from './task.ts';
 import { package_json_sync } from './package_json.ts';
 import { project_has_sveltekit_app, sveltekit_sync } from './sveltekit_helpers.ts';
-import { install_with_cache_healing_or_throw } from './npm_install_helpers.ts';
-import { stderr } from './stderr.ts';
-import { fs } from './fs.ts';
-import { spawn } from './spawn.ts';
-import { create_fs_paths } from './fs_paths.ts';
-import { cwd } from './cwd.ts';
-import { env } from './env.ts';
+import {
+	install_with_cache_healing_or_throw,
+	PM_CLI_PROGRAM_GRANT
+} from './npm_install_helpers.ts';
+import { SVELTEKIT_CLI } from './constants.ts';
+import type { FsPaths } from './fs_paths.ts';
+import type { GroConfig } from './gro_config.ts';
+import type { ProcessOutput } from './stdout.ts';
+import type {
+	BuiltinInvokes,
+	BuiltinInvokeTask,
+	BuiltinPrograms,
+	BuiltinTask,
+	BuiltinTaskGrants
+} from './builtin_host.ts';
 
 /** @nodocs */
 export const Args = s.object({
@@ -30,35 +38,83 @@ export const Args = s.object({
 });
 export type Args = s.Infer<typeof Args>;
 
+const grants = {
+	// reads `package.json` and Gro's installed packages, and writes `package.json`'s exports
+	fs: { read: ['.'], write: ['.'] },
+	programs: {
+		// `--install`
+		pm_cli: PM_CLI_PROGRAM_GRANT,
+		// `svelte-kit sync` loads the project's Vite config, code whose environment Gro can't know
+		sveltekit_cli: { name: SVELTEKIT_CLI, local_first: true, pass_env: 'all' }
+	},
+	// the install's output
+	stderr: true,
+	invokes: ['gen']
+} as const satisfies BuiltinTaskGrants;
+
 /** @nodocs */
-export const task: Task<Args> = {
+export const task: BuiltinTask<Args, typeof grants> = {
 	summary: 'optionally install packages, sync SvelteKit, update `package.json`, and run `gro gen`',
 	Args,
-	run: async ({ task_args, invoke_task, config, log }): Promise<void> => {
-		const { sveltekit, package_json, gen, install } = task_args;
-		const fs_paths = create_fs_paths(fs, { cwd: cwd(), home: env.get('HOME') });
+	grants,
+	run: ({ task_args, invoke_task, config, log, host }) =>
+		run_sync(
+			task_args,
+			{ pm_cli: config.pm_cli, map_package_json: config.map_package_json },
+			{ fs_paths: host.fs_paths, programs: host.programs, stderr: host.stderr, invoke_task, log }
+		)
+};
 
-		if (install) {
-			await install_with_cache_healing_or_throw(spawn, config.pm_cli, {
-				log,
-				stderr,
-				throw_if_gro_packages_changed: true,
-				fs_paths
-			});
-		}
+/**
+ * The data `run_sync` takes beside its args.
+ */
+export interface SyncOptions {
+	pm_cli: GroConfig['pm_cli'];
+	map_package_json: GroConfig['map_package_json'];
+}
 
-		// a project declaring SvelteKit that isn't installed still gets the install hint
-		if (sveltekit && (await project_has_sveltekit_app(fs_paths, log))) {
-			await sveltekit_sync(spawn, { pm_cli: config.pm_cli });
-			log.info('synced SvelteKit');
-		}
+/**
+ * What `run_sync` reaches, picked from a builtin's `host` and context.
+ */
+export interface SyncDeps {
+	fs_paths: FsPaths;
+	programs: BuiltinPrograms<'pm_cli' | 'sveltekit_cli'>;
+	stderr: ProcessOutput;
+	invoke_task: BuiltinInvokeTask<BuiltinInvokes<typeof grants>>;
+	log: Logger;
+}
 
-		if (package_json && config.map_package_json) {
-			await package_json_sync(fs_paths, config.map_package_json, log);
-		}
+/**
+ * Installs packages, syncs SvelteKit and `package.json`, and runs gen, each optional,
+ * `gro sync`'s body.
+ * @param args - the task's parsed args
+ * @param options - the config's package manager and `map_package_json`
+ * @param deps - the project's boundary, the programs, stderr, the nested `gen`, and the log
+ */
+export const run_sync = async (args: Args, options: SyncOptions, deps: SyncDeps): Promise<void> => {
+	const { sveltekit, package_json, gen, install } = args;
+	const { pm_cli, map_package_json } = options;
+	const { fs_paths, programs, stderr, invoke_task, log } = deps;
 
-		if (gen) {
-			await invoke_task('gen');
-		}
+	if (install) {
+		await install_with_cache_healing_or_throw(
+			{ program: (name) => programs.program('pm_cli', name) },
+			pm_cli,
+			{ log, stderr, throw_if_gro_packages_changed: true, fs_paths }
+		);
+	}
+
+	// a project declaring SvelteKit that isn't installed still gets the install hint
+	if (sveltekit && (await project_has_sveltekit_app(fs_paths, log))) {
+		await sveltekit_sync({ find: (name) => programs.find('sveltekit_cli', name) }, { pm_cli });
+		log.info('synced SvelteKit');
+	}
+
+	if (package_json && map_package_json) {
+		await package_json_sync(fs_paths, map_package_json, log);
+	}
+
+	if (gen) {
+		await invoke_task('gen');
 	}
 };

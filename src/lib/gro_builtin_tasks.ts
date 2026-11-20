@@ -78,22 +78,60 @@ export const GRO_BUILTIN_TASK_GRANTS: Record<keyof GroBuiltinTasks, BuiltinTaskG
 	check: {
 		fs: { read: ['.'] },
 		env: ['CI'],
-		programs: { git: { pass_env: ['GIT_*', 'XDG_CONFIG_HOME', 'SUDO_UID'] } },
+		programs: { git_cli: { name: 'git', pass_env: ['GIT_*', 'XDG_CONFIG_HOME', 'SUDO_UID'] } },
 		invokes: ['sync', 'build', 'typecheck', 'test', 'gen', 'format', 'lint']
 	},
-	clean: { fs: { read: ['.'], write: ['.'] }, programs: { git: { pass_env: 'all' } } },
+	clean: {
+		fs: { read: ['.'], write: ['.'] },
+		programs: { git_cli: { name: 'git', pass_env: 'all' } }
+	},
 	commit: null,
 	deploy: null,
 	dev: null,
 	format: { fs: { read: ['.'], write: ['.'] } },
 	gen: { fs: { read: ['.'], write: ['.'] }, project_modules: true },
-	lint: null,
+	lint: {
+		programs: {
+			eslint_cli: { name: 'eslint', name_from: 'arg', local_first: true, pass_env: 'all' }
+		}
+	},
 	publish: null,
 	reinstall: null,
 	release: { fs: { read: ['.'] }, invokes: ['publish', 'deploy'] },
 	run: null,
-	sync: null,
-	test: null,
-	typecheck: null,
+	sync: {
+		fs: { read: ['.'], write: ['.'] },
+		programs: {
+			pm_cli: {
+				name: 'npm',
+				name_from: 'config',
+				pass_env: 'all',
+				omit_env: ['NODE_ENV', 'npm_config_production', 'npm_config_omit']
+			},
+			sveltekit_cli: { name: 'svelte-kit', local_first: true, pass_env: 'all' }
+		},
+		stderr: true,
+		invokes: ['gen']
+	},
+	test: {
+		fs: { read: ['.'] },
+		programs: { vitest_cli: { name: 'vitest', local_first: true, pass_env: 'all' } }
+	},
+	typecheck: {
+		fs: { read: ['.'] },
+		programs: {
+			sveltekit_cli: { name: 'svelte-kit', local_first: true, pass_env: 'all' },
+			svelte_check_cli: {
+				name: 'svelte-check',
+				name_from: 'arg',
+				local_first: true,
+				pass_env: 'all',
+				env: { FORCE_COLOR: '1' }
+			},
+			typescript_cli: { name: 'tsc', name_from: 'arg', local_first: true, pass_env: 'all' }
+		},
+		stdout: true,
+		stderr: true
+	},
 	upgrade: null
 };

@@ -39,6 +39,14 @@ export interface TaskContext<TArgs = object> {
 	log: Logger;
 	timings: Timings;
 	invoke_task: InvokeTask;
+	/**
+	 * The forwarded section the task reads as its own without naming a tool,
+	 * like `--watch` in `gro test -- --watch`, frozen:
+	 * for the task the CLI invoked, the CLI's first section after `--`, none when it starts with `gro`,
+	 * and for any other task what its caller passed, none by default.
+	 * Data about the command line, never inherited by the tasks this one invokes.
+	 */
+	implicit_rest_args: ReadonlyArray<string>;
 }
 
 /**
@@ -103,6 +111,12 @@ export interface InvokeTaskContextOptions {
 	 * so this config's `watch` doesn't apply.
 	 */
 	config?: GroConfig;
+	/**
+	 * The invoked task's `implicit_rest_args`, none by default,
+	 * so a task forwards its own section only on purpose,
+	 * like a wrapper passing `implicit_rest_args` to the `test` it invokes.
+	 */
+	implicit_rest_args?: ReadonlyArray<string>;
 }
 
 /**

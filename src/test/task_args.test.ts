@@ -11,7 +11,7 @@ import {
 	to_forwarded_args_by_command,
 	to_forwarded_argv,
 	to_forwarded_flag_value,
-	to_implicit_forwarded_argv,
+	to_implicit_rest_args,
 	to_raw_rest_args,
 	to_task_args
 } from '#lib/task_args.ts';
@@ -273,13 +273,13 @@ describe('has_forwarded_flag', () => {
 	});
 });
 
-describe('to_implicit_forwarded_argv', () => {
-	const implicit = (cli: string, task_name = 'test', command?: string): Array<string> =>
-		to_implicit_forwarded_argv(task_name, cli.split(' '), process.cwd(), command);
+describe('to_implicit_rest_args', () => {
+	const implicit = (rest: string): Array<string> =>
+		to_implicit_rest_args(rest === '' ? [] : rest.split(' '));
 
-	test('the first section verbatim for the task the CLI invoked', () => {
-		expect(implicit('test -- --watch --coverage')).toEqual(['--watch', '--coverage']);
-		expect(implicit('test -- foo.test.ts --max-workers 01')).toEqual([
+	test('the first section verbatim', () => {
+		expect(implicit('-- --watch --coverage')).toEqual(['--watch', '--coverage']);
+		expect(implicit('-- foo.test.ts --max-workers 01')).toEqual([
 			'foo.test.ts',
 			'--max-workers',
 			'01'
@@ -287,30 +287,19 @@ describe('to_implicit_forwarded_argv', () => {
 	});
 
 	test('only the first section', () => {
-		expect(implicit('test -- --watch -- eslint --fix')).toEqual(['--watch']);
-		expect(implicit('test -- -- --watch')).toEqual([]);
+		expect(implicit('-- --watch -- eslint --fix')).toEqual(['--watch']);
+		expect(implicit('-- -- --watch')).toEqual([]);
 	});
 
-	test('none for a nested task', () => {
-		expect(implicit('check -- --watch')).toEqual([]);
-		expect(implicit('check -- gro test --coverage')).toEqual([]);
-	});
-
-	test('none for a first section of a gro task or the explicit command', () => {
-		expect(implicit('test -- gro test --coverage')).toEqual([]);
-		expect(implicit('test -- vitest --watch', 'test', 'vitest')).toEqual([]);
-		expect(implicit('test -- --watch vitest', 'test', 'vitest')).toEqual(['--watch', 'vitest']);
+	test("none for a first section of a gro task, while a tool's is left to its task", () => {
+		expect(implicit('-- gro test --coverage')).toEqual([]);
+		expect(implicit('-- --watch gro')).toEqual(['--watch', 'gro']);
+		expect(implicit('-- vitest --watch')).toEqual(['vitest', '--watch']);
 	});
 
 	test('none without a `--`', () => {
-		expect(implicit('test --watch')).toEqual([]);
-		expect(implicit('test --')).toEqual([]);
-	});
-
-	test('a project task is matched by its normalized path', () => {
-		expect(implicit('task ./src/lib/a.task.ts -- --x', 'src/lib/a.task.ts')).toEqual(['--x']);
-		expect(implicit('task src/lib/a.task.ts -- --x', 'src/lib/b.task.ts')).toEqual([]);
-		expect(implicit('task -- --x', 'task')).toEqual([]);
+		expect(implicit('')).toEqual([]);
+		expect(implicit('--')).toEqual([]);
 	});
 });
 

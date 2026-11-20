@@ -7,6 +7,7 @@ import {
 	merge_forwarded_args,
 	RUN_TASK_NAME,
 	to_forwarded_args,
+	to_implicit_rest_args,
 	type CliTaskArgs
 } from './task_args.ts';
 import { run_task } from './run_task.ts';
@@ -64,9 +65,8 @@ export interface InvokeTaskOptions {
 	fs_paths: FsPaths;
 	/**
 	 * The CLI args from the first `--` on, from `to_raw_rest_args`, passed to nested tasks.
-	 * The `gro` sections in them forward args to Gro tasks; a builtin with grants reads them
-	 * from its `host`, and a task forwarding to an outside tool without one reads that tool's
-	 * section from the `args` host module itself.
+	 * The `gro` sections in them forward args to Gro tasks, and a builtin with grants reads
+	 * them, and an outside tool's section, from its `host`.
 	 */
 	raw_rest_args: ReadonlyArray<string>;
 	/**
@@ -96,6 +96,14 @@ export interface InvokeTaskOptions {
 	 * The invoking task's logger, which labels this task's logger as its child.
 	 */
 	parent_log?: Logger;
+	/**
+	 * The section this task reads as its own forwarded args without naming a tool,
+	 * like `gro test -- --watch`, its context's `implicit_rest_args`,
+	 * never passed on to the tasks it invokes unless its `invoke_task` is given one.
+	 * `invoke_cli` passes the CLI-invoked task its first section after `--`
+	 * (`to_implicit_rest_args`); absent, it's empty.
+	 */
+	implicit_rest_args?: ReadonlyArray<string>;
 }
 
 /**
@@ -126,7 +134,8 @@ export const invoke_task = async (
 		host_root,
 		graph: initial_graph,
 		timings: initial_timings,
-		parent_log
+		parent_log,
+		implicit_rest_args = []
 	} = options;
 	const root = fs_paths.project.path;
 	// Create child logger if parent exists, otherwise root logger,
@@ -182,6 +191,7 @@ export const invoke_task = async (
 			raw_rest_args,
 			import_module,
 			host_root,
+			implicit_rest_args,
 			// a name that resolved is a builtin, a path never is
 			grants: is_builtin_task_name(task.name) ? GRO_BUILTIN_TASK_GRANTS[task.name] : null,
 			graph,
@@ -346,6 +356,8 @@ export const invoke_cli = async (
 	host_root: BuiltinHostRoot
 ): Promise<void> => {
 	const { task_name, task_path, args } = task_args;
+	// the CLI's own task reads the first section as its own, the tasks it invokes never do
+	const implicit_rest_args = to_implicit_rest_args(raw_rest_args);
 
 	if (!task_name) {
 		const log = new Logger('gro');
@@ -365,7 +377,8 @@ export const invoke_cli = async (
 				fs_paths,
 				raw_rest_args,
 				import_module,
-				host_root
+				host_root,
+				implicit_rest_args
 			});
 			return;
 		}
@@ -386,6 +399,7 @@ export const invoke_cli = async (
 		raw_rest_args,
 		import_module,
 		host_root,
+		implicit_rest_args,
 		timings: task_name === RUN_TASK_NAME ? new Timings() : undefined
 	});
 };

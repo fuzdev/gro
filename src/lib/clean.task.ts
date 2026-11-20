@@ -44,7 +44,7 @@ const grants = {
 	// and empties the directory a `.gro/` Gro marked links to, wherever it is (`clean_fs.ts`)
 	fs: { read: ['.'], write: ['.'] },
 	// `--git` queries the remote, so it may prompt, and credential helpers are the user's
-	programs: { git: { pass_env: 'all' } }
+	programs: { git_cli: { name: 'git', pass_env: 'all' } }
 } as const satisfies BuiltinTaskGrants;
 
 /** @nodocs */
@@ -61,7 +61,7 @@ export const task: BuiltinTask<Args, typeof grants> = {
  */
 export interface CleanDeps {
 	fs_paths: FsPaths;
-	programs: Pick<BuiltinPrograms<'git'>, 'find'>;
+	programs: Pick<BuiltinPrograms<'git_cli'>, 'find'>;
 	log: Logger;
 }
 

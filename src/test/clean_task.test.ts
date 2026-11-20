@@ -4,6 +4,7 @@ import { run_clean, task as clean_task, type Args } from '#lib/clean.task.ts';
 import { clean_fs } from '#lib/clean_fs.ts';
 import type { Spawn, SpawnProgram, SpawnResult } from '#lib/spawn.ts';
 import { env } from '#lib/env.ts';
+import type { ProcessOutput } from '#lib/stdout.ts';
 import { create_builtin_host, type BuiltinTaskContext } from '#lib/builtin_host.ts';
 import { TaskError } from '#lib/task_error.ts';
 
@@ -28,7 +29,7 @@ const create_deps = (result: SpawnResult = { kind: 'exited', code: 0 }) => {
 		git,
 		deps: {
 			fs_paths: create_mock_fs_paths(),
-			programs: { find: vi.fn((_name: 'git') => git as SpawnProgram | null) },
+			programs: { find: vi.fn((_role: 'git_cli') => git as SpawnProgram | null) },
 			log: create_mock_logger()
 		}
 	};
@@ -61,7 +62,7 @@ describe('gro clean --git', () => {
 		await run_clean(ARGS, deps);
 		assert.deepEqual(
 			deps.programs.find.mock.calls.map((c) => c[0]),
-			['git']
+			['git_cli']
 		);
 		assert.deepEqual(git.run.mock.calls[0]![0], [
 			'remote',
@@ -115,7 +116,7 @@ test("`clean`'s `run` takes its boundary and git from its `host`", async () => {
 	});
 	assert.deepEqual(
 		deps.programs.find.mock.calls.map((c) => c[0]),
-		['git']
+		['git_cli']
 	);
 	assert.strictEqual(git.run.mock.calls.length, 1);
 });
@@ -123,7 +124,12 @@ test("`clean`'s `run` takes its boundary and git from its `host`", async () => {
 test("`clean`'s grants give `--git` the whole environment, as it may reach a remote", () => {
 	const find = vi.fn(() => null);
 	const host = create_builtin_host(
-		{ env, spawn: { find, program: vi.fn() } as unknown as Spawn },
+		{
+			env,
+			spawn: { find, program: vi.fn() } as unknown as Spawn,
+			stdout: {} as ProcessOutput,
+			stderr: {} as ProcessOutput
+		},
 		clean_task.grants,
 		{
 			fs_paths: create_mock_fs_paths(),
@@ -133,6 +139,6 @@ test("`clean`'s grants give `--git` the whole environment, as it may reach a rem
 		}
 	);
 	assert.deepEqual(Object.keys(host).sort(), ['fs_paths', 'programs', 'raw_rest_args']);
-	host.programs.find('git');
+	host.programs.find('git_cli');
 	assert.deepEqual(find.mock.calls, [['git', { pass_env: 'all' }]]);
 });

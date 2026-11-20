@@ -10,7 +10,7 @@ gro check -- vitest --bail 1 # forward to Vitest from a task that invokes `test`
 ```
 
 The first section after a `--` goes to Vitest, unless it starts with `gro` or `vitest`,
-only when the CLI invoked `gro test` itself, and only up to the next `--`;
+only when the CLI invoked `gro test` itself or a task invoking it passes it as `implicit_rest_args`, and only up to the next `--`;
 a `-- vitest` section reaches Vitest wherever `test` is invoked.
 See [task args forwarding](/src/docs/task.md#task-args-forwarding).
 

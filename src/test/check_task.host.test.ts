@@ -52,7 +52,7 @@ test("`check`'s `run` reads `CI` from its `host`'s `env`", async () => {
 
 test("`check`'s `run` finds git through its `host`", async () => {
 	const { host } = await run({ workspace: true }, []);
-	assert.deepEqual(host.programs.find.mock.calls, [['git']]);
+	assert.deepEqual(host.programs.find.mock.calls, [['git_cli']]);
 });
 
 test("`check`'s `invoke_task` is typed by its grants' `invokes`", () => {

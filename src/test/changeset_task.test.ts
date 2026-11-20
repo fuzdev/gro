@@ -20,7 +20,8 @@ vi.mock('#lib/package_json.ts', async (import_original) => {
 	return { ...actual, package_json_load: vi.fn(async () => ({ name: 'pkg', private: false })) };
 });
 
-vi.mock('#lib/sveltekit_helpers.ts', () => ({
+vi.mock('#lib/sveltekit_helpers.ts', async (import_original) => ({
+	...(await import_original<typeof import('#lib/sveltekit_helpers.ts')>()),
 	has_sveltekit_library: vi.fn(async () => ({ ok: true }))
 }));
 

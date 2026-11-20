@@ -407,12 +407,33 @@ describe('to_git_program', () => {
 		assert.deepEqual(mock_spawn.finds, ['git']);
 	});
 
+	test('passes the root spawn the options, and a host its one-argument find', () => {
+		const find = (name: 'git' | 'git_cli', options?: unknown) => {
+			calls.push([name, options]);
+			return { name } as SpawnProgram;
+		};
+		const calls: Array<Array<unknown>> = [];
+		to_git_program({ find } as never, { pass_env: ['GIT_*'] });
+		to_git_program({ find });
+		// the root's spawn finds the program by name, a host's programs by the `git_cli` role
+		assert.deepEqual(calls, [
+			['git', { pass_env: ['GIT_*'] }],
+			['git_cli', undefined]
+		]);
+		// @ts-expect-error a host's programs take no options, their grant fixes the environment
+		to_git_program({ find }, { pass_env: 'all' });
+		const no_options = (): SpawnProgram =>
+			// @ts-expect-error a root's spawn takes the options, or it would be asked for the role
+			to_git_program(create_mock_spawn());
+		assert.typeOf(no_options, 'function');
+	});
+
 	test('throws a TaskError when git is not on PATH, never looking in node_modules', () => {
 		const mock_spawn = create_mock_spawn();
 		mock_spawn.available = (name) => name === 'node_modules/.bin/git';
 		let error: unknown;
 		try {
-			to_git_program(mock_spawn);
+			to_git_program(mock_spawn, {});
 		} catch (e) {
 			error = e;
 		}

@@ -67,7 +67,11 @@ const BUILTIN_TASKS = [
 	'clean.task.ts',
 	'format.task.ts',
 	'gen.task.ts',
-	'release.task.ts'
+	'lint.task.ts',
+	'release.task.ts',
+	'sync.task.ts',
+	'test.task.ts',
+	'typecheck.task.ts'
 ];
 
 // the package modules the CLI's entry doesn't reach, loaded by tasks and genfiles
