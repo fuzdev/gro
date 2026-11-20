@@ -49,6 +49,7 @@ for Linux x86_64 only, built from source ([install](../src/docs/runtime.md#insta
     A program's `run`, `out`, and `out_bytes` start its child, a native binary by the descriptor it was pinned with and a script by its path,
     each refused `launch_failed` when its file changed since it was pinned, even in place;
     the child is waited for by its pidfd, and a group it leads is killed, by an id still its own, at the drain bound, past `max_bytes`, and after a timeout's grace.
+    A call resolves to how its child ended, `exited` with its code, `signaled` with the signal's name and number, or `timed_out` with the code or the signal's name and number it ended by.
     No child outlives its run: `exit`, an uncaught error, the run's end, and a `SIGINT`, `SIGTERM`, or `SIGHUP` kill each one left, with its group,
     a child launching as the signal arrives among them, waited for up to a second.
     `start` starts a long-lived child, its `SpawnChild` holding its `pid`, its `closed`, which never rejects, its piped `stdin`, written and closed in order,

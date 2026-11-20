@@ -26,7 +26,7 @@ const create_spawn = (): MockSpawn & { children: Array<SpawnChild>; disposed: Ar
 			closed,
 			[Symbol.asyncDispose]: async () => {
 				disposed.push(id);
-				resolve_closed({ kind: 'signaled', signal: 'SIGTERM' });
+				resolve_closed({ kind: 'signaled', signal: 'SIGTERM', signal_number: 15 });
 				await closed;
 			}
 		});
@@ -131,7 +131,11 @@ describe('spawn_restartable', () => {
 		expect(mock.disposed).toEqual([0]);
 		expect(restartable.active).toBe(false);
 		expect(restartable.child).toBeNull();
-		await expect(restartable.closed).resolves.toEqual({ kind: 'signaled', signal: 'SIGTERM' });
+		await expect(restartable.closed).resolves.toEqual({
+			kind: 'signaled',
+			signal: 'SIGTERM',
+			signal_number: 15
+		});
 	});
 
 	test('a loop reading `closed` and `active` does not restart a stopped child', async () => {
@@ -239,7 +243,11 @@ describe('spawn_restartable', () => {
 		await expect(restartable.restart()).rejects.toBe(error);
 		expect(restartable.child).toBeNull();
 		expect(restartable.active).toBe(true);
-		await expect(restartable.closed).resolves.toEqual({ kind: 'signaled', signal: 'SIGTERM' });
+		await expect(restartable.closed).resolves.toEqual({
+			kind: 'signaled',
+			signal: 'SIGTERM',
+			signal_number: 15
+		});
 		// the queue survives the failure, so a later operation still runs
 		mock.start_error = () => undefined;
 		await restartable.restart();

@@ -16547,6 +16547,10 @@
 							"kind": "exited",
 							"code": 3
 						},
+						"keys": [
+							"kind",
+							"code"
+						],
 						"frozen": true,
 						"null_prototype": true
 					}
@@ -16557,6 +16561,10 @@
 							"kind": "exited",
 							"code": 0
 						},
+						"keys": [
+							"kind",
+							"code"
+						],
 						"frozen": true,
 						"null_prototype": true
 					}
@@ -16565,8 +16573,14 @@
 					"fulfilled": {
 						"fields": {
 							"kind": "signaled",
-							"signal": "SIGUSR1"
+							"signal": "SIGUSR1",
+							"signal_number": 10
 						},
+						"keys": [
+							"kind",
+							"signal",
+							"signal_number"
+						],
 						"frozen": true,
 						"null_prototype": true
 					}
@@ -16577,8 +16591,78 @@
 							"kind": "exited",
 							"code": 0
 						},
+						"keys": [
+							"kind",
+							"code"
+						],
 						"frozen": true,
 						"null_prototype": true
+					}
+				},
+				"by_signal": {
+					"USR2": {
+						"fulfilled": {
+							"fields": {
+								"kind": "signaled",
+								"signal": "SIGUSR2",
+								"signal_number": 12
+							},
+							"keys": [
+								"kind",
+								"signal",
+								"signal_number"
+							],
+							"frozen": true,
+							"null_prototype": true
+						}
+					},
+					"ALRM": {
+						"fulfilled": {
+							"fields": {
+								"kind": "signaled",
+								"signal": "SIGALRM",
+								"signal_number": 14
+							},
+							"keys": [
+								"kind",
+								"signal",
+								"signal_number"
+							],
+							"frozen": true,
+							"null_prototype": true
+						}
+					},
+					"ABRT": {
+						"fulfilled": {
+							"fields": {
+								"kind": "signaled",
+								"signal": "SIGABRT",
+								"signal_number": 6
+							},
+							"keys": [
+								"kind",
+								"signal",
+								"signal_number"
+							],
+							"frozen": true,
+							"null_prototype": true
+						}
+					},
+					"TERM": {
+						"fulfilled": {
+							"fields": {
+								"kind": "signaled",
+								"signal": "SIGTERM",
+								"signal_number": 15
+							},
+							"keys": [
+								"kind",
+								"signal",
+								"signal_number"
+							],
+							"frozen": true,
+							"null_prototype": true
+						}
 					}
 				},
 				"timed_out": {
@@ -16586,8 +16670,69 @@
 						"fields": {
 							"kind": "timed_out",
 							"code": null,
-							"signal": "SIGTERM"
+							"signal": "SIGTERM",
+							"signal_number": 15
 						},
+						"keys": [
+							"kind",
+							"code",
+							"signal",
+							"signal_number"
+						],
+						"frozen": true,
+						"null_prototype": true
+					}
+				},
+				"timed_out_stubborn": {
+					"fulfilled": {
+						"fields": {
+							"kind": "timed_out",
+							"code": null,
+							"signal": "SIGKILL",
+							"signal_number": 9
+						},
+						"keys": [
+							"kind",
+							"code",
+							"signal",
+							"signal_number"
+						],
+						"frozen": true,
+						"null_prototype": true
+					}
+				},
+				"timed_out_exits": {
+					"fulfilled": {
+						"fields": {
+							"kind": "timed_out",
+							"code": 7,
+							"signal": null,
+							"signal_number": null
+						},
+						"keys": [
+							"kind",
+							"code",
+							"signal",
+							"signal_number"
+						],
+						"frozen": true,
+						"null_prototype": true
+					}
+				},
+				"timed_out_real_time": {
+					"fulfilled": {
+						"fields": {
+							"kind": "timed_out",
+							"code": 0,
+							"signal": null,
+							"signal_number": null
+						},
+						"keys": [
+							"kind",
+							"code",
+							"signal",
+							"signal_number"
+						],
 						"frozen": true,
 						"null_prototype": true
 					}
@@ -16598,6 +16743,10 @@
 							"kind": "exited",
 							"code": 0
 						},
+						"keys": [
+							"kind",
+							"code"
+						],
 						"frozen": true,
 						"null_prototype": true
 					}
@@ -16613,6 +16762,13 @@
 							"stderr": "err",
 							"truncated": false
 						},
+						"keys": [
+							"kind",
+							"code",
+							"stdout",
+							"stderr",
+							"truncated"
+						],
 						"frozen": true,
 						"null_prototype": true
 					}
@@ -16626,6 +16782,13 @@
 							"stderr": "",
 							"truncated": false
 						},
+						"keys": [
+							"kind",
+							"code",
+							"stdout",
+							"stderr",
+							"truncated"
+						],
 						"frozen": true,
 						"null_prototype": true
 					}
@@ -16639,6 +16802,13 @@
 							"stderr": "",
 							"truncated": false
 						},
+						"keys": [
+							"kind",
+							"code",
+							"stdout",
+							"stderr",
+							"truncated"
+						],
 						"frozen": true,
 						"null_prototype": true
 					}
@@ -16652,6 +16822,13 @@
 							"stderr": "",
 							"truncated": false
 						},
+						"keys": [
+							"kind",
+							"code",
+							"stdout",
+							"stderr",
+							"truncated"
+						],
 						"frozen": true,
 						"null_prototype": true
 					}
@@ -16665,6 +16842,13 @@
 							"stderr": "",
 							"truncated": false
 						},
+						"keys": [
+							"kind",
+							"code",
+							"stdout",
+							"stderr",
+							"truncated"
+						],
 						"frozen": true,
 						"null_prototype": true
 					}
@@ -16678,6 +16862,13 @@
 							"stderr": "",
 							"truncated": false
 						},
+						"keys": [
+							"kind",
+							"code",
+							"stdout",
+							"stderr",
+							"truncated"
+						],
 						"frozen": true,
 						"null_prototype": true
 					}
@@ -16687,10 +16878,19 @@
 						"fields": {
 							"kind": "signaled",
 							"signal": "SIGTERM",
+							"signal_number": 15,
 							"stdout": "",
 							"stderr": "",
 							"truncated": false
 						},
+						"keys": [
+							"kind",
+							"signal",
+							"signal_number",
+							"stdout",
+							"stderr",
+							"truncated"
+						],
 						"frozen": true,
 						"null_prototype": true
 					}
@@ -16704,6 +16904,13 @@
 							"stderr": "",
 							"truncated": false
 						},
+						"keys": [
+							"kind",
+							"code",
+							"stdout",
+							"stderr",
+							"truncated"
+						],
 						"frozen": true,
 						"null_prototype": true
 					}
@@ -16717,6 +16924,13 @@
 							"stderr": "",
 							"truncated": false
 						},
+						"keys": [
+							"kind",
+							"code",
+							"stdout",
+							"stderr",
+							"truncated"
+						],
 						"frozen": true,
 						"null_prototype": true
 					}
@@ -16730,6 +16944,13 @@
 							"stderr": "",
 							"truncated": false
 						},
+						"keys": [
+							"kind",
+							"code",
+							"stdout",
+							"stderr",
+							"truncated"
+						],
 						"frozen": true,
 						"null_prototype": true
 					}
@@ -16743,6 +16964,13 @@
 							"stderr": "",
 							"truncated": false
 						},
+						"keys": [
+							"kind",
+							"code",
+							"stdout",
+							"stderr",
+							"truncated"
+						],
 						"frozen": true,
 						"null_prototype": true
 					}
@@ -16756,6 +16984,13 @@
 							"stderr": "",
 							"truncated": false
 						},
+						"keys": [
+							"kind",
+							"code",
+							"stdout",
+							"stderr",
+							"truncated"
+						],
 						"frozen": true,
 						"null_prototype": true
 					}
@@ -16769,6 +17004,13 @@
 							"stderr": "",
 							"truncated": false
 						},
+						"keys": [
+							"kind",
+							"code",
+							"stdout",
+							"stderr",
+							"truncated"
+						],
 						"frozen": true,
 						"null_prototype": true
 					}
@@ -16782,6 +17024,13 @@
 							"stderr": "",
 							"truncated": false
 						},
+						"keys": [
+							"kind",
+							"code",
+							"stdout",
+							"stderr",
+							"truncated"
+						],
 						"frozen": true,
 						"null_prototype": true
 					}
@@ -16799,6 +17048,13 @@
 							},
 							"truncated": false
 						},
+						"keys": [
+							"kind",
+							"code",
+							"stdout",
+							"stderr",
+							"truncated"
+						],
 						"frozen": false,
 						"null_prototype": false
 					}
@@ -16812,6 +17068,13 @@
 							"stderr": "",
 							"truncated": false
 						},
+						"keys": [
+							"kind",
+							"code",
+							"stdout",
+							"stderr",
+							"truncated"
+						],
 						"frozen": true,
 						"null_prototype": true
 					}
@@ -16821,10 +17084,19 @@
 						"fields": {
 							"kind": "signaled",
 							"signal": "SIGKILL",
+							"signal_number": 9,
 							"stdout": "012",
 							"stderr": "",
 							"truncated": true
 						},
+						"keys": [
+							"kind",
+							"signal",
+							"signal_number",
+							"stdout",
+							"stderr",
+							"truncated"
+						],
 						"frozen": true,
 						"null_prototype": true
 					}
@@ -16834,10 +17106,19 @@
 						"fields": {
 							"kind": "signaled",
 							"signal": "SIGKILL",
+							"signal_number": 9,
 							"stdout": "",
 							"stderr": "",
 							"truncated": true
 						},
+						"keys": [
+							"kind",
+							"signal",
+							"signal_number",
+							"stdout",
+							"stderr",
+							"truncated"
+						],
 						"frozen": true,
 						"null_prototype": true
 					}
@@ -16851,6 +17132,13 @@
 							"stderr": "err",
 							"truncated": false
 						},
+						"keys": [
+							"kind",
+							"code",
+							"stdout",
+							"stderr",
+							"truncated"
+						],
 						"frozen": true,
 						"null_prototype": true
 					}
@@ -16861,10 +17149,20 @@
 							"kind": "timed_out",
 							"code": null,
 							"signal": "SIGTERM",
+							"signal_number": 15,
 							"stdout": "",
 							"stderr": "",
 							"truncated": false
 						},
+						"keys": [
+							"kind",
+							"code",
+							"signal",
+							"signal_number",
+							"stdout",
+							"stderr",
+							"truncated"
+						],
 						"frozen": true,
 						"null_prototype": true
 					}
@@ -16875,10 +17173,20 @@
 							"kind": "timed_out",
 							"code": 7,
 							"signal": null,
+							"signal_number": null,
 							"stdout": "",
 							"stderr": "",
 							"truncated": false
 						},
+						"keys": [
+							"kind",
+							"code",
+							"signal",
+							"signal_number",
+							"stdout",
+							"stderr",
+							"truncated"
+						],
 						"frozen": true,
 						"null_prototype": true
 					}
@@ -16892,6 +17200,13 @@
 							"stderr": "",
 							"truncated": true
 						},
+						"keys": [
+							"kind",
+							"code",
+							"stdout",
+							"stderr",
+							"truncated"
+						],
 						"frozen": true,
 						"null_prototype": true
 					}
@@ -16923,6 +17238,13 @@
 							},
 							"truncated": false
 						},
+						"keys": [
+							"kind",
+							"code",
+							"stdout",
+							"stderr",
+							"truncated"
+						],
 						"frozen": true,
 						"null_prototype": true
 					}
@@ -16956,6 +17278,13 @@
 							},
 							"truncated": false
 						},
+						"keys": [
+							"kind",
+							"code",
+							"stdout",
+							"stderr",
+							"truncated"
+						],
 						"frozen": true,
 						"null_prototype": true
 					}
@@ -16965,6 +17294,7 @@
 						"fields": {
 							"kind": "signaled",
 							"signal": "SIGKILL",
+							"signal_number": 9,
 							"stdout": {
 								"bytes": [
 									48,
@@ -16982,6 +17312,14 @@
 							},
 							"truncated": true
 						},
+						"keys": [
+							"kind",
+							"signal",
+							"signal_number",
+							"stdout",
+							"stderr",
+							"truncated"
+						],
 						"frozen": true,
 						"null_prototype": true
 					}
@@ -17003,6 +17341,13 @@
 							},
 							"truncated": false
 						},
+						"keys": [
+							"kind",
+							"code",
+							"stdout",
+							"stderr",
+							"truncated"
+						],
 						"frozen": true,
 						"null_prototype": true
 					}
@@ -17249,6 +17594,13 @@
 							"stderr": "",
 							"truncated": false
 						},
+						"keys": [
+							"kind",
+							"code",
+							"stdout",
+							"stderr",
+							"truncated"
+						],
 						"frozen": true,
 						"null_prototype": true
 					}
@@ -17636,6 +17988,13 @@
 						"stderr": "",
 						"truncated": false
 					},
+					"keys": [
+						"kind",
+						"code",
+						"stdout",
+						"stderr",
+						"truncated"
+					],
 					"frozen": true,
 					"null_prototype": true
 				}
@@ -17649,6 +18008,13 @@
 						"stderr": "",
 						"truncated": false
 					},
+					"keys": [
+						"kind",
+						"code",
+						"stdout",
+						"stderr",
+						"truncated"
+					],
 					"frozen": true,
 					"null_prototype": true
 				}
@@ -17662,6 +18028,13 @@
 						"stderr": "",
 						"truncated": false
 					},
+					"keys": [
+						"kind",
+						"code",
+						"stdout",
+						"stderr",
+						"truncated"
+					],
 					"frozen": true,
 					"null_prototype": true
 				}
@@ -18063,6 +18436,13 @@
 						"stderr": "",
 						"truncated": false
 					},
+					"keys": [
+						"kind",
+						"code",
+						"stdout",
+						"stderr",
+						"truncated"
+					],
 					"frozen": true,
 					"null_prototype": true
 				}
@@ -18076,6 +18456,13 @@
 						"stderr": "",
 						"truncated": false
 					},
+					"keys": [
+						"kind",
+						"code",
+						"stdout",
+						"stderr",
+						"truncated"
+					],
 					"frozen": true,
 					"null_prototype": true
 				}
@@ -18089,6 +18476,13 @@
 						"stderr": "",
 						"truncated": false
 					},
+					"keys": [
+						"kind",
+						"code",
+						"stdout",
+						"stderr",
+						"truncated"
+					],
 					"frozen": true,
 					"null_prototype": true
 				}
@@ -18173,6 +18567,13 @@
 						"stderr": "",
 						"truncated": false
 					},
+					"keys": [
+						"kind",
+						"code",
+						"stdout",
+						"stderr",
+						"truncated"
+					],
 					"frozen": true,
 					"null_prototype": true
 				}
@@ -18437,6 +18838,10 @@
 						"kind": "exited",
 						"code": 0
 					},
+					"keys": [
+						"kind",
+						"code"
+					],
 					"frozen": true,
 					"null_prototype": true
 				},
@@ -18452,6 +18857,10 @@
 						"kind": "exited",
 						"code": 3
 					},
+					"keys": [
+						"kind",
+						"code"
+					],
 					"frozen": true,
 					"null_prototype": true
 				}
@@ -18468,6 +18877,10 @@
 						"kind": "exited",
 						"code": 0
 					},
+					"keys": [
+						"kind",
+						"code"
+					],
 					"frozen": true,
 					"null_prototype": true
 				}
@@ -18524,6 +18937,10 @@
 						"kind": "exited",
 						"code": 0
 					},
+					"keys": [
+						"kind",
+						"code"
+					],
 					"frozen": true,
 					"null_prototype": true
 				}
@@ -18540,6 +18957,10 @@
 						"kind": "exited",
 						"code": 0
 					},
+					"keys": [
+						"kind",
+						"code"
+					],
 					"frozen": true,
 					"null_prototype": true
 				}
@@ -18555,8 +18976,14 @@
 				"closed": {
 					"fields": {
 						"kind": "signaled",
-						"signal": "SIGTERM"
+						"signal": "SIGTERM",
+						"signal_number": 15
 					},
+					"keys": [
+						"kind",
+						"signal",
+						"signal_number"
+					],
 					"frozen": true,
 					"null_prototype": true
 				},
@@ -18566,18 +18993,45 @@
 				"closed": {
 					"fields": {
 						"kind": "signaled",
-						"signal": "SIGTERM"
+						"signal": "SIGTERM",
+						"signal_number": 15
 					},
+					"keys": [
+						"kind",
+						"signal",
+						"signal_number"
+					],
 					"frozen": true,
 					"null_prototype": true
 				}
+			},
+			"disposed_stubborn": {
+				"fields": {
+					"kind": "signaled",
+					"signal": "SIGKILL",
+					"signal_number": 9
+				},
+				"keys": [
+					"kind",
+					"signal",
+					"signal_number"
+				],
+				"frozen": true,
+				"null_prototype": true
 			},
 			"timed_out": {
 				"fields": {
 					"kind": "timed_out",
 					"code": null,
-					"signal": "SIGTERM"
+					"signal": "SIGTERM",
+					"signal_number": 15
 				},
+				"keys": [
+					"kind",
+					"code",
+					"signal",
+					"signal_number"
+				],
 				"frozen": true,
 				"null_prototype": true
 			},
@@ -18588,6 +19042,10 @@
 						"kind": "exited",
 						"code": 0
 					},
+					"keys": [
+						"kind",
+						"code"
+					],
 					"frozen": true,
 					"null_prototype": true
 				}
@@ -18600,6 +19058,10 @@
 						"kind": "exited",
 						"code": 0
 					},
+					"keys": [
+						"kind",
+						"code"
+					],
 					"frozen": true,
 					"null_prototype": true
 				}
@@ -18620,6 +19082,10 @@
 						"kind": "exited",
 						"code": 0
 					},
+					"keys": [
+						"kind",
+						"code"
+					],
 					"frozen": true,
 					"null_prototype": true
 				}

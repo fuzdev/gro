@@ -66,6 +66,8 @@ const show_result = (/** @type {any} */ result) => {
 	if (result === null || typeof result !== 'object') return { not_a_record: typeof result };
 	/** @type {Record<string, unknown>} */
 	const fields = {};
+	// the order too, which a comparison of `fields` as maps doesn't see
+	const keys = Reflect.ownKeys(result).map(String);
 	for (const key of Reflect.ownKeys(result)) {
 		const value = result[key];
 		fields[String(key)] =
@@ -79,6 +81,7 @@ const show_result = (/** @type {any} */ result) => {
 	}
 	return {
 		fields,
+		keys,
 		frozen: Object.isFrozen(result),
 		null_prototype: Object.getPrototypeOf(result) === null
 	};
@@ -351,7 +354,22 @@ export default async (ns, [scenario, cwd], _print, /** @type {any} */ load) => {
 					zero: await called(() => emit.run(['exit', '0'])),
 					signaled: await called(() => emit.run(['signal', 'USR1'])),
 					real_time: await called(() => emit.run(['signal', '35'])),
+					by_signal: Object.fromEntries(
+						await Promise.all(
+							['USR2', 'ALRM', 'ABRT', 'TERM'].map(async (signal) => [
+								signal,
+								await called(() => emit.run(['signal', signal]))
+							])
+						)
+					),
 					timed_out: await called(() => emit.run(['sleep', '5'], { timeout_ms: 100 })),
+					// its `SIGTERM` ignored, it's ended by the grace's `SIGKILL`
+					timed_out_stubborn: await called(() => emit.run(['stubborn'], { timeout_ms: 100 })),
+					// it exits on the `SIGTERM`, so the result has its code and no signal
+					timed_out_exits: await called(() => emit.run(['trap'], { timeout_ms: 300 })),
+					timed_out_real_time: await called(() =>
+						emit.run(['real_time_on_term'], { timeout_ms: 300 })
+					),
 					extra_options: await called(() => emit.run(['exit', '0'], { max_bytes: -1, stdin: 1 }))
 				},
 				out: {
@@ -583,6 +601,7 @@ export default async (ns, [scenario, cwd], _print, /** @type {any} */ load) => {
 			};
 			const sleeper = /** @type {any} */ (await emit.start(['sleep', '5'], { stdio: 'ignore' }));
 			const disposed = /** @type {any} */ (await emit.start(['sleep', '5'], { stdio: 'ignore' }));
+			const stubborn = /** @type {any} */ (await emit.start(['stubborn'], { stdio: 'ignore' }));
 			const timed = /** @type {any} */ (
 				await emit.start(['sleep', '5'], { stdio: 'ignore', timeout_ms: 100 })
 			);
@@ -649,6 +668,10 @@ export default async (ns, [scenario, cwd], _print, /** @type {any} */ load) => {
 					closed: show_result(await disposed.closed),
 					again: await disposed[Symbol.asyncDispose]()
 				},
+				// its `SIGTERM` ignored, it's killed by the grace's `SIGKILL`
+				disposed_stubborn: show_result(
+					await stubborn[Symbol.asyncDispose]().then(() => stubborn.closed)
+				),
 				timed_out: show_result(await timed.closed),
 				behind_the_pause: { length: many_read.text.length, closed: show_result(await many.closed) },
 				left_early: {

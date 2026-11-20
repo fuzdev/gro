@@ -1216,8 +1216,18 @@
 		"differs": [
 			{
 				"at": "/run/real_time/fulfilled/fields",
-				"fgro": {"kind": "signaled", "signal": "SIGRTMIN+1"},
+				"fgro": {"kind": "signaled", "signal": "SIGRTMIN+1", "signal_number": 35},
 				"why": "fgro reports a child a real-time signal killed as signaled, by the signal's place after SIGRTMIN, where Node reports it as exited 0"
+			},
+			{
+				"at": "/run/real_time/fulfilled/keys",
+				"fgro": ["kind", "signal", "signal_number"],
+				"why": "fgro reports a child a real-time signal killed as signaled, where Node reports it as exited 0"
+			},
+			{
+				"at": "/run/timed_out_real_time/fulfilled/fields",
+				"fgro": {"kind": "timed_out", "code": null, "signal": "SIGRTMIN+1", "signal_number": 35},
+				"why": "fgro reports a stopped child a real-time signal killed by the signal, where Node reports it as code 0 and no signal"
 			},
 			{
 				"at": "/out/vars/fulfilled/fields/stdout",

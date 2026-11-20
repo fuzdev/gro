@@ -626,7 +626,7 @@ describe('kill', () => {
 		await poll_until(() => existsSync(ready), 'the trap to be set');
 		await child[Symbol.asyncDispose]();
 		const result = await child.closed;
-		assert.deepEqual({ ...result }, { kind: 'signaled', signal: 'SIGKILL' });
+		assert.deepEqual({ ...result }, { kind: 'signaled', signal: 'SIGKILL', signal_number: 9 });
 	});
 });
 
@@ -640,6 +640,7 @@ describe('timeout_ms and signal', () => {
 			const result: any = await call();
 			assert.strictEqual(result.kind, 'timed_out');
 			assert.strictEqual(result.signal, 'SIGTERM');
+			assert.strictEqual(result.signal_number, 15);
 			assert.isNull(result.code);
 		}
 		const child = await program.start([], { timeout_ms: 30, stdio: 'pipe' });
@@ -667,6 +668,7 @@ describe('timeout_ms and signal', () => {
 		assert.strictEqual(output.kind, 'aborted');
 		assert.strictEqual(output.code, 0);
 		assert.isNull(output.signal);
+		assert.isNull(output.signal_number);
 	});
 
 	test('a child ignoring `SIGTERM` is killed after the grace', async () => {
@@ -678,6 +680,7 @@ describe('timeout_ms and signal', () => {
 		const output = await out_stopped_when_ready(program, ready);
 		assert.strictEqual(output.kind, 'aborted');
 		assert.strictEqual(output.signal, 'SIGKILL');
+		assert.strictEqual(output.signal_number, 9);
 	});
 
 	test('a malformed `timeout_ms` is a TypeError and it is read once, own only', async () => {
@@ -719,7 +722,18 @@ describe('timeout_ms and signal', () => {
 		controller.abort();
 		const result = await call;
 		assert.strictEqual(result.kind, 'aborted');
-		assert.strictEqual(result.kind === 'aborted' ? result.signal : null, 'SIGTERM');
+		assert.deepEqual(
+			{ ...result },
+			{
+				kind: 'aborted',
+				code: null,
+				signal: 'SIGTERM',
+				signal_number: 15,
+				stdout: '',
+				stderr: '',
+				truncated: false
+			}
+		);
 	});
 
 	test('a signal already aborted starts nothing and throws `launch_failed`', async () => {

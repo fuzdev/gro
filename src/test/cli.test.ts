@@ -219,23 +219,35 @@ describe('spawn results', () => {
 	test('only an exit with 0 is ok', () => {
 		assert.ok(spawn_result_is_ok({ kind: 'exited', code: 0 }));
 		assert.ok(!spawn_result_is_ok({ kind: 'exited', code: 1 }));
-		assert.ok(!spawn_result_is_ok({ kind: 'signaled', signal: 'SIGKILL' }));
-		assert.ok(!spawn_result_is_ok({ kind: 'timed_out', code: 0, signal: null }));
-		assert.ok(!spawn_result_is_ok({ kind: 'aborted', code: 0, signal: null }));
+		assert.ok(!spawn_result_is_ok({ kind: 'signaled', signal: 'SIGKILL', signal_number: 9 }));
+		assert.ok(
+			!spawn_result_is_ok({ kind: 'timed_out', code: 0, signal: null, signal_number: null })
+		);
+		assert.ok(!spawn_result_is_ok({ kind: 'aborted', code: 0, signal: null, signal_number: null }));
 	});
 
 	test('messages name each kind', () => {
 		assert.strictEqual(to_spawn_result_message({ kind: 'exited', code: 1 }), 'code 1');
 		assert.strictEqual(
-			to_spawn_result_message({ kind: 'signaled', signal: 'SIGTERM' }),
+			to_spawn_result_message({ kind: 'signaled', signal: 'SIGTERM', signal_number: 15 }),
 			'signal SIGTERM'
 		);
 		assert.strictEqual(
-			to_spawn_result_message({ kind: 'timed_out', code: null, signal: 'SIGTERM' }),
+			to_spawn_result_message({
+				kind: 'timed_out',
+				code: null,
+				signal: 'SIGTERM',
+				signal_number: 15
+			}),
 			'timed out'
 		);
 		assert.strictEqual(
-			to_spawn_result_message({ kind: 'aborted', code: null, signal: 'SIGTERM' }),
+			to_spawn_result_message({
+				kind: 'aborted',
+				code: null,
+				signal: 'SIGTERM',
+				signal_number: 15
+			}),
 			'aborted'
 		);
 	});

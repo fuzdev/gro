@@ -277,7 +277,12 @@ describe('ref names from a caller', () => {
 });
 
 describe('how a stopped git reads', () => {
-	const TIMED_OUT: SpawnResult = { kind: 'timed_out', code: null, signal: 'SIGTERM' };
+	const TIMED_OUT: SpawnResult = {
+		kind: 'timed_out',
+		code: null,
+		signal: 'SIGTERM',
+		signal_number: 15
+	};
 
 	test('a stopped local read throws instead of passing partial output as an answer', async () => {
 		const { program } = create_recording_program(EXITED_OK, to_output(TIMED_OUT));

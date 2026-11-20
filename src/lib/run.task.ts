@@ -3,7 +3,7 @@ import { styleText as st } from 'node:util';
 import * as s from '@fuzdev/fuz_schema/schema.ts';
 import { meta } from '@fuzdev/fuz_schema/meta.ts';
 
-import { resolve_gro_module_path, spawn_with_loader, to_signal_exit_code } from './gro_helpers.ts';
+import { resolve_gro_module_path, spawn_with_loader } from './gro_helpers.ts';
 import { env } from './env.ts';
 import type { Task } from './task.ts';
 import { TaskError } from './task_error.ts';
@@ -81,7 +81,7 @@ export const task: Task<Args> = {
 					spawned.kind === 'exited'
 						? spawned.code
 						: spawned.kind === 'signaled'
-							? to_signal_exit_code(spawned.signal)
+							? 128 + spawned.signal_number
 							: undefined
 			});
 		}

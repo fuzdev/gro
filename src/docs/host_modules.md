@@ -403,7 +403,9 @@ const result = await check.closed;
   It's copied when the option is read, and written while the output is read, so input and output past a pipe's buffer can't deadlock.
   A child that exits or closes its stdin before reading it all ends the write without an error, and the result stands.
   The cap, `timeout_ms`, and `signal` end the call mid-write as they do any other.
-- A result is `{kind: 'exited', code}` or `{kind: 'signaled', signal}`, so a non-zero exit is a value.
+- A result is `{kind: 'exited', code}` or `{kind: 'signaled', signal, signal_number}`, so a non-zero exit is a value.
+  A signal is named, like `SIGTERM`, and numbered, so a shell's exit code for it is `128 + signal_number` with nothing more imported,
+  and a stopped call's result, below, carries both too.
   A program that can't start throws `SpawnError` of kind `launch_failed`, as does a script whose found path now leads to another file.
   A captured call that can't allocate memory for a stream kills the child and rejects with `RangeError` once it has ended.
   `not_found`, `not_executable`, `not_granted`, and `launch_failed` are the kinds,
@@ -427,8 +429,8 @@ const result = await check.closed;
   Disposing the child (`await using`) stops it, `SIGTERM` then `SIGKILL` after a grace period, and waits for `closed`.
 - `timeout_ms`, a positive safe integer of at most `2147483647`, and `signal`, an `AbortSignal`,
   stop a call's child on `run`, `out`, `out_bytes`, and `start`: `SIGTERM`, then `SIGKILL` after a grace period.
-  The result is of kind `timed_out` or `aborted`, with the `code` or `signal` the child then ended by,
-  the other `null`, so a child that exits 0 on `SIGTERM` isn't mistaken for one that finished,
+  The result is `{kind: 'timed_out' | 'aborted', code, signal, signal_number}`, with the `code`, or the `signal` and its `signal_number`, the child then ended by,
+  the others `null`, so a child that exits 0 on `SIGTERM` isn't mistaken for one that finished,
   and a call never rejects for it. A `signal` already aborted when the call is made starts nothing
   and throws `launch_failed`, its reason on its cause's `cause`, since a result would claim a child ran.
 - A child with no inherited stream leads its own process group, and `timeout_ms`, `signal`, `kill`, and the capture cap reach the group,
@@ -565,7 +567,8 @@ How it's built is in the module docs of `crates/gro_runtime/src/host/spawn.rs` a
   and from the moment it begins every launch is `launch_failed`, its cause saying a signal is ending the run;
   a second signal during the handler waits for it, or runs it again on another thread, rather than end the run mid-way.
   At most `gro_sys`'s caps of children are held at once (1024 group leaders, and 1024 others): past them a launch is `launch_failed`, where Node has no cap.
-- A child a real-time signal killed is `signaled`, by the signal's place after `SIGRTMIN` (`SIGRTMIN+1`), where Node reports it as `exited` with code 0.
+- A child a real-time signal killed is `signaled`, named by the signal's place after `SIGRTMIN` (`SIGRTMIN+1`), or `SIG32` or `SIG33` for the two the C library keeps below it, and with its own number, where Node reports it as `exited` with code 0,
+  or a stopped one as `timed_out` with code 0 and no signal.
   `NODE_V8_COVERAGE` is never added to a child's environment.
 - `program_in` and `find_in` find a program beneath an exec root, a directory `--allow-run-in=` names, opened as the run starts, beside the pins, and held to the directory it named then,
   so one replaced since is refused, `not_executable`, its cause saying so, and refuses what it holds rather than yield to an exec root holding it, whose grant may be wider;

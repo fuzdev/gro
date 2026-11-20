@@ -77,7 +77,7 @@ const create_spawn = () => {
 				pid: children.length,
 				closed,
 				[Symbol.asyncDispose]: async () => {
-					end({ kind: 'signaled', signal: 'SIGTERM' });
+					end({ kind: 'signaled', signal: 'SIGTERM', signal_number: 15 });
 					await closed;
 				}
 			}),
@@ -273,7 +273,7 @@ describe('start_watched_server', () => {
 		await stopping;
 		expect(g.unwatched).toBe(1);
 		const result = await children[0]!.closed;
-		expect(result).toEqual({ kind: 'signaled', signal: 'SIGTERM' });
+		expect(result).toEqual({ kind: 'signaled', signal: 'SIGTERM', signal_number: 15 });
 		await wait(60);
 		expect(mock.calls).toHaveLength(1);
 		expect(server.process.active).toBe(false);

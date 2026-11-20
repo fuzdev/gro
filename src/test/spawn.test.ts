@@ -792,7 +792,7 @@ describe('calls', () => {
 		process.env.PATH = bin;
 		write_script(join(bin, 'selfkill'), 'kill -TERM $$');
 		const result = await spawn.program('selfkill').run([]);
-		assert.deepEqual({ ...result }, { kind: 'signaled', signal: 'SIGTERM' });
+		assert.deepEqual({ ...result }, { kind: 'signaled', signal: 'SIGTERM', signal_number: 15 });
 	});
 
 	test('`out` captures stdout and stderr with no shell', async () => {

@@ -4,7 +4,7 @@
 
 import { join } from 'node:path';
 
-import { resolve_gro_module_path, spawn_with_loader, to_signal_exit_code } from './gro_helpers.ts';
+import { resolve_gro_module_path, spawn_with_loader } from './gro_helpers.ts';
 import { args } from './args.ts';
 import { env } from './env.ts';
 import { set_exit_code } from './exit.ts';
@@ -44,7 +44,7 @@ try {
 			spawned.kind === 'exited'
 				? spawned.code
 				: spawned.kind === 'signaled'
-					? to_signal_exit_code(spawned.signal)
+					? 128 + spawned.signal_number
 					: 1
 		);
 	}

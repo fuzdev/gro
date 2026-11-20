@@ -42,12 +42,15 @@
 //!   fails.
 //!
 //! The result is a frozen null-prototype record, as the Node module's:
-//! `kind` and `code` or `signal`, or both for `timed_out`; and for a
-//! captured call `stdout`, `stderr`, and `truncated`, `out`'s decoded as
-//! UTF-8 whole with `U+FFFD` for what isn't, a byte order mark kept, and
-//! `out_bytes`' each a `Uint8Array` of its own buffer, from the isolate's
-//! allocator. A signal is named as Node names it, a real-time one as
-//! `SIGRTMIN+n`, which the Node module reports as no signal.
+//! `kind` and `code` for `exited`, `signal` and `signal_number` for
+//! `signaled`, or `code`, `signal`, and `signal_number` for `timed_out`,
+//! with the code `null` or the signal and its number; and for a captured
+//! call `stdout`, `stderr`, and `truncated`, `out`'s decoded as UTF-8 whole
+//! with `U+FFFD` for what isn't, a byte order mark kept, and `out_bytes`'
+//! each a `Uint8Array` of its own buffer, from the isolate's allocator. A
+//! signal is named as Node names it, a real-time one as `SIGRTMIN+n`, and
+//! one of the two the C library keeps below `SIGRTMIN` as `SIG32` or
+//! `SIG33`, which the Node module reports as no signal.
 
 use std::os::fd::{AsRawFd as _, OwnedFd};
 use std::os::unix::process::CommandExt as _;
@@ -722,22 +725,26 @@ pub(super) fn finish<'s>(
     }
     let (code, signal) = match ended {
         Ended::Exited(code) => (Some(code), None),
-        Ended::Killed { signal, .. } => (None, Some(signal_name(signal))),
+        Ended::Killed { signal, .. } => (None, Some(signal)),
     };
     let mut entries: Vec<(&str, v8::Local<'s, v8::Value>)> = Vec::new();
     let code = code.map_or_else(
         || v8::null(scope).into(),
         |code| v8::Integer::new(scope, code).into(),
     );
-    let signal: v8::Local<v8::Value> = match &signal {
-        Some(signal) => string(scope, signal)?.into(),
-        None => v8::null(scope).into(),
+    let (signal, signal_number): (v8::Local<v8::Value>, v8::Local<v8::Value>) = match signal {
+        Some(signal) => (
+            string(scope, &signal_name(signal))?.into(),
+            v8::Integer::new(scope, signal).into(),
+        ),
+        None => (v8::null(scope).into(), v8::null(scope).into()),
     };
     match stop {
         Some(Stop::TimedOut) => {
             entries.push(("kind", string(scope, "timed_out")?.into()));
             entries.push(("code", code));
             entries.push(("signal", signal));
+            entries.push(("signal_number", signal_number));
         }
         None if signal.is_null() => {
             entries.push(("kind", string(scope, "exited")?.into()));
@@ -746,6 +753,7 @@ pub(super) fn finish<'s>(
         None => {
             entries.push(("kind", string(scope, "signaled")?.into()));
             entries.push(("signal", signal));
+            entries.push(("signal_number", signal_number));
         }
     }
     match capture {

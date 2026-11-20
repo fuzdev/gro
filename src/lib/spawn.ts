@@ -154,6 +154,7 @@
 import * as node_child_process from 'node:child_process';
 import * as node_events from 'node:events';
 import * as node_fs from 'node:fs';
+import * as node_os from 'node:os';
 import * as node_path from 'node:path';
 import * as node_util from 'node:util';
 import type { ChildProcess, SpawnOptions } from 'node:child_process';
@@ -191,6 +192,8 @@ const {
 const { O_NONBLOCK, O_RDONLY, X_OK } = fs_constants;
 const realpath_sync_native = node_fs.realpathSync.native;
 const { delimiter, isAbsolute } = node_path;
+// the signals' numbers by name, copied at load into a null-prototype record
+const signal_numbers: Record<string, number> = create_record({ ...node_os.constants.signals });
 const { isArray } = Array;
 const { isSafeInteger } = Number;
 const { freeze, keys, hasOwn, setPrototypeOf } = Object;
@@ -362,18 +365,20 @@ export interface SpawnOutOptions extends SpawnCallOptions {
 }
 
 /**
- * How a program ended. `code` is its exit code, or `signal` the signal that ended it.
+ * How a program ended. `code` is its exit code, or `signal` the signal that ended it, by name,
+ * and `signal_number` by number, so a shell's exit code for it is `128 + signal_number`.
  * `timed_out` and `aborted` are a child the module stopped for `timeout_ms` or `signal`, with
- * the `code` or `signal` it then ended by, the other `null`, so one that exits 0 on `SIGTERM`
- * is never mistaken for one that finished.
+ * the `code` or the `signal` and `signal_number` it then ended by, the others `null`, so one
+ * that exits 0 on `SIGTERM` is never mistaken for one that finished.
  */
 export type SpawnResult =
 	| { readonly kind: 'exited'; readonly code: number }
-	| { readonly kind: 'signaled'; readonly signal: string }
+	| { readonly kind: 'signaled'; readonly signal: string; readonly signal_number: number }
 	| {
 			readonly kind: 'timed_out' | 'aborted';
 			readonly code: number | null;
 			readonly signal: string | null;
+			readonly signal_number: number | null;
 	  };
 
 /**
@@ -1231,14 +1236,17 @@ const to_result = (
 	signal: string | null,
 	stop: StopReason | null
 ): SpawnResult => {
+	// Node names a child's end only by a key of this table, which it builds from the same
+	// platform list, and a real-time signal by none, so it's an exit with code 0
+	const signal_number = signal === null ? null : signal_numbers[signal]!;
 	if (stop !== null) {
-		return freeze(create_record<SpawnResult>({ kind: stop, code, signal }));
+		return freeze(create_record<SpawnResult>({ kind: stop, code, signal, signal_number }));
 	}
 	return freeze(
-		signal !== null
-			? create_record<SpawnResult>({ kind: 'signaled', signal })
-			: // `exit` always has a code or a signal for a process that started
+		signal === null
+			? // `exit` always has a code or a signal for a process that started
 				create_record<SpawnResult>({ kind: 'exited', code: code! })
+			: create_record<SpawnResult>({ kind: 'signaled', signal, signal_number: signal_number! })
 	);
 };
 
