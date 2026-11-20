@@ -12,7 +12,7 @@ import { create_mock_git_program, git_ops } from './git_mocks.ts';
 
 vi.mock('#lib/package_json.ts', async (import_original) => ({
 	...(await import_original<typeof import('#lib/package_json.ts')>()),
-	package_json_load: vi.fn()
+	project_has_dependency: vi.fn()
 }));
 
 vi.mock('#lib/vitest_helpers.ts', async (import_original) => ({
@@ -20,11 +20,16 @@ vi.mock('#lib/vitest_helpers.ts', async (import_original) => ({
 	find_test_files: vi.fn(async () => [])
 }));
 
-const load_mock = async () => vi.mocked(await import('#lib/package_json.ts')).package_json_load;
+const load_mock = async () =>
+	vi.mocked(await import('#lib/package_json.ts')).project_has_dependency;
 const find_mock = async () => vi.mocked(await import('#lib/vitest_helpers.ts')).find_test_files;
 
 const declare = async (package_json: Partial<PackageJson>): Promise<void> => {
-	(await load_mock()).mockResolvedValue({ name: 'a', version: '0', ...package_json });
+	const { package_json_has_dependency } = await import('#lib/package_json.ts');
+	const declared = { name: 'a', version: '0', ...package_json };
+	(await load_mock()).mockImplementation((_fs_paths, dep_name) =>
+		Promise.resolve(package_json_has_dependency(dep_name, declared))
+	);
 };
 const DECLARED = { devDependencies: { vitest: '5' } };
 
@@ -114,7 +119,7 @@ describe('gro check test step', () => {
 		await declare(DECLARED);
 		const ctx = create_ctx();
 		await run(ctx);
-		assert.strictEqual((await load_mock()).mock.calls[0]![4], ctx.deps.log);
+		assert.strictEqual((await load_mock()).mock.calls[0]![2], ctx.deps.log);
 	});
 
 	test('searches the same directory `gro test` defaults to', async () => {

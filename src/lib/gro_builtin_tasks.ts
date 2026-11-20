@@ -107,7 +107,10 @@ export const GRO_BUILTIN_TASK_GRANTS: Record<keyof GroBuiltinTasks, BuiltinTaskG
 		dev: null,
 		format: { fs: { read: ['.'], write: ['.'] } },
 		gen: { fs: { read: ['.'], write: ['.'] }, project_modules: true },
-		lint: { programs: { eslint_cli: { name: 'eslint', local_first: true, pass_env: 'all' } } },
+		lint: {
+			fs: { read: ['.'] },
+			programs: { eslint_cli: { name: 'eslint', local_first: true, pass_env: 'all' } }
+		},
 		publish: null,
 		reinstall: null,
 		release: { fs: { read: ['.'] }, invokes: ['publish', 'deploy'] },

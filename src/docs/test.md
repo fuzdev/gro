@@ -60,9 +60,11 @@ See [the Vitest docs](https://vitest.dev/) for more.
 
 Gro detects Vitest from the project's `dependencies` and `devDependencies`.
 A `peerDependencies` entry doesn't count, as a package peered on Vitest is built to work with one,
-the same rule as Gro's SvelteKit detection.
+the same rule as Gro's SvelteKit detection, and `gro lint` follows it for ESLint
+([task](./task.md#wrap-one-of-gros-builtin-tasks)).
 
-`gro test` fails when Vitest isn't declared, and when it's declared but not installed.
+`gro test` fails when Vitest isn't declared, and when it's declared but found neither
+in the project's `node_modules/.bin` nor on `PATH`.
 
 `gro check` runs its test step only when Vitest is declared or args are forwarded to the tests,
 a `-- gro test` section or a nonempty `-- vitest` one.

@@ -9,7 +9,8 @@ import { create_paths } from './paths.ts';
 import { cwd } from './cwd.ts';
 import type { FsPaths } from './fs_paths.ts';
 import { TaskError } from './task_error.ts';
-import { project_has_vitest, TEST_FILE_PATTERN } from './vitest_helpers.ts';
+import { TEST_FILE_PATTERN } from './vitest_helpers.ts';
+import { project_has_dependency } from './package_json.ts';
 import type { BuiltinPrograms, BuiltinTask, BuiltinTaskGrants } from './builtin_host.ts';
 
 /** @nodocs */
@@ -89,7 +90,7 @@ export const run_test = async (args: Args, options: TestOptions, deps: TestDeps)
 	const { raw_rest_args, implicit_rest_args } = options;
 	const { fs_paths, programs, log } = deps;
 
-	if (!(await project_has_vitest(fs_paths, log))) {
+	if (!(await project_has_dependency(fs_paths, VITEST_CLI, log))) {
 		throw new TaskError('no test runner found, add vitest to devDependencies');
 	}
 

@@ -332,6 +332,27 @@ const parse_or_throw_formatted_error = <T extends s.AnySchema>(
 export const package_json_has_dependency = (dep_name: string, package_json: PackageJson): boolean =>
 	!!package_json.devDependencies?.[dep_name] || !!package_json.dependencies?.[dep_name];
 
+/**
+ * Whether the project's `package.json` declares `dep_name` as a direct dependency,
+ * the rule a builtin follows before running a tool, so what runs is what `package.json` names.
+ * Peer deps don't count - a package peered on a tool is built to work with one,
+ * which says nothing about whether the package runs the tool on itself.
+ * Read without the schema, as only its dependencies matter, and one that can't be read declares nothing.
+ * @param fs_paths - reads the project's `package.json`
+ * @param dep_name - the package name, like `vitest` or `eslint`
+ * @param log - reports a `package.json` that exists but can't be read or parsed; with none, stays silent
+ * @returns whether the project declares `dep_name`
+ */
+export const project_has_dependency = async (
+	fs_paths: FsPaths,
+	dep_name: string,
+	log?: Logger
+): Promise<boolean> =>
+	package_json_has_dependency(
+		dep_name,
+		await package_json_load(fs_paths, undefined, undefined, false, log)
+	);
+
 export interface PackageJsonDep {
 	name: string;
 	version: string;

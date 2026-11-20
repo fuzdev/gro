@@ -11,12 +11,17 @@ vi.mock('#lib/spawn.ts', async () => (await import('./spawn_mocks.ts')).create_m
 
 vi.mock('#lib/package_json.ts', async (import_original) => ({
 	...(await import_original<typeof import('#lib/package_json.ts')>()),
-	package_json_load: vi.fn()
+	project_has_dependency: vi.fn()
 }));
 
 const run_with = async (package_json: Partial<PackageJson>): Promise<unknown> => {
-	const { package_json_load } = vi.mocked(await import('#lib/package_json.ts'));
-	package_json_load.mockResolvedValue({ name: 'a', version: '0', ...package_json });
+	const { project_has_dependency, package_json_has_dependency } = vi.mocked(
+		await import('#lib/package_json.ts')
+	);
+	const declared = { name: 'a', version: '0', ...package_json };
+	project_has_dependency.mockImplementation((_fs_paths, dep_name) =>
+		Promise.resolve(package_json_has_dependency(dep_name, declared))
+	);
 	try {
 		await task.run(
 			await create_mock_builtin_context(task, {
@@ -64,8 +69,8 @@ test('a project only peered on vitest throws', async () => {
 
 test('reads package.json with the task log, so a malformed one is reported', async () => {
 	await run_with({ devDependencies: { vitest: '5' } });
-	const { package_json_load } = vi.mocked(await import('#lib/package_json.ts'));
-	assert.isDefined(package_json_load.mock.calls[0]![4]);
+	const { project_has_dependency } = vi.mocked(await import('#lib/package_json.ts'));
+	assert.isDefined(project_has_dependency.mock.calls[0]![2]);
 });
 
 test('declared but not installed gives the install hint', async () => {

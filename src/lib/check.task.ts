@@ -7,15 +7,16 @@ import type { Logger } from '@fuzdev/fuz_util/log.ts';
 import { to_task_command } from './task.ts';
 import { TaskError } from './task_error.ts';
 import { to_forwarded_args_by_command, to_forwarded_argv } from './task_args.ts';
-import { VITEST_CLI } from './constants.ts';
+import { ESLINT_CLI, VITEST_CLI } from './constants.ts';
+import { find_eslint_config } from './eslint_helpers.ts';
 import { is_fs_error } from './fs_error.ts';
-import { package_json_sync } from './package_json.ts';
+import { package_json_sync, project_has_dependency } from './package_json.ts';
 import type { FsPaths } from './fs_paths.ts';
 import { GIT_LOCAL_PASS_ENV, git_check_clean_workspace } from './git.ts';
 import type { Env } from './env.ts';
 import type { GroConfig } from './gro_config.ts';
 import { create_paths, to_root_path, type Paths } from './paths.ts';
-import { find_test_files, project_has_vitest } from './vitest_helpers.ts';
+import { find_test_files } from './vitest_helpers.ts';
 import type { FsSearchResult } from './fs_search.ts';
 import { format_error_detail } from './error_detail.ts';
 import type {
@@ -94,7 +95,8 @@ export const task: BuiltinTask<Args, typeof grants> = {
 export interface CheckOptions {
 	map_package_json: GroConfig['map_package_json'];
 	/**
-	 * The CLI args from the first `--` on, whose `gro test` or `vitest` section asks for the tests.
+	 * The CLI args from the first `--` on, whose `gro test` or `vitest` section asks for the tests,
+	 * and whose `gro lint` or `eslint` section asks for the linter.
 	 */
 	raw_rest_args: ReadonlyArray<string>;
 }
@@ -161,7 +163,7 @@ export const run_check = async (
 		// forwarded args for the tests ask for them, so the test task decides
 		if (
 			has_forwarded_test_args(raw_rest_args, fs_paths) ||
-			(await project_has_vitest(fs_paths, log))
+			(await project_has_dependency(fs_paths, VITEST_CLI, log))
 		) {
 			await invoke_task('test');
 		} else {
@@ -193,7 +195,17 @@ export const run_check = async (
 	// It's not the ideal order when the linter would catch errors that cause failing tests,
 	// but it's better for most usage.
 	if (lint) {
-		await invoke_task('lint');
+		// forwarded args for the linter ask for it, so the lint task decides
+		if (
+			has_forwarded_lint_args(raw_rest_args, fs_paths) ||
+			(await project_has_dependency(fs_paths, ESLINT_CLI, log))
+		) {
+			await invoke_task('lint');
+		} else {
+			const eslint_config = await find_eslint_config_or_throw(fs_paths);
+			if (eslint_config !== null) throw new TaskError(to_undeclared_eslint_message(eslint_config));
+			log.info('eslint is not declared and the project root has no ESLint config; skipping lint');
+		}
 	}
 
 	// Disallow TODO*.md files in the project root on CI.
@@ -240,6 +252,33 @@ const has_forwarded_test_args = (
 		to_forwarded_args_by_command(raw_rest_args, fs_paths.project.path),
 		to_task_command('test')
 	) || to_forwarded_argv(VITEST_CLI, raw_rest_args).length > 0;
+
+// a `-- gro lint` section, or args forwarded to ESLint
+const has_forwarded_lint_args = (
+	raw_rest_args: ReadonlyArray<string>,
+	fs_paths: FsPaths
+): boolean =>
+	Object.hasOwn(
+		to_forwarded_args_by_command(raw_rest_args, fs_paths.project.path),
+		to_task_command('lint')
+	) || to_forwarded_argv(ESLINT_CLI, raw_rest_args).length > 0;
+
+const find_eslint_config_or_throw = async (fs_paths: FsPaths): Promise<string | null> => {
+	try {
+		return await find_eslint_config(fs_paths);
+	} catch (error) {
+		if (!is_fs_error(error)) throw error;
+		throw new TaskError(
+			"failed to look for an ESLint config, as eslint isn't declared: " +
+				format_error_detail(error),
+			{ cause: error }
+		);
+	}
+};
+
+const to_undeclared_eslint_message = (eslint_config: string): string =>
+	`found ${eslint_config} but eslint isn't declared in package.json` +
+	` - add eslint to devDependencies, remove ${eslint_config}, or pass --no-lint`;
 
 const find_test_files_or_throw = async (
 	fs_paths: FsPaths,

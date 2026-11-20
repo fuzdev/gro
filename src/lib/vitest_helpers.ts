@@ -1,8 +1,5 @@
 import { join } from 'node:path';
-import type { Logger } from '@fuzdev/fuz_util/log.ts';
 
-import { VITEST_CLI } from './constants.ts';
-import { package_json_has_dependency, package_json_load } from './package_json.ts';
 import type { FsPaths } from './fs_paths.ts';
 import type { FsSearchResult } from './fs_search.ts';
 
@@ -17,21 +14,6 @@ const VITEST_INCLUDE_MATCHER = /\.(?:test|spec)\.[cm]?[jt]sx?$/u;
 
 // the directory names Vitest's default `exclude` skips, at any depth
 const VITEST_EXCLUDED_NAMES: ReadonlySet<string> = new Set(['node_modules', '.git']);
-
-/**
- * Whether the project's `package.json` declares Vitest as a direct dependency.
- * Peer deps don't count - a package peered on Vitest is built to work with one,
- * which says nothing about whether the package has tests of its own to run.
- * Read without the schema, as only its dependencies matter, and one that can't be read declares nothing.
- * @param fs_paths - reads the project's `package.json`
- * @param log - reports a `package.json` that exists but can't be read or parsed; with none, stays silent
- * @returns whether the project declares Vitest
- */
-export const project_has_vitest = async (fs_paths: FsPaths, log?: Logger): Promise<boolean> =>
-	package_json_has_dependency(
-		VITEST_CLI,
-		await package_json_load(fs_paths, undefined, undefined, false, log)
-	);
 
 /**
  * Finds the files `gro test` would run in `dir` with its default pattern,

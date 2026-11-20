@@ -1,14 +1,14 @@
 import * as s from '@fuzdev/fuz_schema/schema.ts';
 import { meta } from '@fuzdev/fuz_schema/meta.ts';
 import type { Logger } from '@fuzdev/fuz_util/log.ts';
-import { st } from '@fuzdev/fuz_util/print.ts';
 
 import { has_forwarded_flag, to_forwarded_argv } from './task_args.ts';
 import { spawn_cli, spawn_result_is_ok, to_spawn_result_message } from './cli.ts';
 import { TaskError } from './task_error.ts';
+import { ESLINT_CLI } from './constants.ts';
+import type { FsPaths } from './fs_paths.ts';
+import { project_has_dependency } from './package_json.ts';
 import type { BuiltinPrograms, BuiltinTask, BuiltinTaskGrants } from './builtin_host.ts';
-
-const ESLINT_CLI = 'eslint';
 
 /** @nodocs */
 export const Args = s.object({
@@ -17,6 +17,8 @@ export const Args = s.object({
 export type Args = s.Infer<typeof Args>;
 
 const grants = {
+	// reads `package.json` for the eslint dependency
+	fs: { read: ['.'] },
 	// ESLint loads the project's config and plugins, code whose environment Gro can't know
 	programs: {
 		eslint_cli: { name: ESLINT_CLI, local_first: true, pass_env: 'all' }
@@ -29,7 +31,11 @@ export const task: BuiltinTask<Args, typeof grants> = {
 	Args,
 	grants,
 	run: ({ task_args, raw_rest_args, log, host }) =>
-		run_lint(task_args, { raw_rest_args }, { programs: host.programs, log })
+		run_lint(
+			task_args,
+			{ raw_rest_args },
+			{ fs_paths: host.fs_paths, programs: host.programs, log }
+		)
 };
 
 /**
@@ -46,25 +52,30 @@ export interface LintOptions {
  * What `run_lint` reaches, picked from a builtin's `host` and context.
  */
 export interface LintDeps {
+	fs_paths: FsPaths;
 	programs: Pick<BuiltinPrograms<'eslint_cli'>, 'find'>;
 	log: Logger;
 }
 
 /**
  * Lints the project with ESLint, `gro lint`'s body.
+ * ESLint runs only when `package.json` declares it, as vitest for `gro test`.
  * @param args - the task's parsed args
  * @param options - the forwarded args
- * @param deps - ESLint and the log
+ * @param deps - the project's boundary, ESLint, and the log
+ * @throws `TaskError` when eslint isn't declared or installed, or finds problems
  */
 export const run_lint = async (args: Args, options: LintOptions, deps: LintDeps): Promise<void> => {
 	const { _ } = args;
-	const { programs, log } = deps;
+	const { fs_paths, programs, log } = deps;
+
+	if (!(await project_has_dependency(fs_paths, ESLINT_CLI, log))) {
+		throw new TaskError('no linter found, add eslint to devDependencies');
+	}
 
 	const found_eslint_cli = programs.find('eslint_cli');
 	if (!found_eslint_cli) {
-		// the exit code stays 0, so the warning is what says less ran than the task's name
-		log.warn(st('yellow', 'ESLint is not installed, so nothing was linted'));
-		return;
+		throw new TaskError('eslint is a dependency but not installed; run `npm i`?');
 	}
 
 	// the forwarded text goes verbatim after Gro's own args, which drop what it overrides

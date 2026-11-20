@@ -1,11 +1,9 @@
-import { describe, test, assert, vi, beforeEach, afterEach } from 'vitest';
+import { describe, test, assert, beforeEach, afterEach } from 'vitest';
 import { chmodSync, mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
-import { VITEST_CLI } from '#lib/constants.ts';
-import { find_test_files, project_has_vitest } from '#lib/vitest_helpers.ts';
+import { find_test_files } from '#lib/vitest_helpers.ts';
 
-import { create_mock_fs_dir, create_mock_project_fs_paths, mock_tree } from './fs_mocks.ts';
 import {
 	create_fs_sandbox,
 	assert_fs_error_rejects,
@@ -13,45 +11,6 @@ import {
 	remove_fs_sandbox,
 	type FsSandbox
 } from './fs_test_helpers.ts';
-import { create_mock_logger } from './test_helpers.ts';
-
-describe('project_has_vitest', () => {
-	const to_project = (tree: Record<string, string>) => {
-		const project = create_mock_fs_dir('/project');
-		mock_tree(project, tree);
-		return create_mock_project_fs_paths(project);
-	};
-	const to_package = (deps: object) => JSON.stringify({ name: 'a', version: '0', ...deps });
-
-	test('a dev dep or dep declares it', async () => {
-		for (const key of ['devDependencies', 'dependencies']) {
-			const contents = to_package({ [key]: { [VITEST_CLI]: '5' } });
-			assert.isTrue(await project_has_vitest(to_project({ 'package.json': contents })));
-		}
-	});
-
-	test('a peer dep alone does not', async () => {
-		const contents = to_package({ peerDependencies: { [VITEST_CLI]: '5' } });
-		assert.isFalse(await project_has_vitest(to_project({ 'package.json': contents })));
-	});
-
-	test('a package.json the schema refuses still declares it', async () => {
-		const contents = JSON.stringify({ name: 1, devDependencies: { [VITEST_CLI]: '5' } });
-		assert.isTrue(await project_has_vitest(to_project({ 'package.json': contents })));
-	});
-
-	test('a missing package.json declares nothing and reports nothing', async () => {
-		const log = create_mock_logger();
-		assert.isFalse(await project_has_vitest(to_project({}), log));
-		assert.strictEqual(vi.mocked(log.error).mock.calls.length, 0);
-	});
-
-	test('a package.json that does not parse declares nothing, reported to the log', async () => {
-		const log = create_mock_logger();
-		assert.isFalse(await project_has_vitest(to_project({ 'package.json': '{' }), log));
-		assert.strictEqual(vi.mocked(log.error).mock.calls.length, 1);
-	});
-});
 
 describe('find_test_files', () => {
 	let sandbox: FsSandbox;

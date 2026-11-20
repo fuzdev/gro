@@ -83,3 +83,4 @@ export const SVELTE_PACKAGE_DEP_NAME = '@sveltejs/package';
 export const SVELTEKIT_DEP_NAME = '@sveltejs/kit';
 export const VITE_CLI = 'vite';
 export const VITEST_CLI = 'vitest';
+export const ESLINT_CLI = 'eslint';
