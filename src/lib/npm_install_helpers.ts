@@ -7,7 +7,7 @@ import { posix_dirname, posix_join } from './internal/posix_path.ts';
 import { spawn_result_is_ok, to_spawn_result_message } from './cli.ts';
 import type { Spawn, SpawnProgram } from './spawn.ts';
 import type { BuiltinProgramGrant } from './builtin_host.ts';
-import { PM_CLI_DEFAULT } from './constants.ts';
+import { NPM_CLI } from './constants.ts';
 import { is_spawn_error } from './spawn_error.ts';
 import type { FsReadDir } from './fs.ts';
 import { package_json_load } from './package_json.ts';
@@ -29,41 +29,40 @@ import { format_error_detail } from './error_detail.ts';
 const PRUNE_TRIGGERING_ENV_VARS = ['NODE_ENV', 'npm_config_production', 'npm_config_omit'] as const;
 
 /**
- * The grant of the program that runs an install, a builtin's `pm_cli` role:
- * `config.pm_cli`, `npm` by default, with every host variable but the pruning ones.
+ * The grant of the program that runs an install, a builtin's `npm_cli` role:
+ * `npm`, with every host variable but the pruning ones.
  * The pruning names are absent, not set to empty, as an empty `NODE_ENV` is a different value to
  * a lifecycle script, and the host's `LC_ALL` stays exactly as it is, unset included,
  * since an empty one changes the locale a Node lifecycle script gets.
  */
-export const PM_CLI_PROGRAM_GRANT = {
-	name: PM_CLI_DEFAULT,
-	name_from: 'config',
+export const NPM_CLI_PROGRAM_GRANT = {
+	name: NPM_CLI,
 	pass_env: 'all',
 	omit_env: PRUNE_TRIGGERING_ENV_VARS
 } as const satisfies BuiltinProgramGrant;
 
 /**
- * The `InstallPrograms` of a root, building the package manager from its spawn
- * with `PM_CLI_PROGRAM_GRANT`'s environment.
+ * The `InstallPrograms` of a root, building npm from its spawn
+ * with `NPM_CLI_PROGRAM_GRANT`'s environment.
  * @param spawn - the root's spawn host module
  */
 export const to_install_programs = (spawn: Spawn): InstallPrograms => ({
-	program: (name) =>
-		spawn.program(name, {
-			pass_env: PM_CLI_PROGRAM_GRANT.pass_env,
-			omit_env: PM_CLI_PROGRAM_GRANT.omit_env
+	program: () =>
+		spawn.program(NPM_CLI_PROGRAM_GRANT.name, {
+			pass_env: NPM_CLI_PROGRAM_GRANT.pass_env,
+			omit_env: NPM_CLI_PROGRAM_GRANT.omit_env
 		})
 });
 
 /**
- * What builds the program that runs an install, by name:
- * a builtin's `host.programs` granted `PM_CLI_PROGRAM_GRANT`, or `to_install_programs` at a root.
+ * What builds npm, the program that runs an install:
+ * a builtin's `host.programs` granted `NPM_CLI_PROGRAM_GRANT`, or `to_install_programs` at a root.
  */
 export interface InstallPrograms {
 	/**
 	 * @throws `SpawnError` - when the program can't be resolved or isn't granted
 	 */
-	program(name: string): SpawnProgram;
+	program(): SpawnProgram;
 }
 
 /**
@@ -97,7 +96,7 @@ export interface NpmCommandResult {
 }
 
 /**
- * Runs an npm-compatible command and reports `ok` plus captured stderr. Injected
+ * Runs an npm command and reports `ok` plus captured stderr. Injected
  * by `install_with_cache_healing` for testing; the default implementation
  * spawns a real subprocess.
  */
@@ -179,11 +178,10 @@ export interface InstallCacheHealingBaseOptions {
  * Installs dependencies, self-healing the stale-cache (ETARGET) failure mode.
  *
  * **Strategy:**
- * 1. First attempt: `${pm_cli} install [...install_args]`.
- * 2. On an npm ETARGET-class failure (stale cache): `npm cache clean --force`
+ * 1. First attempt: `npm install [...install_args]`.
+ * 2. On an ETARGET-class failure (stale cache): `npm cache clean --force`
  *    then retry the same install once.
- * 3. On any other failure — or any failure under a non-npm `pm_cli`, or with
- *    `heal_cache: false` — return immediately without healing.
+ * 3. On any other failure, or with `heal_cache: false`, return immediately without healing.
  *
  * **Why ETARGET happens:** right after a dependency is published and the
  * registry has propagated, npm's local cache may still hold stale
@@ -192,28 +190,22 @@ export interface InstallCacheHealingBaseOptions {
  * upstream package — e.g. picking up a just-released dep in a
  * dependency-ordered publish chain, or `gro upgrade`-ing to a fresh `@latest`.
  *
- * **npm only:** the heal uses npm-specific syntax (`cache clean --force`), so
- * it's gated on `pm_cli === 'npm'`. A non-npm `pm_cli` surfaces the failure
- * unchanged rather than running a command it can't understand.
- *
- * The env is `PM_CLI_PROGRAM_GRANT`'s so the build's devDependencies survive,
+ * The env is `NPM_CLI_PROGRAM_GRANT`'s so the build's devDependencies survive,
  * and the program is pinned once, for the install and its retry.
  *
- * @param programs - builds `pm_cli` with the install's environment
- * @param pm_cli - the npm-compatible CLI to run (e.g. `config.pm_cli`)
+ * @param programs - builds npm with the install's environment
  * @param options - cwd, stderr, logger, extra install args, and an injectable runner
  * @returns the result of the (possibly retried) install
  */
 export const install_with_cache_healing = async (
 	programs: InstallPrograms,
-	pm_cli: string,
 	options: InstallCacheHealingOptions
 ): Promise<NpmCommandResult> => {
 	const { cwd, log, install_args = [], heal_cache = true } = options;
 	const run = options.run ?? create_npm_command_runner(options.stderr);
 	let program: SpawnProgram;
 	try {
-		program = programs.program(pm_cli);
+		program = programs.program();
 	} catch (error) {
 		if (is_spawn_error(error)) return { ok: false, stderr: '', detail: format_error_detail(error) };
 		throw error;
@@ -224,22 +216,19 @@ export const install_with_cache_healing = async (
 	const first = await run(program, install_command_args, install_options);
 	if (first.ok) return first;
 
-	// Heal only npm's ETARGET-class failures; any other failure (or non-npm pm)
-	// is surfaced as-is, since the cache-clean heal below is npm-specific.
-	if (!heal_cache || pm_cli !== 'npm' || !is_etarget_error(first.detail, first.stderr)) {
+	// heal only ETARGET-class failures, any other is surfaced as-is
+	if (!heal_cache || !is_etarget_error(first.detail, first.stderr)) {
 		return first;
 	}
 
-	log?.warn(
-		st('yellow', `ETARGET detected — running \`${pm_cli} cache clean --force\` and retrying`)
-	);
+	log?.warn(st('yellow', 'ETARGET detected — running `npm cache clean --force` and retrying'));
 
 	const cache_clean = await run(program, ['cache', 'clean', '--force'], install_options);
 	if (!cache_clean.ok) {
 		return {
 			ok: false,
 			stderr: cache_clean.stderr,
-			detail: `\`${pm_cli} cache clean --force\` failed: ${cache_clean.detail}`
+			detail: `\`npm cache clean --force\` failed: ${cache_clean.detail}`
 		};
 	}
 
@@ -369,8 +358,7 @@ export type InstallOrThrowOptions = InstallCacheHealingOptions & {
  * message names the exact command (including `install_args`), an optional
  * `context` clause, and the failure `detail`.
  *
- * @param programs - builds `pm_cli` with the install's environment
- * @param pm_cli - the npm-compatible CLI to run (e.g. `config.pm_cli`)
+ * @param programs - builds npm with the install's environment
  * @param options - same as `install_with_cache_healing`, plus the error's
  *   `context` clause and the `throw_if_gro_packages_changed` check
  * @throws TaskError when the install fails, even after a cache-heal retry, or
@@ -378,25 +366,24 @@ export type InstallOrThrowOptions = InstallCacheHealingOptions & {
  */
 export const install_with_cache_healing_or_throw = async (
 	programs: InstallPrograms,
-	pm_cli: string,
 	options: InstallOrThrowOptions
 ): Promise<void> => {
 	const { gro_dir } = options;
 	const fs_paths = options.throw_if_gro_packages_changed ? options.fs_paths : null;
 	const before = fs_paths ? await gro_package_versions_load(fs_paths, gro_dir) : null;
-	const result = await install_with_cache_healing(programs, pm_cli, options);
+	const result = await install_with_cache_healing(programs, options);
 	const command = ['install', ...(options.install_args ?? [])].join(' ');
 	if (!result.ok) {
 		const context = options.context ? ` ${options.context}` : '';
 		const detail = result.detail ? `: ${result.detail}` : '';
-		throw new TaskError(`Failed \`${pm_cli} ${command}\`${context}${detail}`);
+		throw new TaskError(`Failed \`npm ${command}\`${context}${detail}`);
 	}
 	if (!before || !fs_paths) return;
 	const after = await gro_package_versions_load(fs_paths, gro_dir, before.keys());
 	const changed = gro_package_versions_diff(before, after);
 	if (changed.length === 0) return;
 	throw new TaskError(
-		`\`${pm_cli} ${command}\` updated Gro or its dependencies, which this process already loaded,` +
+		`\`npm ${command}\` updated Gro or its dependencies, which this process already loaded,` +
 			` so re-run the command to continue with the new versions:\n  ${changed.join('\n  ')}`
 	);
 };

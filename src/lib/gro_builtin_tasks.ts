@@ -90,11 +90,7 @@ export const GRO_BUILTIN_TASK_GRANTS: Record<keyof GroBuiltinTasks, BuiltinTaskG
 	dev: null,
 	format: { fs: { read: ['.'], write: ['.'] } },
 	gen: { fs: { read: ['.'], write: ['.'] }, project_modules: true },
-	lint: {
-		programs: {
-			eslint_cli: { name: 'eslint', name_from: 'arg', local_first: true, pass_env: 'all' }
-		}
-	},
+	lint: { programs: { eslint_cli: { name: 'eslint', local_first: true, pass_env: 'all' } } },
 	publish: null,
 	reinstall: null,
 	release: { fs: { read: ['.'] }, invokes: ['publish', 'deploy'] },
@@ -102,9 +98,8 @@ export const GRO_BUILTIN_TASK_GRANTS: Record<keyof GroBuiltinTasks, BuiltinTaskG
 	sync: {
 		fs: { read: ['.'], write: ['.'] },
 		programs: {
-			pm_cli: {
+			npm_cli: {
 				name: 'npm',
-				name_from: 'config',
 				pass_env: 'all',
 				omit_env: ['NODE_ENV', 'npm_config_production', 'npm_config_omit']
 			},
@@ -123,12 +118,11 @@ export const GRO_BUILTIN_TASK_GRANTS: Record<keyof GroBuiltinTasks, BuiltinTaskG
 			sveltekit_cli: { name: 'svelte-kit', local_first: true, pass_env: 'all' },
 			svelte_check_cli: {
 				name: 'svelte-check',
-				name_from: 'arg',
 				local_first: true,
 				pass_env: 'all',
 				env: { FORCE_COLOR: '1' }
 			},
-			typescript_cli: { name: 'tsc', name_from: 'arg', local_first: true, pass_env: 'all' }
+			typescript_cli: { name: 'tsc', local_first: true, pass_env: 'all' }
 		},
 		stdout: true,
 		stderr: true

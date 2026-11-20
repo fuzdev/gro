@@ -56,19 +56,17 @@ describe('sync_task install', () => {
 		await sync_task.run(ctx);
 
 		assert.strictEqual(install_with_cache_healing_or_throw.mock.calls.length, 1);
-		const [programs, pm_cli, { fs_paths, ...options }] =
-			install_with_cache_healing_or_throw.mock.calls[0]!;
-		assert.strictEqual(pm_cli, 'npm');
+		const [programs, { fs_paths, ...options }] = install_with_cache_healing_or_throw.mock.calls[0]!;
 		assert.deepEqual(options, {
 			log: ctx.log,
 			stderr,
 			throw_if_gro_packages_changed: true
 		});
-		// the host's boundary and package manager, with the grant's environment
+		// the host's boundary and npm, with the grant's environment
 		assert.strictEqual(fs_paths, ctx.host.fs_paths);
-		assert.strictEqual(programs.program('pnpm'), program);
+		assert.strictEqual(programs.program(), program);
 		assert.deepEqual(spawn.program.mock.calls.at(-1), [
-			'pnpm',
+			'npm',
 			{
 				pass_env: 'all',
 				omit_env: ['NODE_ENV', 'npm_config_production', 'npm_config_omit']
@@ -117,7 +115,7 @@ describe('sync_task SvelteKit detection', () => {
 		await sync_task.run(ctx);
 
 		assert.strictEqual(sveltekit_sync.mock.calls.length, 1);
-		assert.deepEqual(sveltekit_sync.mock.calls[0]![1], { pm_cli: 'npm' });
+		assert.strictEqual(sveltekit_sync.mock.calls[0]!.length, 1);
 		// the host's SvelteKit CLI, the project's first
 		assert.strictEqual(sveltekit_sync.mock.calls[0]![0].find('svelte-kit'), program);
 		assert.deepEqual(spawn.find.mock.calls.at(-1), [

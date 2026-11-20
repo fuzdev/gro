@@ -32,10 +32,8 @@ const run = async (
 	await run_svelte_package(to_fs_paths(), spawn, {
 		package_json: PACKAGE_JSON,
 		svelte_package_options: options,
-		svelte_package_cli: 'svelte-package',
 		forwarded_argv: forwarded,
-		log: new Logger('test'),
-		pm_cli: 'npm'
+		log: new Logger('test')
 	});
 	expect(spawn.calls).toHaveLength(1);
 	expect(spawn.calls[0]!.program_options).toEqual({ pass_env: 'all' });
@@ -94,10 +92,8 @@ describe('run_svelte_package failure', () => {
 		await expect(
 			run_svelte_package(to_fs_paths(), spawn, {
 				package_json: PACKAGE_JSON,
-				svelte_package_cli: 'svelte-package',
 				forwarded_argv: [],
-				log: new Logger('test'),
-				pm_cli: 'npm'
+				log: new Logger('test')
 			})
 		).rejects.toThrow('`svelte-package` failed: code 1');
 	});
@@ -108,10 +104,8 @@ describe('run_svelte_package failure', () => {
 		await expect(
 			run_svelte_package(to_fs_paths(), spawn, {
 				package_json: PACKAGE_JSON,
-				svelte_package_cli: 'svelte-package',
 				forwarded_argv: [],
-				log: new Logger('test'),
-				pm_cli: 'npm'
+				log: new Logger('test')
 			})
 		).rejects.toThrow('Failed to find SvelteKit packaging CLI');
 		expect(spawn.finds).toEqual(['node_modules/.bin/svelte-package']);

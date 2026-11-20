@@ -19,8 +19,6 @@ vi.mock('#lib/package_json.ts', async (import_original) => ({
 }));
 
 const ARGS = {
-	svelte_check_cli: 'svelte-check',
-	typescript_cli: 'tsc',
 	path_replacement: '.',
 	cwd: process.cwd()
 };
@@ -30,7 +28,7 @@ beforeEach(async () => {
 	(await get_mock_spawn()).reset();
 });
 
-test('syncs first, naming the configured package manager, reporting a bad package.json', async () => {
+test('syncs first, reporting a bad package.json', async () => {
 	const { package_json_load } = vi.mocked(await import('#lib/package_json.ts'));
 	package_json_load.mockResolvedValueOnce({
 		name: 'a',
@@ -45,13 +43,11 @@ test('syncs first, naming the configured package manager, reporting a bad packag
 		spawned_before_sync = mock_spawn.calls.length;
 	});
 
-	const ctx = await create_mock_builtin_context(task, ARGS, {
-		config_overrides: { pm_cli: 'pnpm' }
-	});
+	const ctx = await create_mock_builtin_context(task, ARGS);
 	await task.run(ctx);
 
 	assert.strictEqual(spawned_before_sync, 0);
 	assert.strictEqual(mock_spawn.calls.length, 1);
-	assert.deepEqual(sveltekit_sync.mock.calls[0]![1], { pm_cli: 'pnpm' });
+	assert.strictEqual(sveltekit_sync.mock.calls[0]!.length, 1);
 	assert.strictEqual(package_json_load.mock.calls[0]![4], ctx.log);
 });

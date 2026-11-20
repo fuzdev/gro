@@ -19,11 +19,6 @@ export interface GroPluginSveltekitLibraryOptions {
 	 * @see https://svelte.dev/docs/kit/packaging#options
 	 */
 	svelte_package_options?: SveltePackageOptions;
-	/**
-	 * The SvelteKit packaging CLI to use. Defaults to `svelte-package`.
-	 * @see https://svelte.dev/docs/kit/packaging
-	 */
-	svelte_package_cli?: string;
 }
 
 /**
@@ -45,24 +40,21 @@ const chmod_bin = async (fs_paths: FsPaths, bin_path: string): Promise<string | 
 };
 
 export const gro_plugin_sveltekit_library = ({
-	svelte_package_options,
-	svelte_package_cli = SVELTE_PACKAGE_CLI
+	svelte_package_options
 }: GroPluginSveltekitLibraryOptions = {}): Plugin => {
 	// the plugin is a composition root, where the fs and spawn host modules enter
 	const fs_paths = create_fs_paths(fs, { cwd: cwd(), home: env.get('HOME') });
 	return {
 		name: 'gro_plugin_sveltekit_library',
-		setup: async ({ dev, log, config }) => {
+		setup: async ({ dev, log }) => {
 			if (!dev) {
 				const package_json = await package_json_load(fs_paths);
-				const forwarded_argv = to_forwarded_argv(svelte_package_cli, to_raw_rest_args(args));
+				const forwarded_argv = to_forwarded_argv(SVELTE_PACKAGE_CLI, to_raw_rest_args(args));
 				await run_svelte_package(fs_paths, spawn, {
 					package_json,
 					svelte_package_options,
-					svelte_package_cli,
 					forwarded_argv,
-					log,
-					pm_cli: config.pm_cli
+					log
 				});
 				// `svelte-package` ships `.svelte` source verbatim and leaves relative `.ts`
 				// specifiers in `.d.ts` declarations; rewrite them to `.js` so the published

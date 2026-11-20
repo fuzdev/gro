@@ -67,8 +67,7 @@ const create_mock_publish_task_context = (args: Partial<Args> = {}): TaskContext
 			sync: true,
 			'no-sync': false,
 			install: true,
-			'no-install': false,
-			changeset_cli: 'changeset'
+			'no-install': false
 		}
 	);
 
@@ -120,13 +119,13 @@ describe('publish_task version bump', () => {
 		const invoke_task = vi.mocked(ctx.invoke_task);
 
 		assert.strictEqual(install_with_cache_healing_or_throw.mock.calls.length, 1);
-		assert.deepEqual(install_with_cache_healing_or_throw.mock.calls[0]![2], {
+		assert.deepEqual(install_with_cache_healing_or_throw.mock.calls[0]![1], {
 			log: ctx.log,
 			stderr,
 			context: 'after version bump'
 		});
 		assert.strictEqual(sveltekit_sync.mock.calls.length, 1);
-		assert.deepEqual(sveltekit_sync.mock.calls[0]![1], { pm_cli: 'npm' });
+		assert.strictEqual(sveltekit_sync.mock.calls[0]!.length, 1);
 		// the root's spawn, finding the SvelteKit CLI with the whole environment
 		const mock_spawn = await get_mock_spawn();
 		const finds = mock_spawn.finds.length;

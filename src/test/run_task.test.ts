@@ -253,7 +253,7 @@ test('run_task passes the graph to the task, and it, `fs_paths`, and `host_root`
 	const host_root = create_throwing_builtin_host_root();
 	const invoke_task = vi.fn((..._args: Array<unknown>) => Promise.resolve());
 	const config = await create_mock_config();
-	const other_config = await create_mock_config({ pm_cli: 'other_pm_cli' });
+	const other_config = await create_mock_config({ search_filters: [] });
 	const result = await run_task(
 		{
 			name: 'greet',

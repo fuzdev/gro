@@ -112,13 +112,15 @@ describe('create_builtin_host', () => {
 		assert.strictEqual(host.programs.find('node_cli'), program);
 		assert.deepEqual(root.program.mock.calls, [['git', { pass_env: ['GIT_*'] }]]);
 		assert.deepEqual(root.find.mock.calls, [['node', {}]]);
-		// a name other than the default, which a grant without `name_from` refuses
-		for (const method of ['program', 'find'] as const) {
-			assert_throws_matching(
-				() => host.programs[method]('git_cli', 'evil'),
-				(error) => is_spawn_error(error, 'not_granted')
-			);
-		}
+		// the program is always the grant's, whatever else a caller passes
+		const loose = host.programs as unknown as Record<
+			'program' | 'find',
+			(role: string, name: string) => unknown
+		>;
+		assert.strictEqual(loose.program('git_cli', 'evil'), program);
+		assert.strictEqual(loose.find('node_cli', 'evil'), program);
+		assert.deepEqual(root.program.mock.calls[1], ['git', { pass_env: ['GIT_*'] }]);
+		assert.deepEqual(root.find.mock.calls[1], ['node', {}]);
 		const { programs } = host as unknown as {
 			programs: Record<'program' | 'find', (name: string) => unknown>;
 		};
@@ -130,8 +132,8 @@ describe('create_builtin_host', () => {
 				);
 			}
 		}
-		assert.strictEqual(root.program.mock.calls.length, 1);
-		assert.strictEqual(root.find.mock.calls.length, 1);
+		assert.strictEqual(root.program.mock.calls.length, 2);
+		assert.strictEqual(root.find.mock.calls.length, 2);
 	});
 
 	test('a later patch of `Object.hasOwn` grants no other program', () => {
@@ -176,21 +178,6 @@ test('`programs` is a frozen null-prototype record', () => {
 });
 
 describe('a program grant', () => {
-	test("`name_from` lets the task name another program, built with the grant's environment", () => {
-		const root = create_root();
-		const host = create_builtin_host(
-			root,
-			{
-				programs: { eslint_cli: { name: 'eslint', name_from: 'arg', pass_env: 'all' } }
-			},
-			to_invocation()
-		);
-		host.programs.program('eslint_cli', 'oxlint');
-		host.programs.find('eslint_cli');
-		assert.deepEqual(root.program.mock.calls, [['oxlint', { pass_env: 'all' }]]);
-		assert.deepEqual(root.find.mock.calls, [['eslint', { pass_env: 'all' }]]);
-	});
-
 	test('`local_first` looks in `node_modules/.bin` first, then `PATH`, as `find_cli` does', () => {
 		const root = create_root();
 		root.find.mockImplementation(((name: string) => (name === 'vitest' ? program : null)) as never);

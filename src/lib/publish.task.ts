@@ -75,10 +75,6 @@ export const Args = s.object({
 	force_build: s.with_default(
 		meta(s.boolean, { description: 'force a fresh build, ignoring the cache' }),
 		false
-	),
-	changeset_cli: s.with_default(
-		meta(s.string, { description: 'the changeset CLI to use' }),
-		CHANGESET_CLI
 	)
 });
 export type Args = s.Infer<typeof Args>;
@@ -89,7 +85,7 @@ const to_release_commit_subject = (version: string): string => `publish v${versi
 export const task: Task<Args> = {
 	summary: 'bump version, publish to the configured registry, and git push',
 	Args,
-	run: async ({ task_args, log, invoke_task, config }): Promise<void> => {
+	run: async ({ task_args, log, invoke_task }): Promise<void> => {
 		const {
 			branch,
 			origin,
@@ -102,8 +98,7 @@ export const task: Task<Args> = {
 			sync,
 			install,
 			force_build,
-			optional,
-			changeset_cli
+			optional
 		} = task_args;
 		if (dry) {
 			log.info(st('green', 'dry run!'));
@@ -123,7 +118,7 @@ export const task: Task<Args> = {
 		const changelog_file = await fs_paths.open_path(changelog);
 		const changelog_exists = await changelog_file.dir.exists(changelog_file.path);
 
-		const found_changeset_cli = find_cli(spawn, changeset_cli, { pass_env: 'all' });
+		const found_changeset_cli = find_cli(spawn, CHANGESET_CLI, { pass_env: 'all' });
 		if (!found_changeset_cli) {
 			throw new TaskError(
 				'changeset command not found, install @changesets/cli locally or globally'
@@ -233,16 +228,14 @@ export const task: Task<Args> = {
 
 			// Update package-lock.json to reflect the new version.
 			if (install) {
-				await install_with_cache_healing_or_throw(to_install_programs(spawn), config.pm_cli, {
+				await install_with_cache_healing_or_throw(to_install_programs(spawn), {
 					log,
 					stderr,
 					context: 'after version bump'
 				});
 				// npm prunes SvelteKit's generated `node_modules/$app` (not a package) on install,
 				// so re-sync before gen reads a tsconfig that extends `$app/tsconfig`.
-				await sveltekit_sync(to_cli_finder(spawn, SVELTEKIT_PROGRAM_OPTIONS), {
-					pm_cli: config.pm_cli
-				});
+				await sveltekit_sync(to_cli_finder(spawn, SVELTEKIT_PROGRAM_OPTIONS));
 			}
 
 			// Regenerate files that depend on package.json version.
@@ -258,7 +251,7 @@ export const task: Task<Args> = {
 					nothing_to_publish = true;
 				} else {
 					// Doesn't build if the version didn't change and publishing isn't optional.
-					throw new TaskError(`\`${changeset_cli} version\` failed: are there any changes?`);
+					throw new TaskError(`\`${CHANGESET_CLI} version\` failed: are there any changes?`);
 				}
 			} else {
 				if (!changelog_exists && (await changelog_file.dir.exists(changelog_file.path))) {
@@ -318,7 +311,7 @@ export const task: Task<Args> = {
 		const changeset_publish_result = await spawn_cli(found_changeset_cli, ['publish'], log);
 		if (!spawn_result_is_ok(changeset_publish_result)) {
 			throw new TaskError(
-				`\`${changeset_cli} publish\` failed - fix it and run \`${resume_command}\` to resume,` +
+				`\`${CHANGESET_CLI} publish\` failed - fix it and run \`${resume_command}\` to resume,` +
 					` or undo the release with \`${undo_command}\``
 			);
 		}

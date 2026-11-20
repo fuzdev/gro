@@ -13,7 +13,6 @@ import {
 } from './cli.ts';
 import { SVELTE_CHECK_CLI, SVELTEKIT_CLI } from './constants.ts';
 import type { FsPaths } from './fs_paths.ts';
-import type { GroConfig } from './gro_config.ts';
 import { cwd as process_cwd } from './cwd.ts';
 import { create_paths } from './paths.ts';
 import { project_has_sveltekit_app, sveltekit_sync } from './sveltekit_helpers.ts';
@@ -24,14 +23,6 @@ const TYPESCRIPT_CLI = 'tsc';
 
 /** @nodocs */
 export const Args = s.object({
-	svelte_check_cli: s.with_default(
-		meta(s.string, { description: 'the svelte-check CLI to use' }),
-		SVELTE_CHECK_CLI
-	),
-	typescript_cli: s.with_default(
-		meta(s.string, { description: 'the TypeScript CLI to use as a fallback to svelte-check' }),
-		TYPESCRIPT_CLI
-	),
 	path_replacement: s.with_default(
 		meta(s.string, { description: 'replacement string for current working directory in output' }),
 		'.'
@@ -51,18 +42,12 @@ const grants = {
 		sveltekit_cli: { name: SVELTEKIT_CLI, local_first: true, pass_env: 'all' },
 		svelte_check_cli: {
 			name: SVELTE_CHECK_CLI,
-			name_from: 'arg',
 			local_first: true,
 			pass_env: 'all',
 			// for svelte-check's colors through the pipe its output is mapped on
 			env: { FORCE_COLOR: '1' }
 		},
-		typescript_cli: {
-			name: TYPESCRIPT_CLI,
-			name_from: 'arg',
-			local_first: true,
-			pass_env: 'all'
-		}
+		typescript_cli: { name: TYPESCRIPT_CLI, local_first: true, pass_env: 'all' }
 	},
 	// svelte-check's output, its paths replaced
 	stdout: true,
@@ -74,10 +59,10 @@ export const task: BuiltinTask<Args, typeof grants> = {
 	summary: 'run svelte-check or tsc on the project without emitting any files',
 	Args,
 	grants,
-	run: ({ task_args, log, config, host }) =>
+	run: ({ task_args, log, host }) =>
 		run_typecheck(
 			task_args,
-			{ pm_cli: config.pm_cli, raw_rest_args: host.raw_rest_args },
+			{ raw_rest_args: host.raw_rest_args },
 			{
 				fs_paths: host.fs_paths,
 				programs: host.programs,
@@ -92,10 +77,6 @@ export const task: BuiltinTask<Args, typeof grants> = {
  * The data `run_typecheck` takes beside its args.
  */
 export interface TypecheckOptions {
-	/**
-	 * The package manager named in the install hint when the SvelteKit CLI isn't found.
-	 */
-	pm_cli: GroConfig['pm_cli'];
 	/**
 	 * The CLI args from the first `--` on, whose section for the checker that runs is forwarded to it.
 	 */
@@ -116,7 +97,7 @@ export interface TypecheckDeps {
 /**
  * Typechecks the project with svelte-check, or tsc without it, `gro typecheck`'s body.
  * @param args - the task's parsed args
- * @param options - the install hint's package manager and the forwarded args
+ * @param options - the forwarded args
  * @param deps - the project's boundary, the checkers, the output streams, and the log
  */
 export const run_typecheck = async (
@@ -124,18 +105,18 @@ export const run_typecheck = async (
 	options: TypecheckOptions,
 	deps: TypecheckDeps
 ): Promise<void> => {
-	const { svelte_check_cli, typescript_cli, path_replacement, cwd } = args;
-	const { pm_cli, raw_rest_args } = options;
+	const { path_replacement, cwd } = args;
+	const { raw_rest_args } = options;
 	const { fs_paths, programs, stdout, stderr, log } = deps;
 
 	if (await project_has_sveltekit_app(fs_paths, log)) {
-		await sveltekit_sync({ find: (name) => programs.find('sveltekit_cli', name) }, { pm_cli });
+		await sveltekit_sync({ find: () => programs.find('sveltekit_cli') });
 	}
 
 	// Prefer svelte-check if available.
-	const found_svelte_check_cli = programs.find('svelte_check_cli', svelte_check_cli);
+	const found_svelte_check_cli = programs.find('svelte_check_cli');
 	if (found_svelte_check_cli) {
-		const forwarded_argv = to_forwarded_argv(svelte_check_cli, raw_rest_args);
+		const forwarded_argv = to_forwarded_argv(SVELTE_CHECK_CLI, raw_rest_args);
 		const svelte_check_child = await spawn_cli_process(
 			found_svelte_check_cli,
 			forwarded_argv,
@@ -160,9 +141,9 @@ export const run_typecheck = async (
 	}
 
 	// Fall back to tsc.
-	const found_typescript_cli = programs.find('typescript_cli', typescript_cli);
+	const found_typescript_cli = programs.find('typescript_cli');
 	if (found_typescript_cli) {
-		const forwarded_argv = to_forwarded_argv(typescript_cli, raw_rest_args);
+		const forwarded_argv = to_forwarded_argv(TYPESCRIPT_CLI, raw_rest_args);
 		// tsc's flags are case-insensitive, so a forwarded `--noemit` overrides too,
 		// and `--noEmit` goes last because `--build` must be tsc's first arg
 		const tsc_argv = has_forwarded_flag(forwarded_argv, 'noEmit', true)
@@ -176,8 +157,6 @@ export const run_typecheck = async (
 	}
 
 	throw new TaskError(
-		`Failed to typecheck because neither \`${svelte_check_cli}\` nor \`${
-			typescript_cli
-		}\` was found`
+		`Failed to typecheck because neither \`${SVELTE_CHECK_CLI}\` nor \`${TYPESCRIPT_CLI}\` was found`
 	);
 };

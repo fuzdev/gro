@@ -75,7 +75,7 @@ export const CSS_MATCHER = /\.css$/;
 export const SVELTE_SCRIPT_MATCHER = /<script(?:\s+[^>]*)?>([\s\S]*?)<\/script>/gim; // TODO maybe this shouldnt be global? or make a getter?
 export const SVELTEKIT_GLOBAL_SPECIFIER = /^\$(env|app)\//;
 
-export const PM_CLI_DEFAULT = 'npm';
+export const NPM_CLI = 'npm';
 export const SVELTEKIT_CLI = 'svelte-kit';
 export const SVELTE_CHECK_CLI = 'svelte-check';
 export const SVELTE_PACKAGE_CLI = 'svelte-package';

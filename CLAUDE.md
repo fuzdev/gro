@@ -71,9 +71,8 @@ errors and exit codes. Where it lives:
 - Builtin host - a builtin declares its `task.grants` (`BuiltinTaskGrants`
   in `builtin_host.ts`: fs, env, programs, `stdout`, `stderr`, `project_modules`,
   the builtins it `invokes`; a program grant, a `BuiltinProgramGrant`, is keyed by
-  role, the `_cli` name of the arg or config field that may choose its program
-  (`eslint_cli`, `pm_cli`) or of its fixed tool (`vitest_cli`, `git_cli`),
-  with its default `name`, `name_from` (`'arg'` or `'config'`) for another,
+  role, its tool's name with `_cli` (`eslint_cli`, `npm_cli`, `vitest_cli`, `git_cli`),
+  with the program's `name`, the only one the role runs,
   `local_first`, and its environment as `SpawnProgramOptions` has it),
   emitted as `GRO_BUILTIN_TASK_GRANTS` by the summaries genfile; the root's
   `BuiltinHostRoot` (`env`, `spawn`, `stdout`, `stderr`) rides `InvokeTaskOptions` as `host_root`,

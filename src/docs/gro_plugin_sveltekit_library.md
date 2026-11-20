@@ -59,7 +59,6 @@ const config: CreateGroConfig = async (cfg) => {
 		// included in the default config when detection passes
 		gro_plugin_sveltekit_library({
 			// svelte_package_options: {output: 'custom_dist'},
-			// svelte_package_cli: 'svelte-package',
 		}),
 	];
 	return cfg;

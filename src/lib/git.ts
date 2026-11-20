@@ -61,7 +61,8 @@ export type GitBranch = s.Infer<typeof GitBranch>;
 /**
  * What finds `git` with its environment already fixed, a builtin's `host.programs`
  * granted the `git_cli` role, whose grant decides the environment.
- * It's `BuiltinPrograms`' `find`, so a root's `Spawn`, whose `find` takes options, doesn't fit it.
+ * `BuiltinPrograms`' `find` takes the role alone and fits it;
+ * the `name` nothing passes keeps a root's `Spawn` out, whose `find` takes options second.
  */
 export interface GitFinder {
 	find(role: 'git_cli', name?: string): SpawnProgram | null;

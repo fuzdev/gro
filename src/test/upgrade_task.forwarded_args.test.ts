@@ -33,15 +33,14 @@ afterEach(async () => {
 });
 
 describe('upgrade task forwarded args', () => {
-	test('the package manager gets the text verbatim after the install args', async () => {
+	test('npm gets the text verbatim after the install args', async () => {
 		const forwarded = ['--no-audit', '--fetch-retries', '01', '--x='];
 		set_mock_args(['upgrade', '--', 'npm', ...forwarded]);
 		const parsed = args_parse({ 'no-pull': true, pull: false, force: true }, Args);
 		expect(parsed.ok).toBe(true);
 		await task.run(create_mock_task_context(parsed.ok ? parsed.value : {}));
 		expect(vi.mocked(install_with_cache_healing_or_throw)).toHaveBeenCalledTimes(1);
-		const [, pm_cli, options] = vi.mocked(install_with_cache_healing_or_throw).mock.calls[0]!;
-		expect(pm_cli).toBe('npm');
+		const [, options] = vi.mocked(install_with_cache_healing_or_throw).mock.calls[0]!;
 		expect(options?.install_args).toEqual(['b@latest', '--force', ...forwarded]);
 	});
 
@@ -52,7 +51,7 @@ describe('upgrade task forwarded args', () => {
 			const parsed = args_parse({ 'no-pull': true, pull: false, dry }, Args);
 			expect(parsed.ok).toBe(true);
 			await task.run(create_mock_task_context(parsed.ok ? parsed.value : {}));
-			const [, , options] = vi.mocked(install_with_cache_healing_or_throw).mock.calls[0]!;
+			const [, options] = vi.mocked(install_with_cache_healing_or_throw).mock.calls[0]!;
 			expect(options?.heal_cache).toBe(!dry);
 			expect(options?.install_args?.includes('--dry-run')).toBe(dry);
 		}
@@ -85,12 +84,12 @@ describe('upgrade task forwarded args', () => {
 		assert.include(error.message, '`gro sync` failed: code 3');
 	});
 
-	test('--dry runs the package manager with --dry-run, and neither pulls nor syncs', async () => {
+	test('--dry runs npm with --dry-run, and neither pulls nor syncs', async () => {
 		set_mock_args(['upgrade']);
 		const parsed = args_parse({ dry: true }, Args);
 		expect(parsed.ok).toBe(true);
 		await task.run(create_mock_task_context(parsed.ok ? parsed.value : {}));
-		const [, , options] = vi.mocked(install_with_cache_healing_or_throw).mock.calls[0]!;
+		const [, options] = vi.mocked(install_with_cache_healing_or_throw).mock.calls[0]!;
 		expect(options?.install_args).toEqual(['b@latest', '--dry-run']);
 		expect((await get_mock_spawn()).calls).toEqual([]);
 	});

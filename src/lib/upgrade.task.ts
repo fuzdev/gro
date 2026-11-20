@@ -7,7 +7,7 @@ import { args } from './args.ts';
 import { stderr } from './stderr.ts';
 import { find_cli, spawn_cli, spawn_result_is_ok, to_spawn_result_message } from './cli.ts';
 import { install_with_cache_healing_or_throw, to_install_programs } from './npm_install_helpers.ts';
-import { NODE_MODULES_DIRNAME } from './constants.ts';
+import { NODE_MODULES_DIRNAME, NPM_CLI } from './constants.ts';
 import { GitOrigin, git_pull, to_git_program } from './git.ts';
 import {
 	package_json_extract_dependencies,
@@ -76,7 +76,7 @@ export type Args = s.Infer<typeof Args>;
 export const task: Task<Args> = {
 	summary: 'upgrade deps',
 	Args,
-	run: async ({ task_args, log, config }): Promise<void> => {
+	run: async ({ task_args, log }): Promise<void> => {
 		const {
 			_,
 			only,
@@ -145,8 +145,8 @@ export const task: Task<Args> = {
 		if (force) {
 			install_args.push('--force');
 		}
-		install_args.push(...to_forwarded_argv(config.pm_cli, to_raw_rest_args(args)));
-		await install_with_cache_healing_or_throw(to_install_programs(spawn), config.pm_cli, {
+		install_args.push(...to_forwarded_argv(NPM_CLI, to_raw_rest_args(args)));
+		await install_with_cache_healing_or_throw(to_install_programs(spawn), {
 			install_args,
 			heal_cache: !dry,
 			log,
@@ -158,7 +158,7 @@ export const task: Task<Args> = {
 		// to fix a recurring npm bug getting the lockfile to its final state.
 		if (!dry && (delete_node_modules || delete_lockfile)) {
 			log.info(`installing again to fix npm lockfile bugs`);
-			await install_with_cache_healing_or_throw(to_install_programs(spawn), config.pm_cli, {
+			await install_with_cache_healing_or_throw(to_install_programs(spawn), {
 				log,
 				stderr
 			});

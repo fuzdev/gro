@@ -145,10 +145,10 @@ test('load_gro_config imports the config through `import_module`', async () => {
 		const ids: Array<string> = [];
 		const config = await load_gro_config(await create_project_fs_paths(dir), (id) => {
 			ids.push(id);
-			return Promise.resolve({ default: { pm_cli: 'fake_pm' } });
+			return Promise.resolve({ default: { search_filters: null } });
 		});
 		assert.deepEqual(ids, [join(dir, 'gro.config.ts')]);
-		assert.strictEqual(config.pm_cli, 'fake_pm');
+		assert.deepEqual(config.search_filters, []);
 	} finally {
 		await rm(dir, { recursive: true, force: true });
 	}

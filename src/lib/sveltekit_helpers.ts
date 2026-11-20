@@ -11,7 +11,7 @@ import {
 	type CliFinder
 } from './cli.ts';
 import {
-	PM_CLI_DEFAULT,
+	SVELTE_PACKAGE_CLI,
 	SVELTE_PACKAGE_DEP_NAME,
 	SVELTEKIT_CLI,
 	SVELTEKIT_DEP_NAME,
@@ -86,19 +86,6 @@ export const has_sveltekit_library = async (
 	return { ok: true };
 };
 
-export interface SveltekitSyncOptions {
-	/**
-	 * The SvelteKit CLI's name.
-	 * @default `SVELTEKIT_CLI`
-	 */
-	sveltekit_cli?: string;
-	/**
-	 * The package manager named in the install hint when the CLI isn't found.
-	 * @default `PM_CLI_DEFAULT`
-	 */
-	pm_cli?: string; // TODO source from config when possible, is just needed for error messages
-}
-
 /**
  * The SvelteKit CLI's environment: `svelte-kit sync` loads the project's Vite config,
  * code whose environment Gro can't know.
@@ -109,29 +96,22 @@ export const SVELTEKIT_PROGRAM_OPTIONS = { pass_env: 'all' } as const;
  * Runs `svelte-kit sync`, with nothing checking that the project uses SvelteKit.
  * Callers gate on `project_has_sveltekit_app` unless something else already establishes it.
  * @param finder - finds the CLI, with its environment
- * @param options - the CLI's name and the install hint
  * @throws `TaskError` if the CLI isn't found or fails
  */
-export const sveltekit_sync = async (
-	finder: CliFinder,
-	{ sveltekit_cli = SVELTEKIT_CLI, pm_cli = PM_CLI_DEFAULT }: SveltekitSyncOptions = {}
-): Promise<void> => {
-	const found_sveltekit_cli = finder.find(sveltekit_cli);
+export const sveltekit_sync = async (finder: CliFinder): Promise<void> => {
+	const found_sveltekit_cli = finder.find(SVELTEKIT_CLI);
 	if (!found_sveltekit_cli) {
 		throw new TaskError(
-			`Failed to find SvelteKit CLI \`${sveltekit_cli}\`, do you need to run \`${pm_cli} install\`?`
+			`Failed to find SvelteKit CLI \`${SVELTEKIT_CLI}\`, do you need to run \`npm install\`?`
 		);
 	}
-	await run_sveltekit_sync(found_sveltekit_cli, sveltekit_cli);
+	await run_sveltekit_sync(found_sveltekit_cli);
 };
 
-const run_sveltekit_sync = async (
-	found_sveltekit_cli: SpawnProgram,
-	sveltekit_cli: string
-): Promise<void> => {
+const run_sveltekit_sync = async (found_sveltekit_cli: SpawnProgram): Promise<void> => {
 	const result = await spawn_cli(found_sveltekit_cli, ['sync']);
 	if (!spawn_result_is_ok(result)) {
-		throw new TaskError(`Failed ${sveltekit_cli} sync`);
+		throw new TaskError(`Failed ${SVELTEKIT_CLI} sync`);
 	}
 };
 
@@ -142,13 +122,11 @@ const run_sveltekit_sync = async (
  * A CLI that isn't found skips rather than throws, so `gro sync --install` runs on a fresh clone.
  * @param fs_paths - checks for the project's synced files and reads its `package.json`
  * @param finder - finds the CLI, with its environment
- * @param sveltekit_cli - the SvelteKit CLI's name
  * @throws `TaskError` if the CLI fails
  */
 export const sveltekit_sync_if_obviously_needed = async (
 	fs_paths: FsPaths,
-	finder: CliFinder,
-	sveltekit_cli: string = SVELTEKIT_CLI
+	finder: CliFinder
 ): Promise<void> => {
 	if (
 		(await path_exists(fs_paths, SVELTEKIT_DEV_DIRNAME)) &&
@@ -157,8 +135,8 @@ export const sveltekit_sync_if_obviously_needed = async (
 		return;
 	}
 	if (!(await project_has_sveltekit_app(fs_paths))) return;
-	const found_sveltekit_cli = finder.find(sveltekit_cli);
-	if (found_sveltekit_cli) await run_sveltekit_sync(found_sveltekit_cli, sveltekit_cli);
+	const found_sveltekit_cli = finder.find(SVELTEKIT_CLI);
+	if (found_sveltekit_cli) await run_sveltekit_sync(found_sveltekit_cli);
 };
 
 /**
@@ -254,39 +232,25 @@ export interface RunSveltePackageOptions {
 	 */
 	svelte_package_options?: SveltePackageOptions;
 	/**
-	 * The `svelte-package` CLI's name, found only in the project's `node_modules/.bin`.
-	 */
-	svelte_package_cli: string;
-	/**
 	 * The verbatim args forwarded to the CLI, from `to_forwarded_argv`.
 	 */
 	forwarded_argv: Array<string>;
 	log: Logger;
-	/**
-	 * The package manager named in the install hint when the CLI isn't found.
-	 */
-	pm_cli: string;
 }
 
 /**
- * Runs `svelte-package` for a SvelteKit library, with any forwarded `-- svelte-package` args.
+ * Runs `svelte-package` for a SvelteKit library, with any forwarded `-- svelte-package` args,
+ * found only in the project's `node_modules/.bin`.
  * @param fs_paths - checks for the project's lib directory
  * @param spawn - finds and runs the CLI
- * @param options - the project's `package.json`, the CLI and its options, and the install hint
+ * @param options - the project's `package.json`, the CLI's options, and its forwarded args
  * @throws `TaskError` if the project isn't a SvelteKit library, the CLI isn't installed locally,
  * or `svelte-package` fails
  */
 export const run_svelte_package = async (
 	fs_paths: FsPaths,
 	spawn: Spawn,
-	{
-		package_json,
-		svelte_package_options,
-		svelte_package_cli: cli,
-		forwarded_argv,
-		log,
-		pm_cli
-	}: RunSveltePackageOptions
+	{ package_json, svelte_package_options, forwarded_argv, log }: RunSveltePackageOptions
 ): Promise<void> => {
 	const has_sveltekit_library_result = await has_sveltekit_library(fs_paths, package_json);
 	if (!has_sveltekit_library_result.ok) {
@@ -295,10 +259,10 @@ export const run_svelte_package = async (
 		);
 	}
 	// a local install only, and it loads the project's Vite config, code whose environment Gro can't know
-	const found_svelte_package_cli = find_local_cli(spawn, cli, { pass_env: 'all' });
+	const found_svelte_package_cli = find_local_cli(spawn, SVELTE_PACKAGE_CLI, { pass_env: 'all' });
 	if (!found_svelte_package_cli) {
 		throw new TaskError(
-			`Failed to find SvelteKit packaging CLI \`${cli}\`, do you need to run \`${pm_cli} install\`?`
+			`Failed to find SvelteKit packaging CLI \`${SVELTE_PACKAGE_CLI}\`, do you need to run \`npm install\`?`
 		);
 	}
 	const serialized_args = [
@@ -307,7 +271,7 @@ export const run_svelte_package = async (
 	];
 	const result = await spawn_cli(found_svelte_package_cli, serialized_args, log);
 	if (!spawn_result_is_ok(result)) {
-		throw new TaskError(`\`${cli}\` failed: ${to_spawn_result_message(result)}`);
+		throw new TaskError(`\`${SVELTE_PACKAGE_CLI}\` failed: ${to_spawn_result_message(result)}`);
 	}
 };
 

@@ -29,12 +29,7 @@ const run_with = async (package_json: Partial<PackageJson>): Promise<number> => 
 	const mock_spawn = await get_mock_spawn();
 	mock_spawn.available = (name) => name === 'node_modules/.bin/tsc';
 	await task.run(
-		await create_mock_builtin_context(task, {
-			svelte_check_cli: 'svelte-check',
-			typescript_cli: 'tsc',
-			path_replacement: '.',
-			cwd: process.cwd()
-		})
+		await create_mock_builtin_context(task, { path_replacement: '.', cwd: process.cwd() })
 	);
 	const { sveltekit_sync } = vi.mocked(await import('#lib/sveltekit_helpers.ts'));
 	return sveltekit_sync.mock.calls.length;
@@ -64,10 +59,10 @@ test('syncs with the SvelteKit CLI the host grants, by its role', async () => {
 		version: '0',
 		devDependencies: { [SVELTEKIT_DEP_NAME]: '3' }
 	});
-	const find = vi.fn((_role: string, _name?: string) => null);
+	const find = vi.fn((_role: string) => null);
 	await run_typecheck(
-		{ svelte_check_cli: 'svelte-check', typescript_cli: 'tsc', path_replacement: '.', cwd: '/p' },
-		{ pm_cli: 'npm', raw_rest_args: [] },
+		{ path_replacement: '.', cwd: '/p' },
+		{ raw_rest_args: [] },
 		{
 			fs_paths: create_fs_paths(fs, to_fs_paths_options()),
 			programs: { find },
@@ -79,5 +74,5 @@ test('syncs with the SvelteKit CLI the host grants, by its role', async () => {
 	const { sveltekit_sync } = vi.mocked(await import('#lib/sveltekit_helpers.ts'));
 	find.mockClear();
 	sveltekit_sync.mock.calls[0]![0].find('svelte-kit');
-	assert.deepEqual(find.mock.calls, [['sveltekit_cli', 'svelte-kit']]);
+	assert.deepEqual(find.mock.calls, [['sveltekit_cli']]);
 });

@@ -56,7 +56,6 @@ export interface GroConfig extends RawGroConfig {
 	plugins: PluginsCreateConfig;
 	map_package_json: PackageJsonMapper | null;
 	search_filters: Array<PathFilter>;
-	pm_cli: string;
 	build_cache_config_hash: string;
 	watch: WatchOptions;
 }
@@ -66,7 +65,6 @@ export interface RawGroConfig {
 	plugins?: PluginsCreateConfig;
 	map_package_json?: PackageJsonMapper | null;
 	search_filters?: PathFilter | Array<PathFilter> | null;
-	pm_cli?: string;
 	build_cache_config?:
 		Record<string, unknown> | (() => Record<string, unknown> | Promise<Record<string, unknown>>);
 	watch?: Partial<WatchOptions>;
@@ -117,7 +115,6 @@ const config = create_empty_gro_config();
 // config.plugins = ...;
 // config.map_package_json = ...;
 // config.search_filters = ...;
-// config.pm_cli = ...;
 
 export default config;
 ```
@@ -241,14 +238,6 @@ so the config a task or genfile gets has it absolute.
 unlike [`search_filters`](#search_filters), which test relative paths (see above).
 It filters change events, not the directory walk:
 a directory it rejects is still watched, and each path below it is filtered on its own.
-
-## `pm_cli`
-
-> ⚠️ support is currently partial, help is welcome
-
-The CLI to use that's compatible with `npm install`.
-Defaults to `'npm'`.
-It's a name found on `PATH` or a project-relative path, and an absolute path is refused.
 
 ## `build_cache_config`
 

@@ -18,11 +18,11 @@ export type Args = s.Infer<typeof Args>;
 export const task: Task<Args> = {
 	summary: `refreshes ${LOCKFILE_FILENAME} with the latest and cleanest deps`,
 	Args,
-	run: async ({ log, config }): Promise<void> => {
+	run: async ({ log }): Promise<void> => {
 		const fs_paths = create_fs_paths(fs, { cwd: cwd(), home: env.get('HOME') });
 
-		log.info(`running the initial \`${config.pm_cli} install\``);
-		await install_with_cache_healing_or_throw(to_install_programs(spawn), config.pm_cli, {
+		log.info('running the initial `npm install`');
+		await install_with_cache_healing_or_throw(to_install_programs(spawn), {
 			log,
 			stderr,
 			context: '(initial)'
@@ -34,11 +34,11 @@ export const task: Task<Args> = {
 			fs_paths.remove_path(NODE_MODULES_DIRNAME, { recursive: true })
 		]);
 		log.info(
-			`running \`${config.pm_cli} install\` after deleting ${LOCKFILE_FILENAME} and ${
+			`running \`npm install\` after deleting ${LOCKFILE_FILENAME} and ${
 				NODE_MODULES_DIRNAME
 			}, this can take a while...`
 		);
-		await install_with_cache_healing_or_throw(to_install_programs(spawn), config.pm_cli, {
+		await install_with_cache_healing_or_throw(to_install_programs(spawn), {
 			log,
 			stderr,
 			context: `after deleting ${LOCKFILE_FILENAME} and ${NODE_MODULES_DIRNAME}`
@@ -48,8 +48,8 @@ export const task: Task<Args> = {
 		// Deleting the lockfile and reinstalling cleans the lockfile of unnecessary dep noise,
 		// like a native tool's many packages for each platform.
 		await fs_paths.remove_path(LOCKFILE_FILENAME);
-		log.info(`running \`${config.pm_cli} install\` one last time to clean ${LOCKFILE_FILENAME}`);
-		await install_with_cache_healing_or_throw(to_install_programs(spawn), config.pm_cli, {
+		log.info(`running \`npm install\` one last time to clean ${LOCKFILE_FILENAME}`);
+		await install_with_cache_healing_or_throw(to_install_programs(spawn), {
 			log,
 			stderr
 		});

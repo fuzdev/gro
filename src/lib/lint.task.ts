@@ -11,20 +11,14 @@ const ESLINT_CLI = 'eslint';
 
 /** @nodocs */
 export const Args = s.object({
-	_: s.with_default_fn(meta(s.array(s.string), { description: 'paths to lint' }), () => []),
-	eslint_cli: s.with_default(meta(s.string, { description: 'the ESLint CLI to use' }), ESLINT_CLI)
+	_: s.with_default_fn(meta(s.array(s.string), { description: 'paths to lint' }), () => [])
 });
 export type Args = s.Infer<typeof Args>;
 
 const grants = {
 	// ESLint loads the project's config and plugins, code whose environment Gro can't know
 	programs: {
-		eslint_cli: {
-			name: ESLINT_CLI,
-			name_from: 'arg',
-			local_first: true,
-			pass_env: 'all'
-		}
+		eslint_cli: { name: ESLINT_CLI, local_first: true, pass_env: 'all' }
 	}
 } as const satisfies BuiltinTaskGrants;
 
@@ -62,10 +56,10 @@ export interface LintDeps {
  * @param deps - ESLint and the log
  */
 export const run_lint = async (args: Args, options: LintOptions, deps: LintDeps): Promise<void> => {
-	const { _, eslint_cli } = args;
+	const { _ } = args;
 	const { programs, log } = deps;
 
-	const found_eslint_cli = programs.find('eslint_cli', eslint_cli);
+	const found_eslint_cli = programs.find('eslint_cli');
 	if (!found_eslint_cli) {
 		// TODO maybe make this an option?
 		log.info('ESLint is not installed; skipping linting');
@@ -73,7 +67,7 @@ export const run_lint = async (args: Args, options: LintOptions, deps: LintDeps)
 	}
 
 	// the forwarded text goes verbatim after Gro's own args, which drop what it overrides
-	const forwarded_argv = to_forwarded_argv(eslint_cli, options.raw_rest_args);
+	const forwarded_argv = to_forwarded_argv(ESLINT_CLI, options.raw_rest_args);
 	const serialized_args = [..._];
 	if (!has_forwarded_flag(forwarded_argv, 'max-warnings')) {
 		serialized_args.push('--max-warnings', '0');

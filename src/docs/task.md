@@ -199,11 +199,10 @@ so a module re-exporting the `task` carries them:
 - `fs` - the paths it reads and writes, relative to the project root, `.` the project
 - `env` - the environment variables it reads, exact names
 - `programs` - the programs it starts, keyed by role, each a `BuiltinProgramGrant`.
-  A role whose program an arg or the Gro config may choose is keyed by that arg's or field's name
-  (`eslint_cli`, `typescript_cli`, `pm_cli`), and a fixed tool's is the tool's name with `_cli`
-  (`vitest_cli`, `git_cli`). A grant has its default `name`, `name_from` (`'arg'` or `'config'`)
-  when another name may come from the arg or config field the role names
-  (on Node the role's handle is built for whichever name was chosen),
+  A role is the tool's name with `_cli` (`eslint_cli`, `npm_cli`, `vitest_cli`, `git_cli`),
+  its dashes dropped or made underscores (`sveltekit_cli`, `svelte_check_cli`),
+  the tool being the product when its program is named otherwise (`typescript_cli` runs `tsc`).
+  A grant has the program's `name`, the only program the role runs,
   `local_first` to look in the project's `node_modules/.bin` before `PATH`,
   and its environment as `SpawnProgramOptions` has it, `pass_env`, `omit_env`, and `env`
 - `stdout`, `stderr` - that it writes to them
@@ -217,9 +216,8 @@ held by `gro gen --check`.
 `run_task` cuts the root's handles by that table into the builtin's `host`,
 a `BuiltinTaskContext` field present only on a builtin's context:
 `fs_paths` with an `fs` grant, `env` narrowed to the names,
-`programs` with `program(role, name?)` and `find(role, name?)` for the granted roles,
-as `spawn`'s pair resolves them (`find_cli`'s way for a `local_first` one),
-refusing a name other than the role's default unless its grant has `name_from`,
+`programs` with `program(role)` and `find(role)` for the granted roles,
+each the grant's `name` as `spawn`'s pair resolves it (`find_cli`'s way for a `local_first` one),
 each program's environment fixed by its grant, `stdout` and `stderr` when granted,
 with `project_modules` the root's project loader as `import_module`, the one every task loads through,
 and `invoke_project_task`, the `invoke_task` a project task has, for the project's modules it loads,
@@ -241,7 +239,6 @@ runs the builtin with the builtin's own grants, so a project task needs no handl
 A project task can import a host module itself:
 on Node every module can, and the cut above is a review signal, as Node's narrowed roots are,
 not an enforced boundary (`env` is narrowed and `programs` refuses an ungranted role,
-or a name other than the role's default when its grant has no `name_from`,
 but `fs_paths` is the root's whole `FsPaths`, and code in the same realm,
 which can patch the intrinsics or the grants the cut reads, isn't held by it).
 
@@ -394,6 +391,48 @@ so `gro check` runs Gro's `test`, not the wrapper.
 A wrapper doesn't have to call the builtin at all:
 copy an existing task and customize it,
 rewrite it from scratch, compose several, or whatever each project needs.
+
+A builtin runs only its own tools, each named by its grants (`gro lint` runs ESLint),
+so a project that uses another tool runs it from a project task.
+To lint with oxlint instead:
+
+```ts
+// src/lib/lint.task.ts
+import type {Task} from '@fuzdev/gro';
+import {find_cli, spawn_cli, spawn_result_is_ok} from '@fuzdev/gro/cli.ts';
+import {spawn} from '@fuzdev/gro/spawn.ts';
+import {TaskError} from '@fuzdev/gro/task_error.ts';
+
+export const task: Task = {
+	summary: 'run oxlint',
+	run: async ({log}) => {
+		const oxlint = find_cli(spawn, 'oxlint', {pass_env: 'all'});
+		if (!oxlint) throw new TaskError('oxlint is not installed');
+		if (!spawn_result_is_ok(await spawn_cli(oxlint, [], log))) {
+			throw new TaskError('oxlint found some problems');
+		}
+	},
+};
+```
+
+and for `gro check`, which invokes the builtin `lint`, a project `check` that skips it
+and invokes the project's:
+
+```ts
+// src/lib/check.task.ts
+import type {Task} from '@fuzdev/gro';
+import {Args} from '@fuzdev/gro/check.task.ts';
+
+export const task: Task<Args> = {
+	Args,
+	run: async ({task_args, invoke_task}) => {
+		await invoke_task('check', {...task_args, 'no-lint': true});
+		if (task_args.lint) await invoke_task('src/lib/lint.task.ts');
+	},
+};
+```
+
+with the project's scripts and CI running `gro task src/lib/check.task.ts`.
 
 ### task `Args`
 

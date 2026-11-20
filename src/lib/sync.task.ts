@@ -6,7 +6,7 @@ import { package_json_sync } from './package_json.ts';
 import { project_has_sveltekit_app, sveltekit_sync } from './sveltekit_helpers.ts';
 import {
 	install_with_cache_healing_or_throw,
-	PM_CLI_PROGRAM_GRANT
+	NPM_CLI_PROGRAM_GRANT
 } from './npm_install_helpers.ts';
 import { SVELTEKIT_CLI } from './constants.ts';
 import type { FsPaths } from './fs_paths.ts';
@@ -43,7 +43,7 @@ const grants = {
 	fs: { read: ['.'], write: ['.'] },
 	programs: {
 		// `--install`
-		pm_cli: PM_CLI_PROGRAM_GRANT,
+		npm_cli: NPM_CLI_PROGRAM_GRANT,
 		// `svelte-kit sync` loads the project's Vite config, code whose environment Gro can't know
 		sveltekit_cli: { name: SVELTEKIT_CLI, local_first: true, pass_env: 'all' }
 	},
@@ -60,7 +60,7 @@ export const task: BuiltinTask<Args, typeof grants> = {
 	run: ({ task_args, invoke_task, config, log, host }) =>
 		run_sync(
 			task_args,
-			{ pm_cli: config.pm_cli, map_package_json: config.map_package_json },
+			{ map_package_json: config.map_package_json },
 			{ fs_paths: host.fs_paths, programs: host.programs, stderr: host.stderr, invoke_task, log }
 		)
 };
@@ -69,7 +69,6 @@ export const task: BuiltinTask<Args, typeof grants> = {
  * The data `run_sync` takes beside its args.
  */
 export interface SyncOptions {
-	pm_cli: GroConfig['pm_cli'];
 	map_package_json: GroConfig['map_package_json'];
 }
 
@@ -78,7 +77,7 @@ export interface SyncOptions {
  */
 export interface SyncDeps {
 	fs_paths: FsPaths;
-	programs: BuiltinPrograms<'pm_cli' | 'sveltekit_cli'>;
+	programs: BuiltinPrograms<'npm_cli' | 'sveltekit_cli'>;
 	stderr: ProcessOutput;
 	invoke_task: BuiltinInvokeTask<BuiltinInvokes<typeof grants>>;
 	log: Logger;
@@ -88,25 +87,24 @@ export interface SyncDeps {
  * Installs packages, syncs SvelteKit and `package.json`, and runs gen, each optional,
  * `gro sync`'s body.
  * @param args - the task's parsed args
- * @param options - the config's package manager and `map_package_json`
+ * @param options - the config's `map_package_json`
  * @param deps - the project's boundary, the programs, stderr, the nested `gen`, and the log
  */
 export const run_sync = async (args: Args, options: SyncOptions, deps: SyncDeps): Promise<void> => {
 	const { sveltekit, package_json, gen, install } = args;
-	const { pm_cli, map_package_json } = options;
+	const { map_package_json } = options;
 	const { fs_paths, programs, stderr, invoke_task, log } = deps;
 
 	if (install) {
 		await install_with_cache_healing_or_throw(
-			{ program: (name) => programs.program('pm_cli', name) },
-			pm_cli,
+			{ program: () => programs.program('npm_cli') },
 			{ log, stderr, throw_if_gro_packages_changed: true, fs_paths }
 		);
 	}
 
 	// a project declaring SvelteKit that isn't installed still gets the install hint
 	if (sveltekit && (await project_has_sveltekit_app(fs_paths, log))) {
-		await sveltekit_sync({ find: (name) => programs.find('sveltekit_cli', name) }, { pm_cli });
+		await sveltekit_sync({ find: () => programs.find('sveltekit_cli') });
 		log.info('synced SvelteKit');
 	}
 

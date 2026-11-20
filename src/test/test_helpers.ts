@@ -168,7 +168,6 @@ export const create_mock_config = async (
 		plugins: () => [],
 		map_package_json: null,
 		search_filters: [],
-		pm_cli: 'npm',
 		watch: { dir: paths.source, filter: null },
 		build_cache_config_hash,
 		...(rest as Partial<GroConfig>)
@@ -228,7 +227,6 @@ export const create_mock_task_context = <TArgs extends object = any>(
 		plugins: () => [],
 		map_package_json: null,
 		search_filters: [],
-		pm_cli: 'npm',
 		build_cache_config_hash: 'test_hash',
 		...config_overrides
 	} as GroConfig,

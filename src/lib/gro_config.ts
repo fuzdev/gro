@@ -9,7 +9,6 @@ import type { ImportModule } from './modules.ts';
 import {
 	GRO_CONFIG_FILENAME,
 	NODE_MODULES_DIRNAME,
-	PM_CLI_DEFAULT,
 	SOURCE_DIR,
 	SVELTEKIT_BUILD_DIRNAME,
 	SVELTEKIT_DIST_DIRNAME
@@ -51,10 +50,6 @@ export interface GroConfig extends RawGroConfig {
 	 */
 	search_filters: Array<PathFilter>;
 	/**
-	 * The CLI to use that's compatible with `npm install`. Defaults to `'npm'`.
-	 */
-	pm_cli: string;
-	/**
 	 * BLAKE3 hash of the user's `build_cache_config` from `gro.config.ts`, as deterministic JSON.
 	 * This is computed during config normalization, which then drops the raw value from the config.
 	 * If no `build_cache_config` was provided, this is the hash of an empty string.
@@ -80,7 +75,6 @@ export interface RawGroConfig {
 	plugins?: PluginsCreateConfig;
 	map_package_json?: PackageJsonMapper | null;
 	search_filters?: PathFilter | Array<PathFilter> | null;
-	pm_cli?: string;
 	/**
 	 * Optional object defining custom build inputs for cache invalidation.
 	 * This value is hashed during config normalization and used to detect
@@ -118,7 +112,6 @@ export const create_empty_gro_config = (): GroConfig => ({
 	plugins: () => [],
 	map_package_json: identity,
 	search_filters: [(id) => !SEARCH_EXCLUDER_DEFAULT.test(id)],
-	pm_cli: PM_CLI_DEFAULT,
 	build_cache_config_hash: EMPTY_BUILD_CACHE_CONFIG_HASH,
 	watch: { dir: SOURCE_DIR, filter: null }
 });
@@ -158,7 +151,6 @@ export const cook_gro_config = async (
 		plugins = empty_config.plugins,
 		map_package_json = empty_config.map_package_json,
 		search_filters = empty_config.search_filters,
-		pm_cli = empty_config.pm_cli,
 		build_cache_config,
 		watch
 	} = raw_config;
@@ -187,7 +179,6 @@ export const cook_gro_config = async (
 			: search_filters
 				? [search_filters]
 				: [],
-		pm_cli,
 		build_cache_config_hash,
 		watch: {
 			dir: posix_resolve(root, watch?.dir ?? empty_config.watch.dir),

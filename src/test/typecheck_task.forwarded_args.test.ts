@@ -1,6 +1,7 @@
 import { describe, test, expect, vi, afterEach } from 'vitest';
+import { args_parse } from '@fuzdev/fuz_util/args.ts';
 
-import { task } from '#lib/typecheck.task.ts';
+import { Args, task } from '#lib/typecheck.task.ts';
 import { create_mock_builtin_context } from './test_helpers.ts';
 import { get_mock_spawn } from './spawn_mocks.ts';
 
@@ -17,8 +18,6 @@ afterEach(async () => {
 });
 
 const ARGS = {
-	svelte_check_cli: 'svelte-check',
-	typescript_cli: 'tsc',
 	path_replacement: '.',
 	cwd: process.cwd()
 };
@@ -85,40 +84,39 @@ describe('typecheck task forwarded args', () => {
 	});
 });
 
-describe('a chosen checker', () => {
-	test('`--typescript_cli` names the program run, and its own section is forwarded', async () => {
-		await find_only('tsgo');
-		await task.run(
-			await create_mock_builtin_context(
-				task,
-				{ ...ARGS, typescript_cli: 'tsgo' },
-				{ name: 'typecheck', cli_args: ['typecheck', '--', 'tsgo', '--x', '--', 'tsc', '--y'] }
-			)
-		);
-		const { finds, calls } = await get_mock_spawn();
-		expect(finds).toContain('node_modules/.bin/tsgo');
-		expect(calls).toHaveLength(1);
-		expect(calls[0]!.name).toBe('node_modules/.bin/tsgo');
-		expect(calls[0]!.args).toEqual(['--x', '--noEmit']);
-		expect(calls[0]!.program_options).toEqual({ pass_env: 'all' });
+describe('the checkers', () => {
+	test('`--typescript_cli` and `--svelte_check_cli` are refused', () => {
+		expect(args_parse({ typescript_cli: 'tsgo' }, Args).ok).toBe(false);
+		expect(args_parse({ svelte_check_cli: 'svelte-check-next' }, Args).ok).toBe(false);
 	});
 
-	test('`--svelte_check_cli` names the program run, and its own section is forwarded', async () => {
-		await find_only('svelte-check-next');
+	test("tsc gets its own section, not another tool's", async () => {
+		await find_only('tsc');
 		await task.run(
-			await create_mock_builtin_context(
-				task,
-				{ ...ARGS, svelte_check_cli: 'svelte-check-next' },
-				{
-					name: 'typecheck',
-					cli_args: ['typecheck', '--', 'svelte-check-next', '--x', '--', 'svelte-check', '--y']
-				}
-			)
+			await create_mock_builtin_context(task, ARGS, {
+				name: 'typecheck',
+				cli_args: ['typecheck', '--', 'tsgo', '--x', '--', 'tsc', '--y']
+			})
 		);
 		const { calls } = await get_mock_spawn();
 		expect(calls).toHaveLength(1);
-		expect(calls[0]!.name).toBe('node_modules/.bin/svelte-check-next');
-		expect(calls[0]!.args).toEqual(['--x']);
+		expect(calls[0]!.name).toBe('node_modules/.bin/tsc');
+		expect(calls[0]!.args).toEqual(['--y', '--noEmit']);
+		expect(calls[0]!.program_options).toEqual({ pass_env: 'all' });
+	});
+
+	test("svelte-check gets its own section, not another tool's", async () => {
+		await find_only('svelte-check');
+		await task.run(
+			await create_mock_builtin_context(task, ARGS, {
+				name: 'typecheck',
+				cli_args: ['typecheck', '--', 'svelte-check-next', '--x', '--', 'svelte-check', '--y']
+			})
+		);
+		const { calls } = await get_mock_spawn();
+		expect(calls).toHaveLength(1);
+		expect(calls[0]!.name).toBe('node_modules/.bin/svelte-check');
+		expect(calls[0]!.args).toEqual(['--y']);
 		expect(calls[0]!.program_options).toEqual({ pass_env: 'all', env: { FORCE_COLOR: '1' } });
 	});
 });

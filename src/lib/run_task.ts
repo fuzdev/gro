@@ -214,7 +214,7 @@ export const run_task = async (
 					: `Unexpected error running task ${st(
 							'cyan',
 							task_meta.name
-						)}. If this is unexpected try running \`${config.pm_cli} install\` and \`gro clean\`.`,
+						)}. If this is unexpected try running \`npm install\` and \`gro clean\`.`,
 			error
 		};
 	}

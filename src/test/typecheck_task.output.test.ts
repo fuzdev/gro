@@ -24,8 +24,6 @@ afterEach(async () => {
 });
 
 const ARGS = {
-	svelte_check_cli: 'svelte-check',
-	typescript_cli: 'tsc',
 	path_replacement: '.',
 	cwd: '/project'
 };

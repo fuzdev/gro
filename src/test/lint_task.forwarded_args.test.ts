@@ -1,6 +1,7 @@
 import { describe, test, expect, vi, afterEach } from 'vitest';
+import { args_parse } from '@fuzdev/fuz_util/args.ts';
 
-import { task } from '#lib/lint.task.ts';
+import { Args, task } from '#lib/lint.task.ts';
 import { create_mock_builtin_context } from './test_helpers.ts';
 import { get_mock_spawn } from './spawn_mocks.ts';
 
@@ -17,7 +18,7 @@ const run_lint = async (
 	await task.run(
 		await create_mock_builtin_context(
 			task,
-			{ _, eslint_cli: 'eslint' },
+			{ _ },
 			{ name: 'lint', cli_args: ['lint', '--', 'eslint', ...forwarded] }
 		)
 	);
@@ -48,24 +49,20 @@ describe('lint task forwarded args', () => {
 	});
 });
 
-test("`--eslint_cli` names the linter the host finds, the project's first", async () => {
-	await task.run(
-		await create_mock_builtin_context(task, { _: [], eslint_cli: 'oxlint' }, { name: 'lint' })
-	);
-	expect((await get_mock_spawn()).finds[0]).toBe('node_modules/.bin/oxlint');
+test('`--eslint_cli` is refused, ESLint being the only linter', () => {
+	expect(args_parse({ eslint_cli: 'oxlint' }, Args).ok).toBe(false);
 });
 
-test("a chosen `--eslint_cli` gets its own section, not ESLint's", async () => {
-	(await get_mock_spawn()).reset();
+test("ESLint gets its own section, not another tool's", async () => {
 	await task.run(
 		await create_mock_builtin_context(
 			task,
-			{ _: [], eslint_cli: 'oxlint' },
+			{ _: [] },
 			{ name: 'lint', cli_args: ['lint', '--', 'oxlint', '--x', '--', 'eslint', '--y'] }
 		)
 	);
 	const { calls } = await get_mock_spawn();
 	expect(calls).toHaveLength(1);
-	expect(calls[0]!.name).toBe('node_modules/.bin/oxlint');
-	expect(calls[0]!.args).toEqual(['--max-warnings', '0', '--x']);
+	expect(calls[0]!.name).toBe('node_modules/.bin/eslint');
+	expect(calls[0]!.args).toEqual(['--max-warnings', '0', '--y']);
 });

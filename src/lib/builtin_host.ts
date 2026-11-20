@@ -23,7 +23,6 @@ so a builtin that loads the project's modules takes it from its `host` rather th
 
 On the Node Gro the cut is a review signal, as a narrowed root is, not an enforced boundary:
 `env` is narrowed and `programs` refuses a role the grants don't list,
-or a name other than the role's default when its grant has no `name_from`,
 but `fs_paths` is the root's whole `FsPaths`, and any module can still import a host module.
 `Object.freeze` and `Object.hasOwn` are copied when this module loads, and the host and its
 `programs` are null-prototype records, but the grants are read by plain property access and the
@@ -35,27 +34,19 @@ or the grants isn't held by the cut.
 const { freeze, hasOwn } = Object;
 
 /**
- * A program a builtin starts, keyed in its grants by its role: the program's name,
- * where another may come from, how it's found,
+ * A program a builtin starts, keyed in its grants by its role: the program's name, how it's found,
  * and how the root builds its environment, as `SpawnProgramOptions` has it.
- * A role is named by Gro's `_cli` vocabulary: a role whose program an arg or the Gro config
- * may choose is keyed by that arg's or config field's own name (`eslint_cli`, `typescript_cli`,
- * `pm_cli`), and a fixed tool's role is the tool's name with `_cli` (`vitest_cli`, `git_cli`),
- * so only a role keyed by an arg or a config field has `name_from`.
+ * A role is its tool's name with `_cli` (`eslint_cli`, `vitest_cli`, `git_cli`),
+ * the tool's dashes dropped or made underscores (`sveltekit_cli`, `svelte_check_cli`),
+ * and the tool is the product when its program is named otherwise (`typescript_cli` runs `tsc`);
+ * the program is always the one its grant names.
  * Data a runtime reads from the table without importing the task.
  */
 export interface BuiltinProgramGrant {
 	/**
-	 * The program run when the task names no other, as `spawn.program` resolves it.
+	 * The program, as `spawn.program` resolves it.
 	 */
 	readonly name: string;
-	/**
-	 * Where a name other than `name` may come from, the task's arg or the Gro config's field
-	 * named by the role; without it, any other name is refused.
-	 * On the Node Gro the role's handle is built for whichever name was chosen;
-	 * a runtime reading the table can require a name other than the default to be granted too.
-	 */
-	readonly name_from?: 'arg' | 'config';
 	/**
 	 * Whether the program is looked up in the project's `node_modules/.bin` first, then on `PATH`,
 	 * as `find_cli` looks.
@@ -155,28 +146,25 @@ export interface BuiltinHostInvocation {
 }
 
 /**
- * The programs a builtin's grants name, by role, each built by the root's `spawn`
+ * The programs a builtin's grants name, by role, each the grant's `name` built by the root's `spawn`
  * with the grant's environment, as `Spawn`'s `program` and `find` resolve them,
  * the project's `node_modules/.bin` first for a grant that's `local_first`, as `find_cli` looks.
- * A role the grants don't list, or a name other than the role's default
- * when its grant has no `name_from`, throws `SpawnError` `not_granted`.
+ * A role the grants don't list throws `SpawnError` `not_granted`.
  */
 export interface BuiltinPrograms<TRole extends string = string> {
 	/**
 	 * @param role - the grant's key
-	 * @param name - the program to run, the grant's `name` by default
 	 * @throws `SpawnError` - `not_found` and the rest `Spawn.program` throws, or `not_granted`
 	 * @throws `TaskError` - for a `local_first` grant, as `find_cli` throws
 	 */
-	program(role: TRole, name?: string): SpawnProgram;
+	program(role: TRole): SpawnProgram;
 	/**
 	 * @param role - the grant's key
-	 * @param name - the program to find, the grant's `name` by default
 	 * @returns the program, or `null` when it isn't found
 	 * @throws `SpawnError` - as `Spawn.find` does, or `not_granted`
 	 * @throws `TaskError` - for a `local_first` grant, as `find_cli` throws
 	 */
-	find(role: TRole, name?: string): SpawnProgram | null;
+	find(role: TRole): SpawnProgram | null;
 }
 
 /**
@@ -264,36 +252,32 @@ export const create_builtin_host = <TGrants extends BuiltinTaskGrants>(
 	const { programs } = grants;
 	if (programs) {
 		const { spawn } = root;
-		// the grant of `role` and the name to run, refusing a role or a name it doesn't grant
+		// the grant of `role` and the program's environment, refusing a role it doesn't grant
 		const to_granted = (
-			role: string,
-			name: string | undefined
-		): { grant: BuiltinProgramGrant; name: string; options: SpawnProgramOptions } => {
+			role: string
+		): { grant: BuiltinProgramGrant; options: SpawnProgramOptions } => {
 			const grant = hasOwn(programs, role) ? programs[role] : undefined;
 			if (!grant) throw new SpawnError('not_granted', role);
-			const chosen = name ?? grant.name;
-			if (chosen !== grant.name && !grant.name_from) throw new SpawnError('not_granted', chosen);
 			const options: SpawnProgramOptions = {};
 			if (grant.pass_env !== undefined) options.pass_env = grant.pass_env;
 			if (grant.omit_env !== undefined) options.omit_env = grant.omit_env;
 			if (grant.env !== undefined) options.env = grant.env;
-			return { grant, name: chosen, options };
+			return { grant, options };
 		};
 		host.programs = freeze(
 			create_record({
-				program: (role: string, name?: string): SpawnProgram => {
-					const granted = to_granted(role, name);
+				program: (role: string): SpawnProgram => {
+					const { grant, options } = to_granted(role);
 					return (
-						(granted.grant.local_first
-							? find_local_cli(spawn, granted.name, granted.options)
-							: null) ?? spawn.program(granted.name, granted.options)
+						(grant.local_first ? find_local_cli(spawn, grant.name, options) : null) ??
+						spawn.program(grant.name, options)
 					);
 				},
-				find: (role: string, name?: string): SpawnProgram | null => {
-					const granted = to_granted(role, name);
-					return granted.grant.local_first
-						? find_cli(spawn, granted.name, granted.options)
-						: spawn.find(granted.name, granted.options);
+				find: (role: string): SpawnProgram | null => {
+					const { grant, options } = to_granted(role);
+					return grant.local_first
+						? find_cli(spawn, grant.name, options)
+						: spawn.find(grant.name, options);
 				}
 			})
 		);

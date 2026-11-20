@@ -38,7 +38,6 @@ const to_context = (args: Partial<Args> = {}) =>
 		changelog: '@changesets/changelog-git',
 		dep: false,
 		origin: 'origin',
-		changeset_cli: 'changeset',
 		...args
 	});
 

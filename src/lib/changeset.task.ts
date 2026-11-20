@@ -62,11 +62,7 @@ export const Args = s.object({
 		meta(s.boolean, { description: 'opt out of installing the changelog package' }),
 		false
 	),
-	origin: s.with_default(meta(GitOrigin, { description: 'git origin to deploy to' }), 'origin'),
-	changeset_cli: s.with_default(
-		meta(s.string, { description: 'the changeset CLI to use' }),
-		CHANGESET_CLI
-	)
+	origin: s.with_default(meta(GitOrigin, { description: 'git origin to deploy to' }), 'origin')
 });
 export type Args = s.Infer<typeof Args>;
 
@@ -94,11 +90,9 @@ export const task: Task<Args> = {
 				access: access_arg,
 				changelog,
 				dep,
-				origin,
-				changeset_cli
+				origin
 			},
-			log,
-			config
+			log
 		} = ctx;
 
 		if (!message && (minor || major)) throw new TaskError('cannot bump version without a message');
@@ -109,7 +103,7 @@ export const task: Task<Args> = {
 
 		const bump: ChangesetBump = minor ? 'minor' : major ? 'major' : 'patch';
 
-		const found_changeset_cli = find_cli(spawn, changeset_cli, { pass_env: 'all' });
+		const found_changeset_cli = find_cli(spawn, CHANGESET_CLI, { pass_env: 'all' });
 		if (!found_changeset_cli) {
 			throw new TaskError(
 				'changeset command not found: install @changesets/cli locally or globally'
@@ -119,7 +113,7 @@ export const task: Task<Args> = {
 		const run_changeset_cli = async (cli_args: Array<string>): Promise<void> => {
 			const result = await spawn_cli(found_changeset_cli, cli_args, log);
 			if (!spawn_result_is_ok(result)) {
-				const command = [changeset_cli, ...cli_args].join(' ');
+				const command = [CHANGESET_CLI, ...cli_args].join(' ');
 				throw new TaskError(`\`${command}\` failed: ${to_spawn_result_message(result)}`);
 			}
 		};
@@ -159,7 +153,7 @@ export const task: Task<Args> = {
 			await git_add_or_throw(git, dir);
 
 			if (dep) {
-				await install_with_cache_healing_or_throw(to_install_programs(spawn), config.pm_cli, {
+				await install_with_cache_healing_or_throw(to_install_programs(spawn), {
 					install_args: ['-D', changelog],
 					log,
 					stderr,
