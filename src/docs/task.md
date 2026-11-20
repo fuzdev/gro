@@ -411,7 +411,9 @@ Without either, the step is skipped with a log line, unless the project's root h
 (`eslint.config.js` and its `.mjs`, `.cjs`, `.ts`, `.mts`, and `.cts` forms, or a legacy `.eslintrc*`),
 and then `gro check` fails naming it; `gro check --no-lint` skips the step without looking.
 `gro typecheck` follows the same rule with files as the evidence:
-svelte-check runs when it's declared, else, when the project's `src/` has `.svelte` files,
+svelte-check runs when it's declared, and a nonempty `-- tsc` section then fails, as tsc doesn't run;
+else a nonempty `-- svelte-check` section fails,
+as it asks for svelte-check, and when the project's `src/` has `.svelte` files,
 which only svelte-check checks, it fails naming them;
 otherwise tsc runs when `typescript` is declared, and with neither declared it fails saying what to add.
 A declared checker not installed in the project's `node_modules/.bin` fails with the install hint.
@@ -519,7 +521,9 @@ that appears after each `--` is assumed to be the CLI command.
 If `gro check` or its invoked tasks don't call `vitest` or `eslint`,
 the `--` args will be ignored.
 Otherwise `gro check` reads a nonempty `-- vitest` or `-- eslint` section as asking for its test or lint step,
-which then fails when the tool isn't declared.
+which then fails when the tool isn't declared,
+and `gro typecheck` fails on a nonempty `-- svelte-check` section when svelte-check isn't declared
+and on a nonempty `-- tsc` one when it is.
 An outside command gets its section's text verbatim, never parsed and reserialized,
 so `-- eslint --max-warnings -1 --no-cache` reaches `eslint` exactly as written.
 When a task passes a flag of its own, like `lint`'s `--max-warnings 0`

@@ -129,6 +129,13 @@ export const run_typecheck = async (
 	}
 
 	if (await project_has_dependency(fs_paths, SVELTE_CHECK_CLI, log)) {
+		// args forwarded to tsc ask for it, and svelte-check runs in its place
+		if (to_forwarded_argv(TYPESCRIPT_CLI, raw_rest_args).length > 0) {
+			throw new TaskError(
+				`args are forwarded to ${TYPESCRIPT_CLI}, which doesn't run as ${SVELTE_CHECK_CLI} is declared` +
+					` - drop the \`-- ${TYPESCRIPT_CLI}\` section, or forward to ${SVELTE_CHECK_CLI} with a \`-- ${SVELTE_CHECK_CLI}\` one`
+			);
+		}
 		const found_svelte_check_cli = programs.find('svelte_check_cli');
 		if (!found_svelte_check_cli) {
 			throw new TaskError(`${SVELTE_CHECK_CLI} is a dependency but not installed; run \`npm i\`?`);
@@ -156,6 +163,14 @@ export const run_typecheck = async (
 		}
 
 		return;
+	}
+
+	// args forwarded to svelte-check ask for it, as a `-- eslint` section asks `gro check` for lint
+	if (to_forwarded_argv(SVELTE_CHECK_CLI, raw_rest_args).length > 0) {
+		throw new TaskError(
+			`args are forwarded to ${SVELTE_CHECK_CLI}, which isn't declared in package.json` +
+				` - add ${SVELTE_CHECK_CLI} to devDependencies, or drop the \`-- ${SVELTE_CHECK_CLI}\` section`
+		);
 	}
 
 	const source_dir = create_paths(fs_paths.project.path).source;

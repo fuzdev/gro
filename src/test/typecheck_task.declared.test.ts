@@ -25,7 +25,8 @@ const create_program = (name: string): SpawnProgram =>
 const run = async (
 	package_json: object,
 	tree: Record<string, string> = {},
-	found: ReadonlyArray<Role> = ['svelte_check_cli', 'typescript_cli']
+	found: ReadonlyArray<Role> = ['svelte_check_cli', 'typescript_cli'],
+	raw_rest_args: ReadonlyArray<string> = []
 ): Promise<{ error: unknown; finds: Array<Role>; programs: Map<Role, SpawnProgram> }> => {
 	const project = create_mock_fs_dir('/project');
 	mock_tree(project, {
@@ -45,7 +46,7 @@ const run = async (
 	try {
 		await run_typecheck(
 			{ path_replacement: '.', cwd: '/project' },
-			{ raw_rest_args: [] },
+			{ raw_rest_args },
 			{
 				fs_paths: create_mock_project_fs_paths(project),
 				programs: { find },
@@ -208,4 +209,61 @@ test('a `.svelte.ts` or `.svelte.js` module alone leaves tsc, as tsc checks it',
 	);
 	assert.strictEqual(error, null);
 	assert.deepEqual(finds, ['typescript_cli']);
+});
+
+test('args forwarded to an undeclared svelte-check fail, running nothing', async () => {
+	const { error, finds } = await run({ devDependencies: { typescript: '6' } }, {}, undefined, [
+		'--',
+		'svelte-check',
+		'--threshold',
+		'error'
+	]);
+	assert_task_error(
+		error,
+		"args are forwarded to svelte-check, which isn't declared in package.json" +
+			' - add svelte-check to devDependencies, or drop the `-- svelte-check` section'
+	);
+	assert.deepEqual(finds, []);
+});
+
+test('an empty `-- svelte-check` section or a `-- tsc` one leaves tsc', async () => {
+	for (const raw_rest_args of [
+		['--', 'svelte-check'],
+		['--', 'tsc', '--strict']
+	]) {
+		const { error, finds } = await run(
+			{ devDependencies: { typescript: '6' } },
+			{},
+			undefined,
+			raw_rest_args
+		);
+		assert.strictEqual(error, null);
+		assert.deepEqual(finds, ['typescript_cli']);
+	}
+});
+
+test('args forwarded to tsc with svelte-check declared fail, running nothing', async () => {
+	const { error, finds } = await run(
+		{ devDependencies: { 'svelte-check': '4', typescript: '6' } },
+		{},
+		undefined,
+		['--', 'tsc', '--strict']
+	);
+	assert_task_error(
+		error,
+		"args are forwarded to tsc, which doesn't run as svelte-check is declared" +
+			' - drop the `-- tsc` section, or forward to svelte-check with a `-- svelte-check` one'
+	);
+	assert.deepEqual(finds, []);
+});
+
+test('an empty `-- tsc` section with svelte-check declared goes on to svelte-check', async () => {
+	const { error, finds } = await run(
+		{ devDependencies: { 'svelte-check': '4', typescript: '6' } },
+		{},
+		['typescript_cli'],
+		['--', 'tsc']
+	);
+	assert_task_error(error, 'svelte-check is a dependency but not installed; run `npm i`?');
+	assert.deepEqual(finds, ['svelte_check_cli']);
 });
