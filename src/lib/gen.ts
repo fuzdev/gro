@@ -1,5 +1,4 @@
 import type { Logger } from '@fuzdev/fuz_util/log.ts';
-import { join, basename, dirname, isAbsolute } from 'node:path';
 import type { Result } from '@fuzdev/fuz_util/result.ts';
 import type { Timings } from '@fuzdev/fuz_util/timings.ts';
 import type { PathId } from '@fuzdev/fuz_util/path.ts';
@@ -20,6 +19,7 @@ import {
 import type { InvokeTask } from './task.ts';
 import { TaskError } from './task_error.ts';
 import type { FsOpenedPath, FsPaths } from './fs_paths.ts';
+import { posix_basename, posix_dirname, posix_join } from './internal/posix_path.ts';
 
 export const GEN_FILE_PATTERN_TEXT = 'gen';
 export const GEN_FILE_PATTERN = '.' + GEN_FILE_PATTERN_TEXT + '.';
@@ -28,7 +28,8 @@ export const GEN_FILE_PATTERN = '.' + GEN_FILE_PATTERN_TEXT + '.';
  * Tests whether a path names a genfile by its file name,
  * so a directory like `my.gen.x/` doesn't make every file under it a genfile.
  */
-export const is_gen_path = (path: string): boolean => basename(path).includes(GEN_FILE_PATTERN);
+export const is_gen_path = (path: string): boolean =>
+	posix_basename(path).includes(GEN_FILE_PATTERN);
 
 export interface GenResult {
 	origin_id: PathId;
@@ -209,10 +210,10 @@ const to_output_file_id = (origin_id: PathId, raw_file_name: string | undefined)
 	if (raw_file_name === '') {
 		throw Error(`Output file name cannot be an empty string`);
 	}
-	const filename = raw_file_name ?? to_output_file_name(basename(origin_id));
-	if (isAbsolute(filename)) return filename;
-	const dir = dirname(origin_id);
-	const output_file_id = join(dir, filename);
+	const filename = raw_file_name ?? to_output_file_name(posix_basename(origin_id));
+	if (filename.startsWith('/')) return filename;
+	const dir = posix_dirname(origin_id);
+	const output_file_id = posix_join(dir, filename);
 	if (output_file_id === origin_id) {
 		throw Error('Gen origin and output file ids cannot be the same');
 	}
@@ -360,7 +361,7 @@ export const write_gen_results = async (
 		if (analyzed.is_new) {
 			log.info('writing new', ...log_args);
 			const output = await open_gen_output(fs_paths, file);
-			const parent = dirname(output.path);
+			const parent = posix_dirname(output.path);
 			if (parent !== '.') await output.dir.mkdir(parent, { recursive: true });
 			await write_gen_output(fs_paths, file);
 		} else if (analyzed.has_changed) {

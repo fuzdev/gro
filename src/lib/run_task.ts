@@ -1,7 +1,7 @@
 import { args_parse, type Args } from '@fuzdev/fuz_util/args.ts';
 import type { Logger } from '@fuzdev/fuz_util/log.ts';
 import type { Timings } from '@fuzdev/fuz_util/timings.ts';
-import { styleText as st } from 'node:util';
+import { st } from '@fuzdev/fuz_util/print.ts';
 import { format_issue } from '@fuzdev/fuz_schema/schema.ts';
 
 import type { ModuleGraph } from './module_graph.ts';

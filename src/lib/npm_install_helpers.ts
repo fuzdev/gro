@@ -1,9 +1,9 @@
 import type { Logger } from '@fuzdev/fuz_util/log.ts';
-import { styleText as st } from 'node:util';
-import { dirname, join } from 'node:path';
+import { st } from '@fuzdev/fuz_util/print.ts';
 
 import { TaskError } from './task_error.ts';
 import { gro_paths } from './paths.ts';
+import { posix_dirname, posix_join } from './internal/posix_path.ts';
 import { spawn_result_is_ok, to_spawn_result_message } from './cli.ts';
 import type { Spawn, SpawnProgram, SpawnProgramOptions } from './spawn.ts';
 import { is_spawn_error } from './spawn_error.ts';
@@ -248,12 +248,12 @@ const installed_version_load = async (
 		// an unreadable package.json loads as `PACKAGE_JSON_EMPTY`, with an empty version
 		const { version } = await package_json_load(
 			fs_paths,
-			join(dir, 'node_modules', name),
+			posix_join(dir, 'node_modules', name),
 			undefined,
 			false
 		);
 		if (version) return version;
-		const parent = dirname(dir);
+		const parent = posix_dirname(dir);
 		if (parent === dir) return null;
 		dir = parent;
 	}

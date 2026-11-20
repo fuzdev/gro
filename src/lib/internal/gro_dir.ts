@@ -15,12 +15,11 @@
 
 import { strip_end } from '@fuzdev/fuz_util/string.ts';
 
-import { dirname } from 'node:path';
-
 import { GIT_DIRNAME, GRO_DIRNAME } from '../constants.ts';
 import type { FsDir, FsReadDir } from '../fs.ts';
 import { is_fs_error } from '../fs_error.ts';
 import type { FsPaths } from '../fs_paths.ts';
+import { posix_dirname } from './posix_path.ts';
 
 /**
  * The name of the marker in a `.gro/` directory Gro made.
@@ -63,7 +62,7 @@ export const gro_dir_is_in_git_work_tree = async (
 	fs_paths: FsPaths,
 	real: string
 ): Promise<boolean> => {
-	for (let path = real; ; path = dirname(path)) {
+	for (let path = real; ; path = posix_dirname(path)) {
 		try {
 			const opened = await fs_paths.open_dir_path(path);
 			if (opened === null) return true;
@@ -89,7 +88,7 @@ export const gro_dir_ensure = async (
 ): Promise<void> => {
 	const { dir, path } = await fs_paths.open_path(strip_end(gro_dir, '/'));
 	if ((await dir.stat(path)) !== null) return;
-	const parent = dirname(path);
+	const parent = posix_dirname(path);
 	if (parent !== '.') await dir.mkdir(parent, { recursive: true });
 	try {
 		// not recursive, so a directory made since the stat fails here and stays unmarked

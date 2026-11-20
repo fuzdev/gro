@@ -6,8 +6,7 @@
  * @module
  */
 
-import { print_error } from '@fuzdev/fuz_util/print.ts';
-import { styleText as st } from 'node:util';
+import { print_error, st } from '@fuzdev/fuz_util/print.ts';
 
 import { format_error_causes } from '../error_detail.ts';
 

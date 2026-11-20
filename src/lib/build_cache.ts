@@ -1,4 +1,3 @@
-import { isAbsolute, join, normalize } from 'node:path';
 import { styleText as st } from 'node:util';
 import * as s from '@fuzdev/fuz_schema/schema.ts';
 import { meta } from '@fuzdev/fuz_schema/meta.ts';
@@ -14,6 +13,7 @@ import {
 	GRO_DIRNAME
 } from './constants.ts';
 import type { BuildCacheDependencies } from './build_cache_dependencies.ts';
+import { posix_join, posix_normalize } from './internal/posix_path.ts';
 import type { DirEntry, FsDir } from './fs.ts';
 import { FsError, is_fs_error } from './fs_error.ts';
 import type { FsOpenedPath, FsPaths } from './fs_paths.ts';
@@ -219,8 +219,8 @@ export const save_build_cache_metadata = async (
 
 // whether `path` is relative and stays in the project, lexically
 const is_project_relative = (path: string): boolean => {
-	if (isAbsolute(path)) return false;
-	const normalized = normalize(path);
+	if (path.startsWith('/')) return false;
+	const normalized = posix_normalize(path);
 	return normalized !== '..' && !normalized.startsWith('../');
 };
 
@@ -371,7 +371,7 @@ export const collect_build_outputs = async (
 		relative_base: string,
 		dir_prefix: string
 	): Promise<void> => {
-		const list_path = relative_base ? join(dir_path, relative_base) : dir_path;
+		const list_path = relative_base ? posix_join(dir_path, relative_base) : dir_path;
 		const entries: Array<DirEntry> = [];
 		for await (const entry of dir.list(list_path)) entries.push(entry);
 		// sorted, since a listing's order is volatile
@@ -382,9 +382,9 @@ export const collect_build_outputs = async (
 				continue;
 			}
 
-			const relative_path = relative_base ? join(relative_base, entry.name) : entry.name;
-			const path = dir_path ? join(dir_path, relative_path) : relative_path;
-			const cache_key = join(dir_prefix, relative_path);
+			const relative_path = relative_base ? posix_join(relative_base, entry.name) : entry.name;
+			const path = dir_path ? posix_join(dir_path, relative_path) : relative_path;
+			const cache_key = posix_join(dir_prefix, relative_path);
 
 			if (entry.kind === 'directory') {
 				await collect_files(dir, dir_path, relative_path, dir_prefix);
@@ -415,7 +415,7 @@ export const collect_build_outputs = async (
 			const contents = await dir.read(path);
 			// read but not found by the stat before it, so replaced between the two
 			if (info === null) {
-				const target = join(dir.path, path);
+				const target = posix_join(dir.path, path);
 				throw new FsError('io_error', target, {
 					cause: new Error(`${target} was replaced while it was hashed`)
 				});

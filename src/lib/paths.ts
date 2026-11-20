@@ -1,11 +1,10 @@
-import { join, extname, relative, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { ensure_end } from '@fuzdev/fuz_util/string.ts';
-import { styleText as st } from 'node:util';
-import type { PathFilter, PathId } from '@fuzdev/fuz_util/path.ts';
+import { st } from '@fuzdev/fuz_util/print.ts';
+import { to_file_path, type PathFilter, type PathId } from '@fuzdev/fuz_util/path.ts';
 
 import { GRO_DIR, LIB_DIR, SOURCE_DIR } from './constants.ts';
 import { to_checked_cwd } from './internal/cwd.ts';
+import { posix_extname, posix_join, posix_relative, posix_resolve } from './internal/posix_path.ts';
 
 /*
 
@@ -42,8 +41,11 @@ export const infer_paths = (id: PathId): Paths => (is_gro_id(id) ? gro_paths : p
 export const is_gro_id = (id: PathId): boolean =>
 	id.startsWith(gro_paths.root) || gro_paths.root === ensure_end(id, '/');
 
-// '/home/me/app/src/foo/bar/baz.ts' → 'src/foo/bar/baz.ts'
-export const to_root_path = (id: PathId): string => relative(infer_paths(id).root, id) || './';
+// '/home/me/app/src/foo/bar/baz.ts' → 'src/foo/bar/baz.ts', a relative path read against the root
+export const to_root_path = (id: PathId): string => {
+	const { root } = infer_paths(id);
+	return posix_relative(root, posix_resolve(root, id)) || './';
+};
 
 export const print_path = (path: string): string => {
 	const root_path = to_root_path(path);
@@ -51,7 +53,7 @@ export const print_path = (path: string): string => {
 };
 
 export const replace_extension = (path: string, new_extension: string): string => {
-	const { length } = extname(path);
+	const { length } = posix_extname(path);
 	return (length === 0 ? path : path.substring(0, path.length - length)) + new_extension;
 };
 
@@ -69,7 +71,7 @@ export const paths = create_paths(to_checked_cwd());
  * @internal
  */
 export const to_gro_package_dir = (module_path: PathId): string =>
-	join(
+	posix_join(
 		module_path,
 		module_path.endsWith('/src/lib/paths.ts')
 			? '../../../'
@@ -78,7 +80,7 @@ export const to_gro_package_dir = (module_path: PathId): string =>
 				: '../'
 	);
 
-const gro_package_dir_path = to_gro_package_dir(fileURLToPath(import.meta.url));
+const gro_package_dir_path = to_gro_package_dir(to_file_path(new URL(import.meta.url)));
 export const IS_THIS_GRO = gro_package_dir_path === paths.root;
 /**
  * `Paths` for the Gro package being used by the user repo.
@@ -94,8 +96,8 @@ export const gro_paths = IS_THIS_GRO ? paths : create_paths(gro_package_dir_path
  * so a search of a directory outside the project, like `~/.cache/other/src`, finds its files too,
  * and any other path is tested as its absolute id.
  * @param search_filters - the filters each file and directory must pass, usually `config.search_filters`
- * @param root - the project root the paths are relative to, usually `paths.root`
- * @param search_dir - the directory being searched, the base for the paths outside `root`
+ * @param root - the absolute project root the paths are relative to, usually `paths.root`
+ * @param search_dir - the absolute directory being searched, the base for the paths outside `root`
  * @returns filters for `fs_search`, which passes them absolute ids
  */
 export const to_search_filters_relative = (
@@ -105,8 +107,9 @@ export const to_search_filters_relative = (
 ): Array<PathFilter> => {
 	if (!search_filters) return [];
 	const filters = Array.isArray(search_filters) ? search_filters : [search_filters];
-	const root_prefix = ensure_end(resolve(root), '/');
-	const dir_prefix = search_dir === undefined ? null : ensure_end(resolve(search_dir), '/');
+	const root_prefix = ensure_end(posix_resolve(root, '.'), '/');
+	const dir_prefix =
+		search_dir === undefined ? null : ensure_end(posix_resolve(search_dir, '.'), '/');
 	const to_path = (id: string): string =>
 		id.startsWith(root_prefix)
 			? id.slice(root_prefix.length)

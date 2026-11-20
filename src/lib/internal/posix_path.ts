@@ -93,3 +93,40 @@ export const posix_basename = (path: string): string => {
 	}
 	return end === -1 ? '' : path.slice(start, end);
 };
+
+/**
+ * The extension of `path`'s last segment, from its last `.`, as `posix.extname`:
+ * `''` when the segment has no `.` but a leading one, or is `..`.
+ */
+export const posix_extname = (path: string): string => {
+	const base = posix_basename(path);
+	const index = base.lastIndexOf('.');
+	return index <= 0 || base === '..' ? '' : base.slice(index);
+};
+
+/**
+ * The path from the absolute directory `from` to the absolute `to`, as `posix.relative`:
+ * `''` when they name the same path, `..` segments up to their common ancestor otherwise.
+ * @throws `TypeError` - when either isn't absolute, which `posix.relative` would read against
+ * the working directory
+ */
+export const posix_relative = (from: string, to: string): string => {
+	if (!from.startsWith('/') || !to.startsWith('/')) {
+		throw new TypeError(`posix_relative takes absolute paths: ${from}, ${to}`);
+	}
+	const from_parts = to_segments(posix_resolve('/', from));
+	const to_parts = to_segments(posix_resolve('/', to));
+	let common = 0;
+	while (
+		common < from_parts.length &&
+		common < to_parts.length &&
+		from_parts[common] === to_parts[common]
+	) {
+		common++;
+	}
+	return [...from_parts.slice(common).map(() => '..'), ...to_parts.slice(common)].join('/');
+};
+
+// the segments of a resolved absolute path, none for `/`
+const to_segments = (resolved: string): Array<string> =>
+	resolved === '/' ? [] : resolved.slice(1).split('/');

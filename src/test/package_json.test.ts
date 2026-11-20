@@ -72,7 +72,7 @@ test('package_json_load without `parse` returns the empty package.json for JSON 
 });
 
 test('package_json_load_for_gro reads the running Gro through the module system', async () => {
-	const gro_package_json = package_json_load_for_gro();
+	const gro_package_json = await package_json_load_for_gro();
 	assert.strictEqual(gro_package_json.name, '@fuzdev/gro');
 	assert.strictEqual(
 		gro_package_json.version,

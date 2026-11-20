@@ -1,6 +1,6 @@
 import type { ArgSchema } from '@fuzdev/fuz_util/args.ts';
 import type { Logger } from '@fuzdev/fuz_util/log.ts';
-import { print_value } from '@fuzdev/fuz_util/print.ts';
+import { print_value, st } from '@fuzdev/fuz_util/print.ts';
 import { plural } from '@fuzdev/fuz_util/string.ts';
 import type { AnySchema, SchemaNode } from '@fuzdev/fuz_schema/schema.ts';
 import {
@@ -10,7 +10,6 @@ import {
 	unwrap_schema,
 	type SchemaField
 } from '@fuzdev/fuz_schema/introspect.ts';
-import { styleText as st } from 'node:util';
 
 import { to_task_command, type TaskModuleMeta } from './task.ts';
 import { GRO_BUILTIN_TASK_SUMMARIES } from './gro_builtin_tasks.ts';

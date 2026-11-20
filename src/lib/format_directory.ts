@@ -266,7 +266,7 @@ const collect_glob_files = async (
 		const found = await fs_search(opened.dir, {
 			path: opened.path,
 			id_dir: base_dir,
-			filter: [depth_filter, ...to_search_filters_relative(filter, root, base_dir)],
+			filter: [depth_filter, ...to_search_filters_relative(filter, resolve(root), base_dir)],
 			file_filter: (id) => FORMATTABLE_MATCHER.test(id) && matchesGlob(id, matcher)
 		});
 		for (const f of found) {
@@ -308,7 +308,7 @@ const collect_source_files = async (
 		const found = await fs_search(opened.dir, {
 			path: opened.path,
 			id_dir: resolve(dir),
-			filter: to_search_filters_relative(filter, root, dir),
+			filter: to_search_filters_relative(filter, resolve(root), resolve(dir)),
 			file_filter: (path) => FORMATTABLE_MATCHER.test(path)
 		});
 		for (const f of found) {

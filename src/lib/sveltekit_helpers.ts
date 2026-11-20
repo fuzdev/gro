@@ -1,4 +1,3 @@
-import { join } from 'node:path';
 import type { Logger } from '@fuzdev/fuz_util/log.ts';
 import type { PackageJson } from '@fuzdev/fuz_util/package_json.ts';
 import type { Result } from '@fuzdev/fuz_util/result.ts';
@@ -26,6 +25,7 @@ import { package_json_has_dependency, package_json_load } from './package_json.t
 import { TaskError } from './task_error.ts';
 import type { FsPaths } from './fs_paths.ts';
 import type { Spawn, SpawnProgram } from './spawn.ts';
+import { posix_join } from './internal/posix_path.ts';
 
 /**
  * Detected from `package.json` rather than the Svelte config,
@@ -179,7 +179,7 @@ export const sveltekit_tsconfig_is_unsynced = async (
 	fs_paths: FsPaths,
 	dir: string
 ): Promise<boolean> => {
-	const tsconfig = await fs_paths.open_path(join(dir, TSCONFIG_FILENAME));
+	const tsconfig = await fs_paths.open_path(posix_join(dir, TSCONFIG_FILENAME));
 	const contents = await tsconfig.dir.read_text_if_exists(tsconfig.path);
 	if (contents === null) return false;
 	// lazy because this module loads on every `gro` invocation and few need TypeScript
@@ -191,7 +191,7 @@ export const sveltekit_tsconfig_is_unsynced = async (
 		(s) => s === SVELTEKIT_TSCONFIG_SPECIFIER || s === SVELTEKIT_TSCONFIG_SPECIFIER + '.json'
 	);
 	if (!extends_sveltekit) return false;
-	return !(await path_exists(fs_paths, join(dir, SVELTEKIT_TSCONFIG_PATH)));
+	return !(await path_exists(fs_paths, posix_join(dir, SVELTEKIT_TSCONFIG_PATH)));
 };
 
 /**

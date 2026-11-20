@@ -1,9 +1,7 @@
 import type { Args } from '@fuzdev/fuz_util/args.ts';
 import { Logger } from '@fuzdev/fuz_util/log.ts';
-import { print_ms, print_timings } from '@fuzdev/fuz_util/print.ts';
+import { print_ms, print_timings, st } from '@fuzdev/fuz_util/print.ts';
 import { create_stopwatch, Timings } from '@fuzdev/fuz_util/timings.ts';
-import { join, resolve } from 'node:path';
-import { styleText as st } from 'node:util';
 
 import {
 	merge_forwarded_args,
@@ -47,6 +45,7 @@ import type { FileInfo } from './fs.ts';
 import { is_fs_error } from './fs_error.ts';
 import type { FsPaths } from './fs_paths.ts';
 import { format_error_detail } from './error_detail.ts';
+import { posix_join, posix_resolve } from './internal/posix_path.ts';
 
 /**
  * What `invoke_task` runs a task with, after the task name and args.
@@ -236,7 +235,7 @@ export const resolve_task = async (
 		return { ok: false, reasons };
 	}
 	const name = to_task_path(task_name, root);
-	const id = resolve(root, name);
+	const id = posix_resolve(root, name);
 	const stat = await stat_path(fs_paths, id);
 	if (!stat.ok) {
 		return { ok: false, reasons: [`Can't read \`${name}\`: ${stat.message}`] };
@@ -295,7 +294,7 @@ const to_no_builtin_reasons = async (
 	];
 	if (!TASK_STEM_MATCHER.test(task_name)) return reasons; // like `task.ts`, no sensible path to hint
 	const hint_path = LIB_DIR + task_name + TASK_FILE_SUFFIX_TS;
-	const hint_file = await fs_paths.open_path(join(root, hint_path));
+	const hint_file = await fs_paths.open_path(posix_join(root, hint_path));
 	reasons.push(
 		(await hint_file.dir.exists(hint_file.path))
 			? `\`${hint_path}\` exists, run it by path: \`gro task ${hint_path}\``
@@ -328,7 +327,7 @@ export const invoke_cli = async (
 	if (!task_name) {
 		const log = new Logger('gro');
 		if (args.version || args.v) {
-			const gro_package_json = package_json_load_for_gro();
+			const gro_package_json = await package_json_load_for_gro();
 			log.info(`${st('gray', 'v')}${st('cyan', gro_package_json.version ?? '[no version]')}`);
 			return;
 		}
@@ -371,7 +370,7 @@ const list_tasks = async (
 	config: GroConfig,
 	log: Logger
 ): Promise<void> => {
-	const dir_id = resolve(fs_paths.project.path, dir ?? SOURCE_DIR);
+	const dir_id = posix_resolve(fs_paths.project.path, dir ?? SOURCE_DIR);
 	const stat = await stat_path(fs_paths, dir_id);
 	if (!stat.ok) {
 		log_error_reasons(log, [`Can't read \`${dir ?? SOURCE_DIR}\`: ${stat.message}`]);

@@ -1,11 +1,11 @@
 import { map_concurrent } from '@fuzdev/fuz_util/async.ts';
 import type { Logger } from '@fuzdev/fuz_util/log.ts';
 import { parse_imports_svelte, parse_imports_typescript } from '@fuzdev/tsv';
-import { resolve } from 'node:path';
 
 import { SVELTE_SCRIPT_MATCHER, SVELTEKIT_DIST_DIRNAME } from './constants.ts';
 import { fs_search } from './fs_search.ts';
 import type { FsPaths } from './fs_paths.ts';
+import { posix_resolve } from './internal/posix_path.ts';
 
 /*
 
@@ -167,7 +167,7 @@ export const rewrite_dist_imports = async (
 	const found = (
 		await fs_search(dist.dir, {
 			path: dist.path,
-			id_dir: resolve(fs_paths.project.path, dist_dir),
+			id_dir: posix_resolve(fs_paths.project.path, dist_dir),
 			file_filter: (id) => id.endsWith('.js') || id.endsWith('.d.ts') || id.endsWith('.svelte')
 		})
 	).filter((f) => f.kind === 'file');

@@ -1,4 +1,3 @@
-import { basename, dirname, resolve } from 'node:path';
 import { strip_end } from '@fuzdev/fuz_util/string.ts';
 import type { Logger } from '@fuzdev/fuz_util/log.ts';
 
@@ -13,6 +12,7 @@ import {
 import { discover_dist_dirs } from './build_cache.ts';
 import { is_fs_error } from './fs_error.ts';
 import type { FsOpenedPath, FsPaths } from './fs_paths.ts';
+import { posix_basename, posix_dirname, posix_resolve } from './internal/posix_path.ts';
 import {
 	GRO_DIR_MARKER_FILENAME,
 	gro_dir_has_marker,
@@ -99,9 +99,9 @@ const clean_gro_dir = async (
 	path: string,
 	log: Logger | undefined
 ): Promise<void> => {
-	const resolved = resolve(fs_paths.project.path, strip_end(path, '/'));
-	const parent = await fs_paths.open_path(dirname(resolved));
-	const name = basename(resolved);
+	const resolved = posix_resolve(fs_paths.project.path, strip_end(path, '/'));
+	const parent = await fs_paths.open_path(posix_dirname(resolved));
+	const name = posix_basename(resolved);
 	const info = await parent.dir.stat(parent.path ? parent.path + '/' + name : name, {
 		follow: false
 	});

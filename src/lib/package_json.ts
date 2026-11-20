@@ -1,8 +1,6 @@
-import { join } from 'node:path';
-import { createRequire } from 'node:module';
 import { plural, strip_end } from '@fuzdev/fuz_util/string.ts';
 import type { Logger } from '@fuzdev/fuz_util/log.ts';
-import { styleText as st } from 'node:util';
+import { st } from '@fuzdev/fuz_util/print.ts';
 import * as s from '@fuzdev/fuz_schema/schema.ts';
 import { PackageJson, PackageJsonExports } from '@fuzdev/fuz_util/package_json.ts';
 
@@ -18,6 +16,7 @@ import {
 } from './constants.ts';
 import { has_sveltekit_library } from './sveltekit_helpers.ts';
 import { GITHUB_REPO_MATCHER } from './github.ts';
+import { posix_join } from './internal/posix_path.ts';
 import { is_fs_error } from './fs_error.ts';
 import type { FsPaths } from './fs_paths.ts';
 
@@ -114,15 +113,17 @@ export const package_json_sync = async (
 	return updated;
 };
 
-const require = createRequire(import.meta.url);
-
 /**
- * Loads the running Gro's own `package.json` through the module system,
- * which resolves it from this module, so it needs no fs capability.
+ * Loads the running Gro's own `package.json` through the module system, a JSON import
+ * resolved from this module, so it needs no fs capability, imported when first called
+ * rather than when this module loads.
  * @throws when it fails the `PackageJson` schema
  */
-export const package_json_load_for_gro = (): PackageJson =>
-	parse_package_json(PackageJson, require('@fuzdev/gro/package.json'));
+export const package_json_load_for_gro = async (): Promise<PackageJson> =>
+	parse_package_json(
+		PackageJson,
+		(await import('@fuzdev/gro/package.json', { with: { type: 'json' } })).default
+	);
 
 /**
  * Reads the text of the `package.json` in `dir`.
@@ -132,7 +133,7 @@ export const package_json_load_for_gro = (): PackageJson =>
  */
 // TODO probably make this nullable and make callers handle failures
 const package_json_load_contents = async (fs_paths: FsPaths, dir: string): Promise<string> => {
-	const opened = await fs_paths.open_path(join(dir, PACKAGE_JSON_FILENAME));
+	const opened = await fs_paths.open_path(posix_join(dir, PACKAGE_JSON_FILENAME));
 	return opened.dir.read_text(opened.path);
 };
 
@@ -147,7 +148,7 @@ export const package_json_write = async (
 	serialized_package_json: string,
 	dir: string = fs_paths.project.path
 ): Promise<void> => {
-	const opened = await fs_paths.open_path(join(dir, PACKAGE_JSON_FILENAME));
+	const opened = await fs_paths.open_path(posix_join(dir, PACKAGE_JSON_FILENAME));
 	await opened.dir.write(opened.path, serialized_package_json);
 };
 

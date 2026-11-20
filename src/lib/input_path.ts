@@ -1,10 +1,10 @@
-import { dirname, isAbsolute, join, resolve } from 'node:path';
 import * as s from '@fuzdev/fuz_schema/schema.ts';
 import type { Flavored } from '@fuzdev/fuz_schema/schema.ts';
 import type { PathInfo, PathId, ResolvedPath } from '@fuzdev/fuz_util/path.ts';
 
 import type { FileInfo } from './fs.ts';
 import type { FsPaths } from './fs_paths.ts';
+import { posix_dirname, posix_join, posix_resolve } from './internal/posix_path.ts';
 
 // TODO Flavored doesn't work when used in schemas, `flavor` from fuz_schema could carry it
 export const InputPath = s.string;
@@ -26,7 +26,7 @@ export type RawInputPath = Flavored<s.Infer<typeof RawInputPath>, 'RawInputPath'
  */
 export const to_input_path = (raw_input_path: RawInputPath, root_path: string): InputPath => {
 	if (raw_input_path[0] === '.') {
-		return resolve(root_path, raw_input_path);
+		return posix_resolve(root_path, raw_input_path);
 	}
 	return raw_input_path as InputPath;
 };
@@ -65,12 +65,12 @@ export const get_possible_paths = async (
 		}
 	};
 
-	if (isAbsolute(input_path)) {
+	if (input_path.startsWith('/')) {
 		const is_directory = (await stat_path(fs_paths, input_path))?.kind === 'directory';
-		add_possible_paths(input_path, is_directory ? input_path : dirname(input_path));
+		add_possible_paths(input_path, is_directory ? input_path : posix_dirname(input_path));
 	} else {
 		for (const root_dir of root_dirs) {
-			add_possible_paths(join(root_dir, input_path), root_dir);
+			add_possible_paths(posix_join(root_dir, input_path), root_dir);
 		}
 	}
 	return Array.from(possible_paths);
@@ -186,7 +186,7 @@ export const resolve_input_files = async (
 			const path_ids: Array<PathId> = [];
 			for (const { path, is_directory } of files) {
 				if (is_directory) continue;
-				const path_id = join(id, path);
+				const path_id = posix_join(id, path);
 				if (!existing_path_ids.has(path_id)) {
 					existing_path_ids.add(path_id);
 					path_ids.push(path_id);

@@ -1,10 +1,10 @@
-import { relative, resolve } from 'node:path';
 import { to_error_message } from '@fuzdev/fuz_util/error.ts';
 import type { Logger } from '@fuzdev/fuz_util/log.ts';
 import type { PathId } from '@fuzdev/fuz_util/path.ts';
 import { IgnoreStack } from '@fuzdev/tsv';
 
 import { paths } from './paths.ts';
+import { posix_relative, posix_resolve } from './internal/posix_path.ts';
 import { normalize_gen_config, validate_gen_module, type GenInputs } from './gen.ts';
 import { load_module } from './modules.ts';
 
@@ -70,9 +70,9 @@ export const gen_inputs_match = (
 ): boolean => {
 	if (inputs === 'all') return true;
 	const { files, patterns } = inputs;
-	if (files?.some((f) => resolve(root, f) === id)) return true;
+	if (files?.some((f) => posix_resolve(root, f) === id)) return true;
 	if (!patterns?.length) return false;
-	const path = relative(root, id);
+	const path = posix_relative(root, id);
 	if (path === '..' || path.startsWith('../')) return false;
 	const stack = new IgnoreStack();
 	stack.push_gitignore('', patterns.join('\n'));

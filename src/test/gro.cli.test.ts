@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 import { paths } from '#lib/paths.ts';
 
@@ -57,5 +58,23 @@ describe('the gro entry with a child killed by a signal', () => {
 		writeFileSync(join(dir, 'local_gro/invoke.js'), "process.kill(process.pid, 'SIGTERM');\n");
 		symlinkSync(join(dir, 'local_gro/gro'), join(dir, 'node_modules/.bin/gro'));
 		expect(run_gro(dirname(process.execPath), dir).status).toBe(143);
+	});
+});
+
+describe('the CLI under its loader', () => {
+	test("`gro --version` prints Gro's version, its `package.json` imported as JSON", () => {
+		const register = `data:text/javascript,${encodeURIComponent(
+			`import {register} from "node:module"; register(${JSON.stringify(
+				pathToFileURL(join(paths.lib, 'loader.ts')).href
+			)});`
+		)}`;
+		const { status, stdout, stderr } = spawnSync(
+			process.execPath,
+			['--import', register, join(paths.lib, 'invoke.ts'), '--version'],
+			{ cwd: paths.root, env: { PATH: process.env.PATH ?? '', NO_COLOR: '1' }, encoding: 'utf8' }
+		);
+		expect(stderr).not.toContain('ERR_IMPORT_ATTRIBUTE_MISSING');
+		expect(status).toBe(0);
+		expect(stdout).toMatch(/\[gro\] v\d+\.\d+\.\d+/);
 	});
 });

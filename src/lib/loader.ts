@@ -203,9 +203,9 @@ export const load: LoadHook = async (url, context, nextLoad) => {
 	} else if (context.importAttributes.type === 'json') {
 		// json - any file extension
 		// TODO probably follow esbuild and also export every top-level property for objects from the module for good treeshaking - https://esbuild.github.io/content-types/#json (type generation?)
-		// TODO why is removing the importAttributes needed? can't pass no context either -
-		//   error: `Module "file:///home/user/dev/repo/foo.json" is not of type "json"`
-		const loaded = await nextLoad(url, { ...context, importAttributes: undefined });
+		// read as a module's source, which the default load hands back unparsed, as it would refuse
+		// a `json` format without the attribute and the attribute on any other format
+		const loaded = await nextLoad(url, { ...context, format: 'module', importAttributes: {} });
 		const raw_source = loaded.source?.toString(); // eslint-disable-line @typescript-eslint/no-base-to-string
 		if (raw_source == null) throw Error(`Failed to load ${url}`);
 		const source = `export default ` + raw_source;

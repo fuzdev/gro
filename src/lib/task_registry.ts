@@ -1,13 +1,11 @@
 import type { Args } from '@fuzdev/fuz_util/args.ts';
 import type { PathFilter, PathId } from '@fuzdev/fuz_util/path.ts';
 import { strip_end } from '@fuzdev/fuz_util/string.ts';
-import { dirname, join, relative } from 'node:path';
 import type { AnySchema, InferInput } from '@fuzdev/fuz_schema/schema.ts';
 
 import type { GenConfig } from './gen.ts';
 import type { GroBuiltinTasks } from './gro_builtin_tasks.ts';
 import { to_search_filters_relative } from './paths.ts';
-import { is_path_specifier } from './resolve_specifier.ts';
 import type { FsReadDir } from './fs.ts';
 import type { FsPaths } from './fs_paths.ts';
 import { SOURCE_DIRNAME } from './constants.ts';
@@ -19,6 +17,7 @@ import {
 	to_task_path
 } from './task.ts';
 import { TaskError } from './task_error.ts';
+import { posix_dirname, posix_join, posix_relative } from './internal/posix_path.ts';
 
 /**
  * The project's own tasks by normalized path, empty until augmented by a generated file.
@@ -116,9 +115,10 @@ const render_entries = (
 		let identifier = base;
 		for (let i = 2; used.has(identifier); i++) identifier = base + i;
 		used.add(identifier);
-		let specifier = relative(dir, id);
-		// a relative path like `.hidden/x.task.ts` needs `./` to be a path, not bare
-		if (!is_path_specifier(specifier)) specifier = './' + specifier;
+		let specifier = posix_relative(dir, id);
+		// a path beneath `dir`, like `.hidden/x.task.ts`, needs `./` to be a path, not bare,
+		// and any other starts `../`
+		if (!specifier.startsWith('../')) specifier = './' + specifier;
 		imports += `import type * as ${identifier} from '${specifier}';\n`;
 		properties += `${indent}${render_key(name)}: typeof ${identifier};\n`;
 	}
@@ -170,7 +170,7 @@ export const task_registry_find_builtins = async (
 	const entries: Array<BuiltinTaskEntry> = [];
 	for (const filename of filenames) {
 		const name = strip_end(filename, TASK_FILE_SUFFIX_TS);
-		const id = join(src_lib.path, filename);
+		const id = posix_join(src_lib.path, filename);
 		const loaded = await load_task(id, name);
 		if (!loaded.ok) throw new TaskError(loaded.reason);
 		entries.push({ name, id, summary: loaded.value.mod.task.summary ?? '' });
@@ -224,11 +224,11 @@ export const gen_task_registry = (fs_paths: FsPaths): GenConfig => ({
 		const root = fs_paths.project.path;
 		const entries = await task_registry_find(
 			fs_paths,
-			join(root, SOURCE_DIRNAME),
+			posix_join(root, SOURCE_DIRNAME),
 			config.search_filters,
 			root
 		);
-		return task_registry_render_project(entries, dirname(origin_id), origin_path);
+		return task_registry_render_project(entries, posix_dirname(origin_id), origin_path);
 	},
 	inputs: { patterns: ['*.task.ts', '*.task.js'] }
 });

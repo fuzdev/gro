@@ -1,10 +1,8 @@
 import type { Args } from '@fuzdev/fuz_util/args.ts';
 import type { Logger } from '@fuzdev/fuz_util/log.ts';
-import type { PathId } from '@fuzdev/fuz_util/path.ts';
+import { to_file_path, type PathId } from '@fuzdev/fuz_util/path.ts';
 import type { Result } from '@fuzdev/fuz_util/result.ts';
 import type { Timings } from '@fuzdev/fuz_util/timings.ts';
-import { relative, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import type { Schema } from '@fuzdev/fuz_schema/schema.ts';
 import type { GroConfig } from './gro_config.ts';
 import type { ParsedSvelteConfig } from './svelte_config.ts';
@@ -14,6 +12,7 @@ import type { ModuleGraph } from './module_graph.ts';
 import { GRO_BUILTIN_TASK_SUMMARIES, type GroBuiltinTasks } from './gro_builtin_tasks.ts';
 import type { TaskArgsInput, TaskName } from './task_registry.ts';
 import { print_error_with_causes } from './internal/error_report.ts';
+import { posix_relative, posix_resolve } from './internal/posix_path.ts';
 
 export interface Task<
 	TArgs = Args,
@@ -146,7 +145,7 @@ export const is_task_path_input = (input: string): boolean =>
  * @param root - the project root
  */
 export const to_task_path = (path: string, root: string): string =>
-	relative(root, resolve(root, path));
+	posix_relative(root, posix_resolve(root, path));
 
 /**
  * The command that runs the task `name`, a builtin name or a normalized task path,
@@ -170,7 +169,7 @@ const BUILTIN_TASK_FILE_SUFFIX = import.meta.url.endsWith('.ts')
  * The module id of the builtin task `name`.
  */
 export const to_builtin_task_id = (name: keyof GroBuiltinTasks): PathId =>
-	fileURLToPath(new URL('./' + name + BUILTIN_TASK_FILE_SUFFIX, import.meta.url));
+	to_file_path(new URL('./' + name + BUILTIN_TASK_FILE_SUFFIX, import.meta.url));
 
 /**
  * A task file's module, which exports the `task`.

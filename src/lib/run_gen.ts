@@ -1,4 +1,4 @@
-import { styleText as st } from 'node:util';
+import { st } from '@fuzdev/fuz_util/print.ts';
 import type { Timings } from '@fuzdev/fuz_util/timings.ts';
 import type { Logger } from '@fuzdev/fuz_util/log.ts';
 import { map_concurrent } from '@fuzdev/fuz_util/async.ts';

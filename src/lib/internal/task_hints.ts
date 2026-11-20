@@ -1,7 +1,6 @@
 // on `node:fs` until fgro runs Gro itself: the args parsing that calls it is sync,
 // and no sync boundary opens a path from outside
 import { statSync, type Stats } from 'node:fs';
-import { resolve } from 'node:path';
 
 import {
 	is_builtin_task_name,
@@ -10,6 +9,7 @@ import {
 	TASK_FILE_SUFFIX_TS,
 	TASK_VERB
 } from '../task.ts';
+import { posix_resolve } from './posix_path.ts';
 
 /**
  * The rule every task path follows, for errors about one that doesn't.
@@ -81,7 +81,7 @@ const to_task_file_candidates = (input: string): Array<string> =>
 export const find_task_file_for_input = (input: string, root: string): string | null => {
 	if (input.endsWith('/')) return null;
 	for (const candidate of to_task_file_candidates(input)) {
-		if (stat_sync_or_null(resolve(root, candidate))?.isFile()) return candidate;
+		if (stat_sync_or_null(posix_resolve(root, candidate))?.isFile()) return candidate;
 	}
 	return null;
 };
@@ -108,7 +108,7 @@ export const to_task_path_hint = (input: string, root: string, listable = true):
 	const hints: Array<string> = [];
 	const task_file = find_task_file_for_input(input, root);
 	if (task_file !== null) hints.push(to_run_task_file_hint(task_file));
-	const stats = stat_sync_or_null(resolve(root, input));
+	const stats = stat_sync_or_null(posix_resolve(root, input));
 	if (listable && stats?.isDirectory()) {
 		hints.push(`List the directory's tasks with \`gro ${TASK_VERB} ${input}\`.`);
 	}

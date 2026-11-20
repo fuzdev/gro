@@ -1,7 +1,6 @@
-import { createRequire } from 'node:module';
-import { basename, dirname, join } from 'node:path';
 import { styleText as st } from 'node:util';
 import { analyzeFromFiles } from 'svelte-docinfo';
+import svelte_docinfo_package_json from 'svelte-docinfo/package.json' with { type: 'json' };
 import type { Logger } from '@fuzdev/fuz_util/log.ts';
 import { PackageJson } from '@fuzdev/fuz_util/package_json.ts';
 import * as s from '@fuzdev/fuz_schema/schema.ts';
@@ -19,6 +18,7 @@ import { is_fs_error } from './fs_error.ts';
 import type { FsPaths } from './fs_paths.ts';
 import { git_check_workspace, git_current_commit_hash, git_workspace_is_clean } from './git.ts';
 import { gro_dir_ensure } from './internal/gro_dir.ts';
+import { posix_basename, posix_dirname, posix_join } from './internal/posix_path.ts';
 import type { SpawnProgram } from './spawn.ts';
 import { format_error_detail } from './error_detail.ts';
 
@@ -37,8 +37,6 @@ const LIBRARY_CACHE_FILENAME = 'library.json';
  */
 export const LIBRARY_CACHE_VERSION = 2;
 
-const require = createRequire(import.meta.url);
-
 /**
  * The installed `svelte-docinfo` version — read from the same copy that
  * `analyzeFromFiles` resolves to. Stamped into each cache record and compared
@@ -47,7 +45,7 @@ const require = createRequire(import.meta.url);
  * repo's commit hash) doesn't move when the *analyzer's* dependency changes
  * its output shape.
  */
-export const SVELTE_DOCINFO_VERSION: string = require('svelte-docinfo/package.json').version;
+export const SVELTE_DOCINFO_VERSION: string = svelte_docinfo_package_json.version;
 
 /**
  * Result of loading a repo's library metadata: the curated `LibraryJson`
@@ -199,7 +197,7 @@ export const library_cache_write = async (
 	log?: Logger
 ): Promise<void> => {
 	try {
-		await gro_dir_ensure(fs_paths, dirname(cache_path));
+		await gro_dir_ensure(fs_paths, posix_dirname(cache_path));
 		const data: LibraryCache = {
 			hash: key,
 			version: LIBRARY_CACHE_VERSION,
@@ -255,7 +253,7 @@ export const library_load_from_repo = async (
 	const { fs_paths } = deps;
 	const { log, cache = true } = options ?? {};
 
-	const cache_path = join(repo_dir, GRO_DIRNAME, LIBRARY_CACHE_FILENAME);
+	const cache_path = posix_join(repo_dir, GRO_DIRNAME, LIBRARY_CACHE_FILENAME);
 
 	const key = await library_cache_key(deps, repo_dir);
 
@@ -267,8 +265,8 @@ export const library_load_from_repo = async (
 
 	if (await sveltekit_tsconfig_is_unsynced(fs_paths, repo_dir)) {
 		throw Error(
-			`library_load_from_repo: ${join(repo_dir, TSCONFIG_FILENAME)} extends` +
-				` \`${SVELTEKIT_TSCONFIG_SPECIFIER}\` but ${join(repo_dir, SVELTEKIT_TSCONFIG_PATH)} is missing,` +
+			`library_load_from_repo: ${posix_join(repo_dir, TSCONFIG_FILENAME)} extends` +
+				` \`${SVELTEKIT_TSCONFIG_SPECIFIER}\` but ${posix_join(repo_dir, SVELTEKIT_TSCONFIG_PATH)} is missing,` +
 				` so external types would analyze as \`any\` - run \`npm install\` if its dependencies` +
 				` aren't installed, then \`gro sync\`, in ${repo_dir}`
 		);
@@ -277,7 +275,7 @@ export const library_load_from_repo = async (
 	log?.info('analyzing library', st('dim', `(${repo_dir})`));
 
 	// Read and validate the repo's package.json directly (not the CWD's).
-	const package_json_path = join(repo_dir, 'package.json');
+	const package_json_path = posix_join(repo_dir, 'package.json');
 	const package_json_file = await fs_paths.open_path(package_json_path);
 	const package_json_contents = await package_json_file.dir.read_text(package_json_file.path);
 	const package_json = s.parse_or_throw(PackageJson, JSON.parse(package_json_contents));
@@ -289,7 +287,7 @@ export const library_load_from_repo = async (
 	}
 
 	// svelte-docinfo's progress lines are debug-level noise across many repos; keep its warnings
-	const analysis_log = log?.child(basename(repo_dir));
+	const analysis_log = log?.child(posix_basename(repo_dir));
 	const { modules } = await analyzeFromFiles({
 		projectRoot: repo_dir,
 		log: analysis_log && {
