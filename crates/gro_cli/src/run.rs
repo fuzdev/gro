@@ -4,6 +4,39 @@
 //! leaves the runtime as it is, since the process exits next.
 //! [`exit_code`] is the one place the run's exit code is decided, however
 //! the run ended.
+//!
+//! **What a run is handed.** `gro_runtime` reads no environment variable of
+//! its own but its features' (its module doc), so what a run takes from the
+//! process `fgro` reads once, as the run starts, and hands in through
+//! [`RuntimeOptions`] ([`runtime_options`]):
+//!
+//! - color, decided from the environment ([`color::console_options`]), as
+//!   `RuntimeOptions::console`;
+//! - the working directory, read here and passed beside the entry, and
+//!   `fgro`'s own name and version, as `RuntimeOptions::runtime_version`;
+//! - the variables `--allow-env=` grants (every variable under `-A`), read
+//!   through the [`Environment`] seam ([`env_vars`]), as
+//!   `RuntimeOptions::env`;
+//! - for a run that grants a program, the variables a child may be given
+//!   ([`spawn_env`]: the base set and what `--allow-run-env=` names, the
+//!   whole environment listed only when it grants a glob, everything under
+//!   `-A`), as `RuntimeOptions::spawn_env`, which no member returns;
+//! - the directories `--allow-read=`, `--allow-write=`, and `--allow-run-in=`
+//!   grant, each resolved against the working directory and checked to be a
+//!   directory ([`granted_dirs`]), as the `fs` grant's paths and the `spawn`
+//!   grant's exec roots, each with its real path then and the identity of
+//!   the directory there;
+//! - for a run that grants `fs.temp_dir`, the OS's temporary directory, read
+//!   from `TMPDIR`, `TMP`, or `TEMP` as Node's `os.tmpdir()` reads it
+//!   ([`temp_dir`]), by its real path then (where it can't be resolved then,
+//!   its path with `.` and `..` resolved by their text), as
+//!   `RuntimeOptions::temp_dir`.
+//!
+//! The host asks the OS for the process's id, `pid`, when a run first
+//! imports the module. `fgro run` leaves the process's environment as it
+//! was, so the vendored `deno_core` still reads its own diagnostic
+//! variables (`gro_runtime`'s module doc names them); only `fgro eval`
+//! clears it.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;

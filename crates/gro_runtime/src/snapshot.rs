@@ -44,6 +44,34 @@
 //! position, whatever its own addresses are. The check reads the ops'
 //! references alone: `deno_core`'s own callbacks in the table, and the
 //! filler it puts where an op has no fast function, are out of its reach.
+//!
+//! **A start from the snapshot.** It binds no op again
+//! (`skip_op_registration`, set in `runtime::new_runtime`): the snapshot's op
+//! functions, each without its fast call, are the only ones for the run (a
+//! builtin's backing script takes its op from the bootstrap object, which
+//! holds them). `deno_core` would make each op that has a fast call again at
+//! the first call of `op_load_ext_script` or `op_lazy_load_esm`, and nothing
+//! calls either once a run has started. Each op function reaches the
+//! starting runtime's implementation of its op, eval's refusal included, and
+//! that runtime's `OpState`, through the external-reference table
+//! `deno_core` builds from the runtime's ops.
+//!
+//! The runtime's tests start from a snapshot too, in child processes: one
+//! makes it (`process_tests::make_startup_snapshot`), and a second starts
+//! every runtime of its own from it (`runtime::tests::snapshot_child`), since
+//! a process's isolates share one read-only heap. They hold the op
+//! functions, eval's refusals, and the host op's check to what a start from
+//! source gives, and eval's refusals on each of eval's engines, jitless and
+//! with the JIT, each engine a child's. `cargo xtask build --verify` runs
+//! them built with the build's profile, with one more
+//! (`the_built_snapshot_refuses_the_refused_ops`) whose runtimes start from
+//! the snapshot the build embeds. A snapshot names an op's function by its
+//! place in the table of the process that made it, and a start reads the
+//! place in its own table, so that test sees what `fgro` would of an op the
+//! snapshot encodes by another's place. The test binary is `gro_runtime`'s,
+//! not `fgro`: the release profile but for `panic = "abort"`, which cargo
+//! leaves off a test, over another crate graph, so what its link merges
+//! needn't be what `fgro`'s does.
 
 use std::cell::RefCell;
 use std::fmt;
