@@ -367,7 +367,7 @@ test('find_genfiles_result finds gen modules in a directory', async () => {
 		await create_project_fs_paths(paths.root),
 		['../docs'],
 		[paths.lib],
-		create_empty_gro_config(paths.root)
+		create_empty_gro_config()
 	);
 	if (!find_genfiles_result.ok) {
 		throw new Error('Expected find_genfiles to succeed');
@@ -387,7 +387,7 @@ test('find_genfiles finds gen modules in a project under a dot-directory', async
 			await create_project_fs_paths(dir),
 			[join(dir, 'src')],
 			[dir],
-			create_empty_gro_config(paths.root)
+			create_empty_gro_config()
 		);
 		if (!result.ok) throw new Error('Expected find_genfiles to succeed');
 		expect(result.value.resolved_input_files.map((f) => f.id)).toEqual([
@@ -412,7 +412,7 @@ test('find_genfiles finds gen modules outside the root under a dot-directory', a
 			await create_project_fs_paths(root),
 			[join(other, 'src')],
 			[root],
-			create_empty_gro_config(paths.root)
+			create_empty_gro_config()
 		);
 		if (!result.ok) throw new Error('Expected find_genfiles to succeed');
 		expect(result.value.resolved_input_files.map((f) => f.id)).toEqual([
@@ -430,7 +430,7 @@ test('find_genfiles filters relative to the root, whichever directory it searche
 			mkdirSync(dirname(join(dir, file)), { recursive: true });
 			writeFileSync(join(dir, file), 'export const gen = () => "";\n');
 		}
-		const config = create_empty_gro_config(paths.root);
+		const config = create_empty_gro_config();
 		config.search_filters = [
 			(p) => !p.startsWith('src/lib/fixtures'),
 			(p) => !/^src\/(test|spec)\//.test(p) // a root-anchored regexp
@@ -471,7 +471,7 @@ test('find_genfiles in a project under a `.gen.` directory finds only genfiles',
 			await create_project_fs_paths(dir),
 			[join(dir, 'src')],
 			[dir],
-			create_empty_gro_config(paths.root)
+			create_empty_gro_config()
 		);
 		if (!result.ok) throw new Error('Expected find_genfiles to succeed');
 		expect(result.value.resolved_input_files.map((f) => f.id)).toEqual([

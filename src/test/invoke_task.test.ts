@@ -47,7 +47,7 @@ const write_tasks = (files: Array<string>): void => {
 	}
 };
 
-const config: GroConfig = create_empty_gro_config(paths.root);
+const config: GroConfig = create_empty_gro_config();
 
 const cli_task_args = (
 	task_name: string,

@@ -2,7 +2,6 @@ import { create_empty_gro_config } from './src/lib/gro_config.ts';
 import { gro_plugin_sveltekit_library } from './src/lib/gro_plugin_sveltekit_library.ts';
 import { gro_plugin_sveltekit_app } from './src/lib/gro_plugin_sveltekit_app.ts';
 import { gro_plugin_gen } from './src/lib/gro_plugin_gen.ts';
-import { cwd } from './src/lib/cwd.ts';
 
 /**
  * This is the config for the Gro project itself.
@@ -10,7 +9,7 @@ import { cwd } from './src/lib/cwd.ts';
  * The default should be referenced as an example implementation, not this one.
  * We use different patterns here for demonstration purposes.
  */
-const config = create_empty_gro_config(cwd());
+const config = create_empty_gro_config();
 
 config.plugins = () => [
 	gro_plugin_sveltekit_library(),

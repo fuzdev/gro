@@ -107,14 +107,12 @@ const config: CreateGroConfig = async (cfg) => {
 export default config;
 ```
 
-You can also export a config object and use `create_empty_gro_config` to get the defaults,
-given the project root:
+You can also export a config object and use `create_empty_gro_config` to get the defaults:
 
 ```ts
 import {create_empty_gro_config} from '@fuzdev/gro/gro_config.ts';
-import {cwd} from '@fuzdev/gro/cwd.ts';
 
-const config = create_empty_gro_config(cwd());
+const config = create_empty_gro_config();
 
 // config.plugins = ...;
 // config.map_package_json = ...;
@@ -236,6 +234,8 @@ What the task context's `graph` watches:
 `dir`, the directory holding the project modules (default `src/`),
 and `filter`, a `PathFilter` excluding the paths it rejects (default `null`).
 Files outside `dir` enter the graph only when a project module imports them.
+A relative `dir` resolves against the project root when Gro loads the config,
+so the config a task or genfile gets has it absolute.
 
 `filter` is called with absolute paths,
 unlike [`search_filters`](#search_filters), which test relative paths (see above).

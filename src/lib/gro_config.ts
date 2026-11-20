@@ -3,7 +3,6 @@ import type { PathFilter } from '@fuzdev/fuz_util/path.ts';
 import { json_stringify_deterministic } from '@fuzdev/fuz_util/json.ts';
 import { hash_blake3 } from '@fuzdev/fuz_util/hash_blake3.ts';
 
-import { create_paths } from './paths.ts';
 import { posix_join, posix_resolve } from './internal/posix_path.ts';
 import type { FsPaths } from './fs_paths.ts';
 import type { ImportModule } from './modules.ts';
@@ -11,6 +10,7 @@ import {
 	GRO_CONFIG_FILENAME,
 	NODE_MODULES_DIRNAME,
 	PM_CLI_DEFAULT,
+	SOURCE_DIR,
 	SVELTEKIT_BUILD_DIRNAME,
 	SVELTEKIT_DIST_DIRNAME
 } from './constants.ts';
@@ -64,6 +64,9 @@ export interface GroConfig extends RawGroConfig {
 	/**
 	 * What the task context's `graph` watches.
 	 * Defaults to `src/` with no filter.
+	 * Its `dir` may be relative to the project root until the config is cooked
+	 * (`cook_gro_config`), as in `create_empty_gro_config`'s, and is absolute after,
+	 * as in the config tasks, genfiles, plugins, and a `CreateGroConfig` function get.
 	 */
 	watch: WatchOptions;
 }
@@ -98,7 +101,8 @@ export interface RawGroConfig {
 	build_cache_config?:
 		Record<string, unknown> | (() => Record<string, unknown> | Promise<Record<string, unknown>>);
 	/**
-	 * What the task context's `graph` watches, each field defaulting separately.
+	 * What the task context's `graph` watches, each field defaulting separately;
+	 * a relative `dir` resolves against the project root.
 	 */
 	watch?: Partial<WatchOptions>;
 }
@@ -106,16 +110,17 @@ export interface RawGroConfig {
 export type CreateGroConfig = (base_config: GroConfig) => RawGroConfig | Promise<RawGroConfig>;
 
 /**
- * The config with every option at its empty value.
- * @param root - the absolute project root, whose `src/` the graph watches
+ * The config with every option at its empty value,
+ * a plain declaration that reads nothing of the process:
+ * `watch.dir` is the relative `src/`, which `cook_gro_config` resolves against the project root.
  */
-export const create_empty_gro_config = (root: string): GroConfig => ({
+export const create_empty_gro_config = (): GroConfig => ({
 	plugins: () => [],
 	map_package_json: identity,
 	search_filters: [(id) => !SEARCH_EXCLUDER_DEFAULT.test(id)],
 	pm_cli: PM_CLI_DEFAULT,
 	build_cache_config_hash: EMPTY_BUILD_CACHE_CONFIG_HASH,
-	watch: { dir: create_paths(root).source, filter: null }
+	watch: { dir: SOURCE_DIR, filter: null }
 });
 
 /**
@@ -145,7 +150,7 @@ export const cook_gro_config = async (
 	raw_config: RawGroConfig,
 	root: string
 ): Promise<GroConfig> => {
-	const empty_config = create_empty_gro_config(root);
+	const empty_config = create_empty_gro_config();
 
 	// All of the raw config properties are optional,
 	// so fall back to the empty values when `undefined`.
@@ -208,7 +213,7 @@ export const load_gro_config = async (
 ): Promise<GroConfig> => {
 	const root = fs_paths.project.path;
 	const default_config = await cook_gro_config(
-		await create_default_config(create_empty_gro_config(root)),
+		await create_default_config(create_empty_gro_config()),
 		root
 	);
 

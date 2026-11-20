@@ -59,7 +59,7 @@ const invoke_outer = async (outer: string): Promise<unknown> => {
 			outer,
 			{},
 			{
-				config: create_empty_gro_config(dir),
+				config: create_empty_gro_config(),
 				fs_paths: await create_project_fs_paths(dir),
 				raw_rest_args: [],
 				import_module: import_module_node,

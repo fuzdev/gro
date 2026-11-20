@@ -54,7 +54,7 @@ const find_tasks = async (
 	task_registry_find(await create_project_fs_paths(root), dir, search_filters, root);
 
 describe('task_registry_find', () => {
-	const { search_filters } = create_empty_gro_config(paths.root);
+	const { search_filters } = create_empty_gro_config();
 
 	test('names tasks by their paths relative to the root, sorted', async () => {
 		const dir = create_project([
@@ -233,7 +233,7 @@ describe('gen_task_registry', () => {
 	test("generates the augmentation from the project's `src/` with specifiers relative to the genfile", async () => {
 		const ctx = create_gen_context(
 			{
-				config: create_empty_gro_config(paths.root),
+				config: create_empty_gro_config(),
 				log: create_mock_logger(),
 				timings: create_mock_timings(),
 				invoke_task: vi.fn()
@@ -255,7 +255,7 @@ describe('gen_task_registry', () => {
 		const dir = create_project(['src/lib/a.task.ts', 'outside.task.ts']);
 		const ctx = create_gen_context(
 			{
-				config: create_empty_gro_config(paths.root),
+				config: create_empty_gro_config(),
 				log: create_mock_logger(),
 				timings: create_mock_timings(),
 				invoke_task: vi.fn()

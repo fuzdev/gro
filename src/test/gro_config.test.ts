@@ -6,9 +6,11 @@ import { hash_blake3 } from '@fuzdev/fuz_util/hash_blake3.ts';
 import { json_stringify_deterministic } from '@fuzdev/fuz_util/json.ts';
 
 import {
+	type GroConfig,
 	SEARCH_EXCLUDER_DEFAULT,
 	EMPTY_BUILD_CACHE_CONFIG_HASH,
 	cook_gro_config,
+	create_empty_gro_config,
 	load_gro_config
 } from '#lib/gro_config.ts';
 import { fs } from '#lib/fs.ts';
@@ -85,6 +87,15 @@ test('EMPTY_BUILD_CACHE_CONFIG_HASH matches hash of empty string', () => {
 	expect(EMPTY_BUILD_CACHE_CONFIG_HASH).toBe(computed_hash);
 });
 
+test('create_empty_gro_config watches the relative `src/`, which cooking resolves against the root', async () => {
+	const empty = create_empty_gro_config();
+	assert.strictEqual(empty.watch.dir, 'src/');
+	// a root apart from the working directory, so a cook that reads the process fails
+	const root = '/gro_config_test/project';
+	assert.strictEqual((await cook_gro_config(empty, root)).watch.dir, root + '/src');
+	assert.strictEqual((await cook_gro_config({}, root)).watch.dir, root + '/src');
+});
+
 test('cook_gro_config defaults each `watch` field and resolves a relative `dir`', async () => {
 	const defaults = await cook_gro_config({}, paths.root);
 	expect(defaults.watch).toEqual({ dir: resolve(paths.source), filter: null });
@@ -138,6 +149,27 @@ test('load_gro_config imports the config through `import_module`', async () => {
 		});
 		assert.deepEqual(ids, [join(dir, 'gro.config.ts')]);
 		assert.strictEqual(config.pm_cli, 'fake_pm');
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+test('load_gro_config resolves `watch.dir` against the project root, with a config file or without', async () => {
+	const dir = await mkdtemp(join(tmpdir(), 'gro_load_config_watch_'));
+	try {
+		const fs_paths = await create_project_fs_paths(dir);
+		const src = fs_paths.project.path + '/src';
+		const without = await load_gro_config(fs_paths, () => Promise.reject(Error('no config file')));
+		assert.strictEqual(without.watch.dir, src);
+		await writeFile(join(dir, 'gro.config.ts'), "throw Error('read by the fake, never run');\n");
+		const declared = await load_gro_config(fs_paths, () =>
+			Promise.resolve({ default: create_empty_gro_config() })
+		);
+		assert.strictEqual(declared.watch.dir, src);
+		const created = await load_gro_config(fs_paths, () =>
+			Promise.resolve({ default: (cfg: GroConfig) => cfg })
+		);
+		assert.strictEqual(created.watch.dir, src);
 	} finally {
 		await rm(dir, { recursive: true, force: true });
 	}

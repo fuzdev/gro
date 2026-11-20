@@ -22,7 +22,7 @@ beforeEach(async () => {
 	dir = mkdtempSync(join(tmpdir(), 'gro_invoke_task_finish_'));
 	fs_paths = await create_project_fs_paths(dir);
 	// the owned graph watches only the empty temp dir, should it ever load
-	config = { ...create_empty_gro_config(dir), watch: { dir, filter: null } };
+	config = { ...create_empty_gro_config(), watch: { dir, filter: null } };
 	lines = [];
 });
 
