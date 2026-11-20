@@ -25,6 +25,7 @@ import { fs } from './fs.ts';
 import { create_fs_paths } from './fs_paths.ts';
 import { env } from './env.ts';
 import { cwd } from './cwd.ts';
+import { import_module_node } from './internal/node_import_module.ts';
 
 // read once when the module loads, so every parse fills in the same directory
 const root_dir_default = cwd();
@@ -75,7 +76,7 @@ export const task: Task<Args> = {
 			found_genfiles.resolved_input_files.map((f) => f.id)
 		);
 		const root = fs_paths.project.path;
-		const loaded = await load_genfiles(found_genfiles, root, timings);
+		const loaded = await load_genfiles(found_genfiles, root, import_module_node, timings);
 		if (!loaded.ok) {
 			log_error_reasons(log, loaded.reasons);
 			throw new TaskError('Failed to load gen modules.');

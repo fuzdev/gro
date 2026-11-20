@@ -66,6 +66,10 @@ errors and exit codes. Where it lives:
   `InvokeTaskOptions`, built by the CLI entry (`invoke.ts`), and `run_task`
   passes it to the tasks a task invokes; it's never on `TaskContext`, so a task
   that reaches fs imports the host module itself
+- Project loader - every project file Gro loads (tasks, genfiles, `gro.config.ts`) goes
+  through an `ImportModule` (`modules.ts`) taken as a parameter: `invoke_task` takes the
+  root's as `import_module` in `InvokeTaskOptions`, passed down as `fs_paths` is, and the
+  Node roots pass `import_module_node` (`internal/node_import_module.ts`)
 - Wrapping a builtin is composition: a project task calls it by name and the
   `package.json` script points at the wrapper's path; nothing shadows a builtin
 

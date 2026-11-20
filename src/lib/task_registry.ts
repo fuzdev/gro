@@ -8,6 +8,7 @@ import type { GroBuiltinTasks } from './gro_builtin_tasks.ts';
 import { gro_paths, to_search_filters_relative } from './paths.ts';
 import type { FsReadDir } from './fs.ts';
 import type { FsPaths } from './fs_paths.ts';
+import type { ImportModule } from './modules.ts';
 import { SOURCE_DIRNAME } from './constants.ts';
 import {
 	is_task_path,
@@ -158,9 +159,11 @@ export interface BuiltinTaskEntry extends TaskRegistryEntry {
  * Finds Gro's builtin tasks, the `*.task.ts` files directly in `src_lib`,
  * importing each to read its summary.
  * @param src_lib - Gro's `src/lib/`
+ * @param import_module - loads each task module
  */
 export const task_registry_find_builtins = async (
-	src_lib: FsReadDir
+	src_lib: FsReadDir,
+	import_module: ImportModule
 ): Promise<Array<BuiltinTaskEntry>> => {
 	const filenames: Array<string> = [];
 	for await (const { name } of src_lib.list()) {
@@ -171,7 +174,7 @@ export const task_registry_find_builtins = async (
 	for (const filename of filenames) {
 		const name = strip_end(filename, TASK_FILE_SUFFIX_TS);
 		const id = posix_join(src_lib.path, filename);
-		const loaded = await load_task(id, name, gro_paths.root);
+		const loaded = await load_task(id, name, gro_paths.root, import_module);
 		if (!loaded.ok) throw new TaskError(loaded.reason);
 		entries.push({ name, id, summary: loaded.value.mod.task.summary ?? '' });
 	}

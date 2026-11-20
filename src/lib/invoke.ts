@@ -18,6 +18,7 @@ import { exit, set_exit_code } from './exit.ts';
 import { stderr } from './stderr.ts';
 import { stdout } from './stdout.ts';
 import { listen_to_node_process } from './internal/node_cli_process.ts';
+import { import_module_node } from './internal/node_import_module.ts';
 
 /*
 
@@ -88,7 +89,7 @@ if (!env.get('NO_COLOR')) {
 	configure_print_colors(st);
 }
 
-// the CLI's composition root, where the fs and spawn host modules enter
+// the CLI's composition root, where the fs and spawn host modules and the project loader enter
 const fs_paths = create_fs_paths(fs, { cwd: cwd(), home: env.get('HOME') });
 
 await sveltekit_sync_if_obviously_needed(fs_paths, spawn);
@@ -101,4 +102,10 @@ try {
 	new Logger('gro').error(st('red', error.message)); // a usage error, no stack trace
 	throw new ReportedError();
 }
-await invoke_cli(fs_paths, task_args, await load_gro_config(fs_paths), to_raw_rest_args(args));
+await invoke_cli(
+	fs_paths,
+	task_args,
+	await load_gro_config(fs_paths, import_module_node),
+	to_raw_rest_args(args),
+	import_module_node
+);

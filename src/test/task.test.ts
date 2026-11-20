@@ -15,6 +15,7 @@ import {
 	validate_task_module
 } from '#lib/task.ts';
 import * as actual_test_task_module from '#lib/test.task.ts';
+import { import_module_node } from '#lib/internal/node_import_module.ts';
 import { paths } from './test_helpers.ts';
 
 describe('task', () => {
@@ -96,7 +97,7 @@ describe('task', () => {
 
 	test('load_task imports the module with the name it displays', async () => {
 		const id = to_builtin_task_id('test');
-		const result = await load_task(id, 'test', paths.root);
+		const result = await load_task(id, 'test', paths.root, import_module_node);
 		assert.ok(result.ok);
 		assert.strictEqual(result.value.id, id);
 		assert.strictEqual(result.value.name, 'test');
@@ -105,7 +106,7 @@ describe('task', () => {
 
 	test('load_task fails on a module without a task', async () => {
 		const id = resolve('src/test/fixtures/test_invalid_task_module.ts');
-		const result = await load_task(id, 'x', paths.root);
+		const result = await load_task(id, 'x', paths.root, import_module_node);
 		assert.ok(!result.ok);
 		assert.include(result.reason, 'has no `task` export with a `run` function');
 	});
@@ -118,7 +119,7 @@ describe('task', () => {
 				id,
 				"throw new Error('io_error: /p/x', { cause: new Error('too many symlinks at /p/x') });\n"
 			);
-			const result = await load_task(id, 'x', paths.root);
+			const result = await load_task(id, 'x', paths.root, import_module_node);
 			assert.ok(!result.ok);
 			assert.match(
 				result.reason,
@@ -130,7 +131,12 @@ describe('task', () => {
 	});
 
 	test('load_task fails on a missing module', async () => {
-		const result = await load_task(resolve('src/test/fixtures/missing.task.ts'), 'x', paths.root);
+		const result = await load_task(
+			resolve('src/test/fixtures/missing.task.ts'),
+			'x',
+			paths.root,
+			import_module_node
+		);
 		assert.ok(!result.ok);
 		assert.include(result.reason, 'failed to import');
 	});

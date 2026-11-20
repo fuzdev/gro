@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { gen_inputs_match, should_trigger_gen } from '#lib/gen_helpers.ts';
 import type { GenInputs } from '#lib/gen.ts';
 import * as modules from '#lib/modules.ts';
+import { import_module_node } from '#lib/internal/node_import_module.ts';
 
 import { create_mock_logger, paths } from './test_helpers.ts';
 
@@ -43,7 +44,8 @@ describe('should_trigger_gen', () => {
 			NO_DEPENDENTS,
 			create_mock_logger(),
 			new Set(),
-			paths.root
+			paths.root,
+			import_module_node
 		);
 		expect(result).toBe(true);
 		expect(modules.load_module).not.toHaveBeenCalled();
@@ -56,7 +58,8 @@ describe('should_trigger_gen', () => {
 			new Set([TEST_GEN_FILE]),
 			create_mock_logger(),
 			new Set(),
-			paths.root
+			paths.root,
+			import_module_node
 		);
 		expect(result).toBe(true);
 		expect(modules.load_module).not.toHaveBeenCalled();
@@ -70,7 +73,8 @@ describe('should_trigger_gen', () => {
 			new Set([join(paths.root, 'src/another.gen.ts')]),
 			create_mock_logger(),
 			new Set(),
-			paths.root
+			paths.root,
+			import_module_node
 		);
 		expect(result).toBe(false);
 	});
@@ -85,7 +89,8 @@ describe('should_trigger_gen', () => {
 				NO_DEPENDENTS,
 				log,
 				new Set(),
-				paths.root
+				paths.root,
+				import_module_node
 			)
 		).toBe(true);
 		expect(
@@ -95,10 +100,15 @@ describe('should_trigger_gen', () => {
 				NO_DEPENDENTS,
 				log,
 				new Set(),
-				paths.root
+				paths.root,
+				import_module_node
 			)
 		).toBe(false);
-		expect(modules.load_module).toHaveBeenCalledWith(TEST_GEN_FILE, expect.any(Function));
+		expect(modules.load_module).toHaveBeenCalledWith(
+			TEST_GEN_FILE,
+			import_module_node,
+			expect.any(Function)
+		);
 	});
 
 	test('triggers on every change for inputs of all', async () => {
@@ -109,7 +119,8 @@ describe('should_trigger_gen', () => {
 			NO_DEPENDENTS,
 			create_mock_logger(),
 			new Set(),
-			paths.root
+			paths.root,
+			import_module_node
 		);
 		expect(result).toBe(true);
 	});
@@ -122,7 +133,8 @@ describe('should_trigger_gen', () => {
 			NO_DEPENDENTS,
 			create_mock_logger(),
 			new Set(),
-			paths.root
+			paths.root,
+			import_module_node
 		);
 		expect(result).toBe(false);
 	});
@@ -139,7 +151,8 @@ describe('should_trigger_gen', () => {
 			NO_DEPENDENTS,
 			create_mock_logger(),
 			new Set(),
-			paths.root
+			paths.root,
+			import_module_node
 		);
 		expect(result).toBe(false);
 	});
@@ -158,7 +171,8 @@ describe('should_trigger_gen', () => {
 			NO_DEPENDENTS,
 			log,
 			new Set(),
-			paths.root
+			paths.root,
+			import_module_node
 		);
 		expect(result).toBe(false);
 		expect(log.error).toHaveBeenCalledWith(`Failed to import ${TEST_GEN_FILE}:`, expect.any(Error));
@@ -174,7 +188,8 @@ describe('should_trigger_gen', () => {
 			NO_DEPENDENTS,
 			log,
 			reported,
-			paths.root
+			paths.root,
+			import_module_node
 		);
 		expect(result).toBe(false);
 		const [message] = vi.mocked(log.error).mock.calls[0]!;
@@ -192,7 +207,8 @@ describe('should_trigger_gen', () => {
 			NO_DEPENDENTS,
 			log,
 			new Set([TEST_GEN_FILE]),
-			paths.root
+			paths.root,
+			import_module_node
 		);
 		expect(result).toBe(false);
 		expect(log.error).not.toHaveBeenCalled();
@@ -213,7 +229,8 @@ describe('should_trigger_gen', () => {
 			NO_DEPENDENTS,
 			log,
 			new Set(),
-			paths.root
+			paths.root,
+			import_module_node
 		);
 		expect(result).toBe(false);
 		expect(log.error).not.toHaveBeenCalled();

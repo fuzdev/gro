@@ -19,6 +19,7 @@ import { to_builtin_task_id, type InvokeTask } from '#lib/task.ts';
 import { GRO_BUILTIN_TASK_SUMMARIES } from '#lib/gro_builtin_tasks.ts';
 import { fs } from '#lib/fs.ts';
 import { LIB_PATH } from '#lib/constants.ts';
+import { import_module_node } from '#lib/internal/node_import_module.ts';
 
 import { create_mock_logger, create_mock_timings, paths } from './test_helpers.ts';
 import { create_project_fs_paths } from './fs_test_helpers.ts';
@@ -139,7 +140,10 @@ describe('task_registry_find', () => {
 
 describe('task_registry_find_builtins', () => {
 	test("finds Gro's builtins with their summaries, matching the generated ones", async () => {
-		const entries = await task_registry_find_builtins(fs.project.dir(LIB_PATH).readonly());
+		const entries = await task_registry_find_builtins(
+			fs.project.dir(LIB_PATH).readonly(),
+			import_module_node
+		);
 		assert.deepEqual(
 			Object.fromEntries(entries.map((e) => [e.name, e.summary])),
 			GRO_BUILTIN_TASK_SUMMARIES

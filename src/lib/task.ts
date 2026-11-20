@@ -7,7 +7,7 @@ import type { Schema } from '@fuzdev/fuz_schema/schema.ts';
 import type { GroConfig } from './gro_config.ts';
 import type { ParsedSvelteConfig } from './svelte_config.ts';
 import { print_path } from './paths.ts';
-import { load_module, type ModuleMeta } from './modules.ts';
+import { load_module, type ImportModule, type ModuleMeta } from './modules.ts';
 import type { ModuleGraph } from './module_graph.ts';
 import { GRO_BUILTIN_TASK_SUMMARIES, type GroBuiltinTasks } from './gro_builtin_tasks.ts';
 import type { TaskArgsInput, TaskName } from './task_registry.ts';
@@ -196,13 +196,15 @@ export type LoadTaskResult = Result<{ value: TaskModuleMeta }, { reason: string 
 /**
  * Imports the task module at `id`, displayed as `name`.
  * @param root - the absolute project root a failure names `id` relative to
+ * @param import_module - loads the module
  */
 export const load_task = async (
 	id: PathId,
 	name: string,
-	root: PathId
+	root: PathId,
+	import_module: ImportModule
 ): Promise<LoadTaskResult> => {
-	const loaded = await load_module(id, validate_task_module);
+	const loaded = await load_module(id, import_module, validate_task_module);
 	if (loaded.ok) return { ok: true, value: { id, name, mod: loaded.mod } };
 	return {
 		ok: false,

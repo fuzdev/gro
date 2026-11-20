@@ -15,6 +15,7 @@ const run_test = async () => {
 	const { create_fs_paths } = await import('#lib/fs_paths.ts');
 	const { cwd } = await import('#lib/cwd.ts');
 	const { env } = await import('#lib/env.ts');
+	const { import_module_node } = await import('#lib/internal/node_import_module.ts');
 
 	// console.log('✓ All imports work');
 
@@ -39,7 +40,10 @@ const run_test = async () => {
 
 	const gen_results = await run_gen(
 		[mod],
-		await load_gro_config(create_fs_paths(fs, { cwd: cwd(), home: env.get('HOME') })),
+		await load_gro_config(
+			create_fs_paths(fs, { cwd: cwd(), home: env.get('HOME') }),
+			import_module_node
+		),
 		log,
 		new Timings(),
 		Function.prototype as any,

@@ -6,6 +6,7 @@ import { create_fs_paths } from '../lib/fs_paths.ts';
 import { cwd } from '../lib/cwd.ts';
 import { env } from '../lib/env.ts';
 import { task_registry_find_builtins } from '../lib/task_registry.ts';
+import { import_module_node } from '../lib/internal/node_import_module.ts';
 import {
 	create_gen_doc_context,
 	create_root_link,
@@ -32,7 +33,10 @@ export const gen: Gen = async ({ origin_id }) => {
 		src_lib_path
 	);
 	if (!opened) throw Error(`no directory at ${src_lib_path}`);
-	const tasks = await task_registry_find_builtins(opened.dir.dir(opened.path).readonly());
+	const tasks = await task_registry_find_builtins(
+		opened.dir.dir(opened.path).readonly(),
+		import_module_node
+	);
 
 	const ctx = create_gen_doc_context(origin_id);
 	const { origin_dir, origin_base, root_path, output_file_name, relative_dir } = ctx;

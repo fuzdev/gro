@@ -1,5 +1,7 @@
-import { test, expect } from 'vitest';
-import { resolve } from 'node:path';
+import { test, expect, assert } from 'vitest';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { hash_blake3 } from '@fuzdev/fuz_util/hash_blake3.ts';
 import { json_stringify_deterministic } from '@fuzdev/fuz_util/json.ts';
 
@@ -11,11 +13,15 @@ import {
 } from '#lib/gro_config.ts';
 import { fs } from '#lib/fs.ts';
 import { create_fs_paths } from '#lib/fs_paths.ts';
-import { to_fs_paths_options } from './fs_test_helpers.ts';
+import { import_module_node } from '#lib/internal/node_import_module.ts';
+import { create_project_fs_paths, to_fs_paths_options } from './fs_test_helpers.ts';
 import { paths } from './test_helpers.ts';
 
 test('load_gro_config', async () => {
-	const config = await load_gro_config(create_fs_paths(fs, to_fs_paths_options()));
+	const config = await load_gro_config(
+		create_fs_paths(fs, to_fs_paths_options()),
+		import_module_node
+	);
 	expect(config).toBeTruthy();
 	expect(config.plugins).toBeDefined();
 	expect('task_root_dirs' in config).toBe(false);
@@ -119,4 +125,20 @@ test('cook_gro_config hashes what a `build_cache_config` function resolves to', 
 test('cook_gro_config without `build_cache_config` has the empty hash', async () => {
 	const cooked = await cook_gro_config({}, paths.root);
 	expect(cooked.build_cache_config_hash).toBe(EMPTY_BUILD_CACHE_CONFIG_HASH);
+});
+
+test('load_gro_config imports the config through `import_module`', async () => {
+	const dir = await mkdtemp(join(tmpdir(), 'gro_load_config_'));
+	try {
+		await writeFile(join(dir, 'gro.config.ts'), "throw Error('read by the fake, never run');\n");
+		const ids: Array<string> = [];
+		const config = await load_gro_config(await create_project_fs_paths(dir), (id) => {
+			ids.push(id);
+			return Promise.resolve({ default: { pm_cli: 'fake_pm' } });
+		});
+		assert.deepEqual(ids, [join(dir, 'gro.config.ts')]);
+		assert.strictEqual(config.pm_cli, 'fake_pm');
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
 });

@@ -44,6 +44,7 @@ import { print_path } from './paths.ts';
 import type { FileInfo } from './fs.ts';
 import { is_fs_error } from './fs_error.ts';
 import type { FsPaths } from './fs_paths.ts';
+import type { ImportModule } from './modules.ts';
 import { format_error_detail } from './error_detail.ts';
 import { posix_join, posix_resolve } from './internal/posix_path.ts';
 
@@ -66,6 +67,11 @@ export interface InvokeTaskOptions {
 	 * tool reads that tool's section from the `args` host module itself.
 	 */
 	raw_rest_args: ReadonlyArray<string>;
+	/**
+	 * Loads the task module, and the modules of the tasks it invokes,
+	 * given by the composition root and passed to nested tasks.
+	 */
+	import_module: ImportModule;
 	/**
 	 * The `graph` from the invoking task,
 	 * created from `config.watch` and closed on finish when absent.
@@ -109,6 +115,7 @@ export const invoke_task = async (
 		config,
 		fs_paths,
 		raw_rest_args,
+		import_module,
 		graph: initial_graph,
 		timings: initial_timings,
 		parent_log
@@ -125,7 +132,7 @@ export const invoke_task = async (
 		log_error_reasons(log, resolved.reasons);
 		throw new ReportedError();
 	}
-	const loaded = await load_task(resolved.id, resolved.name, root);
+	const loaded = await load_task(resolved.id, resolved.name, root, import_module);
 	if (!loaded.ok) {
 		log_error_reasons(log, [loaded.reason]);
 		throw new ReportedError();
@@ -165,6 +172,7 @@ export const invoke_task = async (
 			config,
 			fs_paths,
 			raw_rest_args,
+			import_module,
 			graph,
 			log,
 			timings
@@ -315,12 +323,14 @@ const to_no_builtin_reasons = async (
  * @param task_args - the parsed CLI args
  * @param config - the Gro configuration
  * @param raw_rest_args - the CLI args from the first `--` on, from `to_raw_rest_args`
+ * @param import_module - loads the project's task modules
  */
 export const invoke_cli = async (
 	fs_paths: FsPaths,
 	task_args: CliTaskArgs,
 	config: GroConfig,
-	raw_rest_args: ReadonlyArray<string>
+	raw_rest_args: ReadonlyArray<string>,
+	import_module: ImportModule
 ): Promise<void> => {
 	const { task_name, task_path, args } = task_args;
 
@@ -337,10 +347,10 @@ export const invoke_cli = async (
 
 	if (task_name === TASK_VERB) {
 		if (task_path !== null && is_task_path(task_path)) {
-			await invoke_task(task_path, args, { config, fs_paths, raw_rest_args });
+			await invoke_task(task_path, args, { config, fs_paths, raw_rest_args, import_module });
 			return;
 		}
-		await list_tasks(fs_paths, task_path, config, new Logger('gro task'));
+		await list_tasks(fs_paths, task_path, config, import_module, new Logger('gro task'));
 		return;
 	}
 
@@ -355,6 +365,7 @@ export const invoke_cli = async (
 		config,
 		fs_paths,
 		raw_rest_args,
+		import_module,
 		timings: task_name === RUN_TASK_NAME ? new Timings() : undefined
 	});
 };
@@ -368,6 +379,7 @@ const list_tasks = async (
 	fs_paths: FsPaths,
 	dir: string | null,
 	config: GroConfig,
+	import_module: ImportModule,
 	log: Logger
 ): Promise<void> => {
 	const dir_id = posix_resolve(fs_paths.project.path, dir ?? SOURCE_DIR);
@@ -406,7 +418,7 @@ const list_tasks = async (
 	const modules: Array<TaskModuleMeta> = [];
 	const reasons: Array<string> = [];
 	for (const { id, name } of entries) {
-		const loaded = await load_task(id, name, fs_paths.project.path);
+		const loaded = await load_task(id, name, fs_paths.project.path, import_module);
 		if (loaded.ok) modules.push(loaded.value);
 		else reasons.push(loaded.reason);
 	}

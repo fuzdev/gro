@@ -16,6 +16,7 @@ import {
 import { create_mock_module_graph } from './test_helpers.ts';
 import { create_project_fs_paths } from './fs_test_helpers.ts';
 import { to_raw_rest_args } from '#lib/task_args.ts';
+import { import_module_node } from '#lib/internal/node_import_module.ts';
 
 vi.mock('#lib/run_task.ts', () => ({
 	run_task: vi.fn(async () => ({ ok: true }))
@@ -64,6 +65,7 @@ describe('invoke_task forwarded args', () => {
 				config: {} as unknown as GroConfig,
 				fs_paths,
 				raw_rest_args,
+				import_module: import_module_node,
 				graph: create_mock_module_graph()
 			}
 		);
@@ -88,6 +90,7 @@ describe('invoke_task forwarded args', () => {
 				config: {} as unknown as GroConfig,
 				fs_paths,
 				raw_rest_args,
+				import_module: import_module_node,
 				graph: create_mock_module_graph()
 			}
 		);
@@ -113,6 +116,7 @@ describe('invoke_task forwarded args', () => {
 				config: {} as unknown as GroConfig,
 				fs_paths,
 				raw_rest_args,
+				import_module: import_module_node,
 				graph: create_mock_module_graph()
 			}
 		);
@@ -135,6 +139,7 @@ describe('invoke_task forwarded args', () => {
 				config: {} as unknown as GroConfig,
 				fs_paths,
 				raw_rest_args,
+				import_module: import_module_node,
 				graph: create_mock_module_graph()
 			}
 		);
@@ -152,6 +157,7 @@ describe('invoke_task forwarded args', () => {
 						config: {} as unknown as GroConfig,
 						fs_paths,
 						raw_rest_args,
+						import_module: import_module_node,
 						graph: create_mock_module_graph()
 					}
 				)
@@ -183,6 +189,7 @@ describe('invoke_task forwarded args', () => {
 				config: {} as unknown as GroConfig,
 				fs_paths,
 				raw_rest_args,
+				import_module: import_module_node,
 				graph: create_mock_module_graph()
 			}
 		);

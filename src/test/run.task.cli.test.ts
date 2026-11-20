@@ -4,6 +4,7 @@ import { invoke_cli, invoke_task } from '#lib/invoke_task.ts';
 import { to_raw_rest_args, to_task_args } from '#lib/task_args.ts';
 import { spawn_with_loader } from '#lib/gro_helpers.ts';
 import { ReportedError, TaskError } from '#lib/task_error.ts';
+import { import_module_node } from '#lib/internal/node_import_module.ts';
 import { create_mock_config, create_mock_module_graph } from './test_helpers.ts';
 import { create_mock_fs_paths } from './fs_mocks.ts';
 
@@ -26,7 +27,8 @@ const run_cli = async (argv: Array<string>): Promise<Array<string>> => {
 		create_mock_fs_paths(),
 		to_task_args(argv),
 		await create_mock_config(),
-		to_raw_rest_args(argv)
+		to_raw_rest_args(argv),
+		import_module_node
 	);
 	expect(vi.mocked(spawn_with_loader)).toHaveBeenCalledTimes(1);
 	const [, loader_path, path, script_argv] = vi.mocked(spawn_with_loader).mock.calls[0]!;
@@ -76,6 +78,7 @@ describe('gro run script args', () => {
 				config: await create_mock_config(),
 				fs_paths: create_mock_fs_paths(),
 				raw_rest_args: [],
+				import_module: import_module_node,
 				graph: create_mock_module_graph()
 			}
 		);
@@ -98,7 +101,8 @@ describe('gro run failure', () => {
 				create_mock_fs_paths(),
 				to_task_args(argv),
 				await create_mock_config(),
-				to_raw_rest_args(argv)
+				to_raw_rest_args(argv),
+				import_module_node
 			);
 		} catch (e) {
 			error = e;

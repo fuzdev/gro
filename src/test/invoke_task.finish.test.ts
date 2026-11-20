@@ -10,6 +10,7 @@ import { create_empty_gro_config, type GroConfig } from '#lib/gro_config.ts';
 import type { TaskContext } from '#lib/task.ts';
 import { ReportedError } from '#lib/task_error.ts';
 import type { FsPaths } from '#lib/fs_paths.ts';
+import { import_module_node } from '#lib/internal/node_import_module.ts';
 import { create_project_fs_paths } from './fs_test_helpers.ts';
 
 let dir: string;
@@ -52,7 +53,17 @@ describe('invoke_task finish', () => {
 			`export const task = {run: ({invoke_task}) => invoke_task(${JSON.stringify(inner)})};\n`
 		);
 
-		await invoke_task(outer, {}, { config, fs_paths, raw_rest_args: [], parent_log: create_log() });
+		await invoke_task(
+			outer,
+			{},
+			{
+				config,
+				fs_paths,
+				raw_rest_args: [],
+				import_module: import_module_node,
+				parent_log: create_log()
+			}
+		);
 
 		const totals = lines.filter((line) => line.includes('🕒'));
 		assert.strictEqual(totals.length, 1, lines.join('\n'));
@@ -76,7 +87,13 @@ describe('invoke_task finish', () => {
 			await invoke_task(
 				failing,
 				{},
-				{ config, fs_paths, raw_rest_args: [], parent_log: create_log() }
+				{
+					config,
+					fs_paths,
+					raw_rest_args: [],
+					import_module: import_module_node,
+					parent_log: create_log()
+				}
 			);
 		} catch (e) {
 			error = e;

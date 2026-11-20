@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { Logger } from '@fuzdev/fuz_util/log.ts';
 import { dirname, join, relative } from 'node:path';
 
-import { invoke_cli, resolve_task } from '#lib/invoke_task.ts';
+import { invoke_cli, invoke_task, resolve_task } from '#lib/invoke_task.ts';
 import { run_task } from '#lib/run_task.ts';
 import { log_builtin_tasks, log_error_reasons, log_tasks } from '#lib/task_logging.ts';
 import { create_empty_gro_config, type GroConfig } from '#lib/gro_config.ts';
@@ -12,6 +12,8 @@ import { to_builtin_task_id } from '#lib/task.ts';
 import { ReportedError } from '#lib/task_error.ts';
 import { GRO_BUILTIN_TASK_SUMMARIES } from '#lib/gro_builtin_tasks.ts';
 import { to_task_args, type CliTaskArgs } from '#lib/task_args.ts';
+import type { ImportModule } from '#lib/modules.ts';
+import { import_module_node } from '#lib/internal/node_import_module.ts';
 import { create_project_fs_paths } from './fs_test_helpers.ts';
 import { paths } from './test_helpers.ts';
 
@@ -59,7 +61,13 @@ const resolve = async (task_name: string, root: string = dir) =>
 
 // invokes the CLI with a real `FsPaths` whose project is the cwd when called, as the CLI's is
 const cli = async (task_args: CliTaskArgs, cli_config: GroConfig): Promise<void> =>
-	invoke_cli(await create_project_fs_paths(process.cwd()), task_args, cli_config, []);
+	invoke_cli(
+		await create_project_fs_paths(process.cwd()),
+		task_args,
+		cli_config,
+		[],
+		import_module_node
+	);
 
 const error_text = (): string =>
 	vi
@@ -492,3 +500,54 @@ const assert_reported = async (promise: Promise<unknown>): Promise<void> => {
 	}
 	assert.fail('expected a ReportedError');
 };
+
+describe('the `import_module` option', () => {
+	const fake_task = { task: { summary: 'fake', run: () => {} } };
+	const create_fake = (): { import_module: ImportModule; ids: Array<string> } => {
+		const ids: Array<string> = [];
+		return {
+			ids,
+			import_module: (id) => {
+				ids.push(id);
+				return Promise.resolve(fake_task);
+			}
+		};
+	};
+
+	test('invoke_task loads the task through it and passes it to the run', async () => {
+		write_tasks(['src/x.task.ts']);
+		const { import_module, ids } = create_fake();
+		await invoke_task(
+			'src/x.task.ts',
+			{},
+			{
+				config,
+				fs_paths: await create_project_fs_paths(dir),
+				raw_rest_args: [],
+				import_module
+			}
+		);
+		assert.deepEqual(ids, [join(dir, 'src/x.task.ts')]);
+		const [task_meta, , options] = vi.mocked(run_task).mock.calls[0]!;
+		assert.strictEqual(task_meta.mod, fake_task);
+		assert.strictEqual(options.import_module, import_module);
+	});
+
+	test('`gro task` lists the tasks it loads through it', async () => {
+		write_tasks(['src/a.task.ts', 'src/b.task.ts']);
+		const { import_module, ids } = create_fake();
+		await invoke_cli(
+			await create_project_fs_paths(dir),
+			cli_task_args('task'),
+			config,
+			[],
+			import_module
+		);
+		assert.deepEqual(ids, [join(dir, 'src/a.task.ts'), join(dir, 'src/b.task.ts')]);
+		const listed = vi.mocked(log_tasks).mock.calls[0]![1];
+		assert.deepEqual(
+			listed.map((t) => t.mod),
+			[fake_task, fake_task]
+		);
+	});
+});

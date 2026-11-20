@@ -5,7 +5,7 @@ import { IgnoreStack } from '@fuzdev/tsv';
 
 import { posix_relative, posix_resolve } from './internal/posix_path.ts';
 import { normalize_gen_config, validate_gen_module, type GenInputs } from './gen.ts';
-import { load_module } from './modules.ts';
+import { load_module, type ImportModule } from './modules.ts';
 
 /**
  * Checks if a file change should rerun a genfile:
@@ -22,6 +22,7 @@ import { load_module } from './modules.ts';
  * @param reported_invalid_inputs - the genfiles whose invalid `inputs` were already logged,
  * so each is reported once, as its `inputs` are read once
  * @param root - the absolute project root that `inputs` resolve against and anchor at
+ * @param import_module - loads the genfile
  * @mutates reported_invalid_inputs - adds a genfile on logging its invalid `inputs`
  */
 export const should_trigger_gen = async (
@@ -30,11 +31,12 @@ export const should_trigger_gen = async (
 	dependents: ReadonlySet<PathId>,
 	log: Logger,
 	reported_invalid_inputs: Set<PathId>,
-	root: PathId
+	root: PathId,
+	import_module: ImportModule
 ): Promise<boolean> => {
 	if (gen_file_id === changed_file_id || dependents.has(gen_file_id)) return true;
 
-	const result = await load_module(gen_file_id, validate_gen_module);
+	const result = await load_module(gen_file_id, import_module, validate_gen_module);
 	if (!result.ok) {
 		if (result.type === 'failed_import') {
 			log.error(`Failed to import ${gen_file_id}:`, result.error);

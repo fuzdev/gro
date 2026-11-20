@@ -13,6 +13,7 @@ import { env } from './env.ts';
 import { should_trigger_gen } from './gen_helpers.ts';
 import { find_cli, spawn_cli } from './cli.ts';
 import { spawn } from './spawn.ts';
+import { import_module_node } from './internal/node_import_module.ts';
 
 const FLUSH_DEBOUNCE_DELAY = 500;
 
@@ -111,7 +112,8 @@ export const gro_plugin_gen = ({
 										dependents,
 										log,
 										reported_invalid_inputs,
-										fs_paths.project.path
+										fs_paths.project.path,
+										import_module_node
 									)
 								) {
 									queue_gen(gen_file_id);

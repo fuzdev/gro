@@ -8,7 +8,12 @@ import { ensure_end } from '@fuzdev/fuz_util/string.ts';
 import { print_path, to_root_path, to_search_filters_relative } from './paths.ts';
 import type { GroConfig } from './gro_config.ts';
 import { load_default_svelte_config, type ParsedSvelteConfig } from './svelte_config.ts';
-import { load_modules, type LoadModulesFailure, type ModuleMeta } from './modules.ts';
+import {
+	load_modules,
+	type ImportModule,
+	type LoadModulesFailure,
+	type ModuleMeta
+} from './modules.ts';
 import {
 	InputPath,
 	resolve_input_files,
@@ -511,10 +516,12 @@ export type LoadGenfilesFailure = LoadModulesFailure<GenfileModuleMeta>;
 /**
  * Imports the genfiles `find_genfiles` found.
  * @param root - the absolute project root the failures name paths relative to
+ * @param import_module - loads each genfile
  */
 export const load_genfiles = async (
 	found_genfiles: FoundGenfiles,
 	root: PathId,
+	import_module: ImportModule,
 	timings?: Timings
 ): Promise<LoadGenfilesResult> => {
 	const loaded_modules = await load_modules(
@@ -522,6 +529,7 @@ export const load_genfiles = async (
 		validate_gen_module,
 		(resolved_input_file, mod): GenfileModuleMeta => ({ id: resolved_input_file.id, mod }),
 		root,
+		import_module,
 		timings
 	);
 	if (!loaded_modules.ok) {

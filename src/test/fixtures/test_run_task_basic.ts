@@ -13,13 +13,14 @@ import { create_fs_paths } from '#lib/fs_paths.ts';
 import { cwd } from '#lib/cwd.ts';
 import { env } from '#lib/env.ts';
 import { create_node_module_graph } from '#lib/module_graph_node.ts';
+import { import_module_node } from '#lib/internal/node_import_module.ts';
 
 async function runTest() {
 	console.log('Testing run_task passes args and returns output...\n');
 
 	const args = { a: 1, _: [] };
 	const fs_paths = create_fs_paths(fs, { cwd: cwd(), home: env.get('HOME') });
-	const config = await load_gro_config(fs_paths);
+	const config = await load_gro_config(fs_paths, import_module_node);
 	const graph = create_node_module_graph({ watch: config.watch });
 	const log = new Logger('test');
 	const result = await run_task(
@@ -38,6 +39,7 @@ async function runTest() {
 			config,
 			fs_paths,
 			raw_rest_args: [],
+			import_module: import_module_node,
 			graph,
 			log,
 			timings: new Timings()

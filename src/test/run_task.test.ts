@@ -15,6 +15,7 @@ import { NetError } from '#lib/net_error.ts';
 import { SpawnError } from '#lib/spawn_error.ts';
 import { EnvError } from '#lib/env_error.ts';
 import { StdioError } from '#lib/stdio_error.ts';
+import { import_module_node } from '#lib/internal/node_import_module.ts';
 
 import {
 	TEST_TIMEOUT_MD,
@@ -87,6 +88,7 @@ const create_mock_run_task_options = async (): Promise<RunTaskOptions> => ({
 	config: await create_mock_config(),
 	fs_paths: create_mock_fs_paths(),
 	raw_rest_args: [],
+	import_module: import_module_node,
 	graph: create_mock_module_graph(),
 	log: create_mock_logger(),
 	timings: create_mock_timings()
@@ -262,6 +264,7 @@ test('run_task passes the graph to the task, and it and `fs_paths` to the tasks 
 			config,
 			fs_paths,
 			raw_rest_args: ['--', 'x'],
+			import_module: import_module_node,
 			graph,
 			log: create_mock_logger(),
 			timings: create_mock_timings()
@@ -276,6 +279,7 @@ test('run_task passes the graph to the task, and it and `fs_paths` to the tasks 
 		config,
 		fs_paths,
 		raw_rest_args: ['--', 'x'],
+		import_module: import_module_node,
 		graph,
 		timings: expect.anything(),
 		parent_log: expect.anything()
@@ -284,6 +288,7 @@ test('run_task passes the graph to the task, and it and `fs_paths` to the tasks 
 		config: other_config,
 		fs_paths,
 		raw_rest_args: ['--', 'x'],
+		import_module: import_module_node,
 		graph,
 		timings: expect.anything(),
 		parent_log: expect.anything()

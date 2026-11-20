@@ -1,4 +1,3 @@
-import { pathToFileURL } from 'node:url';
 import { identity } from '@fuzdev/fuz_util/function.ts';
 import type { PathFilter } from '@fuzdev/fuz_util/path.ts';
 import { json_stringify_deterministic } from '@fuzdev/fuz_util/json.ts';
@@ -7,6 +6,7 @@ import { hash_blake3 } from '@fuzdev/fuz_util/hash_blake3.ts';
 import { create_paths } from './paths.ts';
 import { posix_join, posix_resolve } from './internal/posix_path.ts';
 import type { FsPaths } from './fs_paths.ts';
+import type { ImportModule } from './modules.ts';
 import {
 	GRO_CONFIG_FILENAME,
 	NODE_MODULES_DIRNAME,
@@ -198,10 +198,12 @@ export interface GroConfigModule {
 /**
  * Loads the project's `gro.config.ts`, or the default config when there's none.
  * @param fs_paths - checks for the config file
+ * @param import_module - loads the config file
  * @param dir - the directory holding `gro.config.ts`, defaults to the project of `fs_paths`
  */
 export const load_gro_config = async (
 	fs_paths: FsPaths,
+	import_module: ImportModule,
 	dir: string = fs_paths.project.path
 ): Promise<GroConfig> => {
 	const root = fs_paths.project.path;
@@ -218,7 +220,7 @@ export const load_gro_config = async (
 	}
 
 	// Import the user's `gro.config.ts`.
-	const config_module = await import(pathToFileURL(config_path).href);
+	const config_module = await import_module(config_path);
 
 	validate_gro_config_module(config_module, config_path);
 
