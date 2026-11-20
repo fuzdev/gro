@@ -128,7 +128,7 @@ export const library_cache_key = async (
 		const commit = await git_current_commit_hash(git, options);
 		if (!commit) return null;
 		const status = await git_check_workspace(git, options);
-		return git_workspace_is_clean(status) ? commit : null;
+		return status && git_workspace_is_clean(status) ? commit : null;
 	} catch {
 		return null;
 	}

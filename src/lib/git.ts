@@ -278,8 +278,8 @@ export interface GitWorkspaceStatus {
  *
  * @param stdout - the raw output from `git status --porcelain -z`
  */
-export const git_parse_workspace_status = (stdout: string | null): GitWorkspaceStatus => {
-	const entries = stdout?.split('\0').filter(Boolean) ?? [];
+export const git_parse_workspace_status = (stdout: string): GitWorkspaceStatus => {
+	const entries = stdout.split('\0').filter(Boolean);
 
 	// a rename or copy is followed by the old filename's entry, skipped here
 	let skip_next = false;
@@ -327,17 +327,17 @@ const is_not_a_repo_error = (stderr: string): boolean =>
 
 /**
  * Checks the git workspace status using a single `git status --porcelain -z` call.
- * A directory that isn't a repo reports no changes.
+ * @returns the status, or `null` for a directory that isn't in a repo, for the caller to decide
  * @throws `TaskError` - if it failed on a repo it couldn't read, which must not read as clean
  * @throws Error - if `git` was stopped rather than exiting, or its output was truncated
  */
 export const git_check_workspace = async (
 	git: SpawnProgram,
 	options?: SpawnCallOptions
-): Promise<GitWorkspaceStatus> => {
+): Promise<GitWorkspaceStatus | null> => {
 	const output = await git_out(git, ['status', '--porcelain', '-z'], options);
 	if (spawn_result_is_ok(output)) return git_parse_workspace_status(output.stdout);
-	if (is_not_a_repo_error(output.stderr)) return git_parse_workspace_status(null);
+	if (is_not_a_repo_error(output.stderr)) return null;
 	throw new TaskError(
 		`git status failed with ${to_spawn_result_message(output)}: ${output.stderr.trim()}`
 	);
@@ -368,6 +368,8 @@ export const git_workspace_status_message = (status: GitWorkspaceStatus): string
 };
 
 /**
+ * A directory that isn't in a repo has nothing uncommitted, so it reads as clean here;
+ * `git_check_workspace` reports it for a caller that needs a repo.
  * @returns an error message if the git workspace has any unstaged or uncommitted changes, or `null` if it's clean
  */
 export const git_check_clean_workspace = async (
@@ -375,10 +377,11 @@ export const git_check_clean_workspace = async (
 	options?: SpawnCallOptions
 ): Promise<string | null> => {
 	const status = await git_check_workspace(git, options);
-	return git_workspace_is_clean(status) ? null : git_workspace_status_message(status);
+	return !status || git_workspace_is_clean(status) ? null : git_workspace_status_message(status);
 };
 
 /**
+ * A directory that isn't in a repo reads as fully staged here, as `git_check_clean_workspace` reads it clean.
  * @returns an error message if the git workspace has any unstaged changes or untracked files, or `null` if fully staged
  */
 export const git_check_fully_staged_workspace = async (
@@ -386,7 +389,9 @@ export const git_check_fully_staged_workspace = async (
 	options?: SpawnCallOptions
 ): Promise<string | null> => {
 	const status = await git_check_workspace(git, options);
-	return git_workspace_is_fully_staged(status) ? null : git_workspace_status_message(status);
+	return !status || git_workspace_is_fully_staged(status)
+		? null
+		: git_workspace_status_message(status);
 };
 
 const run_git_fetch = async (

@@ -2,6 +2,7 @@ import { test, assert, vi } from 'vitest';
 
 import { task, type Args } from '#lib/check.task.ts';
 import type { BuiltinTaskContext } from '#lib/builtin_host.ts';
+import { is_task_error } from '#lib/task_error.ts';
 
 import { create_mock_logger } from './test_helpers.ts';
 import { create_mock_fs_paths } from './fs_mocks.ts';
@@ -19,12 +20,17 @@ const NONE = {
 	workspace: false
 } as unknown as Args;
 
-const run = async (args: Partial<Args>, raw_rest_args: Array<string>) => {
-	const host = {
-		fs_paths: create_mock_fs_paths(),
-		env: { get: vi.fn(() => undefined) },
-		programs: { program: vi.fn(), find: vi.fn(() => null) }
-	};
+const create_host = () => ({
+	fs_paths: create_mock_fs_paths(),
+	env: { get: vi.fn(() => undefined) },
+	programs: { program: vi.fn(), find: vi.fn(() => null) }
+});
+
+const run = async (
+	args: Partial<Args>,
+	raw_rest_args: Array<string>,
+	host: ReturnType<typeof create_host> = create_host()
+) => {
 	const invoke_task = vi.fn();
 	await task.run({
 		task_args: { ...NONE, ...args },
@@ -51,7 +57,15 @@ test("`check`'s `run` reads `CI` from its `host`'s `env`", async () => {
 });
 
 test("`check`'s `run` finds git through its `host`", async () => {
-	const { host } = await run({ workspace: true }, []);
+	// the host finds no git, so the workspace check it asked for fails
+	const host = create_host();
+	let error: unknown;
+	try {
+		await run({ workspace: true }, [], host);
+	} catch (e) {
+		error = e;
+	}
+	assert(is_task_error(error));
 	assert.deepEqual(host.programs.find.mock.calls, [['git_cli']]);
 });
 

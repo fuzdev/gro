@@ -32,16 +32,52 @@ const create_deps = (git: SpawnProgram | null): CheckDeps => ({
 const run = (deps: CheckDeps): Promise<void> =>
 	run_check(ARGS, { map_package_json: null, raw_rest_args: [] }, deps);
 
+const get_error = async (deps: CheckDeps): Promise<unknown> => {
+	try {
+		await run(deps);
+	} catch (error) {
+		return error;
+	}
+	return assert.fail('expected the check to fail');
+};
+
 describe('gro check --workspace', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 	});
 
-	test('warns and passes with no git on PATH, the check not having run', async () => {
+	test("fails with no git on PATH, as the check it asked for can't run", async () => {
 		const deps = create_deps(null);
-		await run(deps);
-		assert.include(vi.mocked(deps.log.warn).mock.calls[0]?.[0] as string, 'git not found');
+		const error = await get_error(deps);
+		assert.instanceOf(error, TaskError);
+		assert.strictEqual(
+			error.message,
+			'--workspace checks the git workspace and needs git, which was not found on PATH' +
+				' - install git or drop --workspace'
+		);
 		assert.deepEqual(vi.mocked(deps.programs.find).mock.calls, [['git_cli']]);
+	});
+
+	test("fails in a directory that isn't in a git repo, rather than reading it as clean", async () => {
+		const not_a_repo: SpawnProgram = {
+			...create_mock_git_program(),
+			out: () =>
+				Promise.resolve({
+					kind: 'exited',
+					code: 128,
+					stdout: '',
+					stderr: 'fatal: not a git repository (or any of the parent directories): .git\n',
+					truncated: false
+				})
+		};
+		const deps = create_deps(not_a_repo);
+		const error = await get_error(deps);
+		assert.instanceOf(error, TaskError);
+		assert.strictEqual(
+			error.message,
+			"--workspace checks the git workspace, and this directory isn't in a git repo" +
+				' - run it in the repo or drop --workspace'
+		);
 	});
 
 	test('passes a clean workspace without a warning', async () => {
@@ -54,13 +90,12 @@ describe('gro check --workspace', () => {
 	test('fails a dirty workspace', async () => {
 		git_ops.git_check_clean_workspace.mockResolvedValue('git has unstaged changes');
 		git_ops.git_command.mockResolvedValue({ kind: 'exited', code: 0 });
-		let error: unknown;
-		try {
-			await run(create_deps(create_mock_git_program()));
-		} catch (e) {
-			error = e;
-		}
+		const error = await get_error(create_deps(create_mock_git_program()));
 		assert.instanceOf(error, TaskError);
-		assert.include(error.message, 'git_check_clean_workspace');
+		assert.strictEqual(
+			error.message,
+			'--workspace checks the git workspace, and git has unstaged changes' +
+				" - commit them, or run `gro sync` if they're generated"
+		);
 	});
 });

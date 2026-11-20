@@ -154,15 +154,6 @@ describe('git_parse_workspace_status', () => {
 		});
 	});
 
-	test('null output returns clean status', () => {
-		const status = git_parse_workspace_status(null);
-		assert.deepEqual(status, {
-			unstaged_changes: false,
-			staged_changes: false,
-			untracked_files: false
-		});
-	});
-
 	test('unstaged changes only ( M)', () => {
 		const status = git_parse_workspace_status(' M src/lib/git.ts\0');
 		assert.deepEqual(status, {

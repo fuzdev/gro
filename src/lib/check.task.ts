@@ -12,7 +12,12 @@ import { find_eslint_config } from './eslint_helpers.ts';
 import { is_fs_error } from './fs_error.ts';
 import { package_json_sync, project_has_dependency } from './package_json.ts';
 import type { FsPaths } from './fs_paths.ts';
-import { GIT_LOCAL_PASS_ENV, git_check_clean_workspace } from './git.ts';
+import {
+	GIT_LOCAL_PASS_ENV,
+	git_check_workspace,
+	git_workspace_is_clean,
+	git_workspace_status_message
+} from './git.ts';
 import type { Env } from './env.ts';
 import type { GroConfig } from './gro_config.ts';
 import { create_paths, to_root_path, type Paths } from './paths.ts';
@@ -223,22 +228,29 @@ export const run_check = async (
 	}
 
 	if (workspace) {
+		// a workspace check that was asked for and can't run fails, as it would otherwise pass unchecked
 		// only reads the local repo, so the named set is all it needs
 		const git = programs.find('git_cli');
 		if (!git) {
-			// no git means nothing to compare against, the same as a directory that's no repo
-			log.warn(st('yellow', 'git not found on PATH, skipping the workspace check'));
-		} else {
-			const error_message = await git_check_clean_workspace(git);
-			if (error_message) {
-				log.error(st('red', 'git status'));
-				await git.run(['status']);
-				throw new TaskError(
-					'Failed check for git_check_clean_workspace:' +
-						error_message +
-						' - do you need to run `gro sync` or commit some files?'
-				);
-			}
+			throw new TaskError(
+				'--workspace checks the git workspace and needs git, which was not found on PATH' +
+					' - install git or drop --workspace'
+			);
+		}
+		const status = await git_check_workspace(git);
+		if (!status) {
+			throw new TaskError(
+				"--workspace checks the git workspace, and this directory isn't in a git repo" +
+					' - run it in the repo or drop --workspace'
+			);
+		}
+		if (!git_workspace_is_clean(status)) {
+			log.error(st('red', 'git status'));
+			await git.run(['status']);
+			throw new TaskError(
+				`--workspace checks the git workspace, and ${git_workspace_status_message(status)}` +
+					" - commit them, or run `gro sync` if they're generated"
+			);
 		}
 	}
 };

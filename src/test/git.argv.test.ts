@@ -1,6 +1,8 @@
 import { describe, test, assert } from 'vitest';
 
 import {
+	git_check_clean_workspace,
+	git_check_fully_staged_workspace,
 	git_check_setting_pull_rebase,
 	git_check_workspace,
 	git_head_subject,
@@ -336,16 +338,14 @@ describe('how a stopped git reads', () => {
 		assert.include(error.message, 'timed out');
 	});
 
-	test('a non-repo reads as no status and no commit', async () => {
+	test('a non-repo reads as no status and no commit, and as clean to the clean checks', async () => {
 		const { program } = create_recording_program(EXITED_OK, {
 			...to_output({ kind: 'exited', code: 128 }),
 			stderr: 'fatal: not a git repository (or any of the parent directories): .git\n'
 		});
-		assert.deepEqual(await git_check_workspace(program), {
-			unstaged_changes: false,
-			staged_changes: false,
-			untracked_files: false
-		});
+		assert.isNull(await git_check_workspace(program));
+		assert.isNull(await git_check_clean_workspace(program));
+		assert.isNull(await git_check_fully_staged_workspace(program));
 		assert.strictEqual(await git_current_commit_hash(program), null);
 	});
 

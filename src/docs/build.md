@@ -123,7 +123,8 @@ For reliable caching:
   remote configs, or feature flags that affect the build but aren't in git
 - **use `--force_build` after editing `node_modules` by hand** - the cache key
   sees npm's record of what's installed, not the files
-- **use `gro check --workspace` in CI** - enforces clean git state before building
+- **use `gro check --workspace` in CI** - enforces clean git state before building,
+  and fails without git or outside a git repo, as a workspace check it can't run doesn't pass
 - **avoid concurrent builds** - multiple simultaneous `gro build` processes can conflict
 
 During development, uncommitted changes automatically disable caching,

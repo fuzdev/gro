@@ -108,11 +108,7 @@ describe('git over a real repo', () => {
 	test('a directory that is no repo reports no status and no commit', async () => {
 		await base.mkdir('plain');
 		const plain = base.dir('plain');
-		assert.deepEqual(await git_check_workspace(git, { cwd: plain }), {
-			unstaged_changes: false,
-			staged_changes: false,
-			untracked_files: false
-		});
+		assert.isNull(await git_check_workspace(git, { cwd: plain }));
 		assert.strictEqual(await git_current_commit_hash(git, { cwd: plain }), null);
 		assert.include(
 			await to_message(git_current_branch_name(git, { cwd: plain })),
@@ -140,6 +136,7 @@ describe('git over a real repo', () => {
 		await work.write('a.txt', 'changed');
 		await work.write('new.txt', 'new');
 		const status = await git_check_workspace(git, { cwd: work });
+		assert.ok(status);
 		assert.isTrue(status.unstaged_changes);
 		assert.isTrue(status.untracked_files);
 		assert.isFalse(status.staged_changes);
