@@ -40,6 +40,7 @@ const PACKAGE_MODULES = [
 	'error_detail.ts',
 	'fs_paths.ts',
 	'fs_search.ts',
+	'gen.ts',
 	'git.ts',
 	'github.ts',
 	'gro_builtin_tasks.ts',
@@ -61,7 +62,13 @@ const PACKAGE_MODULES = [
 ];
 
 // the builtin tasks that take their handles from their `host`
-const BUILTIN_TASKS = ['check.task.ts', 'release.task.ts'];
+const BUILTIN_TASKS = [
+	'check.task.ts',
+	'clean.task.ts',
+	'format.task.ts',
+	'gen.task.ts',
+	'release.task.ts'
+];
 
 // the package modules the CLI's entry doesn't reach, loaded by tasks and genfiles
 const PACKAGE_MODULES_BEYOND_THE_CLI = ['git.ts'];
@@ -109,7 +116,6 @@ const EXCEPTIONS = [
 	'gen_helpers.ts',
 	// the Svelte config, read through Vite, a package on `node:*`
 	'svelte_config.ts',
-	'gen.ts',
 	'run_task.ts',
 	// sync stats for the hints of arg parsing, which no sync boundary opens
 	'internal/task_hints.ts',
@@ -303,11 +309,15 @@ const to_builtin_task_violations = (entry: string): Array<string> => {
 const { run_fixture_json } = use_fixture_runner('');
 
 /**
- * What of the global `process` loading the module `name` in `src/lib` reads.
+ * What of the global `process` loading the module `name` in `src/lib` reads,
+ * the modules `preloaded` loaded first, unwatched.
  */
-const to_load_reads = (name: string): unknown =>
+const to_load_reads = (name: string, preloaded: ReadonlyArray<string> = []): unknown =>
 	run_fixture_json(
-		`const real = globalThis.process;
+		`for (const url of ${JSON.stringify(preloaded.map((id) => to_lib_url(relative(paths.lib, id))))}) {
+			await import(url);
+		 }
+		 const real = globalThis.process;
 		 const reads = new Set();
 		 const proxy = new Proxy(real, {
 			get: (t, k) => { reads.add(String(k)); return Reflect.get(t, k); }
@@ -351,8 +361,10 @@ describe('builtin tasks that take their handles from their `host`', () => {
 			assert.deepEqual(to_builtin_task_violations(join(paths.lib, name)), []);
 		});
 
+		// the grant-free host modules are builtins on the runtime, built before any module loads,
+		// so what their Node files read when they load is theirs
 		test(`${name} reads nothing of the process when it loads`, () => {
-			assert.deepEqual(to_load_reads(name), []);
+			assert.deepEqual(to_load_reads(name, GRANT_FREE_HOST_MODULES), []);
 		});
 	}
 });

@@ -16,6 +16,7 @@ const run_test = async () => {
 	const { cwd } = await import('#lib/cwd.ts');
 	const { env } = await import('#lib/env.ts');
 	const { import_module_node } = await import('#lib/internal/node_import_module.ts');
+	const { load_default_svelte_config } = await import('#lib/svelte_config.ts');
 
 	// console.log('✓ All imports work');
 
@@ -40,13 +41,16 @@ const run_test = async () => {
 
 	const gen_results = await run_gen(
 		[mod],
-		await load_gro_config(
-			create_fs_paths(fs, { cwd: cwd(), home: env.get('HOME') }),
-			import_module_node
-		),
-		log,
-		new Timings(),
-		Function.prototype as any,
+		{
+			config: await load_gro_config(
+				create_fs_paths(fs, { cwd: cwd(), home: env.get('HOME') }),
+				import_module_node
+			),
+			log,
+			timings: new Timings(),
+			invoke_task: Function.prototype as any,
+			load_svelte_config: () => load_default_svelte_config()
+		},
 		cwd()
 	);
 

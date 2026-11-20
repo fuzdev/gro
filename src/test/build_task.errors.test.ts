@@ -19,7 +19,8 @@ vi.mock('#lib/spawn.ts', async () =>
 
 vi.mock('#lib/fs.ts', async () => (await import('./fs_mocks.ts')).create_mock_fs_module());
 
-vi.mock('#lib/clean_fs.ts', () => ({
+vi.mock('#lib/clean_fs.ts', async (import_original) => ({
+	...(await import_original<typeof import('#lib/clean_fs.ts')>()),
 	clean_fs: vi.fn()
 }));
 

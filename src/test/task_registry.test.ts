@@ -263,7 +263,8 @@ describe('gen_task_registry', () => {
 				config: create_empty_gro_config(),
 				log: create_mock_logger(),
 				timings: create_mock_timings(),
-				invoke_task: vi.fn()
+				invoke_task: vi.fn(),
+				load_svelte_config: vi.fn()
 			},
 			join(paths.source, 'gro_tasks.gen.ts'),
 			paths.root
@@ -285,7 +286,8 @@ describe('gen_task_registry', () => {
 				config: create_empty_gro_config(),
 				log: create_mock_logger(),
 				timings: create_mock_timings(),
-				invoke_task: vi.fn()
+				invoke_task: vi.fn(),
+				load_svelte_config: vi.fn()
 			},
 			join(dir, 'src/gro_tasks.gen.ts'),
 			paths.root

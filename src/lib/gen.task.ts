@@ -1,10 +1,11 @@
-import { styleText as st } from 'node:util';
-import { print_ms } from '@fuzdev/fuz_util/print.ts';
+import { print_ms, st } from '@fuzdev/fuz_util/print.ts';
 import { plural } from '@fuzdev/fuz_util/string.ts';
+import type { Logger } from '@fuzdev/fuz_util/log.ts';
+import type { Timings } from '@fuzdev/fuz_util/timings.ts';
 import * as s from '@fuzdev/fuz_schema/schema.ts';
 import { meta } from '@fuzdev/fuz_schema/meta.ts';
 
-import type { Task } from './task.ts';
+import type { InvokeTask } from './task.ts';
 import { is_task_error, TaskError } from './task_error.ts';
 import { run_gen } from './run_gen.ts';
 import { RawInputPath, to_input_paths } from './input_path.ts';
@@ -21,14 +22,12 @@ import {
 	type GenResults
 } from './gen.ts';
 import { SOURCE_DIRNAME } from './constants.ts';
-import { fs } from './fs.ts';
-import { create_fs_paths } from './fs_paths.ts';
-import { env } from './env.ts';
+import type { FsPaths } from './fs_paths.ts';
+import type { GroConfig } from './gro_config.ts';
+import type { ImportModule } from './modules.ts';
+import type { ParsedSvelteConfig } from './svelte_config.ts';
 import { cwd } from './cwd.ts';
-import { import_module_node } from './internal/node_import_module.ts';
-
-// read once when the module loads, so every parse fills in the same directory
-const root_dir_default = cwd();
+import type { BuiltinTask, BuiltinTaskGrants } from './builtin_host.ts';
 
 /** @nodocs */
 export const Args = s.object({
@@ -38,7 +37,7 @@ export const Args = s.object({
 	),
 	root_dirs: s.with_default_fn(
 		meta(s.array(s.string), { description: 'root directories to resolve input paths against' }), // TODO `PathId` schema
-		() => [root_dir_default]
+		() => [cwd()]
 	),
 	check: s.with_default(
 		meta(s.boolean, { description: 'exit with a nonzero code if any files need to be generated' }),
@@ -47,122 +46,183 @@ export const Args = s.object({
 });
 export type Args = s.Infer<typeof Args>;
 
+const grants = {
+	// reads the genfiles and their inputs, and writes what they generate
+	fs: { read: ['.'], write: ['.'] },
+	// loads the genfiles, which run as the project's code
+	project_modules: true
+} as const satisfies BuiltinTaskGrants;
+
 /** @nodocs */
-export const task: Task<Args> = {
+export const task: BuiltinTask<Args, typeof grants> = {
 	summary: 'run code generation scripts',
 	Args,
-	run: async ({ task_args, log, timings, config, invoke_task }): Promise<void> => {
-		const { _: raw_input_paths, root_dirs, check } = task_args;
-
-		const fs_paths = create_fs_paths(fs, { cwd: cwd(), home: env.get('HOME') });
-		const input_paths = to_input_paths(raw_input_paths, fs_paths.project.path);
-
-		// load all of the gen modules
-		const found = await find_genfiles(fs_paths, input_paths, root_dirs, config, timings);
-		if (!found.ok) {
-			// most projects have no genfiles, so only paths someone named have to hold one
-			const is_default_input =
-				raw_input_paths.length === 1 && raw_input_paths[0] === SOURCE_DIRNAME;
-			if (found.type === 'input_directories_with_no_files' && is_default_input) {
-				log.info('no gen modules found in ' + input_paths.join(', '));
-				return;
+	grants,
+	run: (ctx) =>
+		run_gen_task(
+			ctx.task_args,
+			{ config: ctx.config },
+			{
+				fs_paths: ctx.host.fs_paths,
+				import_module: ctx.host.import_module,
+				invoke_project_task: ctx.host.invoke_project_task,
+				load_svelte_config: () => ctx.svelte_config,
+				log: ctx.log,
+				timings: ctx.timings
 			}
-			log_error_reasons(log, found.reasons);
-			throw new TaskError('Failed to find gen modules.');
+		)
+};
+
+/**
+ * The data `run_gen_task` takes beside its args.
+ */
+export interface GenTaskOptions {
+	/**
+	 * The config the genfiles are found by and get in their context.
+	 */
+	config: GroConfig;
+}
+
+/**
+ * What `run_gen_task` reaches, picked from a builtin's `host` and context.
+ */
+export interface GenTaskDeps {
+	fs_paths: FsPaths;
+	/**
+	 * Loads the genfiles.
+	 */
+	import_module: ImportModule;
+	/**
+	 * The genfiles' `invoke_task`, a project task's.
+	 */
+	invoke_project_task: InvokeTask;
+	/**
+	 * Loads the Svelte config, when a genfile reads it.
+	 */
+	load_svelte_config: () => Promise<ParsedSvelteConfig>;
+	log: Logger;
+	timings: Timings;
+}
+
+/**
+ * Runs the genfiles under the input paths, writing what they generate or checking it, `gro gen`'s body.
+ * @param args - the task's parsed args
+ * @param options - the config
+ * @param deps - the project's boundary and loader, the genfiles' `invoke_task`, the Svelte config,
+ * the log, and the timings
+ */
+export const run_gen_task = async (
+	args: Args,
+	options: GenTaskOptions,
+	deps: GenTaskDeps
+): Promise<void> => {
+	const { _: raw_input_paths, root_dirs, check } = args;
+	const { config } = options;
+	const { fs_paths, import_module, invoke_project_task, load_svelte_config, log, timings } = deps;
+
+	const root = fs_paths.project.path;
+	const input_paths = to_input_paths(raw_input_paths, root);
+
+	// load all of the gen modules
+	const found = await find_genfiles(fs_paths, input_paths, root_dirs, config, timings);
+	if (!found.ok) {
+		// most projects have no genfiles, so only paths someone named have to hold one
+		const is_default_input = raw_input_paths.length === 1 && raw_input_paths[0] === SOURCE_DIRNAME;
+		if (found.type === 'input_directories_with_no_files' && is_default_input) {
+			log.info('no gen modules found in ' + input_paths.join(', '));
+			return;
 		}
-		const found_genfiles = found.value;
-		log.info(
-			'gen files',
-			found_genfiles.resolved_input_files.map((f) => f.id)
-		);
-		const root = fs_paths.project.path;
-		const loaded = await load_genfiles(found_genfiles, root, import_module_node, timings);
-		if (!loaded.ok) {
-			log_error_reasons(log, loaded.reasons);
-			throw new TaskError('Failed to load gen modules.');
-		}
-		const loaded_genfiles = loaded.value;
+		log_error_reasons(log, found.reasons);
+		throw new TaskError('Failed to find gen modules.');
+	}
+	const found_genfiles = found.value;
+	log.info(
+		'gen files',
+		found_genfiles.resolved_input_files.map((f) => f.id)
+	);
+	const loaded = await load_genfiles(found_genfiles, root, import_module, timings);
+	if (!loaded.ok) {
+		log_error_reasons(log, loaded.reasons);
+		throw new TaskError('Failed to load gen modules.');
+	}
+	const loaded_genfiles = loaded.value;
 
-		// run `gen` on each of the modules
-		const timing_to_generate_code = timings.start('generate code'); // TODO this ignores `gen_results.elapsed` - should it return `Timings` instead?
-		const gen_results = await run_gen(
-			loaded_genfiles.modules,
-			config,
-			log,
-			timings,
-			invoke_task,
-			root,
-			format_file
-		);
-		timing_to_generate_code();
+	// run `gen` on each of the modules
+	const timing_to_generate_code = timings.start('generate code'); // TODO this ignores `gen_results.elapsed` - should it return `Timings` instead?
+	const gen_results = await run_gen(
+		loaded_genfiles.modules,
+		{ config, log, timings, invoke_task: invoke_project_task, load_svelte_config },
+		root,
+		format_file
+	);
+	timing_to_generate_code();
 
-		const fail_count = gen_results.failures.length;
-		const analyzed_gen_results = await analyze_gen_results(fs_paths, gen_results);
-		if (check) {
-			// check if any files changed, and if so, throw errors,
-			// but if there are gen failures, skip the check and defer to their errors
-			if (!fail_count) {
-				log.info('checking generated files for changes');
-				const timing_to_check_results = timings.start('check results for changes');
-				timing_to_check_results();
+	const fail_count = gen_results.failures.length;
+	const analyzed_gen_results = await analyze_gen_results(fs_paths, gen_results);
+	if (check) {
+		// check if any files changed, and if so, throw errors,
+		// but if there are gen failures, skip the check and defer to their errors
+		if (!fail_count) {
+			log.info('checking generated files for changes');
+			const timing_to_check_results = timings.start('check results for changes');
+			timing_to_check_results();
 
-				let has_unexpected_changes = false;
-				for (const analyzed of analyzed_gen_results) {
-					if (!analyzed.has_changed) continue;
-					has_unexpected_changes = true;
-					log.error(
-						st(
-							'red',
-							`Generated file ${print_path(analyzed.file.id, root)} via ${print_path(
-								analyzed.file.origin_id,
-								root
-							)} ${analyzed.is_new ? 'is new' : 'has changed'}.`
-						)
-					);
-				}
-				if (has_unexpected_changes) {
-					throw new TaskError(
-						'Failed gen check. Some generated files have unexpectedly changed.' +
-							' Run `gro gen` and try again.'
-					);
-				}
-				log.info('check passed, no files have changed');
-			}
-		} else {
-			const timing_to_output_results = timings.start('output results');
-			await write_gen_results(fs_paths, gen_results, analyzed_gen_results, log);
-			timing_to_output_results();
-		}
-
-		// collect and format output with summary
-		const output_lines = collect_output_lines(gen_results, analyzed_gen_results, root);
-		const new_count = analyzed_gen_results.filter((r) => r.is_new).length;
-		const changed_count = analyzed_gen_results.filter((r) => r.has_changed && !r.is_new).length;
-		const unchanged_count = analyzed_gen_results.filter((r) => !r.is_new && !r.has_changed).length;
-		const error_count = gen_results.failures.length;
-
-		log.info(
-			format_gen_output(output_lines) +
-				`\n\n\t${new_count} ${st(new_count > 0 ? 'green' : 'gray', 'new')}, ${changed_count} ${st(
-					changed_count > 0 ? 'cyan' : 'gray',
-					'changed'
-				)}, ${unchanged_count} ${st('gray', 'unchanged')}${
-					error_count ? `, ${error_count} ${st('red', 'error' + plural(error_count))}` : ''
-				} from ${gen_results.input_count} input file${plural(gen_results.input_count)}`
-		);
-
-		if (fail_count) {
-			for (const result of gen_results.failures) {
+			let has_unexpected_changes = false;
+			for (const analyzed of analyzed_gen_results) {
+				if (!analyzed.has_changed) continue;
+				has_unexpected_changes = true;
 				log.error(
-					result.reason,
-					'\n',
-					is_task_error(result.error)
-						? st('yellow', result.error.message)
-						: print_error_with_causes(result.error)
+					st(
+						'red',
+						`Generated file ${print_path(analyzed.file.id, root)} via ${print_path(
+							analyzed.file.origin_id,
+							root
+						)} ${analyzed.is_new ? 'is new' : 'has changed'}.`
+					)
 				);
 			}
-			throw new TaskError(`Failed to generate ${fail_count} file${plural(fail_count)}.`);
+			if (has_unexpected_changes) {
+				throw new TaskError(
+					'Failed gen check. Some generated files have unexpectedly changed.' +
+						' Run `gro gen` and try again.'
+				);
+			}
+			log.info('check passed, no files have changed');
 		}
+	} else {
+		const timing_to_output_results = timings.start('output results');
+		await write_gen_results(fs_paths, gen_results, analyzed_gen_results, log);
+		timing_to_output_results();
+	}
+
+	// collect and format output with summary
+	const output_lines = collect_output_lines(gen_results, analyzed_gen_results, root);
+	const new_count = analyzed_gen_results.filter((r) => r.is_new).length;
+	const changed_count = analyzed_gen_results.filter((r) => r.has_changed && !r.is_new).length;
+	const unchanged_count = analyzed_gen_results.filter((r) => !r.is_new && !r.has_changed).length;
+	const error_count = gen_results.failures.length;
+
+	log.info(
+		format_gen_output(output_lines) +
+			`\n\n\t${new_count} ${st(new_count > 0 ? 'green' : 'gray', 'new')}, ${changed_count} ${st(
+				changed_count > 0 ? 'cyan' : 'gray',
+				'changed'
+			)}, ${unchanged_count} ${st('gray', 'unchanged')}${
+				error_count ? `, ${error_count} ${st('red', 'error' + plural(error_count))}` : ''
+			} from ${gen_results.input_count} input file${plural(gen_results.input_count)}`
+	);
+
+	if (fail_count) {
+		for (const result of gen_results.failures) {
+			log.error(
+				result.reason,
+				'\n',
+				is_task_error(result.error)
+					? st('yellow', result.error.message)
+					: print_error_with_causes(result.error)
+			);
+		}
+		throw new TaskError(`Failed to generate ${fail_count} file${plural(fail_count)}.`);
 	}
 };
 

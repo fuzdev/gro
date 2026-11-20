@@ -1,12 +1,16 @@
 import { describe, test, assert, expect, vi, beforeEach } from 'vitest';
 import { resolve } from 'node:path';
 
-import { task, type Args } from '#lib/gen.task.ts';
+import { run_gen_task, type GenTaskDeps } from '#lib/gen.task.ts';
 import { find_genfiles } from '#lib/gen.ts';
 import { SOURCE_DIRNAME } from '#lib/constants.ts';
 import { TaskError } from '#lib/task_error.ts';
+import { create_empty_gro_config } from '#lib/gro_config.ts';
+import { fs } from '#lib/fs.ts';
+import { create_fs_paths } from '#lib/fs_paths.ts';
 
-import { create_mock_task_context } from './test_helpers.ts';
+import { create_mock_logger, create_mock_timings } from './test_helpers.ts';
+import { to_fs_paths_options } from './fs_test_helpers.ts';
 
 vi.mock('#lib/gen.ts', async (import_original) => ({
 	...(await import_original<typeof import('#lib/gen.ts')>()),
@@ -15,11 +19,24 @@ vi.mock('#lib/gen.ts', async (import_original) => ({
 
 const REASON = 'Input directory contains no matching files: src/foo';
 
-const to_ctx = (input_paths: Array<string>, check = false) =>
-	create_mock_task_context<Args>({ _: input_paths, root_dirs: [process.cwd()], check });
+const to_deps = (): GenTaskDeps => ({
+	fs_paths: create_fs_paths(fs, to_fs_paths_options()),
+	import_module: vi.fn(),
+	invoke_project_task: vi.fn(),
+	load_svelte_config: vi.fn(),
+	log: create_mock_logger(),
+	timings: create_mock_timings()
+});
+
+const run = (input_paths: Array<string>, check = false, deps = to_deps()): Promise<void> =>
+	run_gen_task(
+		{ _: input_paths, root_dirs: [process.cwd()], check },
+		{ config: create_empty_gro_config() },
+		deps
+	);
 
 const to_error = (input_paths: Array<string>, check?: boolean): Promise<unknown> =>
-	Promise.resolve(task.run(to_ctx(input_paths, check))).then(
+	run(input_paths, check).then(
 		() => undefined,
 		(e: unknown) => e
 	);
@@ -48,11 +65,11 @@ describe('finding no genfiles', () => {
 		});
 
 		test(`a named directory with none fails, naming it (check: ${check})`, async () => {
-			const ctx = to_ctx(['src/foo'], check);
-			const error = await Promise.resolve(task.run(ctx)).catch((e: unknown) => e);
+			const deps = to_deps();
+			const error = await run(['src/foo'], check, deps).catch((e: unknown) => e);
 			assert(error instanceof TaskError, 'expected a TaskError');
 			assert.include(error.message, 'Failed to find gen modules');
-			expect(ctx.log.error).toHaveBeenCalledWith(expect.stringContaining(REASON));
+			expect(deps.log.error).toHaveBeenCalledWith(expect.stringContaining(REASON));
 		});
 	}
 

@@ -189,6 +189,8 @@ so a module re-exporting the `task` carries them:
 - `fs` - the paths it reads and writes, relative to the project root, `.` the project
 - `env` - the environment variables it reads, exact names
 - `programs` - the programs it starts by name, each with how its environment is built
+- `project_modules` - that it loads the project's modules, like `gen`'s genfiles,
+  which run as the project's code
 - `invokes` - the builtins it invokes
 
 The genfile that writes the builtin summaries also writes them as `GRO_BUILTIN_TASK_GRANTS`
@@ -199,11 +201,16 @@ a `BuiltinTaskContext` field present only on a builtin's context:
 `fs_paths` with an `fs` grant, `env` narrowed to the names,
 `programs` with `program` and `find` for the named programs, as `spawn`'s pair resolves them,
 each program's environment fixed by its grant,
+with `project_modules` the root's project loader as `import_module`, the one every task loads through,
+and `invoke_project_task`, the `invoke_task` a project task has, for the project's modules it loads,
 and its own frozen copy of the `raw_rest_args` it was invoked with.
 A builtin invoking a task its `invokes` doesn't name fails with a `TaskError`,
 and its `invoke_task` is typed so that doesn't compile.
 Each builtin it invokes gets a `host` cut from the root's by that builtin's own grants,
-so what a builtin can reach is its grants and those of every builtin it `invokes`, transitively.
+so what a builtin can reach is its grants and those of every builtin it `invokes`, transitively,
+except that a builtin granted `project_modules` reaches whatever a project task does,
+every builtin's grants included, since the `invoke_project_task` its loaded modules get isn't checked by `invokes`:
+`gen` reaches that through its genfiles, and so does `check`, which invokes `gen`.
 
 A builtin runs only by its name. Its task run by path, like `gro task src/lib/check.task.ts`,
 or re-exported from a project file, has `grants` but no name to find them by in the table,

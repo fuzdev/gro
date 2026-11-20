@@ -1,4 +1,4 @@
-import { test, expect, assert } from 'vitest';
+import { test, expect, assert, vi } from 'vitest';
 import { resolve } from 'node:path';
 
 import { spawn_with_loader } from '#lib/gro_helpers.ts';
@@ -11,6 +11,7 @@ import {
 	TEST_TIMEOUT_MD,
 	create_mock_config,
 	create_mock_logger,
+	create_mock_svelte_config,
 	create_mock_timings,
 	paths
 } from './test_helpers.ts';
@@ -37,10 +38,13 @@ const run = async (
 ) =>
 	run_gen(
 		[{ id: origin_id, mod: { gen } }],
-		await create_mock_config(),
-		create_mock_logger(),
-		create_mock_timings(),
-		() => Promise.resolve(),
+		{
+			config: await create_mock_config(),
+			log: create_mock_logger(),
+			timings: create_mock_timings(),
+			invoke_task: () => Promise.resolve(),
+			load_svelte_config: () => Promise.resolve(create_mock_svelte_config())
+		},
 		paths.root,
 		format_file
 	);
@@ -102,4 +106,39 @@ test('a genfile whose outputs format succeeds with the formatted content', async
 		results.successes[0]!.files.map((f) => f.content),
 		['ok\n']
 	);
+});
+
+test("a genfile's `svelte_config` is the base's, loaded only when the genfile reads it, and its `invoke_task` the base's", async () => {
+	const svelte_config = Promise.resolve(create_mock_svelte_config());
+	const load_svelte_config = vi.fn(() => svelte_config);
+	const invoke_task = vi.fn();
+	let read: unknown;
+	let invoke: unknown;
+	const results = await run_gen(
+		[
+			{ id: origin_id, mod: { gen: () => '' } },
+			{
+				id: resolve('src/bar.gen.ts'),
+				mod: {
+					gen: (ctx) => {
+						read = ctx.svelte_config;
+						invoke = ctx.invoke_task;
+						return '';
+					}
+				}
+			}
+		],
+		{
+			config: await create_mock_config(),
+			log: create_mock_logger(),
+			timings: create_mock_timings(),
+			invoke_task,
+			load_svelte_config
+		},
+		paths.root
+	);
+	assert.strictEqual(results.failures.length, 0);
+	assert.strictEqual(read, svelte_config);
+	assert.strictEqual(invoke, invoke_task);
+	assert.strictEqual(load_svelte_config.mock.calls.length, 1);
 });

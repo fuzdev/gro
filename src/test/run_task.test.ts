@@ -345,6 +345,51 @@ test('run_task gives a builtin with grants a `host` cut by them, and a project t
 	);
 });
 
+test("run_task gives a builtin granted `project_modules` its own project loader and a project task's `invoke_task`", async () => {
+	const invoke_task = vi.fn((..._args: Array<unknown>) => Promise.resolve());
+	const import_module = vi.fn();
+	const options = {
+		...(await create_mock_run_task_options()),
+		invoke_task,
+		import_module,
+		raw_rest_args: ['--', 'x']
+	};
+	const result = await run_task(
+		{
+			name: 'greet',
+			id: '/p/src/lib/greet.task.ts',
+			mod: {
+				task: {
+					run: async (ctx) => {
+						const { host } = ctx as unknown as BuiltinTaskContext<
+							object,
+							{ project_modules: true }
+						>;
+						await host.invoke_project_task('lint');
+						return host;
+					}
+				}
+			}
+		},
+		{},
+		{ ...options, grants: { project_modules: true } }
+	);
+	assert(result.ok);
+	const host = result.output as BuiltinTaskContext<object, { project_modules: true }>['host'];
+	assert.strictEqual(host.import_module, import_module);
+	// unchecked by the builtin's `invokes`, which name none, and passing what a nested task gets
+	expect(invoke_task).toHaveBeenCalledWith('lint', undefined, {
+		config: options.config,
+		fs_paths: options.fs_paths,
+		raw_rest_args: ['--', 'x'],
+		import_module,
+		host_root: options.host_root,
+		graph: options.graph,
+		timings: options.timings,
+		parent_log: options.log
+	});
+});
+
 test('run_task refuses a builtin invoking a task its grants do not name', async () => {
 	const invoke_task = vi.fn((..._args: Array<unknown>) => Promise.resolve());
 	const result = await run_task(

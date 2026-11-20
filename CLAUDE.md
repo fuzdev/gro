@@ -67,12 +67,14 @@ errors and exit codes. Where it lives:
   passes it to the tasks a task invokes; it's never on `TaskContext`, so a
   project task that reaches fs imports the host module itself
 - Builtin host - a builtin declares its `task.grants` (`BuiltinTaskGrants`
-  in `builtin_host.ts`: fs, env, programs, the builtins it `invokes`),
+  in `builtin_host.ts`: fs, env, programs, `project_modules`, the builtins it
+  `invokes`),
   emitted as `GRO_BUILTIN_TASK_GRANTS` by the summaries genfile; the root's
   `BuiltinHostRoot` (`env`, `spawn`) rides `InvokeTaskOptions` as `host_root`,
   and `run_task` cuts it by the table (`create_builtin_host`) into the `host`
   of a `BuiltinTaskContext`, only for a builtin, refusing an invoke its grants
-  don't name, and refusing a task with `grants` run by path or re-exported,
+  don't name (a `project_modules` builtin's loaded modules invoke unchecked, so it
+  reaches what a project task does), and refusing a task with `grants` run by path or re-exported,
   as a builtin runs only by its name; the body is a function over the task's own `*Deps`
   ([docs](src/docs/task.md#a-builtins-host-and-grants)). On Node the cut is a
   review signal, not an enforced boundary. A builtin with no `grants` (`null`
@@ -80,7 +82,9 @@ errors and exit codes. Where it lives:
 - Project loader - every project file Gro loads (tasks, genfiles, `gro.config.ts`) goes
   through an `ImportModule` (`modules.ts`) taken as a parameter: `invoke_task` takes the
   root's as `import_module` in `InvokeTaskOptions`, passed down as `fs_paths` is, and the
-  Node roots pass `import_module_node` (`internal/node_import_module.ts`)
+  Node roots pass `import_module_node` (`internal/node_import_module.ts`); `gro gen`
+  loads genfiles through it, from its `host` (the `project_modules` grant, whose
+  loaded modules invoke tasks unchecked by `invokes`, as a project task does)
 - Wrapping a builtin is composition: a project task calls it by name and the
   `package.json` script points at the wrapper's path; nothing shadows a builtin
 
@@ -142,7 +146,8 @@ global Gro in a project that doesn't install it.
 [src/docs/gen.md](src/docs/gen.md) owns the behavior: naming, return values,
 `GenContext`, `inputs`, when gen runs, and `gro gen --check`. Where it lives:
 
-- Task and runner - `gen.task.ts`, `run_gen.ts`, `gen.ts`
+- Task and runner - `gen.task.ts` (`run_gen_task`, over its `host`), `run_gen.ts`,
+  `gen.ts`
 - `inputs` - `gen_helpers.ts`, patterns matched by tsv's `IgnoreStack`; input
   paths in `input_path.ts`
 - Dev regeneration - `gro_plugin_gen`, a throttled queue over the task

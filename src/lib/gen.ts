@@ -7,7 +7,7 @@ import { ensure_end } from '@fuzdev/fuz_util/string.ts';
 
 import { print_path, to_root_path, to_search_filters_relative } from './paths.ts';
 import type { GroConfig } from './gro_config.ts';
-import { load_default_svelte_config, type ParsedSvelteConfig } from './svelte_config.ts';
+import type { ParsedSvelteConfig } from './svelte_config.ts';
 import {
 	load_modules,
 	type ImportModule,
@@ -110,9 +110,15 @@ export interface GenContext {
 
 /**
  * The `GenContext` values that are the same for every genfile in a run,
- * as opposed to the per-genfile ones `create_gen_context` derives.
+ * as opposed to the per-genfile ones `create_gen_context` derives,
+ * and what loads the Svelte config, the invoking task's, called only when a genfile reads it.
  */
-export type GenContextBase = Pick<GenContext, 'config' | 'log' | 'timings' | 'invoke_task'>;
+export interface GenContextBase extends Pick<
+	GenContext,
+	'config' | 'log' | 'timings' | 'invoke_task'
+> {
+	load_svelte_config: () => Promise<ParsedSvelteConfig>;
+}
 
 /**
  * Builds a `GenContext` for one genfile, with a lazy `svelte_config`
@@ -123,14 +129,20 @@ export const create_gen_context = (
 	base: GenContextBase,
 	origin_id: PathId,
 	root: PathId
-): GenContext => ({
-	...base,
-	get svelte_config() {
-		return load_default_svelte_config();
-	},
-	origin_id,
-	origin_path: to_root_path(origin_id, root)
-});
+): GenContext => {
+	const { config, log, timings, invoke_task, load_svelte_config } = base;
+	return {
+		config,
+		get svelte_config() {
+			return load_svelte_config();
+		},
+		log,
+		timings,
+		invoke_task,
+		origin_id,
+		origin_path: to_root_path(origin_id, root)
+	};
+};
 
 // TODO consider other return data - metadata? effects? non-file build artifacts?
 export type RawGenResult = string | RawGenFile | null | Array<RawGenResult>;

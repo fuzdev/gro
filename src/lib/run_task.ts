@@ -67,7 +67,8 @@ export interface RunTaskOptions {
 	 */
 	raw_rest_args: ReadonlyArray<string>;
 	/**
-	 * Loads the modules of the tasks this task invokes.
+	 * Loads the modules of the tasks this task invokes,
+	 * and the project's modules a builtin granted `project_modules` loads.
 	 */
 	import_module: ImportModule;
 	/**
@@ -139,6 +140,23 @@ export const run_task = async (
 		args = parsed.value;
 	}
 
+	// the registry typing is for callers, the runtime takes any name and args
+	const invoke_project_task = async (
+		invoked_task_name: string,
+		invoked_args?: Args,
+		invoked_options?: InvokeTaskContextOptions
+	): Promise<void> => {
+		await invoke_task(invoked_task_name, invoked_args, {
+			config: invoked_options?.config ?? config,
+			fs_paths,
+			raw_rest_args,
+			import_module,
+			host_root,
+			graph,
+			timings,
+			parent_log: log
+		});
+	};
 	const ctx: TaskContext<Args> = {
 		task_args: args,
 		config,
@@ -148,36 +166,24 @@ export const run_task = async (
 		graph,
 		log,
 		timings,
-		// the registry typing is for callers, the runtime takes any name and args
-		invoke_task: async (
-			invoked_task_name: string,
-			invoked_args?: Args,
-			invoked_options?: InvokeTaskContextOptions
-		) => {
-			if (grants && !is_invoke_granted(grants, invoked_task_name)) {
-				throw new TaskError(
-					`Task ${st('cyan', task_meta.name)} invokes \`${invoked_task_name}\`, which its grants don't name.`
-				);
-			}
-			await invoke_task(invoked_task_name, invoked_args, {
-				config: invoked_options?.config ?? config,
-				fs_paths,
-				raw_rest_args,
-				import_module,
-				host_root,
-				graph,
-				timings,
-				parent_log: log
-			});
-		}
+		invoke_task: grants
+			? async (invoked_task_name, invoked_args, invoked_options) => {
+					if (!is_invoke_granted(grants, invoked_task_name)) {
+						throw new TaskError(
+							`Task ${st('cyan', task_meta.name)} invokes \`${invoked_task_name}\`, which its grants don't name.`
+						);
+					}
+					await invoke_project_task(invoked_task_name, invoked_args, invoked_options);
+				}
+			: invoke_project_task
 	};
 	if (grants) {
-		(ctx as BuiltinTaskContext<Args>).host = create_builtin_host(
-			host_root,
-			grants,
+		(ctx as BuiltinTaskContext<Args>).host = create_builtin_host(host_root, grants, {
 			fs_paths,
+			import_module,
+			invoke_project_task,
 			raw_rest_args
-		);
+		});
 	}
 
 	// Run the task.

@@ -1038,7 +1038,8 @@ Its results are the Node module's, held to them by the differential cases on Gro
   so `fs_paths.ts` reads nothing of the process and imports no host module.
   The CLI's entry passes its own `FsPaths` to the config's loading and `invoke_task`,
   which carries it in its options to the tasks a task invokes, never on the task's context
-  but in a builtin's `host` when its grants name `fs`, with the `env` and `spawn` roots it cuts the rest from.
+  but in a builtin's `host` when its grants name `fs`, with the `env` and `spawn` roots it cuts the rest from,
+  and the project loader it carries the same way, in the `host` of a builtin that loads the project's modules.
   The rendered `$app/env/public` and `$app/env/private` modules are roots too,
   importing `fs` and `create_fs_paths` to read the `.env` files, and `env` and `cwd`
   for the ambient env and the `FsPaths`' protected directories, when they run, so a module importing `$app/env/*` shows those reads in its import graph,

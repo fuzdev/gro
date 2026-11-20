@@ -1,7 +1,7 @@
 /**
- * Git over a `SpawnProgram`: each function takes the `git` handle a composition root built
- * with `to_git_program`, and a `cwd` handle in its options. The root decides the
- * environment and `git` is pinned, so nothing here reads `PATH` or the host's environment.
+ * Git over a `SpawnProgram`: each function takes the `git` handle `to_git_program` built
+ * from a composition root's spawn or a builtin's `host.programs`, and a `cwd` handle in its
+ * options. The root or the builtin's grant decides the environment and `git` is pinned, so nothing here reads `PATH` or the host's environment.
  *
  * A read of the local repo captures with `out`, where a child with no inherited stdio leads
  * its own group and loses the terminal. Anything that may prompt runs with `run`, which stays
@@ -23,13 +23,7 @@
 import * as s from '@fuzdev/fuz_schema/schema.ts';
 
 import { spawn_result_is_ok, to_spawn_result_message } from './cli.ts';
-import type {
-	Spawn,
-	SpawnCallOptions,
-	SpawnOutput,
-	SpawnProgram,
-	SpawnProgramOptions
-} from './spawn.ts';
+import type { SpawnCallOptions, SpawnOutput, SpawnProgram, SpawnProgramOptions } from './spawn.ts';
 import { TaskError } from './task_error.ts';
 
 /**
@@ -59,13 +53,20 @@ export const GitBranch = s.flavor(s.string, 'GitBranch');
 export type GitBranch = s.Infer<typeof GitBranch>;
 
 /**
- * Finds `git` for a composition root, on `PATH` only, so a `node_modules/.bin/git` can't
- * shadow it.
- * @param spawn - the root's spawn host module
+ * What finds `git`: a root's spawn host module, or a builtin's `host.programs`,
+ * whose grant fixes the environment.
+ */
+export interface GitFinder {
+	find(name: 'git', options?: SpawnProgramOptions): SpawnProgram | null;
+}
+
+/**
+ * Finds `git`, on `PATH` only, so a `node_modules/.bin/git` can't shadow it.
+ * @param spawn - the root's spawn host module, or a builtin's `host.programs`
  * @param options - the program's environment, fixed when its handle is made
  * @throws `TaskError` - if `git` isn't on `PATH`
  */
-export const to_git_program = (spawn: Spawn, options?: SpawnProgramOptions): SpawnProgram => {
+export const to_git_program = (spawn: GitFinder, options?: SpawnProgramOptions): SpawnProgram => {
 	const git = spawn.find('git', options);
 	if (!git) throw new TaskError('git not found on PATH: install git to run this task');
 	return git;

@@ -14,7 +14,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { clean_fs } from '#lib/clean_fs.ts';
+import { clean_fs, discover_dist_dirs } from '#lib/clean_fs.ts';
 import { is_fs_error } from '#lib/fs_error.ts';
 import type { FsPaths } from '#lib/fs_paths.ts';
 import {
@@ -25,6 +25,7 @@ import {
 
 import { create_project_fs_paths } from './fs_test_helpers.ts';
 import { create_mock_logger } from './test_helpers.ts';
+import { create_mock_fs_paths } from './fs_mocks.ts';
 
 /*
 
@@ -246,4 +247,25 @@ describe('clean_fs', () => {
 		assert.ok(is_link(join(project, '.gro')));
 		assert.ok(existsSync(join(outside, 'sub/a.txt')));
 	});
+});
+
+test('`discover_dist_dirs` names the `dist_*` directories sorted, whatever order the listing gives', async () => {
+	const listing = [
+		{ name: 'dist_server', kind: 'directory' },
+		{ name: 'build', kind: 'directory' },
+		{ name: 'dist_a', kind: 'directory' },
+		{ name: 'dist_file', kind: 'file' }
+	];
+	const mock_fs_paths = create_mock_fs_paths(undefined, {
+		open_path: async () =>
+			({
+				dir: {
+					async *list() {
+						yield* listing;
+					}
+				},
+				path: ''
+			}) as never
+	});
+	assert.deepEqual(await discover_dist_dirs(mock_fs_paths), ['dist_a', 'dist_server']);
 });

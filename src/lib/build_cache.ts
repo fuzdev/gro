@@ -6,12 +6,7 @@ import { map_concurrent } from '@fuzdev/fuz_util/async.ts';
 import { hash_blake3 } from '@fuzdev/fuz_util/hash_blake3.ts';
 
 import type { GroConfig } from './gro_config.ts';
-import {
-	SVELTEKIT_BUILD_DIRNAME,
-	SVELTEKIT_DIST_DIRNAME,
-	GRO_DIST_PREFIX,
-	GRO_DIRNAME
-} from './constants.ts';
+import { SVELTEKIT_BUILD_DIRNAME, SVELTEKIT_DIST_DIRNAME, GRO_DIRNAME } from './constants.ts';
 import type { BuildCacheDependencies } from './build_cache_dependencies.ts';
 import { posix_join, posix_normalize } from './internal/posix_path.ts';
 import type { DirEntry, FsDir } from './fs.ts';
@@ -20,6 +15,7 @@ import type { FsOpenedPath, FsPaths } from './fs_paths.ts';
 import { git_current_commit_hash } from './git.ts';
 import type { SpawnProgram } from './spawn.ts';
 import { gro_dir_ensure } from './internal/gro_dir.ts';
+import { discover_dist_dirs } from './clean_fs.ts';
 import { format_error_detail } from './error_detail.ts';
 
 export const BUILD_CACHE_METADATA_FILENAME = 'build.json';
@@ -458,38 +454,6 @@ export const discover_build_output_dirs = async (fs_paths: FsPaths): Promise<Arr
 	build_dirs.push(...(await discover_dist_dirs(fs_paths)));
 
 	return build_dirs;
-};
-
-/**
- * Discovers the `dist_*` plugin output directories in the project.
- */
-export const discover_dist_dirs = async (fs_paths: FsPaths): Promise<Array<string>> => {
-	const root = await fs_paths.open_path('.');
-	const candidates: Array<Promise<string | null>> = [];
-	for await (const { name, kind } of root.dir.list(root.path)) {
-		if (!name.startsWith(GRO_DIST_PREFIX)) continue;
-		if (kind === 'directory') {
-			candidates.push(Promise.resolve(name));
-		} else if (kind === 'symlink') {
-			// a symlink is followed wherever it points, as Gro follows its own paths
-			candidates.push(
-				(async () => {
-					try {
-						const opened = await fs_paths.open_path(name);
-						const info = await opened.dir.stat(opened.path);
-						return info?.kind === 'directory' ? name : null;
-					} catch (error) {
-						// unreadable, or deleted or moved during iteration
-						if (is_fs_error(error)) return null;
-						throw error;
-					}
-				})()
-			);
-		}
-	}
-	const dist_dirs = await Promise.all(candidates);
-	// sorted, since a listing's order is volatile
-	return dist_dirs.filter((p): p is string => p !== null).sort();
 };
 
 /**

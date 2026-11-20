@@ -1,6 +1,4 @@
 import { st } from '@fuzdev/fuz_util/print.ts';
-import type { Timings } from '@fuzdev/fuz_util/timings.ts';
-import type { Logger } from '@fuzdev/fuz_util/log.ts';
 import type { PathId } from '@fuzdev/fuz_util/path.ts';
 import { map_concurrent } from '@fuzdev/fuz_util/async.ts';
 
@@ -12,26 +10,24 @@ import {
 	to_gen_result,
 	type RawGenResult,
 	normalize_gen_config,
-	create_gen_context
+	create_gen_context,
+	type GenContextBase
 } from './gen.ts';
 import { print_path } from './paths.ts';
 import type { format_file as base_format_file } from './format_file.ts';
-import type { GroConfig } from './gro_config.ts';
-import type { InvokeTask } from './task.ts';
 
 /**
  * Runs each genfile, normalizing and optionally formatting what it returns.
+ * @param base - the context every genfile shares
  * @param root - the absolute project root, `origin_path` relative to it and `inputs` anchored at it
  */
 export const run_gen = async (
 	gen_modules: Array<GenfileModuleMeta>,
-	config: GroConfig,
-	log: Logger,
-	timings: Timings,
-	invoke_task: InvokeTask,
+	base: GenContextBase,
 	root: PathId,
 	format_file?: typeof base_format_file
 ): Promise<GenResults> => {
+	const { timings } = base;
 	let input_count = 0;
 	let output_count = 0;
 	const timing_for_run_gen = timings.start('run_gen');
@@ -55,7 +51,7 @@ export const run_gen = async (
 					elapsed: timing_for_module()
 				};
 			}
-			const gen_ctx = create_gen_context({ config, log, timings, invoke_task }, id, root);
+			const gen_ctx = create_gen_context(base, id, root);
 			let raw_gen_result: RawGenResult;
 			try {
 				raw_gen_result = await gen_config.generate(gen_ctx);

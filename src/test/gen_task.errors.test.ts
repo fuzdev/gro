@@ -1,11 +1,15 @@
 import { test, assert, vi } from 'vitest';
 
-import { task, type Args } from '#lib/gen.task.ts';
+import { run_gen_task, type GenTaskDeps } from '#lib/gen.task.ts';
 import type { GenResults } from '#lib/gen.ts';
 import { run_gen } from '#lib/run_gen.ts';
 import { TaskError } from '#lib/task_error.ts';
+import { create_empty_gro_config } from '#lib/gro_config.ts';
+import { fs } from '#lib/fs.ts';
+import { create_fs_paths } from '#lib/fs_paths.ts';
 
-import { create_mock_task_context } from './test_helpers.ts';
+import { create_mock_logger, create_mock_timings } from './test_helpers.ts';
+import { to_fs_paths_options } from './fs_test_helpers.ts';
 
 vi.mock('#lib/gen.ts', async (import_original) => ({
 	...(await import_original<typeof import('#lib/gen.ts')>()),
@@ -31,16 +35,27 @@ const run_failing = async (error: Error): Promise<string> => {
 		output_count: 0,
 		elapsed: 1
 	} satisfies GenResults);
-	const ctx = create_mock_task_context<Args>({ _: [], root_dirs: [process.cwd()], check: false });
+	const deps: GenTaskDeps = {
+		fs_paths: create_fs_paths(fs, to_fs_paths_options()),
+		import_module: vi.fn(),
+		invoke_project_task: vi.fn(),
+		load_svelte_config: vi.fn(),
+		log: create_mock_logger(),
+		timings: create_mock_timings()
+	};
 	let thrown: unknown;
 	try {
-		await task.run(ctx);
+		await run_gen_task(
+			{ _: [], root_dirs: [process.cwd()], check: false },
+			{ config: create_empty_gro_config() },
+			deps
+		);
 	} catch (e) {
 		thrown = e;
 	}
 	assert.ok(thrown instanceof TaskError);
 	assert.include(thrown.message, 'Failed to generate 1 file');
-	return [...vi.mocked(ctx.log.info).mock.calls, ...vi.mocked(ctx.log.error).mock.calls]
+	return [...vi.mocked(deps.log.info).mock.calls, ...vi.mocked(deps.log.error).mock.calls]
 		.flat()
 		.join('\n');
 };

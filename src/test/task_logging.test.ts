@@ -5,16 +5,20 @@ import { meta } from '@fuzdev/fuz_schema/meta.ts';
 
 import { log_builtin_tasks, log_task_help, log_tasks } from '#lib/task_logging.ts';
 import { GRO_BUILTIN_TASK_SUMMARIES } from '#lib/gro_builtin_tasks.ts';
+import type { BuiltinTask } from '#lib/builtin_host.ts';
 import type { Task, TaskModuleMeta } from '#lib/task.ts';
 import * as test_task_module from '#lib/test.task.ts';
 import * as gen_task_module from '#lib/gen.task.ts';
 
 import { create_mock_logger } from './test_helpers.ts';
 
-const to_task_meta = (name: string, task: Task<any, any>): TaskModuleMeta => ({
+const to_task_meta = (
+	name: string,
+	task: Task<any, any> | BuiltinTask<any, any>
+): TaskModuleMeta => ({
 	id: `/p/src/lib/${name}.task.ts`,
 	name,
-	mod: { task }
+	mod: { task: task as Task<any, any> }
 });
 
 // the text `log_task_help` logs, unstyled, joined as the logger joins its arguments

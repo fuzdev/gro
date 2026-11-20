@@ -5,7 +5,8 @@ import type { Env } from './env.ts';
 import type { FsPaths } from './fs_paths.ts';
 import type { Spawn, SpawnProgram, SpawnProgramOptions } from './spawn.ts';
 import type { GroBuiltinTasks } from './gro_builtin_tasks.ts';
-import type { InvokeTaskRest, TaskContext } from './task.ts';
+import type { ImportModule } from './modules.ts';
+import type { InvokeTask, InvokeTaskRest, TaskContext } from './task.ts';
 import { SpawnError } from './spawn_error.ts';
 import { create_record } from './internal/records.ts';
 
@@ -15,6 +16,8 @@ What a builtin task holds comes from the root, never from a host module the task
 since Gro's tasks are exported and a granted import would lend its grant to every importer.
 Each builtin declares its `task.grants`, the summaries genfile emits them as `GRO_BUILTIN_TASK_GRANTS`,
 and the root's handles are cut by them into the builtin's `host`.
+The root's project loader is the one every task and the project's modules load through,
+so a builtin that loads the project's modules takes it from its `host` rather than importing Node's.
 
 On the Node Gro the cut is a review signal, as a narrowed root is, not an enforced boundary:
 `env` is narrowed and `programs` refuses a name the grants don't list,
@@ -60,8 +63,17 @@ export interface BuiltinTaskGrants {
 	readonly env?: ReadonlyArray<string>;
 	readonly programs?: Readonly<Record<string, BuiltinProgramGrant>>;
 	/**
+	 * Whether the task loads the project's modules, like genfiles, which run as project code:
+	 * through the root's project loader, `host.import_module`,
+	 * invoking tasks as a project task does, through `host.invoke_project_task`,
+	 * which `invokes` doesn't check, so the task reaches whatever a project task does,
+	 * every builtin's grants included.
+	 */
+	readonly project_modules?: true;
+	/**
 	 * The builtins the task invokes, each run with its own grants;
-	 * invoking any other task is an error.
+	 * invoking any other task through its own `invoke_task` is an error,
+	 * though with `project_modules` the modules it loads invoke any task, unchecked.
 	 */
 	readonly invokes?: ReadonlyArray<keyof GroBuiltinTasks>;
 }
@@ -73,6 +85,30 @@ export interface BuiltinTaskGrants {
 export interface BuiltinHostRoot {
 	readonly env: Env;
 	readonly spawn: Spawn;
+}
+
+/**
+ * What `invoke_task` passes to the task it runs beside the root's handles,
+ * the parts of it a builtin's `host` holds when its grants name them.
+ */
+export interface BuiltinHostInvocation {
+	/**
+	 * The root's boundary, held only with an `fs` grant.
+	 */
+	readonly fs_paths: FsPaths;
+	/**
+	 * The root's project loader, held only with the `project_modules` grant.
+	 */
+	readonly import_module: ImportModule;
+	/**
+	 * The `invoke_task` a project task's context has, unchecked by the builtin's `invokes`,
+	 * held only with the `project_modules` grant, for the project's modules it loads.
+	 */
+	readonly invoke_project_task: InvokeTask;
+	/**
+	 * The CLI args from the first `--` on, copied and frozen for each host.
+	 */
+	readonly raw_rest_args: ReadonlyArray<string>;
 }
 
 /**
@@ -102,6 +138,9 @@ export type BuiltinHost<TGrants extends BuiltinTaskGrants = BuiltinTaskGrants> =
 	readonly raw_rest_args: ReadonlyArray<string>;
 } & (TGrants extends { fs: BuiltinFsGrant } ? { readonly fs_paths: FsPaths } : unknown) &
 	(TGrants extends { env: ReadonlyArray<string> } ? { readonly env: Env } : unknown) &
+	(TGrants extends { project_modules: true }
+		? { readonly import_module: ImportModule; readonly invoke_project_task: InvokeTask }
+		: unknown) &
 	(TGrants extends { programs: infer TPrograms }
 		? { readonly programs: BuiltinPrograms<Extract<keyof TPrograms, string>> }
 		: unknown);
@@ -151,20 +190,22 @@ export interface BuiltinTask<TArgs = Args, TGrants extends BuiltinTaskGrants = B
  * Cuts the root's handles by a builtin's grants into its `host`, a frozen null-prototype record.
  * @param root - the root's handles
  * @param grants - the builtin's grants
- * @param fs_paths - the root's boundary, given only when the grants name `fs`
- * @param raw_rest_args - the CLI args from the first `--` on, copied and frozen for this host
+ * @param invocation - what `invoke_task` passes, each part held only when the grants name it
  */
 export const create_builtin_host = <TGrants extends BuiltinTaskGrants>(
 	root: BuiltinHostRoot,
 	grants: TGrants,
-	fs_paths: FsPaths,
-	raw_rest_args: ReadonlyArray<string>
+	invocation: BuiltinHostInvocation
 ): BuiltinHost<TGrants> => {
 	const host: Record<string, unknown> = create_record({
-		raw_rest_args: freeze([...raw_rest_args])
+		raw_rest_args: freeze([...invocation.raw_rest_args])
 	});
-	if (grants.fs) host.fs_paths = fs_paths;
+	if (grants.fs) host.fs_paths = invocation.fs_paths;
 	if (grants.env) host.env = root.env.narrow(grants.env);
+	if (grants.project_modules) {
+		host.import_module = invocation.import_module;
+		host.invoke_project_task = invocation.invoke_project_task;
+	}
 	const { programs } = grants;
 	if (programs) {
 		const { spawn } = root;

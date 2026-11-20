@@ -3,13 +3,13 @@ import type { Logger } from '@fuzdev/fuz_util/log.ts';
 
 import {
 	GRO_DIRNAME,
+	GRO_DIST_PREFIX,
 	NODE_MODULES_DIRNAME,
 	SVELTEKIT_DEV_DIRNAME,
 	SVELTEKIT_BUILD_DIRNAME,
 	SVELTEKIT_VITE_CACHE_PATH,
 	SVELTEKIT_DIST_DIRNAME
 } from './constants.ts';
-import { discover_dist_dirs } from './build_cache.ts';
 import { is_fs_error } from './fs_error.ts';
 import type { FsOpenedPath, FsPaths } from './fs_paths.ts';
 import { posix_basename, posix_dirname, posix_resolve } from './internal/posix_path.ts';
@@ -147,4 +147,36 @@ const clean_gro_dir = async (
 		}
 	}
 	await remove_path(fs_paths, resolved);
+};
+
+/**
+ * Discovers the `dist_*` plugin output directories in the project.
+ */
+export const discover_dist_dirs = async (fs_paths: FsPaths): Promise<Array<string>> => {
+	const root = await fs_paths.open_path('.');
+	const candidates: Array<Promise<string | null>> = [];
+	for await (const { name, kind } of root.dir.list(root.path)) {
+		if (!name.startsWith(GRO_DIST_PREFIX)) continue;
+		if (kind === 'directory') {
+			candidates.push(Promise.resolve(name));
+		} else if (kind === 'symlink') {
+			// a symlink is followed wherever it points, as Gro follows its own paths
+			candidates.push(
+				(async () => {
+					try {
+						const opened = await fs_paths.open_path(name);
+						const info = await opened.dir.stat(opened.path);
+						return info?.kind === 'directory' ? name : null;
+					} catch (error) {
+						// unreadable, or deleted or moved during iteration
+						if (is_fs_error(error)) return null;
+						throw error;
+					}
+				})()
+			);
+		}
+	}
+	const dist_dirs = await Promise.all(candidates);
+	// sorted, since a listing's order is volatile
+	return dist_dirs.filter((p): p is string => p !== null).sort();
 };

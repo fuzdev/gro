@@ -142,6 +142,12 @@ export interface GenContext {
 // export const gen: Gen = ({config, svelte_config, origin_id, origin_path, log}) => {
 ```
 
+`gro gen` loads genfiles through the run's project loader, the one every task loads through,
+taken from its `host` ([task.md](task.md#a-builtins-host-and-grants)),
+and a genfile is the project's code, so its `invoke_task` is the one a project task has,
+not limited by the builtins `gen` itself invokes, which are none:
+through its genfiles `gen` reaches whatever a project task does, every builtin's grants included.
+
 ### generate other filetypes
 
 Files with any extension can be generated without configuration.
