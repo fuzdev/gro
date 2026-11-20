@@ -55,13 +55,14 @@
 //!    list doesn't name degrades where its libc has a fallback, and otherwise
 //!    fails with `ENOSYS`. The filter compares exact call numbers, so an x32
 //!    call (`nr | 0x40000000`) matches nothing and fails too, and since the
-//!    allowlist doesn't allow `seccomp`, no filter can be added after it. Built
-//!    for `x86_64` and `aarch64`, the `aarch64` list unverified on a host. A
-//!    library loaded after the box goes up (by `dlopen`, which nothing in the
-//!    runtime is known to call) fails on either architecture when its file is
-//!    outside the roots, which Landlock refuses, or jitless, when the rule
-//!    refuses its code's `PROT_EXEC` mapping; a library inside the roots loads
-//!    under `--jit`.
+//!    allowlist doesn't allow `seccomp`, no filter can be added after it.
+//!    Written for `x86_64` and `aarch64`, but only `x86_64` builds (its V8
+//!    archive is the one pinned) and is checked; the `aarch64` arms are never
+//!    compiled. A library loaded after the box goes up (by `dlopen`, which
+//!    nothing in the runtime is known to call) fails when its file is outside
+//!    the roots, which Landlock refuses, or jitless, when the rule refuses its
+//!    code's `PROT_EXEC` mapping; a library inside the roots loads under
+//!    `--jit`.
 //!
 //!    The `READ_IMPLIES_EXEC` personality, which would make every readable
 //!    mapping executable past the rule, can't be inherited: the kernel

@@ -252,7 +252,7 @@ Reportable upstream: yes, as a lost wakeup.
    and the lock names the registry crate the patch now replaces.
 5. `cargo xtask vendor-patch <name>` regenerates the patch from the tree,
    then `cargo xtask check` reruns the vendor check and, in its snapshot
-   build, the reproducibility gate.
+   build, the check that the snapshot reproduces byte for byte.
 6. For `deno_core` and `deno_web`, review each op the upgrade adds, removes,
    or renames: the pins in `crates/gro_runtime/tests/` fail until they match
    (`op_names.txt`, the ops the runtime registers, and `dropped_op_names.txt`,

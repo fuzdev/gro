@@ -84,10 +84,12 @@
 //! [`phases::PHASES_FILE_ENV`], and the `prices` feature's switches,
 //! [`prices::PRICES_OFF_ENV`]): what a runtime decides per run, such as the
 //! console's color and streams ([`ConsoleOptions`]), comes in through
-//! [`RuntimeOptions`] from the embedder. Its dependencies do read some
-//! (`deno_core`'s diagnostics and import graph file, ICU's locale), so an
+//! [`RuntimeOptions`] from the embedder. Its dependencies do read some:
+//! `deno_core`'s diagnostics (`DENO_STARTUP_PHASES` and `DENO_LOG_LAZY_LOAD`,
+//! printed to stderr) and its import graph file (`DENO_SNAPSHOT_IMPORT_GRAPH`,
+//! which it appends every module's imports to), and ICU's locale. So an
 //! embedder that wants none read clears its environment before it starts a
-//! thread, as `fgro eval` does.
+//! thread, as `fgro eval` does and `fgro run` doesn't.
 //!
 //! Without a [`RuntimeOptions::snapshot`], the runtime starts from source:
 //! `deno_web`'s JS is read from its crate's path on the build machine, so such
@@ -97,10 +99,10 @@
 //! [`ConsoleOptions`], removing the internals from the global object), run
 //! once the runtime has started.
 //!
-//! Linux-only, as are `gro_cli` and `gro_sys`: the box is Landlock and
-//! seccomp, the host's filesystem calls are `openat2`'s, and the V8 archive
-//! the build links is Linux's. Built for another OS the crate fails to
-//! compile.
+//! Linux-only, as are `gro_cli`, `gro_sys`, and `gro_bench`: the box is
+//! Landlock and seccomp, the host's filesystem calls are `openat2`'s, and the
+//! V8 archive the build links is Linux's. Built for another OS the crate
+//! fails to compile.
 
 #[cfg(not(target_os = "linux"))]
 compile_error!(

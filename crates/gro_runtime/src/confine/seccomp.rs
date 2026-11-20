@@ -45,8 +45,9 @@ pub(super) const KILLED_CALLS: [libc::c_long; 16] = [
 /// `sched_getaffinity`, `sched_getparam`, and `sched_getscheduler` take any
 /// process, since glibc names the caller by its thread id, not 0: for
 /// another process they tell whether it exists and how it's scheduled, not
-/// its files or memory. Built for `x86_64` and `aarch64`; the `aarch64` list
-/// is written from its call table and unverified on a host.
+/// its files or memory. Written for `x86_64` and `aarch64`, but only `x86_64`
+/// builds (its V8 archive is the one pinned) and is checked; the `aarch64`
+/// arms are written from that architecture's call table and never compiled.
 pub(super) const ALLOWED_CALLS: &[libc::c_long] = &[
     libc::SYS_brk,
     libc::SYS_clock_gettime,

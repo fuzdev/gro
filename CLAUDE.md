@@ -403,8 +403,8 @@ miss there, and the contracts no one module doc owns:
   `EngineError::JitConflict`.
 - One thread until the box: `fgro eval` keeps its process single-threaded
   until it's confined, in the step order written once, in `confine_eval`'s
-  doc in `crates/gro_cli/src/eval.rs`. Every other command runs on one thread
-  sized `gro_runtime::STACK_SIZE`.
+  doc in `crates/gro_cli/src/eval.rs`. Every other command runs its runtime on
+  a thread of its own, not the main one, sized `gro_runtime::STACK_SIZE`.
 - `bootstrap::extensions` drops every lazy ES module and every other
   extension's synthetic ones, since `deno_core` would load either past the
   loader's refusal (its doc has how), so a synthetic module's name must be
@@ -457,7 +457,9 @@ miss there, and the contracts no one module doc owns:
   `snapshot::make_snapshot` fails when a refused op's function shares its
   address with another op's (`snapshot.rs`'s module doc has why).
 - `gro_runtime` reads no environment variable but the `phases` feature's
-  `GRO_PHASES_FILE` and the `prices` feature's `GRO_PRICES_OFF`; `fgro`
+  `GRO_PHASES_FILE` and the `prices` feature's `GRO_PRICES_OFF`, though its
+  vendored `deno_core` reads three diagnostic ones, which only eval clears
+  (`lib.rs`'s module doc names them); `fgro`
   decides color and passes it in, as it passes the working directory and its
   own name and version, and the variables `--allow-env=` grants (every
   variable under `-A`), which `gro_cli/src/run.rs` reads once as the run

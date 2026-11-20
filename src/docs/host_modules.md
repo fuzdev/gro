@@ -18,7 +18,7 @@ and narrowing it means handing down a narrower handle.
 ## The modules
 
 Every host module, each `@fuzdev/gro/<module>`, and whether it's a builtin module on `fgro` yet.
-This table is the one list of what's on `fgro`: the other runtime docs link here rather than restate it.
+This table is the reference for what's on `fgro`.
 
 | module               | what it reaches                         | on `fgro`                |
 | -------------------- | --------------------------------------- | ------------------------ |
@@ -1372,10 +1372,12 @@ what can fail for a reason of the run's fails in what the module exports, as `cw
   code that escapes V8 can retime and rechmod any file it can open, every read root included, not only the write roots.
   Bounding them to the write roots would take a broker outside the box.
 - Refuse `set_times` with `follow: false` in the run box with `permission_denied`, unless a broker outside the box does it (designed).
-  A link's own times take `utimensat` on a name with `AT_SYMLINK_NOFOLLOW`, which the kernel refuses with a `NULL` path,
-  and seccomp can't read the name, so nothing pins that form to the handle: allowed, it would retime any file the user owns.
-- Expect `set_mode` to fail with `permission_denied` on a file whose mode denies its owner an open, like `0000`,
-  which the descriptor form can't reach, where the Node implementation's path `chmod` restores it (designed).
+  A link's own times take `utimensat` on a name in the link's parent with `AT_SYMLINK_NOFOLLOW`, the built form,
+  which the kernel refuses with a `NULL` path, and seccomp can't read the name, so nothing pins that form to the handle:
+  allowed in the box, it would retime any file the user owns.
+- Change the mode of a file whose mode denies its owner an open, like `0000`, as the Node implementation's path `chmod` does,
+  since a path-only open allows any entry (built). The descriptor form `fchmod(fd)` couldn't reach it,
+  one more reason that form isn't the built one.
 - Return owned buffers from `read`, never a view of memory the runtime reuses (built).
 - Keep `/proc/*/environ`, `/proc/*/mem`, and `/proc/*/cmdline` in the read-deny overlay, always on, `-A` included,
   since they're regular files, not magic links (designed; the [deny overlays](glossary.md#deny-overlays)).
@@ -1385,49 +1387,54 @@ what can fail for a reason of the run's fails in what the module exports, as `cw
 
 - Start a child from one op taking a program resource, argv, and a cwd resource,
   so a call names nothing a path could swap: the pinned program runs by descriptor where the kernel allows it,
-  the cwd by its directory handle. A shebang script runs by the path it was found at, since `/proc/self/fd` can't reach one
-  and its `$0` is that path, checked against its pin by identity just before the exec.
+  the cwd by a descriptor of its handle's directory, opened beneath its root. A shebang script runs by the path it was found at, since `/proc/self/fd` can't reach one
+  and its `$0` is that path, checked against its pin by identity and change time just before the exec (built).
   The interpreter opens it by path after the exec, so the window between that check and the interpreter's open stays open natively too.
 - Clear the environment in the op (`env_clear`) and set only what the handle holds,
-  with no way for a call to add to it.
-- Inherit only fds 0, 1, and 2 into the child, and confine it with the run's kernel rules:
+  with no way for a call to add to it (built).
+- Inherit only fds 0, 1, and 2 into the child (built: a run that grants a program marks every descriptor it inherited
+  above stderr close-on-exec before anything runs, and what the runtime opens is close-on-exec already).
+- Confine the child with the run's kernel rules:
   the project and the linked packages readable, only the declared write roots writable (the tool's own cache directory among them), never the project root,
   TCP on the granted ports, and seccomp denying unix sockets, UDP, new namespaces, and terminal input injection (`TIOCSTI`, `TIOCLINUX`)
-  unless a grant names them ([backstop](backstop.md#the-box-for-runs-and-children)).
+  unless a grant names them ([backstop](backstop.md#the-box-for-runs-and-children)) (designed; a child runs unboxed).
 - Give a child that needs `/proc` a further Landlock layer of its own before it runs, so the runtime's process falls outside the child's domain
-  and its environment stays unreadable.
-- Hand the child a `PATH` filtered to absolute entries.
-- Refuse a name or argument holding a NUL byte or a lone surrogate before it reaches the kernel.
-- Report a child killed by any signal, real-time ones included, from what `waitid` reports on its pidfd.
+  and its environment stays unreadable (designed).
+- Hand the child a `PATH` filtered to absolute entries (built).
+- Refuse a name or argument holding a NUL byte or a lone surrogate before it reaches the kernel (built).
+- Report a child killed by any signal, real-time ones included, from what `waitid` reports on its pidfd (built).
 - Make a group-leading child's process group with `setpgid`, not a new session,
   so a piped child keeps the controlling terminal, and guard it the way `guard_group` does,
-  with `guard_children_on_signal` handling the signals that end the host.
-  A captured child with `stdin: 'ignore'` must fail on `/dev/tty`, not stop on `SIGTTIN`, so it needs a new session or a refused read.
+  with `guard_children_on_signal` handling the signals that end the host (built).
+  A captured child with `stdin: 'ignore'` must fail on `/dev/tty`, not stop on `SIGTTIN`, so it needs a new session or a refused read
+  (designed; the built child stays in the terminal's session and stops).
 - Leave a captured child with `stdin: 'inherit'` in the host's foreground group, with no `setpgid`,
-  since a background group's read of `/dev/tty` stops on `SIGTTIN`, stopping and capping it by pid alone.
+  since a background group's read of `/dev/tty` stops on `SIGTTIN`, stopping and capping it by pid alone (built).
 - Capture `out` and `out_bytes` in the op, enforcing `max_bytes` and reporting `truncated` there,
   decoding only for `out`, whole, so a multi-byte character split across reads stays one character.
-  Return `out_bytes`'s streams as owned buffers, never a view of memory the runtime reuses.
+  Return `out_bytes`'s streams as owned buffers, never a view of memory the runtime reuses (built).
 - Write `stdin` data in the same op, interleaved with the capture so neither pipe can block the other,
   from a buffer copied before the op starts, with `EPIPE` ending the write rather than failing the call
-  and no `SIGPIPE` reaching the runtime.
-- Kill every child still running when the host exits, the group for a group leader, from the runtime's own exit path.
+  and no `SIGPIPE` reaching the runtime (built).
+- Kill every child still running when the host exits, the group for a group leader, from the runtime's own exit path (built).
 - Resolve the `PATH` walk and the realpath pin at grant time, so a handle's reach is decided once,
-  skipping `node_modules/.bin` entries by the rule above.
-  The policy file names the program, and its pin, a real path that differs per machine, is recorded in a local file that isn't committed.
-- Check a name against a narrowed root's set before any resolution, so a name outside it touches nothing on disk.
+  skipping `node_modules/.bin` entries by the rule above (built, as the run starts, for each program `--allow-run=` names).
+  The policy file names the program, and its pin, a real path that differs per machine, is recorded in a local file that isn't committed (designed).
+- Check a name against a narrowed root's set before any resolution, so a name outside it touches nothing on disk (built).
 - Decide the lexical check on a name holding `/` natively, refusing an absolute name or one climbing above the project,
-  so a patched `String.prototype.split` can't forge a segment.
-- Resolve `program_in`'s name with `openat2` and `RESOLVE_BENEATH` beneath the handle's directory, opened beneath its root's descriptor, launch a native binary by its pin's descriptor,
-  `/proc/self/fd/N` through `posix_spawn`, and a script by its found path, checked by identity as above.
+  so a patched `String.prototype.split` can't forge a segment (built).
+- Resolve `program_in`'s name beneath an exec root's own descriptor: the handle's directory by its real path with no symlink on the way,
+  then the name beneath it with `openat2` and `RESOLVE_BENEATH`; launch a native binary by its pin's descriptor,
+  `/proc/self/fd/N` through `posix_spawn`, and a script by its found path, checked by identity as above (built).
   Refuse a handle the runtime didn't make, a resource rather than a shape,
-  and check that the handle's directory is beneath an exec root of the spawn root's scope before resolving, else `not_granted`.
+  and check that the handle's directory is beneath an exec root of the spawn root's scope before resolving, else `not_granted` (built).
   An exec root may also be a write root, as a build's output directory is ([backstop](backstop.md#the-box-for-runs-and-children)).
 - Refuse `env`, `pass_env: 'all'`, and `pass_env` globs on a narrowed root natively,
-  so a patched `String.prototype.endsWith` can't pass a glob through.
-- Read stdin without passing a bare chunk through promise resolution.
-- Expand a `pass_env` glob against the host's environment natively, so script code never enumerates the variables' names.
-- Check each `pass_env` name against that program's spawn grant, narrowed or not.
+  so a patched `String.prototype.endsWith` can't pass a glob through (built).
+- Read a started child's output without passing a bare chunk through promise resolution:
+  each chunk reaches the reader in a null-prototype iterator result (built).
+- Expand a `pass_env` glob against the host's environment natively, so script code never enumerates the variables' names (built).
+- Check each `pass_env` name against that program's spawn grant, narrowed or not (built).
   Reading a variable and forwarding it are separate grants, so a credential can reach one child without the script reading it.
 
 ### The process modules

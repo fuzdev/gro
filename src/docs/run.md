@@ -47,7 +47,7 @@ A run grants the project's own modules `args`, `exit`, and `fs`, whose root read
   held to the rule the module's `narrow` holds a name to: not empty, no NUL byte, no `=`, and no `*`, which names no glob.
   A bare `--allow-env`, an empty list, an empty name (`--allow-env=A,`), and a name breaking the rule are usage errors,
   a bare one never Deno's grant of every name.
-  `fgro` reads the granted variables once, as the run starts, and the runtime reads none;
+  `fgro` reads the granted variables once, as the run starts, and the runtime reads none of them;
   a value that isn't UTF-8 is read with U+FFFD in place of each invalid sequence, as Node reads one.
 - `--allow-read=a,/b` grants `@fuzdev/gro/fs.ts` reading these directories, and `--allow-write=a,/b` writing them,
   beside the project's root, which `fs` reads with neither and writes only when a directory holding it is written.
@@ -110,6 +110,10 @@ and writes only beneath the directories `--allow-write=` names and those `fs.tem
 it starts only the programs `--allow-run=` names and those found beneath what `--allow-run-in=` names, through `@fuzdev/gro/spawn.ts` (any under `-A`), and no module gives it the network.
 That is the whole of today's confinement: the process itself has no kernel box and no resource limits, the JIT is on,
 and console output reaches the terminal unescaped: it's the program's own, and can imitate `fgro`'s lines, an `error:` or a `hint:` among them.
+The vendored `deno_core` reads three diagnostic variables of its own, which `fgro run` leaves in place (only `fgro eval` clears its environment):
+`DENO_STARTUP_PHASES` and `DENO_LOG_LAZY_LOAD` print startup timings and lazy loads to stderr,
+and `DENO_SNAPSHOT_IMPORT_GRAPH` names a file every module's imports are appended to, a write outside every grant,
+the process stopping when the file can't be opened.
 So `fgro run` is not yet for code you treat as hostile
 ([authority](authority.md#threat-model) and [backstop](backstop.md) have what's designed).
 The event loop drains before the run ends, so timers and pending promises complete,
