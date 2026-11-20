@@ -98,4 +98,22 @@ describe('gro check --workspace', () => {
 				" - commit them, or run `gro sync` if they're generated"
 		);
 	});
+
+	test('a dirty workspace with untracked files names removing them too', async () => {
+		git_ops.git_command.mockResolvedValue({ kind: 'exited', code: 0 });
+		// porcelain output, as the mock reads a message holding a NUL
+		for (const [porcelain, issues] of [
+			['?? new.ts\0', 'untracked files'],
+			['MM a.ts\0?? new.ts\0', 'unstaged changes, staged but uncommitted changes, untracked files']
+		]) {
+			git_ops.git_check_clean_workspace.mockResolvedValue(porcelain!);
+			const error = await get_error(create_deps(create_mock_git_program()));
+			assert.instanceOf(error, TaskError);
+			assert.strictEqual(
+				error.message,
+				`--workspace checks the git workspace, and git has ${issues}` +
+					" - commit them or remove the untracked files, or run `gro sync` if they're generated"
+			);
+		}
+	});
 });

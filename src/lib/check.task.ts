@@ -249,7 +249,10 @@ export const run_check = async (
 			await git.run(['status']);
 			throw new TaskError(
 				`--workspace checks the git workspace, and ${git_workspace_status_message(status)}` +
-					" - commit them, or run `gro sync` if they're generated"
+					(status.untracked_files
+						? ' - commit them or remove the untracked files'
+						: ' - commit them') +
+					", or run `gro sync` if they're generated"
 			);
 		}
 	}
