@@ -21,7 +21,6 @@ import {
 	type ResolvedInputFile,
 	type ResolvedInputPath
 } from './input_path.ts';
-import type { InvokeTask } from './task.ts';
 import { TaskError } from './task_error.ts';
 import type { FsOpenedPath, FsPaths } from './fs_paths.ts';
 import { posix_basename, posix_dirname, posix_join } from './internal/posix_path.ts';
@@ -97,7 +96,6 @@ export interface GenContext {
 	svelte_config: Promise<ParsedSvelteConfig>;
 	log: Logger;
 	timings: Timings;
-	invoke_task: InvokeTask;
 	/**
 	 * Same as `import.meta.url` but in path form.
 	 */
@@ -113,10 +111,7 @@ export interface GenContext {
  * as opposed to the per-genfile ones `create_gen_context` derives,
  * and what loads the Svelte config, the invoking task's, called only when a genfile reads it.
  */
-export interface GenContextBase extends Pick<
-	GenContext,
-	'config' | 'log' | 'timings' | 'invoke_task'
-> {
+export interface GenContextBase extends Pick<GenContext, 'config' | 'log' | 'timings'> {
 	load_svelte_config: () => Promise<ParsedSvelteConfig>;
 }
 
@@ -130,7 +125,7 @@ export const create_gen_context = (
 	origin_id: PathId,
 	root: PathId
 ): GenContext => {
-	const { config, log, timings, invoke_task, load_svelte_config } = base;
+	const { config, log, timings, load_svelte_config } = base;
 	return {
 		config,
 		get svelte_config() {
@@ -138,7 +133,6 @@ export const create_gen_context = (
 		},
 		log,
 		timings,
-		invoke_task,
 		origin_id,
 		origin_path: to_root_path(origin_id, root)
 	};

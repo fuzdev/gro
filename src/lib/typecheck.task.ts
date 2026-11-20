@@ -59,10 +59,10 @@ export const task: BuiltinTask<Args, typeof grants> = {
 	summary: 'run svelte-check or tsc on the project without emitting any files',
 	Args,
 	grants,
-	run: ({ task_args, log, host }) =>
+	run: ({ task_args, raw_rest_args, log, host }) =>
 		run_typecheck(
 			task_args,
-			{ raw_rest_args: host.raw_rest_args },
+			{ raw_rest_args },
 			{
 				fs_paths: host.fs_paths,
 				programs: host.programs,

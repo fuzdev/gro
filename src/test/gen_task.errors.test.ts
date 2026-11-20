@@ -38,7 +38,6 @@ const run_failing = async (error: Error): Promise<string> => {
 	const deps: GenTaskDeps = {
 		fs_paths: create_fs_paths(fs, to_fs_paths_options()),
 		import_module: vi.fn(),
-		invoke_project_task: vi.fn(),
 		load_svelte_config: vi.fn(),
 		log: create_mock_logger(),
 		timings: create_mock_timings()

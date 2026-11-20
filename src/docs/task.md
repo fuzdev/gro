@@ -168,6 +168,7 @@ export interface TaskContext<TArgs = object> {
 	timings: Timings;
 	invoke_task: InvokeTask;
 	implicit_rest_args: ReadonlyArray<string>;
+	raw_rest_args: ReadonlyArray<string>;
 }
 ```
 
@@ -185,6 +186,12 @@ so `gro task src/lib/foo.task.ts -- x` sees `['x']`.
 A task another task invokes gets none, unless the invoking task passes one on purpose
 as `invoke_task`'s `implicit_rest_args` option, like a wrapper forwarding its own to `test`:
 `await invoke_task('test', undefined, {implicit_rest_args: ctx.implicit_rest_args})`.
+
+`raw_rest_args` is the CLI args from the first `--` on, frozen, every section
+([args forwarding](#task-args-forwarding)), a tool's found by its name with `to_forwarded_argv`,
+as `gro lint` forwards `-- eslint ...` to ESLint.
+It's data about the command line, the same for every task the CLI's invocation runs,
+none for `gro run`, whose args after its path are the script's.
 
 ### a builtin's `host` and `grants`
 
@@ -219,16 +226,13 @@ a `BuiltinTaskContext` field present only on a builtin's context:
 `programs` with `program(role)` and `find(role)` for the granted roles,
 each the grant's `name` as `spawn`'s pair resolves it (`find_cli`'s way for a `local_first` one),
 each program's environment fixed by its grant, `stdout` and `stderr` when granted,
-with `project_modules` the root's project loader as `import_module`, the one every task loads through,
-and `invoke_project_task`, the `invoke_task` a project task has, for the project's modules it loads,
-and its own frozen copy of the `raw_rest_args` it was invoked with.
+and with `project_modules` the root's project loader as `import_module`, the one every task loads through.
 A builtin invoking a task its `invokes` doesn't name fails with a `TaskError`,
 and its `invoke_task` is typed so that doesn't compile.
 Each builtin it invokes gets a `host` cut from the root's by that builtin's own grants,
-so what a builtin can reach is its grants and those of every builtin it `invokes`, transitively,
-except that a builtin granted `project_modules` reaches whatever a project task does,
-every builtin's grants included, since the `invoke_project_task` its loaded modules get isn't checked by `invokes`:
-`gen` reaches that through its genfiles, and so does `check`, which invokes `gen`.
+so what a builtin can reach is its grants and those of every builtin it `invokes`, transitively.
+The project modules a builtin granted `project_modules` loads, like `gen`'s genfiles,
+are handed no `invoke_task`, though on Node they can import any host module, as a project task can.
 
 A builtin runs only by its name. Its task run by path, like `gro task src/lib/check.task.ts`,
 or re-exported from a project file, has `grants` but no name to find them by in the table,
@@ -258,10 +262,10 @@ export const task: BuiltinTask<Args, typeof grants> = {
 	summary: 'check that everything is ready to commit',
 	Args,
 	grants,
-	run: ({task_args, config, invoke_task, log, host}) =>
+	run: ({task_args, config, raw_rest_args, invoke_task, log, host}) =>
 		run_check(
 			task_args,
-			{map_package_json: config.map_package_json, raw_rest_args: host.raw_rest_args},
+			{map_package_json: config.map_package_json, raw_rest_args},
 			{fs_paths: host.fs_paths, env: host.env, programs: host.programs, invoke_task, log},
 		),
 };

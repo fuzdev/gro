@@ -97,7 +97,6 @@ describe('gro clean --git', () => {
 test("`clean`'s `run` takes its boundary and git from its `host`", async () => {
 	const { git, deps } = create_deps();
 	const host = {
-		raw_rest_args: [],
 		fs_paths: deps.fs_paths,
 		programs: { ...deps.programs, program: vi.fn() }
 	};
@@ -133,12 +132,10 @@ test("`clean`'s grants give `--git` the whole environment, as it may reach a rem
 		clean_task.grants,
 		{
 			fs_paths: create_mock_fs_paths(),
-			import_module: vi.fn(),
-			invoke_project_task: vi.fn(),
-			raw_rest_args: []
+			import_module: vi.fn()
 		}
 	);
-	assert.deepEqual(Object.keys(host).sort(), ['fs_paths', 'programs', 'raw_rest_args']);
+	assert.deepEqual(Object.keys(host).sort(), ['fs_paths', 'programs']);
 	host.programs.find('git_cli');
 	assert.deepEqual(find.mock.calls, [['git', { pass_env: 'all' }]]);
 });

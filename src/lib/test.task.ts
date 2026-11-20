@@ -46,10 +46,10 @@ export const task: BuiltinTask<Args, typeof grants> = {
 	summary: 'run tests with vitest',
 	Args,
 	grants,
-	run: ({ task_args, implicit_rest_args, log, host }) =>
+	run: ({ task_args, raw_rest_args, implicit_rest_args, log, host }) =>
 		run_test(
 			task_args,
-			{ raw_rest_args: host.raw_rest_args, implicit_rest_args },
+			{ raw_rest_args, implicit_rest_args },
 			{ fs_paths: host.fs_paths, programs: host.programs, log }
 		)
 };

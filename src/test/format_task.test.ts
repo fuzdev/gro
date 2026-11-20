@@ -47,7 +47,7 @@ test("`format`'s `run` takes its boundary from its `host`", async () => {
 		task_args: { check: false },
 		config: { search_filters: [] },
 		log: create_mock_logger(),
-		host: { raw_rest_args: [], fs_paths }
+		host: { fs_paths }
 	} as unknown as BuiltinTaskContext<Args, typeof task.grants>);
 	assert.strictEqual(vi.mocked(format_directory).mock.calls[0]![0], fs_paths);
 });
@@ -59,7 +59,7 @@ test("`format`'s `run` filters by its config's `search_filters`", async () => {
 		task_args: { check: true },
 		config: { search_filters },
 		log: create_mock_logger(),
-		host: { raw_rest_args: [], fs_paths: create_mock_fs_paths() }
+		host: { fs_paths: create_mock_fs_paths() }
 	} as unknown as BuiltinTaskContext<Args, typeof task.grants>);
 	assert.strictEqual(vi.mocked(format_directory).mock.calls[0]![1].filter, search_filters);
 });

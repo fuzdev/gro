@@ -48,7 +48,6 @@ const run_test = async () => {
 			),
 			log,
 			timings: new Timings(),
-			invoke_task: Function.prototype as any,
 			load_svelte_config: () => load_default_svelte_config()
 		},
 		cwd()

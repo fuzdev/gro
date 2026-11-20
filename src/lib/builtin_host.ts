@@ -7,7 +7,7 @@ import type { Spawn, SpawnProgram, SpawnProgramOptions } from './spawn.ts';
 import type { ProcessOutput } from './stdout.ts';
 import type { GroBuiltinTasks } from './gro_builtin_tasks.ts';
 import type { ImportModule } from './modules.ts';
-import type { InvokeTask, InvokeTaskRest, TaskContext } from './task.ts';
+import type { InvokeTaskRest, TaskContext } from './task.ts';
 import { SpawnError } from './spawn_error.ts';
 import { find_cli, find_local_cli } from './cli.ts';
 import { create_record } from './internal/records.ts';
@@ -87,11 +87,8 @@ export interface BuiltinTaskGrants {
 	readonly env?: ReadonlyArray<string>;
 	readonly programs?: Readonly<Record<string, BuiltinProgramGrant>>;
 	/**
-	 * Whether the task loads the project's modules, like genfiles, which run as project code:
-	 * through the root's project loader, `host.import_module`,
-	 * invoking tasks as a project task does, through `host.invoke_project_task`,
-	 * which `invokes` doesn't check, so the task reaches whatever a project task does,
-	 * every builtin's grants included.
+	 * Whether the task loads the project's modules, like genfiles, which run as project code,
+	 * through the root's project loader, `host.import_module`.
 	 */
 	readonly project_modules?: true;
 	/**
@@ -104,8 +101,7 @@ export interface BuiltinTaskGrants {
 	readonly stderr?: true;
 	/**
 	 * The builtins the task invokes, each run with its own grants;
-	 * invoking any other task through its own `invoke_task` is an error,
-	 * though with `project_modules` the modules it loads invoke any task, unchecked.
+	 * invoking any other task through its own `invoke_task` is an error.
 	 */
 	readonly invokes?: ReadonlyArray<keyof GroBuiltinTasks>;
 }
@@ -134,15 +130,6 @@ export interface BuiltinHostInvocation {
 	 * The root's project loader, held only with the `project_modules` grant.
 	 */
 	readonly import_module: ImportModule;
-	/**
-	 * The `invoke_task` a project task's context has, unchecked by the builtin's `invokes`,
-	 * held only with the `project_modules` grant, for the project's modules it loads.
-	 */
-	readonly invoke_project_task: InvokeTask;
-	/**
-	 * The CLI args from the first `--` on, copied and frozen for each host.
-	 */
-	readonly raw_rest_args: ReadonlyArray<string>;
 }
 
 /**
@@ -170,18 +157,12 @@ export interface BuiltinPrograms<TRole extends string = string> {
 /**
  * The handles a builtin task gets, each present only when its grants name it.
  */
-export type BuiltinHost<TGrants extends BuiltinTaskGrants = BuiltinTaskGrants> = {
-	/**
-	 * The CLI args from the first `--` on, as `invoke_task` was given them.
-	 */
-	readonly raw_rest_args: ReadonlyArray<string>;
-} & (TGrants extends { fs: BuiltinFsGrant } ? { readonly fs_paths: FsPaths } : unknown) &
+export type BuiltinHost<TGrants extends BuiltinTaskGrants = BuiltinTaskGrants> = object &
+	(TGrants extends { fs: BuiltinFsGrant } ? { readonly fs_paths: FsPaths } : unknown) &
 	(TGrants extends { env: ReadonlyArray<string> } ? { readonly env: Env } : unknown) &
 	(TGrants extends { stdout: true } ? { readonly stdout: ProcessOutput } : unknown) &
 	(TGrants extends { stderr: true } ? { readonly stderr: ProcessOutput } : unknown) &
-	(TGrants extends { project_modules: true }
-		? { readonly import_module: ImportModule; readonly invoke_project_task: InvokeTask }
-		: unknown) &
+	(TGrants extends { project_modules: true } ? { readonly import_module: ImportModule } : unknown) &
 	(TGrants extends { programs: infer TPrograms }
 		? { readonly programs: BuiltinPrograms<Extract<keyof TPrograms, string>> }
 		: unknown);
@@ -238,17 +219,12 @@ export const create_builtin_host = <TGrants extends BuiltinTaskGrants>(
 	grants: TGrants,
 	invocation: BuiltinHostInvocation
 ): BuiltinHost<TGrants> => {
-	const host: Record<string, unknown> = create_record({
-		raw_rest_args: freeze([...invocation.raw_rest_args])
-	});
+	const host: Record<string, unknown> = create_record({});
 	if (grants.fs) host.fs_paths = invocation.fs_paths;
 	if (grants.env) host.env = root.env.narrow(grants.env);
 	if (grants.stdout) host.stdout = root.stdout;
 	if (grants.stderr) host.stderr = root.stderr;
-	if (grants.project_modules) {
-		host.import_module = invocation.import_module;
-		host.invoke_project_task = invocation.invoke_project_task;
-	}
+	if (grants.project_modules) host.import_module = invocation.import_module;
 	const { programs } = grants;
 	if (programs) {
 		const { spawn } = root;

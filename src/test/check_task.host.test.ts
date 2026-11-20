@@ -21,7 +21,6 @@ const NONE = {
 
 const run = async (args: Partial<Args>, raw_rest_args: Array<string>) => {
 	const host = {
-		raw_rest_args,
 		fs_paths: create_mock_fs_paths(),
 		env: { get: vi.fn(() => undefined) },
 		programs: { program: vi.fn(), find: vi.fn(() => null) }
@@ -31,13 +30,14 @@ const run = async (args: Partial<Args>, raw_rest_args: Array<string>) => {
 		task_args: { ...NONE, ...args },
 		config: { map_package_json: null },
 		invoke_task,
+		raw_rest_args,
 		log: create_mock_logger(),
 		host
 	} as unknown as BuiltinTaskContext<Args, typeof task.grants>);
 	return { host, invoke_task };
 };
 
-test("`check`'s `run` reads the forwarded args from its `host`", async () => {
+test("`check`'s `run` reads the forwarded args from its context", async () => {
 	const { invoke_task } = await run({ test: true }, ['--', 'vitest', '--reporter=dot']);
 	assert.deepEqual(
 		invoke_task.mock.calls.map((c) => c[0]),

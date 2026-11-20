@@ -288,7 +288,7 @@ test('run_task passes the graph to the task, and it, `fs_paths`, and `host_root`
 	const ctx = result.output as TaskContext;
 	assert.strictEqual(ctx.graph, graph);
 	assert.ok(!('fs_paths' in ctx));
-	assert.ok(!('raw_rest_args' in ctx));
+	assert.deepEqual(ctx.raw_rest_args, ['--', 'x']);
 	assert.ok(!('import_module' in ctx));
 	assert.ok(!('host_root' in ctx));
 	assert.ok(!('host' in ctx));
@@ -331,6 +331,11 @@ test('run_task gives a builtin with grants a `host` cut by them, and a project t
 	);
 	assert(project.ok);
 	assert.ok(!('host' in (project.output as TaskContext)));
+	// the forwarded args are data on every task's context, a frozen copy
+	const { raw_rest_args } = project.output as TaskContext;
+	assert.deepEqual(raw_rest_args, ['--', 'x']);
+	assert.notStrictEqual(raw_rest_args, options.raw_rest_args);
+	assert.ok(Object.isFrozen(raw_rest_args));
 	const builtin = await run_task(
 		{ name: 'greet', id: '/p/src/lib/greet.task.ts', mod: { task: { run } } },
 		{},
@@ -341,9 +346,9 @@ test('run_task gives a builtin with grants a `host` cut by them, and a project t
 		object,
 		{ fs: { read: ['.'] }; env: ['CI'] }
 	>;
-	assert.deepEqual(Object.keys(host), ['raw_rest_args', 'fs_paths', 'env']);
+	assert.deepEqual(Object.keys(host), ['fs_paths', 'env']);
 	assert.strictEqual(host.fs_paths, fs_paths);
-	assert.deepEqual(host.raw_rest_args, ['--', 'x']);
+	assert.deepEqual((builtin.output as TaskContext).raw_rest_args, ['--', 'x']);
 	assert_throws_matching(
 		() => host.env.get('HOME'),
 		(error: unknown) => is_env_error(error, 'not_granted')
@@ -408,15 +413,10 @@ test("a task's `invoke_task` passes `implicit_rest_args` only when given them", 
 	}
 });
 
-test("run_task gives a builtin granted `project_modules` its own project loader and a project task's `invoke_task`", async () => {
+test('run_task gives a builtin granted `project_modules` its own project loader, which lends no invoke', async () => {
 	const invoke_task = vi.fn((..._args: Array<unknown>) => Promise.resolve());
 	const import_module = vi.fn();
-	const options = {
-		...(await create_mock_run_task_options()),
-		invoke_task,
-		import_module,
-		raw_rest_args: ['--', 'x']
-	};
+	const options = { ...(await create_mock_run_task_options()), invoke_task, import_module };
 	const result = await run_task(
 		{
 			name: 'greet',
@@ -428,7 +428,8 @@ test("run_task gives a builtin granted `project_modules` its own project loader 
 							object,
 							{ project_modules: true }
 						>;
-						await host.invoke_project_task('lint');
+						assert.deepEqual(Object.keys(host), ['import_module']);
+						await ctx.invoke_task('lint');
 						return host;
 					}
 				}
@@ -437,20 +438,10 @@ test("run_task gives a builtin granted `project_modules` its own project loader 
 		{},
 		{ ...options, grants: { project_modules: true } }
 	);
-	assert(result.ok);
-	const host = result.output as BuiltinTaskContext<object, { project_modules: true }>['host'];
-	assert.strictEqual(host.import_module, import_module);
-	// unchecked by the builtin's `invokes`, which name none, and passing what a nested task gets
-	expect(invoke_task).toHaveBeenCalledWith('lint', undefined, {
-		config: options.config,
-		fs_paths: options.fs_paths,
-		raw_rest_args: ['--', 'x'],
-		import_module,
-		host_root: options.host_root,
-		graph: options.graph,
-		timings: options.timings,
-		parent_log: options.log
-	});
+	// its `invokes` names none, and `project_modules` adds none
+	assert(!result.ok);
+	assert.include(result.reason, "which its grants don't name");
+	expect(invoke_task).not.toHaveBeenCalled();
 });
 
 test('run_task refuses a builtin invoking a task its grants do not name', async () => {

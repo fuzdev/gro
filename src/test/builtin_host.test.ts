@@ -21,8 +21,6 @@ const program = { name: 'git' } as SpawnProgram;
 const to_invocation = (overrides: Partial<BuiltinHostInvocation> = {}): BuiltinHostInvocation => ({
 	fs_paths: create_mock_fs_paths(),
 	import_module: vi.fn(),
-	invoke_project_task: vi.fn(),
-	raw_rest_args: [],
 	...overrides
 });
 
@@ -46,15 +44,9 @@ const create_root = (): BuiltinHostRoot & {
 };
 
 describe('create_builtin_host', () => {
-	test('a builtin with no grants gets only its own frozen copy of the forwarded args', () => {
-		const raw_rest_args = ['--', 'x'];
-		const host = create_builtin_host(create_root(), {}, to_invocation({ raw_rest_args }));
-		assert.deepEqual(Object.keys(host), ['raw_rest_args']);
-		assert.deepEqual(host.raw_rest_args, raw_rest_args);
-		assert.notStrictEqual(host.raw_rest_args, raw_rest_args);
-		assert.ok(Object.isFrozen(host.raw_rest_args));
-		raw_rest_args.push('y');
-		assert.deepEqual(host.raw_rest_args, ['--', 'x']);
+	test('a builtin with no grants gets an empty host', () => {
+		const host = create_builtin_host(create_root(), {}, to_invocation());
+		assert.deepEqual(Reflect.ownKeys(host), []);
 		assert.ok(Object.isFrozen(host));
 		assert.strictEqual(Object.getPrototypeOf(host), null);
 	});
@@ -64,30 +56,29 @@ describe('create_builtin_host', () => {
 		const root = create_root();
 		assert.deepEqual(
 			Object.keys(create_builtin_host(root, { env: [] }, to_invocation({ fs_paths }))),
-			['raw_rest_args', 'env']
+			['env']
 		);
 		const host = create_builtin_host(root, { fs: { read: ['.'] } }, to_invocation({ fs_paths }));
-		assert.deepEqual(Object.keys(host), ['raw_rest_args', 'fs_paths']);
+		assert.deepEqual(Object.keys(host), ['fs_paths']);
 		assert.strictEqual(host.fs_paths, fs_paths);
 		assert.deepEqual(
 			Object.keys(create_builtin_host(root, { programs: {} }, to_invocation({ fs_paths }))),
-			['raw_rest_args', 'programs']
+			['programs']
 		);
 		assert.deepEqual(
 			Object.keys(create_builtin_host(root, { invokes: ['gen'] }, to_invocation({ fs_paths }))),
-			['raw_rest_args']
+			[]
 		);
 	});
 
-	test("`project_modules` holds the invocation's project loader and a project task's `invoke_task`", () => {
+	test("`project_modules` holds the invocation's project loader and nothing that invokes", () => {
 		const invocation = to_invocation();
 		const host = create_builtin_host(create_root(), { project_modules: true }, invocation);
-		assert.deepEqual(Object.keys(host), ['raw_rest_args', 'import_module', 'invoke_project_task']);
+		assert.deepEqual(Object.keys(host), ['import_module']);
 		assert.strictEqual(host.import_module, invocation.import_module);
-		assert.strictEqual(host.invoke_project_task, invocation.invoke_project_task);
 		assert.deepEqual(
 			Object.keys(create_builtin_host(create_root(), { fs: { read: ['.'] } }, invocation)),
-			['raw_rest_args', 'fs_paths']
+			['fs_paths']
 		);
 	});
 
@@ -159,7 +150,7 @@ describe('create_builtin_host', () => {
 
 	test("`check`'s host holds what its grants name", () => {
 		const host = create_builtin_host(create_root(), check_task.grants, to_invocation());
-		assert.deepEqual(Object.keys(host).sort(), ['env', 'fs_paths', 'programs', 'raw_rest_args']);
+		assert.deepEqual(Object.keys(host).sort(), ['env', 'fs_paths', 'programs']);
 		assert_throws_matching(
 			() => host.env.get('HOME'),
 			(error) => is_env_error(error, 'not_granted')
@@ -269,7 +260,6 @@ test("`stdout` and `stderr` are the root's, each held only when granted", () => 
 	assert.strictEqual(both.stdout, stdout);
 	assert.strictEqual(both.stderr, stderr);
 	assert.deepEqual(Object.keys(create_builtin_host(root, { stderr: true }, to_invocation())), [
-		'raw_rest_args',
 		'stderr'
 	]);
 });

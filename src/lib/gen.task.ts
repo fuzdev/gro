@@ -5,7 +5,6 @@ import type { Timings } from '@fuzdev/fuz_util/timings.ts';
 import * as s from '@fuzdev/fuz_schema/schema.ts';
 import { meta } from '@fuzdev/fuz_schema/meta.ts';
 
-import type { InvokeTask } from './task.ts';
 import { is_task_error, TaskError } from './task_error.ts';
 import { run_gen } from './run_gen.ts';
 import { RawInputPath, to_input_paths } from './input_path.ts';
@@ -65,7 +64,6 @@ export const task: BuiltinTask<Args, typeof grants> = {
 			{
 				fs_paths: ctx.host.fs_paths,
 				import_module: ctx.host.import_module,
-				invoke_project_task: ctx.host.invoke_project_task,
 				load_svelte_config: () => ctx.svelte_config,
 				log: ctx.log,
 				timings: ctx.timings
@@ -93,10 +91,6 @@ export interface GenTaskDeps {
 	 */
 	import_module: ImportModule;
 	/**
-	 * The genfiles' `invoke_task`, a project task's.
-	 */
-	invoke_project_task: InvokeTask;
-	/**
 	 * Loads the Svelte config, when a genfile reads it.
 	 */
 	load_svelte_config: () => Promise<ParsedSvelteConfig>;
@@ -108,8 +102,7 @@ export interface GenTaskDeps {
  * Runs the genfiles under the input paths, writing what they generate or checking it, `gro gen`'s body.
  * @param args - the task's parsed args
  * @param options - the config
- * @param deps - the project's boundary and loader, the genfiles' `invoke_task`, the Svelte config,
- * the log, and the timings
+ * @param deps - the project's boundary and loader, the Svelte config, the log, and the timings
  */
 export const run_gen_task = async (
 	args: Args,
@@ -118,7 +111,7 @@ export const run_gen_task = async (
 ): Promise<void> => {
 	const { _: raw_input_paths, root_dirs, check } = args;
 	const { config } = options;
-	const { fs_paths, import_module, invoke_project_task, load_svelte_config, log, timings } = deps;
+	const { fs_paths, import_module, load_svelte_config, log, timings } = deps;
 
 	const root = fs_paths.project.path;
 	const input_paths = to_input_paths(raw_input_paths, root);
@@ -151,7 +144,7 @@ export const run_gen_task = async (
 	const timing_to_generate_code = timings.start('generate code'); // TODO this ignores `gen_results.elapsed` - should it return `Timings` instead?
 	const gen_results = await run_gen(
 		loaded_genfiles.modules,
-		{ config, log, timings, invoke_task: invoke_project_task, load_svelte_config },
+		{ config, log, timings, load_svelte_config },
 		root,
 		format_file
 	);

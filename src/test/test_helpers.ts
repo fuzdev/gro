@@ -95,18 +95,18 @@ export const create_mock_builtin_context = async <
 		{
 			fs_paths:
 				options.fs_paths ?? create_fs_paths(fs, { cwd: process.cwd(), home: process.env.HOME }),
-			import_module: vi.fn(),
-			invoke_project_task: vi.fn(),
-			raw_rest_args: to_raw_rest_args(cli_args)
+			import_module: vi.fn()
 		}
 	);
+	const raw_rest_args = to_raw_rest_args(cli_args);
 	return {
 		...create_mock_task_context<TArgs>(task_args, config_overrides),
 		implicit_rest_args: Object.freeze(
 			name !== undefined && to_task_args(cli_args).task_name === name
-				? to_implicit_rest_args(to_raw_rest_args(cli_args))
+				? to_implicit_rest_args(raw_rest_args)
 				: []
 		),
+		raw_rest_args: Object.freeze(raw_rest_args),
 		host
 	} as unknown as BuiltinTaskContext<TArgs, TGrants>;
 };
@@ -235,7 +235,8 @@ export const create_mock_task_context = <TArgs extends object = any>(
 	log: create_mock_logger(),
 	timings: create_mock_timings(),
 	invoke_task: vi.fn(),
-	implicit_rest_args: []
+	implicit_rest_args: [],
+	raw_rest_args: []
 });
 
 /**

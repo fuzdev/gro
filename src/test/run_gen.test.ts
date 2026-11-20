@@ -42,7 +42,6 @@ const run = async (
 			config: await create_mock_config(),
 			log: create_mock_logger(),
 			timings: create_mock_timings(),
-			invoke_task: () => Promise.resolve(),
 			load_svelte_config: () => Promise.resolve(create_mock_svelte_config())
 		},
 		paths.root,
@@ -108,12 +107,11 @@ test('a genfile whose outputs format succeeds with the formatted content', async
 	);
 });
 
-test("a genfile's `svelte_config` is the base's, loaded only when the genfile reads it, and its `invoke_task` the base's", async () => {
+test("a genfile's `svelte_config` is the base's, loaded only when the genfile reads it, and it gets no `invoke_task`", async () => {
 	const svelte_config = Promise.resolve(create_mock_svelte_config());
 	const load_svelte_config = vi.fn(() => svelte_config);
-	const invoke_task = vi.fn();
 	let read: unknown;
-	let invoke: unknown;
+	let has_invoke: unknown;
 	const results = await run_gen(
 		[
 			{ id: origin_id, mod: { gen: () => '' } },
@@ -122,7 +120,7 @@ test("a genfile's `svelte_config` is the base's, loaded only when the genfile re
 				mod: {
 					gen: (ctx) => {
 						read = ctx.svelte_config;
-						invoke = ctx.invoke_task;
+						has_invoke = 'invoke_task' in ctx;
 						return '';
 					}
 				}
@@ -132,13 +130,12 @@ test("a genfile's `svelte_config` is the base's, loaded only when the genfile re
 			config: await create_mock_config(),
 			log: create_mock_logger(),
 			timings: create_mock_timings(),
-			invoke_task,
 			load_svelte_config
 		},
 		paths.root
 	);
 	assert.strictEqual(results.failures.length, 0);
 	assert.strictEqual(read, svelte_config);
-	assert.strictEqual(invoke, invoke_task);
+	assert.strictEqual(has_invoke, false);
 	assert.strictEqual(load_svelte_config.mock.calls.length, 1);
 });

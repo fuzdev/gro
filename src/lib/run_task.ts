@@ -46,8 +46,9 @@ export type RunTaskResult =
 
 /**
  * What `run_task` builds the task's context from:
- * `config`, `graph`, `log`, and `timings` become its fields of the same name,
- * and `fs_paths`, `raw_rest_args`, `import_module`, and `host_root` pass to the tasks it invokes,
+ * `config`, `graph`, `log`, `timings`, and a frozen copy of `raw_rest_args`
+ * become its fields of the same name,
+ * and `fs_paths`, `import_module`, and `host_root` pass to the tasks it invokes,
  * never onto its context, but for a builtin's `host`, cut from them by its `grants`.
  */
 export interface RunTaskOptions {
@@ -63,7 +64,8 @@ export interface RunTaskOptions {
 	 */
 	fs_paths: FsPaths;
 	/**
-	 * The CLI args from the first `--` on, passed to the tasks this task invokes.
+	 * The CLI args from the first `--` on, the context's own frozen copy,
+	 * passed to the tasks this task invokes.
 	 */
 	raw_rest_args: ReadonlyArray<string>;
 	/**
@@ -148,7 +150,7 @@ export const run_task = async (
 	}
 
 	// the registry typing is for callers, the runtime takes any name and args
-	const invoke_project_task = async (
+	const invoke_any_task = async (
 		invoked_task_name: string,
 		invoked_args?: Args,
 		invoked_options?: InvokeTaskContextOptions
@@ -184,17 +186,16 @@ export const run_task = async (
 							`Task ${st('cyan', task_meta.name)} invokes \`${invoked_task_name}\`, which its grants don't name.`
 						);
 					}
-					await invoke_project_task(invoked_task_name, invoked_args, invoked_options);
+					await invoke_any_task(invoked_task_name, invoked_args, invoked_options);
 				}
-			: invoke_project_task,
-		implicit_rest_args: freeze([...implicit_rest_args])
+			: invoke_any_task,
+		implicit_rest_args: freeze([...implicit_rest_args]),
+		raw_rest_args: freeze([...raw_rest_args])
 	};
 	if (grants) {
 		(ctx as BuiltinTaskContext<Args>).host = create_builtin_host(host_root, grants, {
 			fs_paths,
-			import_module,
-			invoke_project_task,
-			raw_rest_args
+			import_module
 		});
 	}
 

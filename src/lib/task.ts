@@ -47,6 +47,12 @@ export interface TaskContext<TArgs = object> {
 	 * Data about the command line, never inherited by the tasks this one invokes.
 	 */
 	implicit_rest_args: ReadonlyArray<string>;
+	/**
+	 * The CLI args from the first `--` on, frozen, the sections forwarded to the tools tasks run,
+	 * passed unchanged to the tasks this one invokes. Data about the command line, as `invoke_task`
+	 * was given it, none for `gro run`, whose args after its path are the script's.
+	 */
+	raw_rest_args: ReadonlyArray<string>;
 }
 
 /**

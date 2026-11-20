@@ -27,8 +27,8 @@ export const task: BuiltinTask<Args, typeof grants> = {
 	summary: 'run eslint',
 	Args,
 	grants,
-	run: ({ task_args, log, host }) =>
-		run_lint(task_args, { raw_rest_args: host.raw_rest_args }, { programs: host.programs, log })
+	run: ({ task_args, raw_rest_args, log, host }) =>
+		run_lint(task_args, { raw_rest_args }, { programs: host.programs, log })
 };
 
 /**

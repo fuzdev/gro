@@ -51,7 +51,8 @@ errors and exit codes. Where it lives:
   a task it invokes gets only when its `invoke_task` passes one; CLI-forwarded args override args passed to
   `invoke_task` (`gro test --a 1 -- gro test --a 2` → `{a: 2}`). The functions
   take the CLI args after the CLI's own path (`args`, from `args.ts`), and a root or
-  `invoke_task`'s `raw_rest_args` option passes them
+  `invoke_task`'s `raw_rest_args` option passes them, every task's `TaskContext`
+  holding a frozen copy as its `raw_rest_args`
 - Exit code - `to_exit_code` in `invoke.ts` reads a `TaskError`'s `exit_code`
   (how `gro run` passes on its script's code) from the CLI-invoked task's
   failure
@@ -78,8 +79,8 @@ errors and exit codes. Where it lives:
   `BuiltinHostRoot` (`env`, `spawn`, `stdout`, `stderr`) rides `InvokeTaskOptions` as `host_root`,
   and `run_task` cuts it by the table (`create_builtin_host`) into the `host`
   of a `BuiltinTaskContext`, only for a builtin, refusing an invoke its grants
-  don't name (a `project_modules` builtin's loaded modules invoke unchecked, so it
-  reaches what a project task does), and refusing a task with `grants` run by path or re-exported,
+  don't name (a `project_modules` builtin's loaded modules get no `invoke_task`),
+  and refusing a task with `grants` run by path or re-exported,
   as a builtin runs only by its name; the body is a function over the task's own `*Deps`
   ([docs](src/docs/task.md#a-builtins-host-and-grants)). On Node the cut is a
   review signal, not an enforced boundary. A builtin with no `grants` (`null`
@@ -88,8 +89,8 @@ errors and exit codes. Where it lives:
   through an `ImportModule` (`modules.ts`) taken as a parameter: `invoke_task` takes the
   root's as `import_module` in `InvokeTaskOptions`, passed down as `fs_paths` is, and the
   Node roots pass `import_module_node` (`internal/node_import_module.ts`); `gro gen`
-  loads genfiles through it, from its `host` (the `project_modules` grant, whose
-  loaded modules invoke tasks unchecked by `invokes`, as a project task does)
+  loads genfiles through it, from its `host` (the `project_modules` grant), and a
+  genfile's context has no `invoke_task`
 - Wrapping a builtin is composition: a project task calls it by name and the
   `package.json` script points at the wrapper's path; nothing shadows a builtin
 

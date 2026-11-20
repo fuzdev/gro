@@ -65,8 +65,8 @@ export interface InvokeTaskOptions {
 	fs_paths: FsPaths;
 	/**
 	 * The CLI args from the first `--` on, from `to_raw_rest_args`, passed to nested tasks.
-	 * The `gro` sections in them forward args to Gro tasks, and a builtin with grants reads
-	 * them, and an outside tool's section, from its `host`.
+	 * The `gro` sections in them forward args to Gro tasks,
+	 * and a task reads them, and an outside tool's section, from its context.
 	 */
 	raw_rest_args: ReadonlyArray<string>;
 	/**

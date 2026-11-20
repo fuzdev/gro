@@ -80,10 +80,10 @@ export const task: BuiltinTask<Args, typeof grants> = {
 	summary: 'check that everything is ready to commit',
 	Args,
 	grants,
-	run: ({ task_args, config, invoke_task, log, host }) =>
+	run: ({ task_args, config, raw_rest_args, invoke_task, log, host }) =>
 		run_check(
 			task_args,
-			{ map_package_json: config.map_package_json, raw_rest_args: host.raw_rest_args },
+			{ map_package_json: config.map_package_json, raw_rest_args },
 			{ fs_paths: host.fs_paths, env: host.env, programs: host.programs, invoke_task, log }
 		)
 };

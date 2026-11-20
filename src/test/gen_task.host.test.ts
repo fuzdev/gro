@@ -31,13 +31,11 @@ vi.mock('#lib/run_gen.ts', () => ({
 	}))
 }));
 
-test("`gen`'s `run` loads the genfiles through its `host`, giving them a project task's `invoke_task`", async () => {
+test("`gen`'s `run` loads the genfiles through its `host`, giving them no `invoke_task`", async () => {
 	const svelte_config = Promise.resolve(create_mock_svelte_config());
 	const host = {
-		raw_rest_args: [],
 		fs_paths: create_fs_paths(fs, to_fs_paths_options()),
-		import_module: vi.fn(),
-		invoke_project_task: vi.fn()
+		import_module: vi.fn()
 	};
 	const ctx = {
 		...create_mock_task_context<Args>({ _: ['src'], root_dirs: [process.cwd()], check: true }),
@@ -47,8 +45,8 @@ test("`gen`'s `run` loads the genfiles through its `host`, giving them a project
 	await task.run(ctx);
 	assert.strictEqual(vi.mocked(load_genfiles).mock.calls[0]![2], host.import_module);
 	const base = vi.mocked(run_gen).mock.calls[0]![1];
-	assert.strictEqual(base.invoke_task, host.invoke_project_task);
-	assert.notStrictEqual(base.invoke_task, ctx.invoke_task);
+	// genfiles run as project code and invoke no task
+	assert.notProperty(base, 'invoke_task');
 	assert.strictEqual(base.load_svelte_config(), svelte_config);
 	assert.strictEqual(base.config, ctx.config);
 	// what the genfiles return is formatted
@@ -65,10 +63,8 @@ test("`gen`'s `run` reads its context's `svelte_config` only when a genfile does
 			return svelte_config;
 		},
 		host: {
-			raw_rest_args: [],
 			fs_paths: create_fs_paths(fs, to_fs_paths_options()),
-			import_module: vi.fn(),
-			invoke_project_task: vi.fn()
+			import_module: vi.fn()
 		}
 	} as unknown as BuiltinTaskContext<Args, typeof task.grants>;
 	vi.mocked(run_gen).mockClear();

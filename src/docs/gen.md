@@ -129,7 +129,6 @@ export interface GenContext {
 	svelte_config: Promise<ParsedSvelteConfig>;
 	log: Logger;
 	timings: Timings;
-	invoke_task: InvokeTask;
 	/**
 	 * Same as `import.meta.url` but in path form.
 	 */
@@ -143,10 +142,9 @@ export interface GenContext {
 ```
 
 `gro gen` loads genfiles through the run's project loader, the one every task loads through,
-taken from its `host` ([task.md](task.md#a-builtins-host-and-grants)),
-and a genfile is the project's code, so its `invoke_task` is the one a project task has,
-not limited by the builtins `gen` itself invokes, which are none:
-through its genfiles `gen` reaches whatever a project task does, every builtin's grants included.
+taken from its `host` ([task.md](task.md#a-builtins-host-and-grants)).
+A genfile is the project's code, and its context has no `invoke_task`:
+a genfile generates, and a task that needs another task runs it.
 
 ### generate other filetypes
 
