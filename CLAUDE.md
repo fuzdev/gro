@@ -381,6 +381,10 @@ Key utilities:
 - Hashing: `blake3.ts`, the blake3 host module, BLAKE3 over bytes, `hash` and hashers from
   `create_hasher`, `create_keyed_hasher`, `create_derive_key_hasher`, over `@fuzdev/blake3-wasm`
   on Node and the native crate on `fgro`, grant-free ([docs](src/docs/host_modules.md#blake3))
+- tsv: `tsv.ts`, the tsv host module, `format_typescript`, `format_svelte`, `format_css`,
+  `parse_imports_typescript`, `parse_imports_svelte`, and `create_ignore_stack`, over `@fuzdev/tsv`
+  on Node and tsv's crates on `fgro`, grant-free; Gro's modules import it, never `@fuzdev/tsv`,
+  but the Node loader's type strip ([docs](src/docs/host_modules.md#tsv))
 - Network: `net.ts`, the net host module, `net.fetch` and `narrow` bound to hosts, following redirects itself so each `Location` is checked; `net_error.ts`, its `NetError` and `is_net_error`, grant-free ([docs](src/docs/host_modules.md#net))
 - Watch: `watch.ts`, the watch host module, `watch.dir(handle, {recursive, signal, max_pending})` resolving, once the watch is in place, to a `Watcher`, an async iterable of `add`/`update`/`delete`/`rescan` events with paths relative to the handle, symlinks never followed, buffered to `max_pending`, over chokidar imported on first call and apart from the Filer's `internal/watch_dir.ts`; its errors are `FsError` ([docs](src/docs/host_modules.md#watch))
 - Package modules: the library modules that can load as a package on `fgro` (`fs_paths.ts`, `git.ts`,

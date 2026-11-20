@@ -40,6 +40,7 @@ pub mod handle;
 pub mod later;
 pub mod native;
 pub mod spawn;
+pub mod tsv;
 
 use deno_core::error::ModuleLoaderError as JsErrorBox;
 use deno_core::{OpDecl, OpState, op2, v8};
@@ -49,7 +50,7 @@ use exit::{ExitState, NOT_A_CODE, to_exit_code};
 use grant::require_authority;
 use handle::{
     BLAKE3_HASHER, ENV_HANDLE, FS_DIR, FS_LISTING, FS_READ_DIR, FS_ROOT, FS_TEMP_DIR, SPAWN,
-    SPAWN_CHILD, SPAWN_OUTPUT, SPAWN_OUTPUT_ITERATOR, SPAWN_PROGRAM, SPAWN_STDIN,
+    SPAWN_CHILD, SPAWN_OUTPUT, SPAWN_OUTPUT_ITERATOR, SPAWN_PROGRAM, SPAWN_STDIN, TSV_IGNORE_STACK,
 };
 use native::native_members;
 use native::{ASYNC_DISPOSE, ASYNC_ITERATOR};
@@ -782,5 +783,76 @@ native_members! {
         on SPAWN_OUTPUT_ITERATOR(iterator)
     {
         spawn::start::iterator_throw(state, scope, iterator, error)
+    }
+
+    /// `format_typescript(source, options)` ([`tsv::format`]).
+    fn format_typescript(state; scope, source, options) for "@fuzdev/gro/tsv.ts" {
+        tsv::format(scope, tsv::Language::TypeScript, source, options)
+    }
+
+    /// `format_svelte(source, options)` ([`tsv::format`]).
+    fn format_svelte(state; scope, source, options) for "@fuzdev/gro/tsv.ts" {
+        tsv::format(scope, tsv::Language::Svelte, source, options)
+    }
+
+    /// `format_css(source, options)` ([`tsv::format`]).
+    fn format_css(state; scope, source, options) for "@fuzdev/gro/tsv.ts" {
+        tsv::format(scope, tsv::Language::Css, source, options)
+    }
+
+    /// `parse_imports_typescript(source, options)` ([`tsv::parse_imports`]).
+    fn parse_imports_typescript(state; scope, source, options) for "@fuzdev/gro/tsv.ts" {
+        tsv::parse_imports(scope, false, source, options)
+    }
+
+    /// `parse_imports_svelte(source, options)` ([`tsv::parse_imports`]).
+    fn parse_imports_svelte(state; scope, source, options) for "@fuzdev/gro/tsv.ts" {
+        tsv::parse_imports(scope, true, source, options)
+    }
+
+    /// `create_ignore_stack()`, a new ignore stack ([`tsv::create_ignore_stack`]).
+    fn create_ignore_stack(state; scope) for "@fuzdev/gro/tsv.ts" {
+        tsv::create_ignore_stack(state, scope)
+    }
+
+    /// `stack.push_gitignore(anchor, content)`, called on `stack` ([`tsv::push`]).
+    fn push_gitignore(state; scope, anchor, content) for "@fuzdev/gro/tsv.ts"
+        on TSV_IGNORE_STACK(stack)
+    {
+        tsv::push(state, scope, stack, tsv::Layer::Gitignore, anchor, content);
+        None
+    }
+
+    /// `stack.pop_gitignore()`, called on `stack` ([`tsv::pop`]).
+    fn pop_gitignore(state; scope) for "@fuzdev/gro/tsv.ts" on TSV_IGNORE_STACK(stack) {
+        tsv::pop(state, scope, stack, tsv::Layers::Gitignore);
+        None
+    }
+
+    /// `stack.push_formatignore(anchor, content)`, called on `stack` ([`tsv::push`]).
+    fn push_formatignore(state; scope, anchor, content) for "@fuzdev/gro/tsv.ts"
+        on TSV_IGNORE_STACK(stack)
+    {
+        tsv::push(state, scope, stack, tsv::Layer::Formatignore, anchor, content);
+        None
+    }
+
+    /// `stack.push_prettierignore(anchor, content)`, called on `stack` ([`tsv::push`]).
+    fn push_prettierignore(state; scope, anchor, content) for "@fuzdev/gro/tsv.ts"
+        on TSV_IGNORE_STACK(stack)
+    {
+        tsv::push(state, scope, stack, tsv::Layer::Prettierignore, anchor, content);
+        None
+    }
+
+    /// `stack.pop_override()`, called on `stack` ([`tsv::pop`]).
+    fn pop_override(state; scope) for "@fuzdev/gro/tsv.ts" on TSV_IGNORE_STACK(stack) {
+        tsv::pop(state, scope, stack, tsv::Layers::Override);
+        None
+    }
+
+    /// `stack.is_ignored(path, is_dir)`, called on `stack` ([`tsv::is_ignored`]).
+    fn is_ignored(state; scope, path, is_dir) for "@fuzdev/gro/tsv.ts" on TSV_IGNORE_STACK(stack) {
+        tsv::is_ignored(state, scope, stack, path, is_dir)
     }
 }

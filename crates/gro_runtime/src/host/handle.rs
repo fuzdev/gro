@@ -23,9 +23,10 @@
 //!
 //! The state is a value of the row's choosing, which no JS ever holds:
 //! `env`'s is a record of the names a handle may read and their values,
-//! and `blake3`'s hasher's is a number naming its native state, a Rust
-//! value in a table of the run's `OpState`, which a weak reference to the
-//! handle drops when the handle is collected (`blake3.rs`).
+//! and the state of a handle with native state, `blake3`'s hasher and
+//! `tsv`'s ignore stack, is a number naming a Rust value in a
+//! [`NativeTable`] of the run's `OpState`, which a weak reference to the
+//! handle drops when the handle is collected.
 //! A handle of another row's kind is no handle of this one's, and a row
 //! that must recognize another's handle (`spawn` taking an `fs` directory)
 //! reads it with that row's kind.
@@ -40,6 +41,10 @@
 //! A kind whose methods take no receiver is a record's (`fs`'s root,
 //! `Fs`): the host makes the one object of it, of its members, with the
 //! namespace, and no handle of it.
+
+use std::cell::{Cell, RefCell};
+use std::collections::HashMap;
+use std::rc::Rc;
 
 use deno_core::v8;
 
@@ -90,6 +95,13 @@ pub const ENV_HANDLE: HandleKind = HandleKind {
 /// The blake3 host module's hashers, its `Blake3Hasher`.
 pub const BLAKE3_HASHER: HandleKind = HandleKind {
     brand: "@fuzdev/gro/blake3.ts#Blake3Hasher",
+    parent: None,
+    fields: &[],
+};
+
+/// The tsv host module's ignore stacks, its `TsvIgnoreStack`.
+pub const TSV_IGNORE_STACK: HandleKind = HandleKind {
+    brand: "@fuzdev/gro/tsv.ts#TsvIgnoreStack",
     parent: None,
     fields: &[],
 };
@@ -294,4 +306,156 @@ pub fn prototype_of<'s>(
     handle: v8::Local<'s, v8::Object>,
 ) -> Option<v8::Local<'s, v8::Object>> {
     v8::Local::<v8::Object>::try_from(handle.get_prototype(scope)?).ok()
+}
+
+/// The native state behind a kind of handle, one Rust value per handle, in
+/// a table of the run's `OpState`: a handle's state is a number naming its
+/// value, held beside a weak reference to the handle, whose finalizer takes
+/// the value out once the handle is collected, so a value lives as long as
+/// its handle can be reached, and no longer, with no call to end it.
+///
+/// No borrow of the table is held across a call into V8, which is what
+/// could collect a handle ([`with`](Self::with) hands its step the value
+/// alone), so a finalizer always finds the table free; were it ever held,
+/// the finalizer leaves the value to the run's end rather than fail. The
+/// finalizers run after V8 collects, which allocation triggers in any loop,
+/// yielding or not. Each value is boxed, so the table holds a pointer per
+/// handle, and is counted as external memory to V8 while it lives, its size
+/// and what it [`grow`](Self::grow)s by, so collections come as the native
+/// state grows, not only as the handles do. What a row grows a value by is
+/// its own estimate (a `tsv` ignore stack's, its layers' text, not the rules
+/// parsed from it), nothing is ever subtracted before the value is dropped,
+/// and nothing bounds a value's memory but the process's.
+pub struct NativeTable<T> {
+    /// Each value, by the bits of its number, beside the weak reference to
+    /// its handle whose finalizer removes it.
+    table: RefCell<HashMap<u64, NativeEntry<T>>>,
+    /// The number the next handle gets, an integer exact as a JS number:
+    /// never one a handle had before.
+    next: Cell<f64>,
+}
+
+impl<T> Default for NativeTable<T> {
+    fn default() -> Self {
+        Self {
+            table: RefCell::default(),
+            next: Cell::new(0.0),
+        }
+    }
+}
+
+/// A value in a [`NativeTable`].
+struct NativeEntry<T> {
+    /// The value, boxed, so the table holds a pointer per handle and
+    /// growing the table copies only that.
+    value: Box<T>,
+    /// The bytes it's counted as to V8.
+    counted: i64,
+    /// Its handle, weakly: dropped with the entry, which cancels the
+    /// finalizer, and the finalizer drops the entry once the handle is
+    /// collected.
+    _handle: v8::Weak<v8::Object>,
+}
+
+impl<T: 'static> NativeTable<T> {
+    /// How many values the table holds.
+    #[cfg(test)]
+    pub fn len(&self) -> usize {
+        self.table.borrow().len()
+    }
+
+    /// Makes a handle of `kind` of `prototype` whose state names `value`,
+    /// which the table holds until the handle is collected. `None` with an
+    /// exception pending when V8 failed to make it.
+    pub fn make<'s>(
+        self: &Rc<Self>,
+        scope: &mut v8::PinScope<'s, '_>,
+        kind: &'static HandleKind,
+        prototype: v8::Local<'s, v8::Object>,
+        value: T,
+    ) -> Option<v8::Local<'s, v8::Object>> {
+        let number = self.next.get();
+        self.next.set(number + 1.0);
+        let id = number.to_bits();
+        let held = v8::Number::new(scope, number);
+        let made = make(scope, kind, prototype, held.into(), &[])?;
+        let finalized = Rc::clone(self);
+        let weak = v8::Weak::with_finalizer(
+            scope,
+            made,
+            Box::new(move |isolate: &mut v8::Isolate| finalized.remove(isolate, id)),
+        );
+        let counted = i64::try_from(size_of::<T>()).unwrap_or(i64::MAX);
+        self.table.borrow_mut().insert(
+            id,
+            NativeEntry {
+                value: Box::new(value),
+                counted,
+                _handle: weak,
+            },
+        );
+        scope.adjust_amount_of_external_allocated_memory(counted);
+        Some(made)
+    }
+
+    /// Runs `step` on the value `id` names, `None` when the table holds
+    /// none. `step` is given the value alone, so no call into V8 runs while
+    /// the table is borrowed.
+    pub fn with<R>(&self, id: u64, step: impl FnOnce(&mut T) -> R) -> Option<R> {
+        let mut table = self.table.try_borrow_mut().ok()?;
+        table.get_mut(&id).map(|entry| step(&mut entry.value))
+    }
+
+    /// Counts `bytes` more of native state to the value `id` names, when
+    /// the table holds it, telling `isolate`.
+    pub fn grow(&self, isolate: &mut v8::Isolate, id: u64, bytes: usize) {
+        let bytes = i64::try_from(bytes).unwrap_or(i64::MAX);
+        let grown = self
+            .table
+            .try_borrow_mut()
+            .ok()
+            .and_then(|mut table| {
+                let entry = table.get_mut(&id)?;
+                entry.counted = entry.counted.saturating_add(bytes);
+                Some(())
+            })
+            .is_some();
+        if grown {
+            isolate.adjust_amount_of_external_allocated_memory(bytes);
+        }
+    }
+
+    /// Takes the value `id` names out of the table, when the table is free,
+    /// which it always is when a finalizer runs, and tells `isolate` its
+    /// native state is gone.
+    fn remove(&self, isolate: &mut v8::Isolate, id: u64) {
+        let removed = self
+            .table
+            .try_borrow_mut()
+            .ok()
+            .and_then(|mut table| table.remove(&id));
+        if let Some(entry) = &removed {
+            isolate.adjust_amount_of_external_allocated_memory(-entry.counted);
+        }
+        // dropped once the table's borrow ended: dropping its weak
+        // reference reaches the isolate
+        drop(removed);
+    }
+}
+
+/// The number the handle of `kind` `value` is holds, naming its value in a
+/// [`NativeTable`], or `None` when `value` is no such handle.
+pub fn read_number(
+    scope: &v8::PinScope<'_, '_>,
+    kind: &HandleKind,
+    value: v8::Local<'_, v8::Value>,
+) -> Option<u64> {
+    let (_, held) = read(scope, kind, value)?;
+    // the host's own number, keyed by its bits
+    Some(
+        v8::Local::<v8::Number>::try_from(held)
+            .ok()?
+            .value()
+            .to_bits(),
+    )
 }

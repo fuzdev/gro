@@ -47,11 +47,20 @@ thiserror = "2"
 # rt: the event loop's runtime; time and net: what a later member's work
 # waits on as a task on it, a timer or a descriptor its reactor watches
 tokio = { version = "1", features = ["rt", "time", "net"] }
-# TypeScript's type strip, in process. Its parser's depth limits make input
-# past them a parse error, not a stack overflow, on a thread of its
-# `STACK_SIZE`. Without default features: the strip needs none of tsv's
-# wire-JSON layer (its `json` feature)
-tsv_ts = { version = "0.8.1", default-features = false }
+# tsv's CSS formatter, for the tsv host module. Without default features, as
+# `tsv_ts`
+tsv_css = { version = "=0.8.1", default-features = false }
+# tsv's gitignore-style matcher, for the tsv host module's ignore stacks
+tsv_ignore = { version = "=0.8.1", default-features = false }
+# tsv's Svelte formatter and import parse, for the tsv host module. Without
+# default features, as `tsv_ts`
+tsv_svelte = { version = "=0.8.1", default-features = false }
+# TypeScript's type strip, in process, and the tsv host module's TypeScript
+# formatter and import parse. Its parser's depth limits make input past them a
+# parse error, not a stack overflow, on a thread of its `STACK_SIZE`. Without
+# default features: none of it needs tsv's wire-JSON layer (its `json`
+# feature)
+tsv_ts = { version = "=0.8.1", default-features = false }
 url = "2.5"
 # the V8 binding itself, for gro_v8's calls `deno_core` doesn't wrap; pinned to
 # the exact version `deno_core` re-exports as `deno_core::v8` (its `deno_v8`

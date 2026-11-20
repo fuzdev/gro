@@ -105,12 +105,12 @@
 //! a JS function's `length`; one not passed is `undefined`. An iterator
 //! whose work waits for its first `next()`, as an async generator's does
 //! (`fs`'s `list`), is a handle whose state is a record of the host's that
-//! its methods change, under its brand, which no JS holds.
+//! its methods change, under its brand, which no JS holds. A handle with
+//! native state, `blake3`'s hasher or `tsv`'s ignore stack, holds a number
+//! naming it in a `NativeTable` (`handle.rs`), whose weak reference to the
+//! handle drops it once the handle is collected.
 //!
-//! What the form doesn't have yet: the table of native state behind a
-//! handle (`blake3.rs`'s hashers, with the weak reference that drops an
-//! entry) lifted into `handle.rs` for every kind that holds native state,
-//! which `fs`'s handles and listings, holding plain data, don't; and, for a
+//! What the form doesn't have yet: for a
 //! `later` member, a call's work cancelled with its promise settled early,
 //! an `AbortSignal` read natively, an entry left uncounted so it doesn't
 //! hold the event loop open (Node's `unref`), and a bounded pool for work

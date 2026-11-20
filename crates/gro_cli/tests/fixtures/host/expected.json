@@ -2677,6 +2677,6401 @@
 			"borrowed": true
 		}
 	},
+	"tsv_shape": {
+		"code": 0,
+		"output": {
+			"namespace": {
+				"type": "object",
+				"prototype": null,
+				"frozen": false,
+				"own": {
+					"create_ignore_stack": {
+						"type": "function",
+						"writable": true,
+						"enumerable": true,
+						"configurable": false
+					},
+					"format_css": {
+						"type": "function",
+						"writable": true,
+						"enumerable": true,
+						"configurable": false
+					},
+					"format_svelte": {
+						"type": "function",
+						"writable": true,
+						"enumerable": true,
+						"configurable": false
+					},
+					"format_typescript": {
+						"type": "function",
+						"writable": true,
+						"enumerable": true,
+						"configurable": false
+					},
+					"parse_imports_svelte": {
+						"type": "function",
+						"writable": true,
+						"enumerable": true,
+						"configurable": false
+					},
+					"parse_imports_typescript": {
+						"type": "function",
+						"writable": true,
+						"enumerable": true,
+						"configurable": false
+					},
+					"Symbol(Symbol.toStringTag)": {
+						"type": "string",
+						"writable": false,
+						"enumerable": false,
+						"configurable": false
+					}
+				}
+			},
+			"functions": [
+				{
+					"name": "format_typescript",
+					"shape": {
+						"type": "function",
+						"prototype": "Function.prototype",
+						"frozen": true,
+						"own": {
+							"length": {
+								"type": "number",
+								"writable": false,
+								"enumerable": false,
+								"configurable": false
+							},
+							"name": {
+								"type": "string",
+								"writable": false,
+								"enumerable": false,
+								"configurable": false
+							}
+						}
+					},
+					"name_of": "format_typescript",
+					"length": 2
+				},
+				{
+					"name": "format_svelte",
+					"shape": {
+						"type": "function",
+						"prototype": "Function.prototype",
+						"frozen": true,
+						"own": {
+							"length": {
+								"type": "number",
+								"writable": false,
+								"enumerable": false,
+								"configurable": false
+							},
+							"name": {
+								"type": "string",
+								"writable": false,
+								"enumerable": false,
+								"configurable": false
+							}
+						}
+					},
+					"name_of": "format_svelte",
+					"length": 2
+				},
+				{
+					"name": "format_css",
+					"shape": {
+						"type": "function",
+						"prototype": "Function.prototype",
+						"frozen": true,
+						"own": {
+							"length": {
+								"type": "number",
+								"writable": false,
+								"enumerable": false,
+								"configurable": false
+							},
+							"name": {
+								"type": "string",
+								"writable": false,
+								"enumerable": false,
+								"configurable": false
+							}
+						}
+					},
+					"name_of": "format_css",
+					"length": 2
+				},
+				{
+					"name": "parse_imports_typescript",
+					"shape": {
+						"type": "function",
+						"prototype": "Function.prototype",
+						"frozen": true,
+						"own": {
+							"length": {
+								"type": "number",
+								"writable": false,
+								"enumerable": false,
+								"configurable": false
+							},
+							"name": {
+								"type": "string",
+								"writable": false,
+								"enumerable": false,
+								"configurable": false
+							}
+						}
+					},
+					"name_of": "parse_imports_typescript",
+					"length": 2
+				},
+				{
+					"name": "parse_imports_svelte",
+					"shape": {
+						"type": "function",
+						"prototype": "Function.prototype",
+						"frozen": true,
+						"own": {
+							"length": {
+								"type": "number",
+								"writable": false,
+								"enumerable": false,
+								"configurable": false
+							},
+							"name": {
+								"type": "string",
+								"writable": false,
+								"enumerable": false,
+								"configurable": false
+							}
+						}
+					},
+					"name_of": "parse_imports_svelte",
+					"length": 2
+				},
+				{
+					"name": "create_ignore_stack",
+					"shape": {
+						"type": "function",
+						"prototype": "Function.prototype",
+						"frozen": true,
+						"own": {
+							"length": {
+								"type": "number",
+								"writable": false,
+								"enumerable": false,
+								"configurable": false
+							},
+							"name": {
+								"type": "string",
+								"writable": false,
+								"enumerable": false,
+								"configurable": false
+							}
+						}
+					},
+					"name_of": "create_ignore_stack",
+					"length": 0
+				}
+			],
+			"stack": {
+				"type": "object",
+				"prototype": "other",
+				"frozen": true,
+				"own": {}
+			},
+			"prototype": {
+				"type": "object",
+				"prototype": null,
+				"frozen": true,
+				"own": {
+					"constructor": {
+						"type": "function",
+						"writable": false,
+						"enumerable": false,
+						"configurable": false
+					},
+					"push_gitignore": {
+						"type": "function",
+						"writable": false,
+						"enumerable": false,
+						"configurable": false
+					},
+					"pop_gitignore": {
+						"type": "function",
+						"writable": false,
+						"enumerable": false,
+						"configurable": false
+					},
+					"push_formatignore": {
+						"type": "function",
+						"writable": false,
+						"enumerable": false,
+						"configurable": false
+					},
+					"push_prettierignore": {
+						"type": "function",
+						"writable": false,
+						"enumerable": false,
+						"configurable": false
+					},
+					"pop_override": {
+						"type": "function",
+						"writable": false,
+						"enumerable": false,
+						"configurable": false
+					},
+					"is_ignored": {
+						"type": "function",
+						"writable": false,
+						"enumerable": false,
+						"configurable": false
+					}
+				}
+			},
+			"prototype_prototype": null,
+			"methods": [
+				{
+					"name": "push_gitignore",
+					"shape": {
+						"type": "function",
+						"prototype": "Function.prototype",
+						"frozen": true,
+						"own": {
+							"length": {
+								"type": "number",
+								"writable": false,
+								"enumerable": false,
+								"configurable": false
+							},
+							"name": {
+								"type": "string",
+								"writable": false,
+								"enumerable": false,
+								"configurable": false
+							}
+						}
+					},
+					"length": 2,
+					"name_of": "push_gitignore"
+				},
+				{
+					"name": "pop_gitignore",
+					"shape": {
+						"type": "function",
+						"prototype": "Function.prototype",
+						"frozen": true,
+						"own": {
+							"length": {
+								"type": "number",
+								"writable": false,
+								"enumerable": false,
+								"configurable": false
+							},
+							"name": {
+								"type": "string",
+								"writable": false,
+								"enumerable": false,
+								"configurable": false
+							}
+						}
+					},
+					"length": 0,
+					"name_of": "pop_gitignore"
+				},
+				{
+					"name": "push_formatignore",
+					"shape": {
+						"type": "function",
+						"prototype": "Function.prototype",
+						"frozen": true,
+						"own": {
+							"length": {
+								"type": "number",
+								"writable": false,
+								"enumerable": false,
+								"configurable": false
+							},
+							"name": {
+								"type": "string",
+								"writable": false,
+								"enumerable": false,
+								"configurable": false
+							}
+						}
+					},
+					"length": 2,
+					"name_of": "push_formatignore"
+				},
+				{
+					"name": "push_prettierignore",
+					"shape": {
+						"type": "function",
+						"prototype": "Function.prototype",
+						"frozen": true,
+						"own": {
+							"length": {
+								"type": "number",
+								"writable": false,
+								"enumerable": false,
+								"configurable": false
+							},
+							"name": {
+								"type": "string",
+								"writable": false,
+								"enumerable": false,
+								"configurable": false
+							}
+						}
+					},
+					"length": 2,
+					"name_of": "push_prettierignore"
+				},
+				{
+					"name": "pop_override",
+					"shape": {
+						"type": "function",
+						"prototype": "Function.prototype",
+						"frozen": true,
+						"own": {
+							"length": {
+								"type": "number",
+								"writable": false,
+								"enumerable": false,
+								"configurable": false
+							},
+							"name": {
+								"type": "string",
+								"writable": false,
+								"enumerable": false,
+								"configurable": false
+							}
+						}
+					},
+					"length": 0,
+					"name_of": "pop_override"
+				},
+				{
+					"name": "is_ignored",
+					"shape": {
+						"type": "function",
+						"prototype": "Function.prototype",
+						"frozen": true,
+						"own": {
+							"length": {
+								"type": "number",
+								"writable": false,
+								"enumerable": false,
+								"configurable": false
+							},
+							"name": {
+								"type": "string",
+								"writable": false,
+								"enumerable": false,
+								"configurable": false
+							}
+						}
+					},
+					"length": 2,
+					"name_of": "is_ignored"
+				}
+			],
+			"one_prototype": true,
+			"another_each_call": true,
+			"own_keys": [],
+			"json": "{}",
+			"thenable": false,
+			"result": {
+				"type": "object",
+				"prototype": "Object.prototype",
+				"frozen": false,
+				"own": {
+					"ok": {
+						"type": "boolean",
+						"writable": true,
+						"enumerable": true,
+						"configurable": true
+					},
+					"code": {
+						"type": "string",
+						"writable": true,
+						"enumerable": true,
+						"configurable": true
+					}
+				}
+			},
+			"failure": {
+				"type": "object",
+				"prototype": "Object.prototype",
+				"frozen": false,
+				"own": {
+					"ok": {
+						"type": "boolean",
+						"writable": true,
+						"enumerable": true,
+						"configurable": true
+					},
+					"error": {
+						"type": "object",
+						"writable": true,
+						"enumerable": true,
+						"configurable": true
+					}
+				}
+			},
+			"error": {
+				"type": "object",
+				"prototype": "Object.prototype",
+				"frozen": false,
+				"own": {
+					"kind": {
+						"type": "string",
+						"writable": true,
+						"enumerable": true,
+						"configurable": true
+					},
+					"message": {
+						"type": "string",
+						"writable": true,
+						"enumerable": true,
+						"configurable": true
+					},
+					"frame": {
+						"type": "string",
+						"writable": true,
+						"enumerable": true,
+						"configurable": true
+					},
+					"start": {
+						"type": "number",
+						"writable": true,
+						"enumerable": true,
+						"configurable": true
+					},
+					"end": {
+						"type": "number",
+						"writable": true,
+						"enumerable": true,
+						"configurable": true
+					},
+					"loc": {
+						"type": "object",
+						"writable": true,
+						"enumerable": true,
+						"configurable": true
+					}
+				}
+			},
+			"loc": {
+				"type": "object",
+				"prototype": "Object.prototype",
+				"frozen": false,
+				"own": {
+					"start": {
+						"type": "object",
+						"writable": true,
+						"enumerable": true,
+						"configurable": true
+					},
+					"end": {
+						"type": "object",
+						"writable": true,
+						"enumerable": true,
+						"configurable": true
+					}
+				}
+			},
+			"point": {
+				"type": "object",
+				"prototype": "Object.prototype",
+				"frozen": false,
+				"own": {
+					"line": {
+						"type": "number",
+						"writable": true,
+						"enumerable": true,
+						"configurable": true
+					},
+					"column": {
+						"type": "number",
+						"writable": true,
+						"enumerable": true,
+						"configurable": true
+					}
+				}
+			},
+			"imports": {
+				"type": "object",
+				"prototype": "Object.prototype",
+				"frozen": false,
+				"own": {
+					"ok": {
+						"type": "boolean",
+						"writable": true,
+						"enumerable": true,
+						"configurable": true
+					},
+					"hasModuleSyntax": {
+						"type": "boolean",
+						"writable": true,
+						"enumerable": true,
+						"configurable": true
+					},
+					"imports": {
+						"type": "object",
+						"writable": true,
+						"enumerable": true,
+						"configurable": true
+					}
+				}
+			},
+			"records": {
+				"type": "object",
+				"prototype": "Array.prototype",
+				"frozen": false,
+				"own": {
+					"0": {
+						"type": "object",
+						"writable": true,
+						"enumerable": true,
+						"configurable": true
+					},
+					"length": {
+						"type": "number",
+						"writable": true,
+						"enumerable": false,
+						"configurable": false
+					}
+				}
+			},
+			"record": {
+				"type": "object",
+				"prototype": "Object.prototype",
+				"frozen": false,
+				"own": {
+					"kind": {
+						"type": "string",
+						"writable": true,
+						"enumerable": true,
+						"configurable": true
+					},
+					"start": {
+						"type": "number",
+						"writable": true,
+						"enumerable": true,
+						"configurable": true
+					},
+					"end": {
+						"type": "number",
+						"writable": true,
+						"enumerable": true,
+						"configurable": true
+					},
+					"specifier": {
+						"type": "object",
+						"writable": true,
+						"enumerable": true,
+						"configurable": true
+					},
+					"typeOnly": {
+						"type": "object",
+						"writable": true,
+						"enumerable": true,
+						"configurable": true
+					},
+					"phase": {
+						"type": "object",
+						"writable": true,
+						"enumerable": true,
+						"configurable": true
+					},
+					"attributes": {
+						"type": "object",
+						"writable": true,
+						"enumerable": true,
+						"configurable": true
+					}
+				}
+			},
+			"specifier": {
+				"type": "object",
+				"prototype": "Object.prototype",
+				"frozen": false,
+				"own": {
+					"value": {
+						"type": "string",
+						"writable": true,
+						"enumerable": true,
+						"configurable": true
+					},
+					"start": {
+						"type": "number",
+						"writable": true,
+						"enumerable": true,
+						"configurable": true
+					},
+					"end": {
+						"type": "number",
+						"writable": true,
+						"enumerable": true,
+						"configurable": true
+					}
+				}
+			},
+			"another_result_each_call": true,
+			"new_format": "TypeError",
+			"new_factory": "TypeError",
+			"new_method": "TypeError",
+			"property_write": "TypeError",
+			"method_write": "TypeError",
+			"function_write": "TypeError",
+			"namespace_write": "TypeError"
+		}
+	},
+	"tsv_format": {
+		"code": 0,
+		"output": {
+			"own": {
+				"tsv/format_file.ts.txt": {
+					"keys": [
+						"ok",
+						"code"
+					],
+					"length": 3048,
+					"unchanged": true,
+					"digest": "b915f8336af5dbed332da6927420512ed5aadbc5baabcececac8415ff1fb902e"
+				},
+				"tsv/format_file.ts.txt again": true,
+				"tsv/dist_rewrite_imports.ts.txt": {
+					"keys": [
+						"ok",
+						"code"
+					],
+					"length": 8921,
+					"unchanged": true,
+					"digest": "7fdcd13389150dab358deedcbcd4208ca3de385c5341847515f28f8d954ec4bf"
+				},
+				"tsv/dist_rewrite_imports.ts.txt again": true,
+				"tsv/layout.svelte.txt": {
+					"keys": [
+						"ok",
+						"code"
+					],
+					"length": 487,
+					"unchanged": true,
+					"digest": "67d4c39c033e96bb5cc735c445b5c669886a5930cb600d2d55fb1c1a333ea39f"
+				},
+				"tsv/layout.svelte.txt again": true,
+				"tsv/some.css.txt": {
+					"keys": [
+						"ok",
+						"code"
+					],
+					"length": 165,
+					"unchanged": true,
+					"digest": "16858fa5bda2dd14c422f6d0004cd7cceb81bbe33f7f31e4e40eb467994f4216"
+				},
+				"tsv/some.css.txt again": true
+			},
+			"sources": {
+				"typescript": {
+					"unformatted": {
+						"keys": [
+							"ok",
+							"code"
+						],
+						"length": 96,
+						"unchanged": false,
+						"digest": "cc10144bac4ecf41c43fb43227ece559e39abfec5d33383a1cd13cb31c1a9911"
+					},
+					"formatted": {
+						"keys": [
+							"ok",
+							"code"
+						],
+						"length": 13,
+						"unchanged": true,
+						"digest": "9a36f6258ebe7d344e1bb72e349dc5c53c92c403a3b51cb71d778cafa0663b11"
+					},
+					"empty": {
+						"keys": [
+							"ok",
+							"code"
+						],
+						"length": 0,
+						"unchanged": true,
+						"digest": "af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262"
+					},
+					"whitespace": {
+						"keys": [
+							"ok",
+							"code"
+						],
+						"length": 0,
+						"unchanged": false,
+						"digest": "af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262"
+					},
+					"crlf": {
+						"keys": [
+							"ok",
+							"code"
+						],
+						"length": 33,
+						"unchanged": false,
+						"digest": "6e90de8a8b6164de8bde17adf0b323f1f182085d454283b91368c001905e0c2a"
+					},
+					"bom": {
+						"keys": [
+							"ok",
+							"code"
+						],
+						"length": 11,
+						"unchanged": false,
+						"digest": "23effa3e86f4e713624a8867b02f3a6ec8e0a6f8599f88763669a7b7ea1293ff"
+					},
+					"multibyte": {
+						"keys": [
+							"ok",
+							"code"
+						],
+						"length": 32,
+						"unchanged": false,
+						"digest": "1bac866a078c88fa3f7b9cad77a7c0373662e9412c286b26e750bb258337d513"
+					},
+					"sloppy": {
+						"keys": [
+							"ok",
+							"code"
+						],
+						"length": 25,
+						"unchanged": false,
+						"digest": "c310becd074699832b1d7d5c612e118413b38bff62eec9c78824991d319af152"
+					},
+					"module_only": {
+						"keys": [
+							"ok",
+							"code"
+						],
+						"length": 28,
+						"unchanged": false,
+						"digest": "d53984dfcfc34bc239bdbf4ab12c0006149620259e49c70952abc8eb7379b4e3"
+					},
+					"syntax_error": {
+						"ok": false,
+						"error": {
+							"kind": "parse",
+							"message": "Expected expression, found ';'",
+							"frame": "1:9 let x = ;\n            ^ here",
+							"start": 8,
+							"end": 8,
+							"loc": {
+								"start": {
+									"line": 1,
+									"column": 8
+								},
+								"end": {
+									"line": 1,
+									"column": 8
+								}
+							}
+						}
+					},
+					"multibyte_error": {
+						"ok": false,
+						"error": {
+							"kind": "parse",
+							"message": "Expected expression, found ';'",
+							"frame": "2:7 let = ;\n          ^ here",
+							"start": 22,
+							"end": 22,
+							"loc": {
+								"start": {
+									"line": 2,
+									"column": 6
+								},
+								"end": {
+									"line": 2,
+									"column": 6
+								}
+							}
+						}
+					},
+					"unclosed": {
+						"ok": false,
+						"error": {
+							"kind": "parse",
+							"message": "Expected ',' or ']' after list element, found end of input",
+							"frame": "2:14 \treturn [1, 2\n     \t            ^ here",
+							"start": 28,
+							"end": 28,
+							"loc": {
+								"start": {
+									"line": 2,
+									"column": 13
+								},
+								"end": {
+									"line": 2,
+									"column": 13
+								}
+							}
+						}
+					},
+					"jsx_like": {
+						"keys": [
+							"ok",
+							"code"
+						],
+						"length": 26,
+						"unchanged": false,
+						"digest": "4457365346d2e0055b15e7769dcd2e0bf502d0aa06b01f56e2447e20a741bfed"
+					}
+				},
+				"svelte": {
+					"unformatted": {
+						"keys": [
+							"ok",
+							"code"
+						],
+						"length": 53,
+						"unchanged": false,
+						"digest": "ddb784c861d4ca260020106a655d330fac2e0c2def842392cd8882357f74f0d2"
+					},
+					"formatted": {
+						"keys": [
+							"ok",
+							"code"
+						],
+						"length": 11,
+						"unchanged": true,
+						"digest": "462409d0c92ae191adad1904691d2099ad140d77e63fb75ddfe6e9f4bde8d49a"
+					},
+					"empty": {
+						"keys": [
+							"ok",
+							"code"
+						],
+						"length": 0,
+						"unchanged": true,
+						"digest": "af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262"
+					},
+					"bom": {
+						"keys": [
+							"ok",
+							"code"
+						],
+						"length": 9,
+						"unchanged": false,
+						"digest": "7fb5a2812ff40d859d40e6053c38216553054801309a6652dcf3a9deb5949a2e"
+					},
+					"crlf": {
+						"keys": [
+							"ok",
+							"code"
+						],
+						"length": 18,
+						"unchanged": false,
+						"digest": "6e42977a3061720082476e258f2cbf397ab339a49676045eae797b22ca396449"
+					},
+					"multibyte": {
+						"keys": [
+							"ok",
+							"code"
+						],
+						"length": 19,
+						"unchanged": false,
+						"digest": "5ee48b6258b9aa99d0cff01e3ae0ae84e973ce7d383b872a9d41397126bbbc3d"
+					},
+					"syntax_error": {
+						"ok": false,
+						"error": {
+							"kind": "parse",
+							"message": "Unclosed expression tag",
+							"frame": "1:4 <p>{</p>\n       ^ here",
+							"start": 3,
+							"end": 3,
+							"loc": {
+								"start": {
+									"line": 1,
+									"column": 3
+								},
+								"end": {
+									"line": 1,
+									"column": 3
+								}
+							}
+						}
+					},
+					"script_error": {
+						"ok": false,
+						"error": {
+							"kind": "parse",
+							"message": "Expected type, found '='",
+							"frame": "1:26 <script lang=\"ts\">let x: = 1;</script>\n                              ^ here",
+							"start": 25,
+							"end": 25,
+							"loc": {
+								"start": {
+									"line": 1,
+									"column": 25
+								},
+								"end": {
+									"line": 1,
+									"column": 25
+								}
+							}
+						}
+					},
+					"refused": {
+						"ok": false,
+						"error": {
+							"kind": "refused",
+							"message": "Lone carriage return inside a '//' comment in a tag: formatting folds it to a line feed, which would end the comment early",
+							"frame": "1:18 <div // a comment\n                      ^ here",
+							"start": 17,
+							"end": 18,
+							"loc": {
+								"start": {
+									"line": 1,
+									"column": 17
+								},
+								"end": {
+									"line": 1,
+									"column": 18
+								}
+							}
+						}
+					},
+					"style": {
+						"keys": [
+							"ok",
+							"code"
+						],
+						"length": 58,
+						"unchanged": false,
+						"digest": "3cfe5b995c4f3ab9f042109ead8e6319807b91a3f1b61bd13279e67a0af890cd"
+					}
+				},
+				"css": {
+					"unformatted": {
+						"keys": [
+							"ok",
+							"code"
+						],
+						"length": 54,
+						"unchanged": false,
+						"digest": "7a990f8720d638ccc0d56627d5054390101b7a2d42e91ab73978d9bd3ac6597b"
+					},
+					"formatted": {
+						"keys": [
+							"ok",
+							"code"
+						],
+						"length": 19,
+						"unchanged": true,
+						"digest": "fd03745e32c635e0fe6736009fa326ebbf6b1b38c7c23928556040a968e67865"
+					},
+					"empty": {
+						"keys": [
+							"ok",
+							"code"
+						],
+						"length": 0,
+						"unchanged": true,
+						"digest": "af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262"
+					},
+					"bom": {
+						"keys": [
+							"ok",
+							"code"
+						],
+						"length": 13,
+						"unchanged": false,
+						"digest": "a440b6d98cc027f95402fb4fe6f78dbb0924fdd9ba2f1c4bffae77bcde19b96c"
+					},
+					"crlf": {
+						"keys": [
+							"ok",
+							"code"
+						],
+						"length": 13,
+						"unchanged": false,
+						"digest": "a440b6d98cc027f95402fb4fe6f78dbb0924fdd9ba2f1c4bffae77bcde19b96c"
+					},
+					"multibyte": {
+						"keys": [
+							"ok",
+							"code"
+						],
+						"length": 31,
+						"unchanged": false,
+						"digest": "419d228f1f0ac3b343909882dce229cb205d2bc2d4316503fc42f0665a5c1cf7"
+					},
+					"syntax_error": {
+						"ok": false,
+						"error": {
+							"kind": "parse",
+							"message": "Expected '}'",
+							"frame": "1:16 a { color: red;\n                    ^ here",
+							"start": 15,
+							"end": 15,
+							"loc": {
+								"start": {
+									"line": 1,
+									"column": 15
+								},
+								"end": {
+									"line": 1,
+									"column": 15
+								}
+							}
+						}
+					},
+					"bad_selector": {
+						"ok": false,
+						"error": {
+							"kind": "parse",
+							"message": "Unexpected token in selector: '{'",
+							"frame": "1:1 {}\n    ^ here",
+							"start": 0,
+							"end": 0,
+							"loc": {
+								"start": {
+									"line": 1,
+									"column": 0
+								},
+								"end": {
+									"line": 1,
+									"column": 0
+								}
+							}
+						}
+					}
+				}
+			},
+			"goals": {
+				"sloppy": [
+					{
+						"keys": [
+							"ok",
+							"code"
+						],
+						"length": 25,
+						"unchanged": false,
+						"digest": "c310becd074699832b1d7d5c612e118413b38bff62eec9c78824991d319af152"
+					},
+					{
+						"ok": false,
+						"error": {
+							"kind": "parse",
+							"message": "The 'with' statement is not allowed in strict mode",
+							"frame": "1:1 with (a) b;\n    ^ here",
+							"start": 0,
+							"end": 0,
+							"loc": {
+								"start": {
+									"line": 1,
+									"column": 0
+								},
+								"end": {
+									"line": 1,
+									"column": 0
+								}
+							}
+						}
+					},
+					{
+						"keys": [
+							"ok",
+							"code"
+						],
+						"length": 25,
+						"unchanged": false,
+						"digest": "c310becd074699832b1d7d5c612e118413b38bff62eec9c78824991d319af152"
+					}
+				],
+				"module_only": [
+					{
+						"ok": false,
+						"error": {
+							"kind": "parse",
+							"message": "'import' is only allowed in a module",
+							"frame": "1:1 import x from 'y';\n    ^ here",
+							"start": 0,
+							"end": 0,
+							"loc": {
+								"start": {
+									"line": 1,
+									"column": 0
+								},
+								"end": {
+									"line": 1,
+									"column": 0
+								}
+							}
+						}
+					},
+					{
+						"keys": [
+							"ok",
+							"code"
+						],
+						"length": 28,
+						"unchanged": false,
+						"digest": "d53984dfcfc34bc239bdbf4ab12c0006149620259e49c70952abc8eb7379b4e3"
+					},
+					{
+						"keys": [
+							"ok",
+							"code"
+						],
+						"length": 28,
+						"unchanged": false,
+						"digest": "d53984dfcfc34bc239bdbf4ab12c0006149620259e49c70952abc8eb7379b4e3"
+					}
+				],
+				"unformatted": [
+					{
+						"ok": false,
+						"error": {
+							"kind": "parse",
+							"message": "'export' is only allowed in a module",
+							"frame": "2:1 export  function f(a,b){return a+b}\n    ^ here",
+							"start": 42,
+							"end": 42,
+							"loc": {
+								"start": {
+									"line": 2,
+									"column": 0
+								},
+								"end": {
+									"line": 2,
+									"column": 0
+								}
+							}
+						}
+					},
+					{
+						"keys": [
+							"ok",
+							"code"
+						],
+						"length": 96,
+						"unchanged": false,
+						"digest": "cc10144bac4ecf41c43fb43227ece559e39abfec5d33383a1cd13cb31c1a9911"
+					},
+					{
+						"keys": [
+							"ok",
+							"code"
+						],
+						"length": 96,
+						"unchanged": false,
+						"digest": "cc10144bac4ecf41c43fb43227ece559e39abfec5d33383a1cd13cb31c1a9911"
+					}
+				],
+				"syntax_error": [
+					{
+						"ok": false,
+						"error": {
+							"kind": "parse",
+							"message": "Expected expression, found ';'",
+							"frame": "1:9 let x = ;\n            ^ here",
+							"start": 8,
+							"end": 8,
+							"loc": {
+								"start": {
+									"line": 1,
+									"column": 8
+								},
+								"end": {
+									"line": 1,
+									"column": 8
+								}
+							}
+						}
+					},
+					{
+						"ok": false,
+						"error": {
+							"kind": "parse",
+							"message": "Expected expression, found ';'",
+							"frame": "1:9 let x = ;\n            ^ here",
+							"start": 8,
+							"end": 8,
+							"loc": {
+								"start": {
+									"line": 1,
+									"column": 8
+								},
+								"end": {
+									"line": 1,
+									"column": 8
+								}
+							}
+						}
+					},
+					{
+						"ok": false,
+						"error": {
+							"kind": "parse",
+							"message": "Expected expression, found ';'",
+							"frame": "1:9 let x = ;\n            ^ here",
+							"start": 8,
+							"end": 8,
+							"loc": {
+								"start": {
+									"line": 1,
+									"column": 8
+								},
+								"end": {
+									"line": 1,
+									"column": 8
+								}
+							}
+						}
+					}
+				]
+			}
+		}
+	},
+	"tsv_options": {
+		"code": 0,
+		"output": [
+			[
+				"format_typescript",
+				[
+					[
+						"undefined",
+						"ok"
+					],
+					[
+						"null",
+						"ok"
+					],
+					[
+						"an empty object",
+						"ok"
+					],
+					[
+						"a null-prototype empty object",
+						"ok"
+					],
+					[
+						"a number",
+						[
+							"TypeError",
+							"format options must be an object"
+						]
+					],
+					[
+						"a string",
+						[
+							"TypeError",
+							"format options must be an object"
+						]
+					],
+					[
+						"a boolean",
+						[
+							"TypeError",
+							"format options must be an object"
+						]
+					],
+					[
+						"a symbol",
+						[
+							"TypeError",
+							"format options must be an object"
+						]
+					],
+					[
+						"a bigint",
+						[
+							"TypeError",
+							"format options must be an object"
+						]
+					],
+					[
+						"an array",
+						[
+							"TypeError",
+							"format options must be an object"
+						]
+					],
+					[
+						"a function",
+						[
+							"TypeError",
+							"format options must be an object"
+						]
+					],
+					[
+						"a proxy",
+						[
+							"TypeError",
+							"format options must be an object"
+						]
+					],
+					[
+						"a boxed string",
+						[
+							"TypeError",
+							"unknown format option '0' (expected 'sourceType')"
+						]
+					],
+					[
+						"a date",
+						"ok"
+					],
+					[
+						"a map",
+						"ok"
+					],
+					[
+						"sourceType undefined",
+						"ok"
+					],
+					[
+						"sourceType module",
+						"ok"
+					],
+					[
+						"sourceType script",
+						"ok"
+					],
+					[
+						"sourceType sloppy",
+						[
+							"TypeError",
+							"format option 'sourceType' must be 'script' or 'module' (got 'sloppy')"
+						]
+					],
+					[
+						"sourceType empty",
+						[
+							"TypeError",
+							"format option 'sourceType' must be 'script' or 'module' (got '')"
+						]
+					],
+					[
+						"sourceType a long string",
+						[
+							"TypeError",
+							"format option 'sourceType' must be 'script' or 'module' (got 'mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm…')"
+						]
+					],
+					[
+						"sourceType a number",
+						[
+							"TypeError",
+							"format option 'sourceType' must be 'script' or 'module' (got 1.5)"
+						]
+					],
+					[
+						"sourceType negative zero",
+						[
+							"TypeError",
+							"format option 'sourceType' must be 'script' or 'module' (got 0)"
+						]
+					],
+					[
+						"sourceType NaN",
+						[
+							"TypeError",
+							"format option 'sourceType' must be 'script' or 'module' (got NaN)"
+						]
+					],
+					[
+						"sourceType a large number",
+						[
+							"TypeError",
+							"format option 'sourceType' must be 'script' or 'module' (got 1e+21)"
+						]
+					],
+					[
+						"sourceType false",
+						[
+							"TypeError",
+							"format option 'sourceType' must be 'script' or 'module' (got false)"
+						]
+					],
+					[
+						"sourceType null",
+						[
+							"TypeError",
+							"format option 'sourceType' must be 'script' or 'module' (got null)"
+						]
+					],
+					[
+						"sourceType an object",
+						[
+							"TypeError",
+							"format option 'sourceType' must be 'script' or 'module' (got object)"
+						]
+					],
+					[
+						"sourceType a function",
+						[
+							"TypeError",
+							"format option 'sourceType' must be 'script' or 'module' (got function)"
+						]
+					],
+					[
+						"sourceType a symbol",
+						[
+							"TypeError",
+							"format option 'sourceType' must be 'script' or 'module' (got symbol)"
+						]
+					],
+					[
+						"sourceType a bigint",
+						[
+							"TypeError",
+							"format option 'sourceType' must be 'script' or 'module' (got bigint)"
+						]
+					],
+					[
+						"sourceType a boxed string",
+						[
+							"TypeError",
+							"format option 'sourceType' must be 'script' or 'module' (got object)"
+						]
+					],
+					[
+						"sourceType a getter",
+						[
+							"TypeError",
+							"format option 'sourceType' must be data, not a getter"
+						]
+					],
+					[
+						"an unknown key",
+						[
+							"TypeError",
+							"unknown format option 'locations' (expected 'sourceType')"
+						]
+					],
+					[
+						"an unknown key with sourceType after",
+						[
+							"TypeError",
+							"unknown format option 'locatons' (expected 'sourceType')"
+						]
+					],
+					[
+						"sourceType before an unknown key",
+						[
+							"TypeError",
+							"unknown format option 'x' (expected 'sourceType')"
+						]
+					],
+					[
+						"an unknown key undefined",
+						[
+							"TypeError",
+							"unknown format option 'x' (expected 'sourceType')"
+						]
+					],
+					[
+						"an unknown key quoted",
+						[
+							"TypeError",
+							"unknown format option 'it\\'s \"q\"\\\\' (expected 'sourceType')"
+						]
+					],
+					[
+						"an unknown key with controls",
+						[
+							"TypeError",
+							"unknown format option 'a\\nb\\tc\\u0001\\u007f\\u2028\\u200e' (expected 'sourceType')"
+						]
+					],
+					[
+						"an unknown key with a lone surrogate",
+						[
+							"TypeError",
+							"unknown format option 'a\\ud800b' (expected 'sourceType')"
+						]
+					],
+					[
+						"an unknown key long",
+						[
+							"TypeError",
+							"unknown format option 'kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk…' (expected 'sourceType')"
+						]
+					],
+					[
+						"an unknown key cut at a pair",
+						[
+							"TypeError",
+							"unknown format option 'kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk…' (expected 'sourceType')"
+						]
+					],
+					[
+						"an unknown index key",
+						[
+							"TypeError",
+							"unknown format option '0' (expected 'sourceType')"
+						]
+					],
+					[
+						"keys in order",
+						[
+							"TypeError",
+							"unknown format option '1' (expected 'sourceType')"
+						]
+					],
+					[
+						"a symbol key alone",
+						"ok"
+					],
+					[
+						"a non-enumerable unknown key",
+						"ok"
+					],
+					[
+						"an inherited sourceType",
+						"ok"
+					],
+					[
+						"an inherited unknown key",
+						"ok"
+					],
+					[
+						"a frozen object",
+						"ok"
+					]
+				]
+			],
+			[
+				"format_svelte",
+				[
+					[
+						"undefined",
+						"ok"
+					],
+					[
+						"null",
+						"ok"
+					],
+					[
+						"an empty object",
+						"ok"
+					],
+					[
+						"a null-prototype empty object",
+						"ok"
+					],
+					[
+						"a number",
+						[
+							"TypeError",
+							"format options must be an object"
+						]
+					],
+					[
+						"a string",
+						[
+							"TypeError",
+							"format options must be an object"
+						]
+					],
+					[
+						"a boolean",
+						[
+							"TypeError",
+							"format options must be an object"
+						]
+					],
+					[
+						"a symbol",
+						[
+							"TypeError",
+							"format options must be an object"
+						]
+					],
+					[
+						"a bigint",
+						[
+							"TypeError",
+							"format options must be an object"
+						]
+					],
+					[
+						"an array",
+						[
+							"TypeError",
+							"format options must be an object"
+						]
+					],
+					[
+						"a function",
+						[
+							"TypeError",
+							"format options must be an object"
+						]
+					],
+					[
+						"a proxy",
+						[
+							"TypeError",
+							"format options must be an object"
+						]
+					],
+					[
+						"a boxed string",
+						[
+							"TypeError",
+							"unknown format option '0' (this export takes no options)"
+						]
+					],
+					[
+						"a date",
+						"ok"
+					],
+					[
+						"a map",
+						"ok"
+					],
+					[
+						"sourceType undefined",
+						"ok"
+					],
+					[
+						"sourceType module",
+						[
+							"TypeError",
+							"format option 'sourceType' is only supported for TypeScript"
+						]
+					],
+					[
+						"sourceType script",
+						[
+							"TypeError",
+							"format option 'sourceType' is only supported for TypeScript"
+						]
+					],
+					[
+						"sourceType sloppy",
+						[
+							"TypeError",
+							"format option 'sourceType' is only supported for TypeScript"
+						]
+					],
+					[
+						"sourceType empty",
+						[
+							"TypeError",
+							"format option 'sourceType' is only supported for TypeScript"
+						]
+					],
+					[
+						"sourceType a long string",
+						[
+							"TypeError",
+							"format option 'sourceType' is only supported for TypeScript"
+						]
+					],
+					[
+						"sourceType a number",
+						[
+							"TypeError",
+							"format option 'sourceType' is only supported for TypeScript"
+						]
+					],
+					[
+						"sourceType negative zero",
+						[
+							"TypeError",
+							"format option 'sourceType' is only supported for TypeScript"
+						]
+					],
+					[
+						"sourceType NaN",
+						[
+							"TypeError",
+							"format option 'sourceType' is only supported for TypeScript"
+						]
+					],
+					[
+						"sourceType a large number",
+						[
+							"TypeError",
+							"format option 'sourceType' is only supported for TypeScript"
+						]
+					],
+					[
+						"sourceType false",
+						[
+							"TypeError",
+							"format option 'sourceType' is only supported for TypeScript"
+						]
+					],
+					[
+						"sourceType null",
+						[
+							"TypeError",
+							"format option 'sourceType' is only supported for TypeScript"
+						]
+					],
+					[
+						"sourceType an object",
+						[
+							"TypeError",
+							"format option 'sourceType' is only supported for TypeScript"
+						]
+					],
+					[
+						"sourceType a function",
+						[
+							"TypeError",
+							"format option 'sourceType' is only supported for TypeScript"
+						]
+					],
+					[
+						"sourceType a symbol",
+						[
+							"TypeError",
+							"format option 'sourceType' is only supported for TypeScript"
+						]
+					],
+					[
+						"sourceType a bigint",
+						[
+							"TypeError",
+							"format option 'sourceType' is only supported for TypeScript"
+						]
+					],
+					[
+						"sourceType a boxed string",
+						[
+							"TypeError",
+							"format option 'sourceType' is only supported for TypeScript"
+						]
+					],
+					[
+						"sourceType a getter",
+						[
+							"TypeError",
+							"format option 'sourceType' must be data, not a getter"
+						]
+					],
+					[
+						"an unknown key",
+						[
+							"TypeError",
+							"unknown format option 'locations' (this export takes no options)"
+						]
+					],
+					[
+						"an unknown key with sourceType after",
+						[
+							"TypeError",
+							"unknown format option 'locatons' (this export takes no options)"
+						]
+					],
+					[
+						"sourceType before an unknown key",
+						[
+							"TypeError",
+							"format option 'sourceType' is only supported for TypeScript"
+						]
+					],
+					[
+						"an unknown key undefined",
+						[
+							"TypeError",
+							"unknown format option 'x' (this export takes no options)"
+						]
+					],
+					[
+						"an unknown key quoted",
+						[
+							"TypeError",
+							"unknown format option 'it\\'s \"q\"\\\\' (this export takes no options)"
+						]
+					],
+					[
+						"an unknown key with controls",
+						[
+							"TypeError",
+							"unknown format option 'a\\nb\\tc\\u0001\\u007f\\u2028\\u200e' (this export takes no options)"
+						]
+					],
+					[
+						"an unknown key with a lone surrogate",
+						[
+							"TypeError",
+							"unknown format option 'a\\ud800b' (this export takes no options)"
+						]
+					],
+					[
+						"an unknown key long",
+						[
+							"TypeError",
+							"unknown format option 'kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk…' (this export takes no options)"
+						]
+					],
+					[
+						"an unknown key cut at a pair",
+						[
+							"TypeError",
+							"unknown format option 'kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk…' (this export takes no options)"
+						]
+					],
+					[
+						"an unknown index key",
+						[
+							"TypeError",
+							"unknown format option '0' (this export takes no options)"
+						]
+					],
+					[
+						"keys in order",
+						[
+							"TypeError",
+							"unknown format option '1' (this export takes no options)"
+						]
+					],
+					[
+						"a symbol key alone",
+						"ok"
+					],
+					[
+						"a non-enumerable unknown key",
+						"ok"
+					],
+					[
+						"an inherited sourceType",
+						"ok"
+					],
+					[
+						"an inherited unknown key",
+						"ok"
+					],
+					[
+						"a frozen object",
+						[
+							"TypeError",
+							"format option 'sourceType' is only supported for TypeScript"
+						]
+					]
+				]
+			],
+			[
+				"format_css",
+				[
+					[
+						"undefined",
+						"ok"
+					],
+					[
+						"null",
+						"ok"
+					],
+					[
+						"an empty object",
+						"ok"
+					],
+					[
+						"a null-prototype empty object",
+						"ok"
+					],
+					[
+						"a number",
+						[
+							"TypeError",
+							"format options must be an object"
+						]
+					],
+					[
+						"a string",
+						[
+							"TypeError",
+							"format options must be an object"
+						]
+					],
+					[
+						"a boolean",
+						[
+							"TypeError",
+							"format options must be an object"
+						]
+					],
+					[
+						"a symbol",
+						[
+							"TypeError",
+							"format options must be an object"
+						]
+					],
+					[
+						"a bigint",
+						[
+							"TypeError",
+							"format options must be an object"
+						]
+					],
+					[
+						"an array",
+						[
+							"TypeError",
+							"format options must be an object"
+						]
+					],
+					[
+						"a function",
+						[
+							"TypeError",
+							"format options must be an object"
+						]
+					],
+					[
+						"a proxy",
+						[
+							"TypeError",
+							"format options must be an object"
+						]
+					],
+					[
+						"a boxed string",
+						[
+							"TypeError",
+							"unknown format option '0' (this export takes no options)"
+						]
+					],
+					[
+						"a date",
+						"ok"
+					],
+					[
+						"a map",
+						"ok"
+					],
+					[
+						"sourceType undefined",
+						"ok"
+					],
+					[
+						"sourceType module",
+						[
+							"TypeError",
+							"format option 'sourceType' is only supported for TypeScript"
+						]
+					],
+					[
+						"sourceType script",
+						[
+							"TypeError",
+							"format option 'sourceType' is only supported for TypeScript"
+						]
+					],
+					[
+						"sourceType sloppy",
+						[
+							"TypeError",
+							"format option 'sourceType' is only supported for TypeScript"
+						]
+					],
+					[
+						"sourceType empty",
+						[
+							"TypeError",
+							"format option 'sourceType' is only supported for TypeScript"
+						]
+					],
+					[
+						"sourceType a long string",
+						[
+							"TypeError",
+							"format option 'sourceType' is only supported for TypeScript"
+						]
+					],
+					[
+						"sourceType a number",
+						[
+							"TypeError",
+							"format option 'sourceType' is only supported for TypeScript"
+						]
+					],
+					[
+						"sourceType negative zero",
+						[
+							"TypeError",
+							"format option 'sourceType' is only supported for TypeScript"
+						]
+					],
+					[
+						"sourceType NaN",
+						[
+							"TypeError",
+							"format option 'sourceType' is only supported for TypeScript"
+						]
+					],
+					[
+						"sourceType a large number",
+						[
+							"TypeError",
+							"format option 'sourceType' is only supported for TypeScript"
+						]
+					],
+					[
+						"sourceType false",
+						[
+							"TypeError",
+							"format option 'sourceType' is only supported for TypeScript"
+						]
+					],
+					[
+						"sourceType null",
+						[
+							"TypeError",
+							"format option 'sourceType' is only supported for TypeScript"
+						]
+					],
+					[
+						"sourceType an object",
+						[
+							"TypeError",
+							"format option 'sourceType' is only supported for TypeScript"
+						]
+					],
+					[
+						"sourceType a function",
+						[
+							"TypeError",
+							"format option 'sourceType' is only supported for TypeScript"
+						]
+					],
+					[
+						"sourceType a symbol",
+						[
+							"TypeError",
+							"format option 'sourceType' is only supported for TypeScript"
+						]
+					],
+					[
+						"sourceType a bigint",
+						[
+							"TypeError",
+							"format option 'sourceType' is only supported for TypeScript"
+						]
+					],
+					[
+						"sourceType a boxed string",
+						[
+							"TypeError",
+							"format option 'sourceType' is only supported for TypeScript"
+						]
+					],
+					[
+						"sourceType a getter",
+						[
+							"TypeError",
+							"format option 'sourceType' must be data, not a getter"
+						]
+					],
+					[
+						"an unknown key",
+						[
+							"TypeError",
+							"unknown format option 'locations' (this export takes no options)"
+						]
+					],
+					[
+						"an unknown key with sourceType after",
+						[
+							"TypeError",
+							"unknown format option 'locatons' (this export takes no options)"
+						]
+					],
+					[
+						"sourceType before an unknown key",
+						[
+							"TypeError",
+							"format option 'sourceType' is only supported for TypeScript"
+						]
+					],
+					[
+						"an unknown key undefined",
+						[
+							"TypeError",
+							"unknown format option 'x' (this export takes no options)"
+						]
+					],
+					[
+						"an unknown key quoted",
+						[
+							"TypeError",
+							"unknown format option 'it\\'s \"q\"\\\\' (this export takes no options)"
+						]
+					],
+					[
+						"an unknown key with controls",
+						[
+							"TypeError",
+							"unknown format option 'a\\nb\\tc\\u0001\\u007f\\u2028\\u200e' (this export takes no options)"
+						]
+					],
+					[
+						"an unknown key with a lone surrogate",
+						[
+							"TypeError",
+							"unknown format option 'a\\ud800b' (this export takes no options)"
+						]
+					],
+					[
+						"an unknown key long",
+						[
+							"TypeError",
+							"unknown format option 'kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk…' (this export takes no options)"
+						]
+					],
+					[
+						"an unknown key cut at a pair",
+						[
+							"TypeError",
+							"unknown format option 'kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk…' (this export takes no options)"
+						]
+					],
+					[
+						"an unknown index key",
+						[
+							"TypeError",
+							"unknown format option '0' (this export takes no options)"
+						]
+					],
+					[
+						"keys in order",
+						[
+							"TypeError",
+							"unknown format option '1' (this export takes no options)"
+						]
+					],
+					[
+						"a symbol key alone",
+						"ok"
+					],
+					[
+						"a non-enumerable unknown key",
+						"ok"
+					],
+					[
+						"an inherited sourceType",
+						"ok"
+					],
+					[
+						"an inherited unknown key",
+						"ok"
+					],
+					[
+						"a frozen object",
+						[
+							"TypeError",
+							"format option 'sourceType' is only supported for TypeScript"
+						]
+					]
+				]
+			],
+			[
+				"parse_imports_typescript",
+				[
+					[
+						"undefined",
+						"ok"
+					],
+					[
+						"null",
+						"ok"
+					],
+					[
+						"an empty object",
+						"ok"
+					],
+					[
+						"a null-prototype empty object",
+						"ok"
+					],
+					[
+						"a number",
+						[
+							"TypeError",
+							"imports options must be an object"
+						]
+					],
+					[
+						"a string",
+						[
+							"TypeError",
+							"imports options must be an object"
+						]
+					],
+					[
+						"a boolean",
+						[
+							"TypeError",
+							"imports options must be an object"
+						]
+					],
+					[
+						"a symbol",
+						[
+							"TypeError",
+							"imports options must be an object"
+						]
+					],
+					[
+						"a bigint",
+						[
+							"TypeError",
+							"imports options must be an object"
+						]
+					],
+					[
+						"an array",
+						[
+							"TypeError",
+							"imports options must be an object"
+						]
+					],
+					[
+						"a function",
+						[
+							"TypeError",
+							"imports options must be an object"
+						]
+					],
+					[
+						"a proxy",
+						[
+							"TypeError",
+							"imports options must be an object"
+						]
+					],
+					[
+						"a boxed string",
+						[
+							"TypeError",
+							"unknown imports option '0' (expected 'sourceType')"
+						]
+					],
+					[
+						"a date",
+						"ok"
+					],
+					[
+						"a map",
+						"ok"
+					],
+					[
+						"sourceType undefined",
+						"ok"
+					],
+					[
+						"sourceType module",
+						"ok"
+					],
+					[
+						"sourceType script",
+						"ok"
+					],
+					[
+						"sourceType sloppy",
+						[
+							"TypeError",
+							"imports option 'sourceType' must be 'script' or 'module' (got 'sloppy')"
+						]
+					],
+					[
+						"sourceType empty",
+						[
+							"TypeError",
+							"imports option 'sourceType' must be 'script' or 'module' (got '')"
+						]
+					],
+					[
+						"sourceType a long string",
+						[
+							"TypeError",
+							"imports option 'sourceType' must be 'script' or 'module' (got 'mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm…')"
+						]
+					],
+					[
+						"sourceType a number",
+						[
+							"TypeError",
+							"imports option 'sourceType' must be 'script' or 'module' (got 1.5)"
+						]
+					],
+					[
+						"sourceType negative zero",
+						[
+							"TypeError",
+							"imports option 'sourceType' must be 'script' or 'module' (got 0)"
+						]
+					],
+					[
+						"sourceType NaN",
+						[
+							"TypeError",
+							"imports option 'sourceType' must be 'script' or 'module' (got NaN)"
+						]
+					],
+					[
+						"sourceType a large number",
+						[
+							"TypeError",
+							"imports option 'sourceType' must be 'script' or 'module' (got 1e+21)"
+						]
+					],
+					[
+						"sourceType false",
+						[
+							"TypeError",
+							"imports option 'sourceType' must be 'script' or 'module' (got false)"
+						]
+					],
+					[
+						"sourceType null",
+						[
+							"TypeError",
+							"imports option 'sourceType' must be 'script' or 'module' (got null)"
+						]
+					],
+					[
+						"sourceType an object",
+						[
+							"TypeError",
+							"imports option 'sourceType' must be 'script' or 'module' (got object)"
+						]
+					],
+					[
+						"sourceType a function",
+						[
+							"TypeError",
+							"imports option 'sourceType' must be 'script' or 'module' (got function)"
+						]
+					],
+					[
+						"sourceType a symbol",
+						[
+							"TypeError",
+							"imports option 'sourceType' must be 'script' or 'module' (got symbol)"
+						]
+					],
+					[
+						"sourceType a bigint",
+						[
+							"TypeError",
+							"imports option 'sourceType' must be 'script' or 'module' (got bigint)"
+						]
+					],
+					[
+						"sourceType a boxed string",
+						[
+							"TypeError",
+							"imports option 'sourceType' must be 'script' or 'module' (got object)"
+						]
+					],
+					[
+						"sourceType a getter",
+						[
+							"TypeError",
+							"imports option 'sourceType' must be data, not a getter"
+						]
+					],
+					[
+						"an unknown key",
+						[
+							"TypeError",
+							"unknown imports option 'locations' (expected 'sourceType')"
+						]
+					],
+					[
+						"an unknown key with sourceType after",
+						[
+							"TypeError",
+							"unknown imports option 'locatons' (expected 'sourceType')"
+						]
+					],
+					[
+						"sourceType before an unknown key",
+						[
+							"TypeError",
+							"unknown imports option 'x' (expected 'sourceType')"
+						]
+					],
+					[
+						"an unknown key undefined",
+						[
+							"TypeError",
+							"unknown imports option 'x' (expected 'sourceType')"
+						]
+					],
+					[
+						"an unknown key quoted",
+						[
+							"TypeError",
+							"unknown imports option 'it\\'s \"q\"\\\\' (expected 'sourceType')"
+						]
+					],
+					[
+						"an unknown key with controls",
+						[
+							"TypeError",
+							"unknown imports option 'a\\nb\\tc\\u0001\\u007f\\u2028\\u200e' (expected 'sourceType')"
+						]
+					],
+					[
+						"an unknown key with a lone surrogate",
+						[
+							"TypeError",
+							"unknown imports option 'a\\ud800b' (expected 'sourceType')"
+						]
+					],
+					[
+						"an unknown key long",
+						[
+							"TypeError",
+							"unknown imports option 'kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk…' (expected 'sourceType')"
+						]
+					],
+					[
+						"an unknown key cut at a pair",
+						[
+							"TypeError",
+							"unknown imports option 'kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk…' (expected 'sourceType')"
+						]
+					],
+					[
+						"an unknown index key",
+						[
+							"TypeError",
+							"unknown imports option '0' (expected 'sourceType')"
+						]
+					],
+					[
+						"keys in order",
+						[
+							"TypeError",
+							"unknown imports option '1' (expected 'sourceType')"
+						]
+					],
+					[
+						"a symbol key alone",
+						"ok"
+					],
+					[
+						"a non-enumerable unknown key",
+						"ok"
+					],
+					[
+						"an inherited sourceType",
+						"ok"
+					],
+					[
+						"an inherited unknown key",
+						"ok"
+					],
+					[
+						"a frozen object",
+						"ok"
+					]
+				]
+			],
+			[
+				"parse_imports_svelte",
+				[
+					[
+						"undefined",
+						"ok"
+					],
+					[
+						"null",
+						"ok"
+					],
+					[
+						"an empty object",
+						"ok"
+					],
+					[
+						"a null-prototype empty object",
+						"ok"
+					],
+					[
+						"a number",
+						[
+							"TypeError",
+							"imports options must be an object"
+						]
+					],
+					[
+						"a string",
+						[
+							"TypeError",
+							"imports options must be an object"
+						]
+					],
+					[
+						"a boolean",
+						[
+							"TypeError",
+							"imports options must be an object"
+						]
+					],
+					[
+						"a symbol",
+						[
+							"TypeError",
+							"imports options must be an object"
+						]
+					],
+					[
+						"a bigint",
+						[
+							"TypeError",
+							"imports options must be an object"
+						]
+					],
+					[
+						"an array",
+						[
+							"TypeError",
+							"imports options must be an object"
+						]
+					],
+					[
+						"a function",
+						[
+							"TypeError",
+							"imports options must be an object"
+						]
+					],
+					[
+						"a proxy",
+						[
+							"TypeError",
+							"imports options must be an object"
+						]
+					],
+					[
+						"a boxed string",
+						[
+							"TypeError",
+							"unknown imports option '0' (this export takes no options)"
+						]
+					],
+					[
+						"a date",
+						"ok"
+					],
+					[
+						"a map",
+						"ok"
+					],
+					[
+						"sourceType undefined",
+						"ok"
+					],
+					[
+						"sourceType module",
+						[
+							"TypeError",
+							"imports option 'sourceType' is only supported for TypeScript"
+						]
+					],
+					[
+						"sourceType script",
+						[
+							"TypeError",
+							"imports option 'sourceType' is only supported for TypeScript"
+						]
+					],
+					[
+						"sourceType sloppy",
+						[
+							"TypeError",
+							"imports option 'sourceType' is only supported for TypeScript"
+						]
+					],
+					[
+						"sourceType empty",
+						[
+							"TypeError",
+							"imports option 'sourceType' is only supported for TypeScript"
+						]
+					],
+					[
+						"sourceType a long string",
+						[
+							"TypeError",
+							"imports option 'sourceType' is only supported for TypeScript"
+						]
+					],
+					[
+						"sourceType a number",
+						[
+							"TypeError",
+							"imports option 'sourceType' is only supported for TypeScript"
+						]
+					],
+					[
+						"sourceType negative zero",
+						[
+							"TypeError",
+							"imports option 'sourceType' is only supported for TypeScript"
+						]
+					],
+					[
+						"sourceType NaN",
+						[
+							"TypeError",
+							"imports option 'sourceType' is only supported for TypeScript"
+						]
+					],
+					[
+						"sourceType a large number",
+						[
+							"TypeError",
+							"imports option 'sourceType' is only supported for TypeScript"
+						]
+					],
+					[
+						"sourceType false",
+						[
+							"TypeError",
+							"imports option 'sourceType' is only supported for TypeScript"
+						]
+					],
+					[
+						"sourceType null",
+						[
+							"TypeError",
+							"imports option 'sourceType' is only supported for TypeScript"
+						]
+					],
+					[
+						"sourceType an object",
+						[
+							"TypeError",
+							"imports option 'sourceType' is only supported for TypeScript"
+						]
+					],
+					[
+						"sourceType a function",
+						[
+							"TypeError",
+							"imports option 'sourceType' is only supported for TypeScript"
+						]
+					],
+					[
+						"sourceType a symbol",
+						[
+							"TypeError",
+							"imports option 'sourceType' is only supported for TypeScript"
+						]
+					],
+					[
+						"sourceType a bigint",
+						[
+							"TypeError",
+							"imports option 'sourceType' is only supported for TypeScript"
+						]
+					],
+					[
+						"sourceType a boxed string",
+						[
+							"TypeError",
+							"imports option 'sourceType' is only supported for TypeScript"
+						]
+					],
+					[
+						"sourceType a getter",
+						[
+							"TypeError",
+							"imports option 'sourceType' must be data, not a getter"
+						]
+					],
+					[
+						"an unknown key",
+						[
+							"TypeError",
+							"unknown imports option 'locations' (this export takes no options)"
+						]
+					],
+					[
+						"an unknown key with sourceType after",
+						[
+							"TypeError",
+							"unknown imports option 'locatons' (this export takes no options)"
+						]
+					],
+					[
+						"sourceType before an unknown key",
+						[
+							"TypeError",
+							"imports option 'sourceType' is only supported for TypeScript"
+						]
+					],
+					[
+						"an unknown key undefined",
+						[
+							"TypeError",
+							"unknown imports option 'x' (this export takes no options)"
+						]
+					],
+					[
+						"an unknown key quoted",
+						[
+							"TypeError",
+							"unknown imports option 'it\\'s \"q\"\\\\' (this export takes no options)"
+						]
+					],
+					[
+						"an unknown key with controls",
+						[
+							"TypeError",
+							"unknown imports option 'a\\nb\\tc\\u0001\\u007f\\u2028\\u200e' (this export takes no options)"
+						]
+					],
+					[
+						"an unknown key with a lone surrogate",
+						[
+							"TypeError",
+							"unknown imports option 'a\\ud800b' (this export takes no options)"
+						]
+					],
+					[
+						"an unknown key long",
+						[
+							"TypeError",
+							"unknown imports option 'kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk…' (this export takes no options)"
+						]
+					],
+					[
+						"an unknown key cut at a pair",
+						[
+							"TypeError",
+							"unknown imports option 'kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk…' (this export takes no options)"
+						]
+					],
+					[
+						"an unknown index key",
+						[
+							"TypeError",
+							"unknown imports option '0' (this export takes no options)"
+						]
+					],
+					[
+						"keys in order",
+						[
+							"TypeError",
+							"unknown imports option '1' (this export takes no options)"
+						]
+					],
+					[
+						"a symbol key alone",
+						"ok"
+					],
+					[
+						"a non-enumerable unknown key",
+						"ok"
+					],
+					[
+						"an inherited sourceType",
+						"ok"
+					],
+					[
+						"an inherited unknown key",
+						"ok"
+					],
+					[
+						"a frozen object",
+						[
+							"TypeError",
+							"imports option 'sourceType' is only supported for TypeScript"
+						]
+					]
+				]
+			]
+		]
+	},
+	"tsv_sources": {
+		"code": 0,
+		"output": [
+			[
+				"format_typescript",
+				[
+					[
+						"undefined",
+						[
+							"TypeError",
+							"format source must be a string (got undefined)"
+						]
+					],
+					[
+						"null",
+						[
+							"TypeError",
+							"format source must be a string (got null)"
+						]
+					],
+					[
+						"a number",
+						[
+							"TypeError",
+							"format source must be a string (got number)"
+						]
+					],
+					[
+						"a boolean",
+						[
+							"TypeError",
+							"format source must be a string (got boolean)"
+						]
+					],
+					[
+						"a symbol",
+						[
+							"TypeError",
+							"format source must be a string (got symbol)"
+						]
+					],
+					[
+						"a bigint",
+						[
+							"TypeError",
+							"format source must be a string (got bigint)"
+						]
+					],
+					[
+						"an object",
+						[
+							"TypeError",
+							"format source must be a string (got object)"
+						]
+					],
+					[
+						"an array",
+						[
+							"TypeError",
+							"format source must be a string (got object)"
+						]
+					],
+					[
+						"a function",
+						[
+							"TypeError",
+							"format source must be a string (got function)"
+						]
+					],
+					[
+						"a boxed string",
+						[
+							"TypeError",
+							"format source must be a string (got object)"
+						]
+					],
+					[
+						"a proxy",
+						[
+							"TypeError",
+							"format source must be a string (got object)"
+						]
+					],
+					[
+						"a lone high surrogate",
+						[
+							"TypeError",
+							"format source must be well-formed UTF-16 (a lone surrogate at offset 9)"
+						]
+					],
+					[
+						"a lone low surrogate",
+						[
+							"TypeError",
+							"format source must be well-formed UTF-16 (a lone surrogate at offset 2)"
+						]
+					],
+					[
+						"a reversed pair",
+						[
+							"TypeError",
+							"format source must be well-formed UTF-16 (a lone surrogate at offset 0)"
+						]
+					],
+					[
+						"a lone surrogate after a pair",
+						[
+							"TypeError",
+							"format source must be well-formed UTF-16 (a lone surrogate at offset 2)"
+						]
+					]
+				],
+				[
+					"TypeError",
+					"format source must be a string (got number)"
+				],
+				[
+					"TypeError",
+					"format source must be a string (got undefined)"
+				]
+			],
+			[
+				"format_svelte",
+				[
+					[
+						"undefined",
+						[
+							"TypeError",
+							"format source must be a string (got undefined)"
+						]
+					],
+					[
+						"null",
+						[
+							"TypeError",
+							"format source must be a string (got null)"
+						]
+					],
+					[
+						"a number",
+						[
+							"TypeError",
+							"format source must be a string (got number)"
+						]
+					],
+					[
+						"a boolean",
+						[
+							"TypeError",
+							"format source must be a string (got boolean)"
+						]
+					],
+					[
+						"a symbol",
+						[
+							"TypeError",
+							"format source must be a string (got symbol)"
+						]
+					],
+					[
+						"a bigint",
+						[
+							"TypeError",
+							"format source must be a string (got bigint)"
+						]
+					],
+					[
+						"an object",
+						[
+							"TypeError",
+							"format source must be a string (got object)"
+						]
+					],
+					[
+						"an array",
+						[
+							"TypeError",
+							"format source must be a string (got object)"
+						]
+					],
+					[
+						"a function",
+						[
+							"TypeError",
+							"format source must be a string (got function)"
+						]
+					],
+					[
+						"a boxed string",
+						[
+							"TypeError",
+							"format source must be a string (got object)"
+						]
+					],
+					[
+						"a proxy",
+						[
+							"TypeError",
+							"format source must be a string (got object)"
+						]
+					],
+					[
+						"a lone high surrogate",
+						[
+							"TypeError",
+							"format source must be well-formed UTF-16 (a lone surrogate at offset 9)"
+						]
+					],
+					[
+						"a lone low surrogate",
+						[
+							"TypeError",
+							"format source must be well-formed UTF-16 (a lone surrogate at offset 2)"
+						]
+					],
+					[
+						"a reversed pair",
+						[
+							"TypeError",
+							"format source must be well-formed UTF-16 (a lone surrogate at offset 0)"
+						]
+					],
+					[
+						"a lone surrogate after a pair",
+						[
+							"TypeError",
+							"format source must be well-formed UTF-16 (a lone surrogate at offset 2)"
+						]
+					]
+				],
+				[
+					"TypeError",
+					"format source must be a string (got number)"
+				],
+				[
+					"TypeError",
+					"format source must be a string (got undefined)"
+				]
+			],
+			[
+				"format_css",
+				[
+					[
+						"undefined",
+						[
+							"TypeError",
+							"format source must be a string (got undefined)"
+						]
+					],
+					[
+						"null",
+						[
+							"TypeError",
+							"format source must be a string (got null)"
+						]
+					],
+					[
+						"a number",
+						[
+							"TypeError",
+							"format source must be a string (got number)"
+						]
+					],
+					[
+						"a boolean",
+						[
+							"TypeError",
+							"format source must be a string (got boolean)"
+						]
+					],
+					[
+						"a symbol",
+						[
+							"TypeError",
+							"format source must be a string (got symbol)"
+						]
+					],
+					[
+						"a bigint",
+						[
+							"TypeError",
+							"format source must be a string (got bigint)"
+						]
+					],
+					[
+						"an object",
+						[
+							"TypeError",
+							"format source must be a string (got object)"
+						]
+					],
+					[
+						"an array",
+						[
+							"TypeError",
+							"format source must be a string (got object)"
+						]
+					],
+					[
+						"a function",
+						[
+							"TypeError",
+							"format source must be a string (got function)"
+						]
+					],
+					[
+						"a boxed string",
+						[
+							"TypeError",
+							"format source must be a string (got object)"
+						]
+					],
+					[
+						"a proxy",
+						[
+							"TypeError",
+							"format source must be a string (got object)"
+						]
+					],
+					[
+						"a lone high surrogate",
+						[
+							"TypeError",
+							"format source must be well-formed UTF-16 (a lone surrogate at offset 9)"
+						]
+					],
+					[
+						"a lone low surrogate",
+						[
+							"TypeError",
+							"format source must be well-formed UTF-16 (a lone surrogate at offset 2)"
+						]
+					],
+					[
+						"a reversed pair",
+						[
+							"TypeError",
+							"format source must be well-formed UTF-16 (a lone surrogate at offset 0)"
+						]
+					],
+					[
+						"a lone surrogate after a pair",
+						[
+							"TypeError",
+							"format source must be well-formed UTF-16 (a lone surrogate at offset 2)"
+						]
+					]
+				],
+				[
+					"TypeError",
+					"format source must be a string (got number)"
+				],
+				[
+					"TypeError",
+					"format source must be a string (got undefined)"
+				]
+			],
+			[
+				"parse_imports_typescript",
+				[
+					[
+						"undefined",
+						[
+							"TypeError",
+							"imports source must be a string (got undefined)"
+						]
+					],
+					[
+						"null",
+						[
+							"TypeError",
+							"imports source must be a string (got null)"
+						]
+					],
+					[
+						"a number",
+						[
+							"TypeError",
+							"imports source must be a string (got number)"
+						]
+					],
+					[
+						"a boolean",
+						[
+							"TypeError",
+							"imports source must be a string (got boolean)"
+						]
+					],
+					[
+						"a symbol",
+						[
+							"TypeError",
+							"imports source must be a string (got symbol)"
+						]
+					],
+					[
+						"a bigint",
+						[
+							"TypeError",
+							"imports source must be a string (got bigint)"
+						]
+					],
+					[
+						"an object",
+						[
+							"TypeError",
+							"imports source must be a string (got object)"
+						]
+					],
+					[
+						"an array",
+						[
+							"TypeError",
+							"imports source must be a string (got object)"
+						]
+					],
+					[
+						"a function",
+						[
+							"TypeError",
+							"imports source must be a string (got function)"
+						]
+					],
+					[
+						"a boxed string",
+						[
+							"TypeError",
+							"imports source must be a string (got object)"
+						]
+					],
+					[
+						"a proxy",
+						[
+							"TypeError",
+							"imports source must be a string (got object)"
+						]
+					],
+					[
+						"a lone high surrogate",
+						[
+							"TypeError",
+							"imports source must be well-formed UTF-16 (a lone surrogate at offset 9)"
+						]
+					],
+					[
+						"a lone low surrogate",
+						[
+							"TypeError",
+							"imports source must be well-formed UTF-16 (a lone surrogate at offset 2)"
+						]
+					],
+					[
+						"a reversed pair",
+						[
+							"TypeError",
+							"imports source must be well-formed UTF-16 (a lone surrogate at offset 0)"
+						]
+					],
+					[
+						"a lone surrogate after a pair",
+						[
+							"TypeError",
+							"imports source must be well-formed UTF-16 (a lone surrogate at offset 2)"
+						]
+					]
+				],
+				[
+					"TypeError",
+					"imports source must be a string (got number)"
+				],
+				[
+					"TypeError",
+					"imports source must be a string (got undefined)"
+				]
+			],
+			[
+				"parse_imports_svelte",
+				[
+					[
+						"undefined",
+						[
+							"TypeError",
+							"imports source must be a string (got undefined)"
+						]
+					],
+					[
+						"null",
+						[
+							"TypeError",
+							"imports source must be a string (got null)"
+						]
+					],
+					[
+						"a number",
+						[
+							"TypeError",
+							"imports source must be a string (got number)"
+						]
+					],
+					[
+						"a boolean",
+						[
+							"TypeError",
+							"imports source must be a string (got boolean)"
+						]
+					],
+					[
+						"a symbol",
+						[
+							"TypeError",
+							"imports source must be a string (got symbol)"
+						]
+					],
+					[
+						"a bigint",
+						[
+							"TypeError",
+							"imports source must be a string (got bigint)"
+						]
+					],
+					[
+						"an object",
+						[
+							"TypeError",
+							"imports source must be a string (got object)"
+						]
+					],
+					[
+						"an array",
+						[
+							"TypeError",
+							"imports source must be a string (got object)"
+						]
+					],
+					[
+						"a function",
+						[
+							"TypeError",
+							"imports source must be a string (got function)"
+						]
+					],
+					[
+						"a boxed string",
+						[
+							"TypeError",
+							"imports source must be a string (got object)"
+						]
+					],
+					[
+						"a proxy",
+						[
+							"TypeError",
+							"imports source must be a string (got object)"
+						]
+					],
+					[
+						"a lone high surrogate",
+						[
+							"TypeError",
+							"imports source must be well-formed UTF-16 (a lone surrogate at offset 9)"
+						]
+					],
+					[
+						"a lone low surrogate",
+						[
+							"TypeError",
+							"imports source must be well-formed UTF-16 (a lone surrogate at offset 2)"
+						]
+					],
+					[
+						"a reversed pair",
+						[
+							"TypeError",
+							"imports source must be well-formed UTF-16 (a lone surrogate at offset 0)"
+						]
+					],
+					[
+						"a lone surrogate after a pair",
+						[
+							"TypeError",
+							"imports source must be well-formed UTF-16 (a lone surrogate at offset 2)"
+						]
+					]
+				],
+				[
+					"TypeError",
+					"imports source must be a string (got number)"
+				],
+				[
+					"TypeError",
+					"imports source must be a string (got undefined)"
+				]
+			]
+		]
+	},
+	"tsv_deep": {
+		"code": 0,
+		"output": {
+			"format typescript 100": "ok 10201",
+			"imports typescript 100": "ok 0",
+			"format typescript 300": {
+				"kind": "parse",
+				"message": "Nesting exceeds tsv's depth limit of 256 wire levels",
+				"frame": "1:257 …[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]…\n                                                                                                                               ^ here",
+				"start": 256,
+				"end": 256,
+				"loc": {
+					"start": {
+						"line": 1,
+						"column": 256
+					},
+					"end": {
+						"line": 1,
+						"column": 256
+					}
+				}
+			},
+			"imports typescript 300": {
+				"kind": "parse",
+				"message": "Nesting exceeds tsv's depth limit of 256 wire levels",
+				"frame": "1:257 …[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]…\n                                                                                                                               ^ here",
+				"start": 256,
+				"end": 256,
+				"loc": {
+					"start": {
+						"line": 1,
+						"column": 256
+					},
+					"end": {
+						"line": 1,
+						"column": 256
+					}
+				}
+			},
+			"format typescript 10000": {
+				"kind": "parse",
+				"message": "Nesting exceeds tsv's depth limit of 256 wire levels",
+				"frame": "1:257 …[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[…\n                                                                                                                               ^ here",
+				"start": 256,
+				"end": 256,
+				"loc": {
+					"start": {
+						"line": 1,
+						"column": 256
+					},
+					"end": {
+						"line": 1,
+						"column": 256
+					}
+				}
+			},
+			"imports typescript 10000": {
+				"kind": "parse",
+				"message": "Nesting exceeds tsv's depth limit of 256 wire levels",
+				"frame": "1:257 …[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[…\n                                                                                                                               ^ here",
+				"start": 256,
+				"end": 256,
+				"loc": {
+					"start": {
+						"line": 1,
+						"column": 256
+					},
+					"end": {
+						"line": 1,
+						"column": 256
+					}
+				}
+			},
+			"format typescript 100000": {
+				"kind": "parse",
+				"message": "Nesting exceeds tsv's depth limit of 256 wire levels",
+				"frame": "1:257 …[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[…\n                                                                                                                               ^ here",
+				"start": 256,
+				"end": 256,
+				"loc": {
+					"start": {
+						"line": 1,
+						"column": 256
+					},
+					"end": {
+						"line": 1,
+						"column": 256
+					}
+				}
+			},
+			"imports typescript 100000": {
+				"kind": "parse",
+				"message": "Nesting exceeds tsv's depth limit of 256 wire levels",
+				"frame": "1:257 …[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[…\n                                                                                                                               ^ here",
+				"start": 256,
+				"end": 256,
+				"loc": {
+					"start": {
+						"line": 1,
+						"column": 256
+					},
+					"end": {
+						"line": 1,
+						"column": 256
+					}
+				}
+			},
+			"format typescript_chain 100": "ok 207",
+			"imports typescript_chain 100": "ok 0",
+			"format typescript_chain 300": "ok 615",
+			"imports typescript_chain 300": "ok 0",
+			"format typescript_chain 10000": {
+				"kind": "parse",
+				"message": "Chain of operators, member accesses, calls, assertions or type suffixes exceeds tsv's length limit",
+				"frame": "1:11042 ….a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.…\n                                                                                                                                 ^ here",
+				"start": 11041,
+				"end": 11041,
+				"loc": {
+					"start": {
+						"line": 1,
+						"column": 11041
+					},
+					"end": {
+						"line": 1,
+						"column": 11041
+					}
+				}
+			},
+			"imports typescript_chain 10000": {
+				"kind": "parse",
+				"message": "Chain of operators, member accesses, calls, assertions or type suffixes exceeds tsv's length limit",
+				"frame": "1:11042 ….a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.…\n                                                                                                                                 ^ here",
+				"start": 11041,
+				"end": 11041,
+				"loc": {
+					"start": {
+						"line": 1,
+						"column": 11041
+					},
+					"end": {
+						"line": 1,
+						"column": 11041
+					}
+				}
+			},
+			"format typescript_chain 100000": {
+				"kind": "parse",
+				"message": "Chain of operators, member accesses, calls, assertions or type suffixes exceeds tsv's length limit",
+				"frame": "1:11042 ….a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.…\n                                                                                                                                 ^ here",
+				"start": 11041,
+				"end": 11041,
+				"loc": {
+					"start": {
+						"line": 1,
+						"column": 11041
+					},
+					"end": {
+						"line": 1,
+						"column": 11041
+					}
+				}
+			},
+			"imports typescript_chain 100000": {
+				"kind": "parse",
+				"message": "Chain of operators, member accesses, calls, assertions or type suffixes exceeds tsv's length limit",
+				"frame": "1:11042 ….a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.a.…\n                                                                                                                                 ^ here",
+				"start": 11041,
+				"end": 11041,
+				"loc": {
+					"start": {
+						"line": 1,
+						"column": 11041
+					},
+					"end": {
+						"line": 1,
+						"column": 11041
+					}
+				}
+			},
+			"format typescript_binary 100": "ok 503",
+			"imports typescript_binary 100": "ok 0",
+			"format typescript_binary 300": "ok 1503",
+			"imports typescript_binary 300": "ok 0",
+			"format typescript_binary 10000": {
+				"kind": "parse",
+				"message": "Chain of operators, member accesses, calls, assertions or type suffixes exceeds tsv's length limit",
+				"frame": "1:11042 …+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+…\n                                                                                                                                 ^ here",
+				"start": 11041,
+				"end": 11041,
+				"loc": {
+					"start": {
+						"line": 1,
+						"column": 11041
+					},
+					"end": {
+						"line": 1,
+						"column": 11041
+					}
+				}
+			},
+			"imports typescript_binary 10000": {
+				"kind": "parse",
+				"message": "Chain of operators, member accesses, calls, assertions or type suffixes exceeds tsv's length limit",
+				"frame": "1:11042 …+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+…\n                                                                                                                                 ^ here",
+				"start": 11041,
+				"end": 11041,
+				"loc": {
+					"start": {
+						"line": 1,
+						"column": 11041
+					},
+					"end": {
+						"line": 1,
+						"column": 11041
+					}
+				}
+			},
+			"format typescript_binary 100000": {
+				"kind": "parse",
+				"message": "Chain of operators, member accesses, calls, assertions or type suffixes exceeds tsv's length limit",
+				"frame": "1:11042 …+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+…\n                                                                                                                                 ^ here",
+				"start": 11041,
+				"end": 11041,
+				"loc": {
+					"start": {
+						"line": 1,
+						"column": 11041
+					},
+					"end": {
+						"line": 1,
+						"column": 11041
+					}
+				}
+			},
+			"imports typescript_binary 100000": {
+				"kind": "parse",
+				"message": "Chain of operators, member accesses, calls, assertions or type suffixes exceeds tsv's length limit",
+				"frame": "1:11042 …+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+…\n                                                                                                                                 ^ here",
+				"start": 11041,
+				"end": 11041,
+				"loc": {
+					"start": {
+						"line": 1,
+						"column": 11041
+					},
+					"end": {
+						"line": 1,
+						"column": 11041
+					}
+				}
+			},
+			"format svelte 100": "ok 11100",
+			"imports svelte 100": "ok 0",
+			"format svelte 300": {
+				"kind": "parse",
+				"message": "Nesting exceeds tsv's depth limit of 256 wire levels",
+				"frame": "1:641 …<div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><…\n                                                                                                                               ^ here",
+				"start": 640,
+				"end": 640,
+				"loc": {
+					"start": {
+						"line": 1,
+						"column": 640
+					},
+					"end": {
+						"line": 1,
+						"column": 640
+					}
+				}
+			},
+			"imports svelte 300": {
+				"kind": "parse",
+				"message": "Nesting exceeds tsv's depth limit of 256 wire levels",
+				"frame": "1:641 …<div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><…\n                                                                                                                               ^ here",
+				"start": 640,
+				"end": 640,
+				"loc": {
+					"start": {
+						"line": 1,
+						"column": 640
+					},
+					"end": {
+						"line": 1,
+						"column": 640
+					}
+				}
+			},
+			"format svelte 10000": {
+				"kind": "parse",
+				"message": "Nesting exceeds tsv's depth limit of 256 wire levels",
+				"frame": "1:641 …<div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><…\n                                                                                                                               ^ here",
+				"start": 640,
+				"end": 640,
+				"loc": {
+					"start": {
+						"line": 1,
+						"column": 640
+					},
+					"end": {
+						"line": 1,
+						"column": 640
+					}
+				}
+			},
+			"imports svelte 10000": {
+				"kind": "parse",
+				"message": "Nesting exceeds tsv's depth limit of 256 wire levels",
+				"frame": "1:641 …<div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><…\n                                                                                                                               ^ here",
+				"start": 640,
+				"end": 640,
+				"loc": {
+					"start": {
+						"line": 1,
+						"column": 640
+					},
+					"end": {
+						"line": 1,
+						"column": 640
+					}
+				}
+			},
+			"format svelte 100000": {
+				"kind": "parse",
+				"message": "Nesting exceeds tsv's depth limit of 256 wire levels",
+				"frame": "1:641 …<div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><…\n                                                                                                                               ^ here",
+				"start": 640,
+				"end": 640,
+				"loc": {
+					"start": {
+						"line": 1,
+						"column": 640
+					},
+					"end": {
+						"line": 1,
+						"column": 640
+					}
+				}
+			},
+			"imports svelte 100000": {
+				"kind": "parse",
+				"message": "Nesting exceeds tsv's depth limit of 256 wire levels",
+				"frame": "1:641 …<div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><div><…\n                                                                                                                               ^ here",
+				"start": 640,
+				"end": 640,
+				"loc": {
+					"start": {
+						"line": 1,
+						"column": 640
+					},
+					"end": {
+						"line": 1,
+						"column": 640
+					}
+				}
+			},
+			"format svelte_blocks 100": "ok 15223",
+			"imports svelte_blocks 100": "ok 0",
+			"format svelte_blocks 300": {
+				"kind": "parse",
+				"message": "Nesting exceeds tsv's depth limit of 256 wire levels",
+				"frame": "1:897 …}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#…\n                                                                                                                               ^ here",
+				"start": 896,
+				"end": 896,
+				"loc": {
+					"start": {
+						"line": 1,
+						"column": 896
+					},
+					"end": {
+						"line": 1,
+						"column": 896
+					}
+				}
+			},
+			"imports svelte_blocks 300": {
+				"kind": "parse",
+				"message": "Nesting exceeds tsv's depth limit of 256 wire levels",
+				"frame": "1:897 …}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#…\n                                                                                                                               ^ here",
+				"start": 896,
+				"end": 896,
+				"loc": {
+					"start": {
+						"line": 1,
+						"column": 896
+					},
+					"end": {
+						"line": 1,
+						"column": 896
+					}
+				}
+			},
+			"format svelte_blocks 10000": {
+				"kind": "parse",
+				"message": "Nesting exceeds tsv's depth limit of 256 wire levels",
+				"frame": "1:897 …}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#…\n                                                                                                                               ^ here",
+				"start": 896,
+				"end": 896,
+				"loc": {
+					"start": {
+						"line": 1,
+						"column": 896
+					},
+					"end": {
+						"line": 1,
+						"column": 896
+					}
+				}
+			},
+			"imports svelte_blocks 10000": {
+				"kind": "parse",
+				"message": "Nesting exceeds tsv's depth limit of 256 wire levels",
+				"frame": "1:897 …}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#…\n                                                                                                                               ^ here",
+				"start": 896,
+				"end": 896,
+				"loc": {
+					"start": {
+						"line": 1,
+						"column": 896
+					},
+					"end": {
+						"line": 1,
+						"column": 896
+					}
+				}
+			},
+			"format svelte_blocks 100000": {
+				"kind": "parse",
+				"message": "Nesting exceeds tsv's depth limit of 256 wire levels",
+				"frame": "1:897 …}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#…\n                                                                                                                               ^ here",
+				"start": 896,
+				"end": 896,
+				"loc": {
+					"start": {
+						"line": 1,
+						"column": 896
+					},
+					"end": {
+						"line": 1,
+						"column": 896
+					}
+				}
+			},
+			"imports svelte_blocks 100000": {
+				"kind": "parse",
+				"message": "Nesting exceeds tsv's depth limit of 256 wire levels",
+				"frame": "1:897 …}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#if a}{#…\n                                                                                                                               ^ here",
+				"start": 896,
+				"end": 896,
+				"loc": {
+					"start": {
+						"line": 1,
+						"column": 896
+					},
+					"end": {
+						"line": 1,
+						"column": 896
+					}
+				}
+			},
+			"format css 100": "ok 10500",
+			"format css 300": {
+				"kind": "parse",
+				"message": "Nesting exceeds tsv's depth limit of 256 wire levels",
+				"frame": "1:257 …a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a…\n                                                                                                                               ^ here",
+				"start": 256,
+				"end": 256,
+				"loc": {
+					"start": {
+						"line": 1,
+						"column": 256
+					},
+					"end": {
+						"line": 1,
+						"column": 256
+					}
+				}
+			},
+			"format css 10000": {
+				"kind": "parse",
+				"message": "Nesting exceeds tsv's depth limit of 256 wire levels",
+				"frame": "1:257 …a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a…\n                                                                                                                               ^ here",
+				"start": 256,
+				"end": 256,
+				"loc": {
+					"start": {
+						"line": 1,
+						"column": 256
+					},
+					"end": {
+						"line": 1,
+						"column": 256
+					}
+				}
+			},
+			"format css 100000": {
+				"kind": "parse",
+				"message": "Nesting exceeds tsv's depth limit of 256 wire levels",
+				"frame": "1:257 …a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a{a…\n                                                                                                                               ^ here",
+				"start": 256,
+				"end": 256,
+				"loc": {
+					"start": {
+						"line": 1,
+						"column": 256
+					},
+					"end": {
+						"line": 1,
+						"column": 256
+					}
+				}
+			}
+		}
+	},
+	"tsv_imports": {
+		"code": 0,
+		"output": {
+			"typescript static": {
+				"ok": true,
+				"hasModuleSyntax": true,
+				"imports": [
+					{
+						"kind": "static",
+						"start": 0,
+						"end": 23,
+						"specifier": {
+							"value": "./a.ts",
+							"start": 15,
+							"end": 21
+						},
+						"typeOnly": null,
+						"phase": null,
+						"attributes": null
+					},
+					{
+						"kind": "static",
+						"start": 24,
+						"end": 59,
+						"specifier": {
+							"value": "./b.ts",
+							"start": 51,
+							"end": 57
+						},
+						"typeOnly": null,
+						"phase": null,
+						"attributes": null
+					},
+					{
+						"kind": "static",
+						"start": 60,
+						"end": 83,
+						"specifier": {
+							"value": "e",
+							"start": 80,
+							"end": 81
+						},
+						"typeOnly": null,
+						"phase": null,
+						"attributes": null
+					},
+					{
+						"kind": "static",
+						"start": 84,
+						"end": 98,
+						"specifier": {
+							"value": "side",
+							"start": 92,
+							"end": 96
+						},
+						"typeOnly": null,
+						"phase": null,
+						"attributes": null
+					}
+				]
+			},
+			"typescript static as a module": {
+				"ok": true,
+				"hasModuleSyntax": true,
+				"imports": [
+					{
+						"kind": "static",
+						"start": 0,
+						"end": 23,
+						"specifier": {
+							"value": "./a.ts",
+							"start": 15,
+							"end": 21
+						},
+						"typeOnly": null,
+						"phase": null,
+						"attributes": null
+					},
+					{
+						"kind": "static",
+						"start": 24,
+						"end": 59,
+						"specifier": {
+							"value": "./b.ts",
+							"start": 51,
+							"end": 57
+						},
+						"typeOnly": null,
+						"phase": null,
+						"attributes": null
+					},
+					{
+						"kind": "static",
+						"start": 60,
+						"end": 83,
+						"specifier": {
+							"value": "e",
+							"start": 80,
+							"end": 81
+						},
+						"typeOnly": null,
+						"phase": null,
+						"attributes": null
+					},
+					{
+						"kind": "static",
+						"start": 84,
+						"end": 98,
+						"specifier": {
+							"value": "side",
+							"start": 92,
+							"end": 96
+						},
+						"typeOnly": null,
+						"phase": null,
+						"attributes": null
+					}
+				]
+			},
+			"typescript static as a script": {
+				"ok": false,
+				"error": {
+					"kind": "parse",
+					"message": "'import' is only allowed in a module",
+					"frame": "1:1 import a from './a.ts';\n    ^ here",
+					"start": 0,
+					"end": 0,
+					"loc": {
+						"start": {
+							"line": 1,
+							"column": 0
+						},
+						"end": {
+							"line": 1,
+							"column": 0
+						}
+					}
+				}
+			},
+			"typescript re_exports": {
+				"ok": true,
+				"hasModuleSyntax": true,
+				"imports": [
+					{
+						"kind": "re_export",
+						"start": 0,
+						"end": 27,
+						"specifier": {
+							"value": "./a.ts",
+							"start": 19,
+							"end": 25
+						},
+						"typeOnly": null,
+						"phase": null,
+						"attributes": null
+					},
+					{
+						"kind": "re_export",
+						"start": 28,
+						"end": 51,
+						"specifier": {
+							"value": "./b.ts",
+							"start": 43,
+							"end": 49
+						},
+						"typeOnly": null,
+						"phase": null,
+						"attributes": null
+					},
+					{
+						"kind": "re_export",
+						"start": 52,
+						"end": 75,
+						"specifier": {
+							"value": "c",
+							"start": 72,
+							"end": 73
+						},
+						"typeOnly": null,
+						"phase": null,
+						"attributes": null
+					}
+				]
+			},
+			"typescript re_exports as a module": {
+				"ok": true,
+				"hasModuleSyntax": true,
+				"imports": [
+					{
+						"kind": "re_export",
+						"start": 0,
+						"end": 27,
+						"specifier": {
+							"value": "./a.ts",
+							"start": 19,
+							"end": 25
+						},
+						"typeOnly": null,
+						"phase": null,
+						"attributes": null
+					},
+					{
+						"kind": "re_export",
+						"start": 28,
+						"end": 51,
+						"specifier": {
+							"value": "./b.ts",
+							"start": 43,
+							"end": 49
+						},
+						"typeOnly": null,
+						"phase": null,
+						"attributes": null
+					},
+					{
+						"kind": "re_export",
+						"start": 52,
+						"end": 75,
+						"specifier": {
+							"value": "c",
+							"start": 72,
+							"end": 73
+						},
+						"typeOnly": null,
+						"phase": null,
+						"attributes": null
+					}
+				]
+			},
+			"typescript re_exports as a script": {
+				"ok": false,
+				"error": {
+					"kind": "parse",
+					"message": "'export' is only allowed in a module",
+					"frame": "1:1 export { a } from './a.ts';\n    ^ here",
+					"start": 0,
+					"end": 0,
+					"loc": {
+						"start": {
+							"line": 1,
+							"column": 0
+						},
+						"end": {
+							"line": 1,
+							"column": 0
+						}
+					}
+				}
+			},
+			"typescript type_only": {
+				"ok": true,
+				"hasModuleSyntax": true,
+				"imports": [
+					{
+						"kind": "static",
+						"start": 0,
+						"end": 32,
+						"specifier": {
+							"value": "./a.ts",
+							"start": 24,
+							"end": 30
+						},
+						"typeOnly": "statement",
+						"phase": null,
+						"attributes": null
+					},
+					{
+						"kind": "static",
+						"start": 33,
+						"end": 73,
+						"specifier": {
+							"value": "./b.ts",
+							"start": 65,
+							"end": 71
+						},
+						"typeOnly": "specifiers",
+						"phase": null,
+						"attributes": null
+					},
+					{
+						"kind": "static",
+						"start": 74,
+						"end": 109,
+						"specifier": {
+							"value": "./d.ts",
+							"start": 101,
+							"end": 107
+						},
+						"typeOnly": null,
+						"phase": null,
+						"attributes": null
+					},
+					{
+						"kind": "re_export",
+						"start": 110,
+						"end": 142,
+						"specifier": {
+							"value": "./f.ts",
+							"start": 134,
+							"end": 140
+						},
+						"typeOnly": "statement",
+						"phase": null,
+						"attributes": null
+					}
+				]
+			},
+			"typescript type_only as a module": {
+				"ok": true,
+				"hasModuleSyntax": true,
+				"imports": [
+					{
+						"kind": "static",
+						"start": 0,
+						"end": 32,
+						"specifier": {
+							"value": "./a.ts",
+							"start": 24,
+							"end": 30
+						},
+						"typeOnly": "statement",
+						"phase": null,
+						"attributes": null
+					},
+					{
+						"kind": "static",
+						"start": 33,
+						"end": 73,
+						"specifier": {
+							"value": "./b.ts",
+							"start": 65,
+							"end": 71
+						},
+						"typeOnly": "specifiers",
+						"phase": null,
+						"attributes": null
+					},
+					{
+						"kind": "static",
+						"start": 74,
+						"end": 109,
+						"specifier": {
+							"value": "./d.ts",
+							"start": 101,
+							"end": 107
+						},
+						"typeOnly": null,
+						"phase": null,
+						"attributes": null
+					},
+					{
+						"kind": "re_export",
+						"start": 110,
+						"end": 142,
+						"specifier": {
+							"value": "./f.ts",
+							"start": 134,
+							"end": 140
+						},
+						"typeOnly": "statement",
+						"phase": null,
+						"attributes": null
+					}
+				]
+			},
+			"typescript type_only as a script": {
+				"ok": false,
+				"error": {
+					"kind": "parse",
+					"message": "'import' is only allowed in a module",
+					"frame": "1:1 import type { A } from './a.ts';\n    ^ here",
+					"start": 0,
+					"end": 0,
+					"loc": {
+						"start": {
+							"line": 1,
+							"column": 0
+						},
+						"end": {
+							"line": 1,
+							"column": 0
+						}
+					}
+				}
+			},
+			"typescript dynamic": {
+				"ok": true,
+				"hasModuleSyntax": false,
+				"imports": [
+					{
+						"kind": "dynamic",
+						"start": 10,
+						"end": 26,
+						"specifier": {
+							"value": "./a.ts",
+							"start": 18,
+							"end": 24
+						},
+						"typeOnly": null,
+						"phase": null,
+						"attributes": null
+					},
+					{
+						"kind": "dynamic",
+						"start": 38,
+						"end": 54,
+						"specifier": {
+							"value": "./b.ts",
+							"start": 46,
+							"end": 52
+						},
+						"typeOnly": null,
+						"phase": null,
+						"attributes": null
+					},
+					{
+						"kind": "dynamic",
+						"start": 66,
+						"end": 78,
+						"specifier": null,
+						"typeOnly": null,
+						"phase": null,
+						"attributes": null
+					},
+					{
+						"kind": "dynamic",
+						"start": 90,
+						"end": 112,
+						"specifier": null,
+						"typeOnly": null,
+						"phase": null,
+						"attributes": null
+					},
+					{
+						"kind": "dynamic",
+						"start": 114,
+						"end": 130,
+						"specifier": {
+							"value": "./e.ts",
+							"start": 122,
+							"end": 128
+						},
+						"typeOnly": null,
+						"phase": null,
+						"attributes": null
+					},
+					{
+						"kind": "dynamic",
+						"start": 142,
+						"end": 158,
+						"specifier": {
+							"value": "./f.ts",
+							"start": 150,
+							"end": 156
+						},
+						"typeOnly": null,
+						"phase": null,
+						"attributes": null
+					}
+				]
+			},
+			"typescript dynamic as a module": {
+				"ok": true,
+				"hasModuleSyntax": false,
+				"imports": [
+					{
+						"kind": "dynamic",
+						"start": 10,
+						"end": 26,
+						"specifier": {
+							"value": "./a.ts",
+							"start": 18,
+							"end": 24
+						},
+						"typeOnly": null,
+						"phase": null,
+						"attributes": null
+					},
+					{
+						"kind": "dynamic",
+						"start": 38,
+						"end": 54,
+						"specifier": {
+							"value": "./b.ts",
+							"start": 46,
+							"end": 52
+						},
+						"typeOnly": null,
+						"phase": null,
+						"attributes": null
+					},
+					{
+						"kind": "dynamic",
+						"start": 66,
+						"end": 78,
+						"specifier": null,
+						"typeOnly": null,
+						"phase": null,
+						"attributes": null
+					},
+					{
+						"kind": "dynamic",
+						"start": 90,
+						"end": 112,
+						"specifier": null,
+						"typeOnly": null,
+						"phase": null,
+						"attributes": null
+					},
+					{
+						"kind": "dynamic",
+						"start": 114,
+						"end": 130,
+						"specifier": {
+							"value": "./e.ts",
+							"start": 122,
+							"end": 128
+						},
+						"typeOnly": null,
+						"phase": null,
+						"attributes": null
+					},
+					{
+						"kind": "dynamic",
+						"start": 142,
+						"end": 158,
+						"specifier": {
+							"value": "./f.ts",
+							"start": 150,
+							"end": 156
+						},
+						"typeOnly": null,
+						"phase": null,
+						"attributes": null
+					}
+				]
+			},
+			"typescript dynamic as a script": {
+				"ok": true,
+				"hasModuleSyntax": false,
+				"imports": [
+					{
+						"kind": "dynamic",
+						"start": 10,
+						"end": 26,
+						"specifier": {
+							"value": "./a.ts",
+							"start": 18,
+							"end": 24
+						},
+						"typeOnly": null,
+						"phase": null,
+						"attributes": null
+					},
+					{
+						"kind": "dynamic",
+						"start": 38,
+						"end": 54,
+						"specifier": {
+							"value": "./b.ts",
+							"start": 46,
+							"end": 52
+						},
+						"typeOnly": null,
+						"phase": null,
+						"attributes": null
+					},
+					{
+						"kind": "dynamic",
+						"start": 66,
+						"end": 78,
+						"specifier": null,
+						"typeOnly": null,
+						"phase": null,
+						"attributes": null
+					},
+					{
+						"kind": "dynamic",
+						"start": 90,
+						"end": 112,
+						"specifier": null,
+						"typeOnly": null,
+						"phase": null,
+						"attributes": null
+					},
+					{
+						"kind": "dynamic",
+						"start": 114,
+						"end": 130,
+						"specifier": {
+							"value": "./e.ts",
+							"start": 122,
+							"end": 128
+						},
+						"typeOnly": null,
+						"phase": null,
+						"attributes": null
+					},
+					{
+						"kind": "dynamic",
+						"start": 142,
+						"end": 158,
+						"specifier": {
+							"value": "./f.ts",
+							"start": 150,
+							"end": 156
+						},
+						"typeOnly": null,
+						"phase": null,
+						"attributes": null
+					}
+				]
+			},
+			"typescript equals": {
+				"ok": true,
+				"hasModuleSyntax": false,
+				"imports": [
+					{
+						"kind": "import_equals",
+						"start": 0,
+						"end": 26,
+						"specifier": {
+							"value": "./a",
+							"start": 20,
+							"end": 23
+						},
+						"typeOnly": null,
+						"phase": null,
+						"attributes": null
+					},
+					{
+						"kind": "import_equals",
+						"start": 27,
+						"end": 58,
+						"specifier": {
+							"value": "b",
+							"start": 54,
+							"end": 55
+						},
+						"typeOnly": null,
+						"phase": null,
+						"attributes": null
+					}
+				]
+			},
+			"typescript equals as a module": {
+				"ok": true,
+				"hasModuleSyntax": false,
+				"imports": [
+					{
+						"kind": "import_equals",
+						"start": 0,
+						"end": 26,
+						"specifier": {
+							"value": "./a",
+							"start": 20,
+							"end": 23
+						},
+						"typeOnly": null,
+						"phase": null,
+						"attributes": null
+					},
+					{
+						"kind": "import_equals",
+						"start": 27,
+						"end": 58,
+						"specifier": {
+							"value": "b",
+							"start": 54,
+							"end": 55
+						},
+						"typeOnly": null,
+						"phase": null,
+						"attributes": null
+					}
+				]
+			},
+			"typescript equals as a script": {
+				"ok": false,
+				"error": {
+					"kind": "parse",
+					"message": "'export' is only allowed in a module",
+					"frame": "2:1 export import b = require('b');\n    ^ here",
+					"start": 27,
+					"end": 27,
+					"loc": {
+						"start": {
+							"line": 2,
+							"column": 0
+						},
+						"end": {
+							"line": 2,
+							"column": 0
+						}
+					}
+				}
+			},
+			"typescript attributes": {
+				"ok": true,
+				"hasModuleSyntax": true,
+				"imports": [
+					{
+						"kind": "static",
+						"start": 0,
+						"end": 53,
+						"specifier": {
+							"value": "./data.json",
+							"start": 18,
+							"end": 29
+						},
+						"typeOnly": null,
+						"phase": null,
+						"attributes": {
+							"start": 31,
+							"end": 52
+						}
+					},
+					{
+						"kind": "dynamic",
+						"start": 64,
+						"end": 110,
+						"specifier": {
+							"value": "./x.json",
+							"start": 72,
+							"end": 80
+						},
+						"typeOnly": null,
+						"phase": null,
+						"attributes": {
+							"start": 83,
+							"end": 109
+						}
+					}
+				]
+			},
+			"typescript attributes as a module": {
+				"ok": true,
+				"hasModuleSyntax": true,
+				"imports": [
+					{
+						"kind": "static",
+						"start": 0,
+						"end": 53,
+						"specifier": {
+							"value": "./data.json",
+							"start": 18,
+							"end": 29
+						},
+						"typeOnly": null,
+						"phase": null,
+						"attributes": {
+							"start": 31,
+							"end": 52
+						}
+					},
+					{
+						"kind": "dynamic",
+						"start": 64,
+						"end": 110,
+						"specifier": {
+							"value": "./x.json",
+							"start": 72,
+							"end": 80
+						},
+						"typeOnly": null,
+						"phase": null,
+						"attributes": {
+							"start": 83,
+							"end": 109
+						}
+					}
+				]
+			},
+			"typescript attributes as a script": {
+				"ok": false,
+				"error": {
+					"kind": "parse",
+					"message": "'import' is only allowed in a module",
+					"frame": "1:1 import data from './data.json' with { type: 'json' };\n    ^ here",
+					"start": 0,
+					"end": 0,
+					"loc": {
+						"start": {
+							"line": 1,
+							"column": 0
+						},
+						"end": {
+							"line": 1,
+							"column": 0
+						}
+					}
+				}
+			},
+			"typescript phases": {
+				"ok": true,
+				"hasModuleSyntax": true,
+				"imports": [
+					{
+						"kind": "static",
+						"start": 0,
+						"end": 35,
+						"specifier": {
+							"value": "./a.wasm",
+							"start": 25,
+							"end": 33
+						},
+						"typeOnly": null,
+						"phase": "source",
+						"attributes": null
+					},
+					{
+						"kind": "static",
+						"start": 36,
+						"end": 71,
+						"specifier": {
+							"value": "./b.ts",
+							"start": 63,
+							"end": 69
+						},
+						"typeOnly": null,
+						"phase": "defer",
+						"attributes": null
+					}
+				]
+			},
+			"typescript phases as a module": {
+				"ok": true,
+				"hasModuleSyntax": true,
+				"imports": [
+					{
+						"kind": "static",
+						"start": 0,
+						"end": 35,
+						"specifier": {
+							"value": "./a.wasm",
+							"start": 25,
+							"end": 33
+						},
+						"typeOnly": null,
+						"phase": "source",
+						"attributes": null
+					},
+					{
+						"kind": "static",
+						"start": 36,
+						"end": 71,
+						"specifier": {
+							"value": "./b.ts",
+							"start": 63,
+							"end": 69
+						},
+						"typeOnly": null,
+						"phase": "defer",
+						"attributes": null
+					}
+				]
+			},
+			"typescript phases as a script": {
+				"ok": false,
+				"error": {
+					"kind": "parse",
+					"message": "'import' is only allowed in a module",
+					"frame": "1:1 import source wasm from './a.wasm';\n    ^ here",
+					"start": 0,
+					"end": 0,
+					"loc": {
+						"start": {
+							"line": 1,
+							"column": 0
+						},
+						"end": {
+							"line": 1,
+							"column": 0
+						}
+					}
+				}
+			},
+			"typescript escapes": {
+				"ok": true,
+				"hasModuleSyntax": true,
+				"imports": [
+					{
+						"kind": "static",
+						"start": 0,
+						"end": 28,
+						"specifier": {
+							"value": "./a.ts",
+							"start": 15,
+							"end": 26
+						},
+						"typeOnly": null,
+						"phase": null,
+						"attributes": null
+					},
+					{
+						"kind": "static",
+						"start": 29,
+						"end": 50,
+						"specifier": {
+							"value": "b",
+							"start": 44,
+							"end": 48
+						},
+						"typeOnly": null,
+						"phase": null,
+						"attributes": null
+					},
+					{
+						"kind": "dynamic",
+						"start": 61,
+						"end": 75,
+						"specifier": {
+							"value": "cd",
+							"start": 69,
+							"end": 73
+						},
+						"typeOnly": null,
+						"phase": null,
+						"attributes": null
+					}
+				]
+			},
+			"typescript escapes as a module": {
+				"ok": true,
+				"hasModuleSyntax": true,
+				"imports": [
+					{
+						"kind": "static",
+						"start": 0,
+						"end": 28,
+						"specifier": {
+							"value": "./a.ts",
+							"start": 15,
+							"end": 26
+						},
+						"typeOnly": null,
+						"phase": null,
+						"attributes": null
+					},
+					{
+						"kind": "static",
+						"start": 29,
+						"end": 50,
+						"specifier": {
+							"value": "b",
+							"start": 44,
+							"end": 48
+						},
+						"typeOnly": null,
+						"phase": null,
+						"attributes": null
+					},
+					{
+						"kind": "dynamic",
+						"start": 61,
+						"end": 75,
+						"specifier": {
+							"value": "cd",
+							"start": 69,
+							"end": 73
+						},
+						"typeOnly": null,
+						"phase": null,
+						"attributes": null
+					}
+				]
+			},
+			"typescript escapes as a script": {
+				"ok": false,
+				"error": {
+					"kind": "parse",
+					"message": "'import' is only allowed in a module",
+					"frame": "1:1 import a from './\\u0061.ts';\n    ^ here",
+					"start": 0,
+					"end": 0,
+					"loc": {
+						"start": {
+							"line": 1,
+							"column": 0
+						},
+						"end": {
+							"line": 1,
+							"column": 0
+						}
+					}
+				}
+			},
+			"typescript multibyte": {
+				"ok": true,
+				"hasModuleSyntax": true,
+				"imports": [
+					{
+						"kind": "static",
+						"start": 17,
+						"end": 42,
+						"specifier": {
+							"value": "./é😀.ts",
+							"start": 32,
+							"end": 40
+						},
+						"typeOnly": null,
+						"phase": null,
+						"attributes": null
+					}
+				]
+			},
+			"typescript multibyte as a module": {
+				"ok": true,
+				"hasModuleSyntax": true,
+				"imports": [
+					{
+						"kind": "static",
+						"start": 17,
+						"end": 42,
+						"specifier": {
+							"value": "./é😀.ts",
+							"start": 32,
+							"end": 40
+						},
+						"typeOnly": null,
+						"phase": null,
+						"attributes": null
+					}
+				]
+			},
+			"typescript multibyte as a script": {
+				"ok": false,
+				"error": {
+					"kind": "parse",
+					"message": "'import' is only allowed in a module",
+					"frame": "2:1 import a from './é😀.ts';\n    ^ here",
+					"start": 17,
+					"end": 17,
+					"loc": {
+						"start": {
+							"line": 2,
+							"column": 0
+						},
+						"end": {
+							"line": 2,
+							"column": 0
+						}
+					}
+				}
+			},
+			"typescript bom": {
+				"ok": true,
+				"hasModuleSyntax": true,
+				"imports": [
+					{
+						"kind": "static",
+						"start": 1,
+						"end": 24,
+						"specifier": {
+							"value": "./a.ts",
+							"start": 16,
+							"end": 22
+						},
+						"typeOnly": null,
+						"phase": null,
+						"attributes": null
+					}
+				]
+			},
+			"typescript bom as a module": {
+				"ok": true,
+				"hasModuleSyntax": true,
+				"imports": [
+					{
+						"kind": "static",
+						"start": 1,
+						"end": 24,
+						"specifier": {
+							"value": "./a.ts",
+							"start": 16,
+							"end": 22
+						},
+						"typeOnly": null,
+						"phase": null,
+						"attributes": null
+					}
+				]
+			},
+			"typescript bom as a script": {
+				"ok": false,
+				"error": {
+					"kind": "parse",
+					"message": "'import' is only allowed in a module",
+					"frame": "1:2 import a from './a.ts';\n    ^ here",
+					"start": 1,
+					"end": 1,
+					"loc": {
+						"start": {
+							"line": 1,
+							"column": 1
+						},
+						"end": {
+							"line": 1,
+							"column": 1
+						}
+					}
+				}
+			},
+			"typescript crlf": {
+				"ok": true,
+				"hasModuleSyntax": true,
+				"imports": [
+					{
+						"kind": "static",
+						"start": 0,
+						"end": 23,
+						"specifier": {
+							"value": "./a.ts",
+							"start": 15,
+							"end": 21
+						},
+						"typeOnly": null,
+						"phase": null,
+						"attributes": null
+					},
+					{
+						"kind": "static",
+						"start": 25,
+						"end": 48,
+						"specifier": {
+							"value": "./b.ts",
+							"start": 40,
+							"end": 46
+						},
+						"typeOnly": null,
+						"phase": null,
+						"attributes": null
+					}
+				]
+			},
+			"typescript crlf as a module": {
+				"ok": true,
+				"hasModuleSyntax": true,
+				"imports": [
+					{
+						"kind": "static",
+						"start": 0,
+						"end": 23,
+						"specifier": {
+							"value": "./a.ts",
+							"start": 15,
+							"end": 21
+						},
+						"typeOnly": null,
+						"phase": null,
+						"attributes": null
+					},
+					{
+						"kind": "static",
+						"start": 25,
+						"end": 48,
+						"specifier": {
+							"value": "./b.ts",
+							"start": 40,
+							"end": 46
+						},
+						"typeOnly": null,
+						"phase": null,
+						"attributes": null
+					}
+				]
+			},
+			"typescript crlf as a script": {
+				"ok": false,
+				"error": {
+					"kind": "parse",
+					"message": "'import' is only allowed in a module",
+					"frame": "1:1 import a from './a.ts';\n    ^ here",
+					"start": 0,
+					"end": 0,
+					"loc": {
+						"start": {
+							"line": 1,
+							"column": 0
+						},
+						"end": {
+							"line": 1,
+							"column": 0
+						}
+					}
+				}
+			},
+			"typescript script": {
+				"ok": true,
+				"hasModuleSyntax": false,
+				"imports": []
+			},
+			"typescript script as a module": {
+				"ok": false,
+				"error": {
+					"kind": "parse",
+					"message": "The 'with' statement is not allowed in strict mode",
+					"frame": "2:1 with (a) {}\n    ^ here",
+					"start": 11,
+					"end": 11,
+					"loc": {
+						"start": {
+							"line": 2,
+							"column": 0
+						},
+						"end": {
+							"line": 2,
+							"column": 0
+						}
+					}
+				}
+			},
+			"typescript script as a script": {
+				"ok": true,
+				"hasModuleSyntax": false,
+				"imports": []
+			},
+			"typescript type_positions": {
+				"ok": true,
+				"hasModuleSyntax": false,
+				"imports": []
+			},
+			"typescript type_positions as a module": {
+				"ok": true,
+				"hasModuleSyntax": false,
+				"imports": []
+			},
+			"typescript type_positions as a script": {
+				"ok": true,
+				"hasModuleSyntax": false,
+				"imports": []
+			},
+			"typescript top_level_await": {
+				"ok": true,
+				"hasModuleSyntax": true,
+				"imports": []
+			},
+			"typescript top_level_await as a module": {
+				"ok": true,
+				"hasModuleSyntax": true,
+				"imports": []
+			},
+			"typescript top_level_await as a script": {
+				"ok": false,
+				"error": {
+					"kind": "parse",
+					"message": "Expected ';'",
+					"frame": "1:7 await 1;\n          ^ here",
+					"start": 6,
+					"end": 6,
+					"loc": {
+						"start": {
+							"line": 1,
+							"column": 6
+						},
+						"end": {
+							"line": 1,
+							"column": 6
+						}
+					}
+				}
+			},
+			"typescript empty": {
+				"ok": true,
+				"hasModuleSyntax": false,
+				"imports": []
+			},
+			"typescript empty as a module": {
+				"ok": true,
+				"hasModuleSyntax": false,
+				"imports": []
+			},
+			"typescript empty as a script": {
+				"ok": true,
+				"hasModuleSyntax": false,
+				"imports": []
+			},
+			"typescript syntax_error": {
+				"ok": false,
+				"error": {
+					"kind": "parse",
+					"message": "Expected expression, found ';'",
+					"frame": "2:7 let = ;\n          ^ here",
+					"start": 29,
+					"end": 29,
+					"loc": {
+						"start": {
+							"line": 2,
+							"column": 6
+						},
+						"end": {
+							"line": 2,
+							"column": 6
+						}
+					}
+				}
+			},
+			"typescript syntax_error as a module": {
+				"ok": false,
+				"error": {
+					"kind": "parse",
+					"message": "Expected expression, found ';'",
+					"frame": "2:7 let = ;\n          ^ here",
+					"start": 29,
+					"end": 29,
+					"loc": {
+						"start": {
+							"line": 2,
+							"column": 6
+						},
+						"end": {
+							"line": 2,
+							"column": 6
+						}
+					}
+				}
+			},
+			"typescript syntax_error as a script": {
+				"ok": false,
+				"error": {
+					"kind": "parse",
+					"message": "'import' is only allowed in a module",
+					"frame": "1:1 import a from './a.ts'\n    ^ here",
+					"start": 0,
+					"end": 0,
+					"loc": {
+						"start": {
+							"line": 1,
+							"column": 0
+						},
+						"end": {
+							"line": 1,
+							"column": 0
+						}
+					}
+				}
+			},
+			"typescript module_only_as_script": {
+				"ok": true,
+				"hasModuleSyntax": true,
+				"imports": [
+					{
+						"kind": "static",
+						"start": 0,
+						"end": 18,
+						"specifier": {
+							"value": "a",
+							"start": 15,
+							"end": 16
+						},
+						"typeOnly": null,
+						"phase": null,
+						"attributes": null
+					}
+				]
+			},
+			"typescript module_only_as_script as a module": {
+				"ok": true,
+				"hasModuleSyntax": true,
+				"imports": [
+					{
+						"kind": "static",
+						"start": 0,
+						"end": 18,
+						"specifier": {
+							"value": "a",
+							"start": 15,
+							"end": 16
+						},
+						"typeOnly": null,
+						"phase": null,
+						"attributes": null
+					}
+				]
+			},
+			"typescript module_only_as_script as a script": {
+				"ok": false,
+				"error": {
+					"kind": "parse",
+					"message": "'import' is only allowed in a module",
+					"frame": "1:1 import a from 'a';\n    ^ here",
+					"start": 0,
+					"end": 0,
+					"loc": {
+						"start": {
+							"line": 1,
+							"column": 0
+						},
+						"end": {
+							"line": 1,
+							"column": 0
+						}
+					}
+				}
+			},
+			"svelte instance": {
+				"ok": true,
+				"hasModuleSyntax": true,
+				"imports": [
+					{
+						"kind": "static",
+						"start": 20,
+						"end": 47,
+						"specifier": {
+							"value": "./A.svelte",
+							"start": 35,
+							"end": 45
+						},
+						"typeOnly": null,
+						"phase": null,
+						"attributes": null
+					},
+					{
+						"kind": "static",
+						"start": 49,
+						"end": 81,
+						"specifier": {
+							"value": "./b.ts",
+							"start": 73,
+							"end": 79
+						},
+						"typeOnly": "statement",
+						"phase": null,
+						"attributes": null
+					},
+					{
+						"kind": "dynamic",
+						"start": 93,
+						"end": 109,
+						"specifier": {
+							"value": "./c.ts",
+							"start": 101,
+							"end": 107
+						},
+						"typeOnly": null,
+						"phase": null,
+						"attributes": null
+					}
+				]
+			},
+			"svelte both_scripts": {
+				"ok": true,
+				"hasModuleSyntax": true,
+				"imports": [
+					{
+						"kind": "static",
+						"start": 38,
+						"end": 61,
+						"specifier": {
+							"value": "./x.ts",
+							"start": 53,
+							"end": 59
+						},
+						"typeOnly": null,
+						"phase": null,
+						"attributes": null
+					},
+					{
+						"kind": "static",
+						"start": 82,
+						"end": 105,
+						"specifier": {
+							"value": "./y.ts",
+							"start": 97,
+							"end": 103
+						},
+						"typeOnly": null,
+						"phase": null,
+						"attributes": null
+					}
+				]
+			},
+			"svelte markup_only": {
+				"ok": true,
+				"hasModuleSyntax": false,
+				"imports": []
+			},
+			"svelte bom": {
+				"ok": true,
+				"hasModuleSyntax": true,
+				"imports": [
+					{
+						"kind": "static",
+						"start": 8,
+						"end": 31,
+						"specifier": {
+							"value": "./é.ts",
+							"start": 23,
+							"end": 29
+						},
+						"typeOnly": null,
+						"phase": null,
+						"attributes": null
+					}
+				]
+			},
+			"svelte multibyte": {
+				"ok": true,
+				"hasModuleSyntax": true,
+				"imports": [
+					{
+						"kind": "static",
+						"start": 17,
+						"end": 40,
+						"specifier": {
+							"value": "./a.ts",
+							"start": 32,
+							"end": 38
+						},
+						"typeOnly": null,
+						"phase": null,
+						"attributes": null
+					}
+				]
+			},
+			"svelte syntax_error": {
+				"ok": false,
+				"error": {
+					"kind": "parse",
+					"message": "Expected string literal as module source",
+					"frame": "1:22 <script>import a from;</script>\n                          ^ here",
+					"start": 21,
+					"end": 21,
+					"loc": {
+						"start": {
+							"line": 1,
+							"column": 21
+						},
+						"end": {
+							"line": 1,
+							"column": 21
+						}
+					}
+				}
+			},
+			"svelte markup_error": {
+				"ok": false,
+				"error": {
+					"kind": "parse",
+					"message": "Unclosed expression tag",
+					"frame": "1:4 <p>{</p>\n       ^ here",
+					"start": 3,
+					"end": 3,
+					"loc": {
+						"start": {
+							"line": 1,
+							"column": 3
+						},
+						"end": {
+							"line": 1,
+							"column": 3
+						}
+					}
+				}
+			},
+			"svelte empty": {
+				"ok": true,
+				"hasModuleSyntax": false,
+				"imports": []
+			},
+			"svelte as typescript": {
+				"ok": false,
+				"error": {
+					"kind": "parse",
+					"message": "Expected '>', found identifier",
+					"frame": "1:9 <script lang=\"ts\">\n            ^ here",
+					"start": 8,
+					"end": 8,
+					"loc": {
+						"start": {
+							"line": 1,
+							"column": 8
+						},
+						"end": {
+							"line": 1,
+							"column": 8
+						}
+					}
+				}
+			}
+		}
+	},
+	"tsv_ignore": {
+		"code": 0,
+		"output": {
+			"empty": [
+				"a.ts false",
+				"dist/ false",
+				"dist false",
+				"dist/x.js false",
+				"dist/keep.js false",
+				"src/a.gen.ts false",
+				"src/b/a.gen.ts false",
+				"src/b/keep.gen.ts false",
+				"src/b/ false",
+				"logs/x.log false",
+				"x.log false",
+				"important.log false",
+				"nested/build/ false",
+				"build/ false",
+				"build/out false",
+				"a/b/c.txt false",
+				"a/b/d.md false",
+				"a/x.md false",
+				" false",
+				"/abs false",
+				"./a.ts false",
+				"café/😀.ts false",
+				"space name.txt false",
+				"back\\slash false",
+				"trailing// false"
+			],
+			"root": [
+				"a.ts false",
+				"dist/ true",
+				"dist false",
+				"dist/x.js true",
+				"dist/keep.js true",
+				"src/a.gen.ts false",
+				"src/b/a.gen.ts false",
+				"src/b/keep.gen.ts false",
+				"src/b/ false",
+				"logs/x.log true",
+				"x.log true",
+				"important.log false",
+				"nested/build/ false",
+				"build/ true",
+				"build/out true",
+				"a/b/c.txt false",
+				"a/b/d.md false",
+				"a/x.md false",
+				" false",
+				"/abs false",
+				"./a.ts false",
+				"café/😀.ts true",
+				"space name.txt true",
+				"back\\slash false",
+				"trailing// false"
+			],
+			"nested": [
+				"a.ts false",
+				"dist/ true",
+				"dist false",
+				"dist/x.js true",
+				"dist/keep.js true",
+				"src/a.gen.ts true",
+				"src/b/a.gen.ts true",
+				"src/b/keep.gen.ts false",
+				"src/b/ false",
+				"logs/x.log true",
+				"x.log true",
+				"important.log false",
+				"nested/build/ false",
+				"build/ true",
+				"build/out true",
+				"a/b/c.txt true",
+				"a/b/d.md false",
+				"a/x.md false",
+				" false",
+				"/abs false",
+				"./a.ts false",
+				"café/😀.ts true",
+				"space name.txt true",
+				"back\\slash false",
+				"trailing// false"
+			],
+			"formatignore": [
+				"a.ts false",
+				"dist/ true",
+				"dist false",
+				"dist/x.js true",
+				"dist/keep.js true",
+				"src/a.gen.ts true",
+				"src/b/a.gen.ts true",
+				"src/b/keep.gen.ts false",
+				"src/b/ false",
+				"logs/x.log true",
+				"x.log true",
+				"important.log false",
+				"nested/build/ false",
+				"build/ true",
+				"build/out true",
+				"a/b/c.txt true",
+				"a/b/d.md true",
+				"a/x.md true",
+				" false",
+				"/abs false",
+				"./a.ts false",
+				"café/😀.ts true",
+				"space name.txt true",
+				"back\\slash false",
+				"trailing// false"
+			],
+			"prettierignore": [
+				"a.ts false",
+				"dist/ true",
+				"dist false",
+				"dist/x.js true",
+				"dist/keep.js true",
+				"src/a.gen.ts true",
+				"src/b/a.gen.ts true",
+				"src/b/keep.gen.ts false",
+				"src/b/ false",
+				"logs/x.log true",
+				"x.log true",
+				"important.log false",
+				"nested/build/ false",
+				"build/ true",
+				"build/out true",
+				"a/b/c.txt true",
+				"a/b/d.md false",
+				"a/x.md true",
+				" false",
+				"/abs false",
+				"./a.ts false",
+				"café/😀.ts true",
+				"space name.txt true",
+				"back\\slash false",
+				"trailing// false"
+			],
+			"popped_overrides": [
+				"a.ts false",
+				"dist/ true",
+				"dist false",
+				"dist/x.js true",
+				"dist/keep.js true",
+				"src/a.gen.ts true",
+				"src/b/a.gen.ts true",
+				"src/b/keep.gen.ts false",
+				"src/b/ false",
+				"logs/x.log true",
+				"x.log true",
+				"important.log false",
+				"nested/build/ false",
+				"build/ true",
+				"build/out true",
+				"a/b/c.txt true",
+				"a/b/d.md false",
+				"a/x.md false",
+				" false",
+				"/abs false",
+				"./a.ts false",
+				"café/😀.ts true",
+				"space name.txt true",
+				"back\\slash false",
+				"trailing// false"
+			],
+			"popped_gitignore": [
+				"a.ts false",
+				"dist/ true",
+				"dist false",
+				"dist/x.js true",
+				"dist/keep.js true",
+				"src/a.gen.ts true",
+				"src/b/a.gen.ts true",
+				"src/b/keep.gen.ts false",
+				"src/b/ false",
+				"logs/x.log true",
+				"x.log true",
+				"important.log false",
+				"nested/build/ false",
+				"build/ true",
+				"build/out true",
+				"a/b/c.txt false",
+				"a/b/d.md false",
+				"a/x.md false",
+				" false",
+				"/abs false",
+				"./a.ts false",
+				"café/😀.ts true",
+				"space name.txt true",
+				"back\\slash false",
+				"trailing// false"
+			],
+			"popped_all": [
+				"a.ts false",
+				"dist/ false",
+				"dist false",
+				"dist/x.js false",
+				"dist/keep.js false",
+				"src/a.gen.ts false",
+				"src/b/a.gen.ts false",
+				"src/b/keep.gen.ts false",
+				"src/b/ false",
+				"logs/x.log false",
+				"x.log false",
+				"important.log false",
+				"nested/build/ false",
+				"build/ false",
+				"build/out false",
+				"a/b/c.txt false",
+				"a/b/d.md false",
+				"a/x.md false",
+				" false",
+				"/abs false",
+				"./a.ts false",
+				"café/😀.ts false",
+				"space name.txt false",
+				"back\\slash false",
+				"trailing// false"
+			],
+			"others": {
+				"crlf": [
+					"a.ts false",
+					"dist/ true",
+					"dist false",
+					"dist/x.js true",
+					"dist/keep.js true",
+					"src/a.gen.ts false",
+					"src/b/a.gen.ts false",
+					"src/b/keep.gen.ts false",
+					"src/b/ false",
+					"logs/x.log true",
+					"x.log true",
+					"important.log true",
+					"nested/build/ false",
+					"build/ false",
+					"build/out false",
+					"a/b/c.txt false",
+					"a/b/d.md false",
+					"a/x.md false",
+					" false",
+					"/abs false",
+					"./a.ts false",
+					"café/😀.ts false",
+					"space name.txt false",
+					"back\\slash false",
+					"trailing// false"
+				],
+				"lone_surrogate": true,
+				"lone_surrogate_replaced": true
+			},
+			"apart": [
+				true,
+				false
+			]
+		}
+	},
+	"tsv_receiver": {
+		"code": 0,
+		"output": {
+			"receivers": [
+				[
+					"push_gitignore",
+					[
+						[
+							"undefined",
+							[
+								"TypeError",
+								"an ignore stack's methods are called on an ignore stack, not another object"
+							]
+						],
+						[
+							"an object",
+							[
+								"TypeError",
+								"an ignore stack's methods are called on an ignore stack, not another object"
+							]
+						],
+						[
+							"a look-alike",
+							[
+								"TypeError",
+								"an ignore stack's methods are called on an ignore stack, not another object"
+							]
+						],
+						[
+							"a proxy of a stack",
+							[
+								"TypeError",
+								"an ignore stack's methods are called on an ignore stack, not another object"
+							]
+						],
+						[
+							"a copy",
+							[
+								"TypeError",
+								"an ignore stack's methods are called on an ignore stack, not another object"
+							]
+						],
+						[
+							"a function",
+							[
+								"TypeError",
+								"an ignore stack's methods are called on an ignore stack, not another object"
+							]
+						]
+					],
+					[
+						"TypeError",
+						"an ignore stack's methods are called on an ignore stack, not another object"
+					]
+				],
+				[
+					"pop_gitignore",
+					[
+						[
+							"undefined",
+							[
+								"TypeError",
+								"an ignore stack's methods are called on an ignore stack, not another object"
+							]
+						],
+						[
+							"an object",
+							[
+								"TypeError",
+								"an ignore stack's methods are called on an ignore stack, not another object"
+							]
+						],
+						[
+							"a look-alike",
+							[
+								"TypeError",
+								"an ignore stack's methods are called on an ignore stack, not another object"
+							]
+						],
+						[
+							"a proxy of a stack",
+							[
+								"TypeError",
+								"an ignore stack's methods are called on an ignore stack, not another object"
+							]
+						],
+						[
+							"a copy",
+							[
+								"TypeError",
+								"an ignore stack's methods are called on an ignore stack, not another object"
+							]
+						],
+						[
+							"a function",
+							[
+								"TypeError",
+								"an ignore stack's methods are called on an ignore stack, not another object"
+							]
+						]
+					],
+					[
+						"TypeError",
+						"an ignore stack's methods are called on an ignore stack, not another object"
+					]
+				],
+				[
+					"push_formatignore",
+					[
+						[
+							"undefined",
+							[
+								"TypeError",
+								"an ignore stack's methods are called on an ignore stack, not another object"
+							]
+						],
+						[
+							"an object",
+							[
+								"TypeError",
+								"an ignore stack's methods are called on an ignore stack, not another object"
+							]
+						],
+						[
+							"a look-alike",
+							[
+								"TypeError",
+								"an ignore stack's methods are called on an ignore stack, not another object"
+							]
+						],
+						[
+							"a proxy of a stack",
+							[
+								"TypeError",
+								"an ignore stack's methods are called on an ignore stack, not another object"
+							]
+						],
+						[
+							"a copy",
+							[
+								"TypeError",
+								"an ignore stack's methods are called on an ignore stack, not another object"
+							]
+						],
+						[
+							"a function",
+							[
+								"TypeError",
+								"an ignore stack's methods are called on an ignore stack, not another object"
+							]
+						]
+					],
+					[
+						"TypeError",
+						"an ignore stack's methods are called on an ignore stack, not another object"
+					]
+				],
+				[
+					"push_prettierignore",
+					[
+						[
+							"undefined",
+							[
+								"TypeError",
+								"an ignore stack's methods are called on an ignore stack, not another object"
+							]
+						],
+						[
+							"an object",
+							[
+								"TypeError",
+								"an ignore stack's methods are called on an ignore stack, not another object"
+							]
+						],
+						[
+							"a look-alike",
+							[
+								"TypeError",
+								"an ignore stack's methods are called on an ignore stack, not another object"
+							]
+						],
+						[
+							"a proxy of a stack",
+							[
+								"TypeError",
+								"an ignore stack's methods are called on an ignore stack, not another object"
+							]
+						],
+						[
+							"a copy",
+							[
+								"TypeError",
+								"an ignore stack's methods are called on an ignore stack, not another object"
+							]
+						],
+						[
+							"a function",
+							[
+								"TypeError",
+								"an ignore stack's methods are called on an ignore stack, not another object"
+							]
+						]
+					],
+					[
+						"TypeError",
+						"an ignore stack's methods are called on an ignore stack, not another object"
+					]
+				],
+				[
+					"pop_override",
+					[
+						[
+							"undefined",
+							[
+								"TypeError",
+								"an ignore stack's methods are called on an ignore stack, not another object"
+							]
+						],
+						[
+							"an object",
+							[
+								"TypeError",
+								"an ignore stack's methods are called on an ignore stack, not another object"
+							]
+						],
+						[
+							"a look-alike",
+							[
+								"TypeError",
+								"an ignore stack's methods are called on an ignore stack, not another object"
+							]
+						],
+						[
+							"a proxy of a stack",
+							[
+								"TypeError",
+								"an ignore stack's methods are called on an ignore stack, not another object"
+							]
+						],
+						[
+							"a copy",
+							[
+								"TypeError",
+								"an ignore stack's methods are called on an ignore stack, not another object"
+							]
+						],
+						[
+							"a function",
+							[
+								"TypeError",
+								"an ignore stack's methods are called on an ignore stack, not another object"
+							]
+						]
+					],
+					[
+						"TypeError",
+						"an ignore stack's methods are called on an ignore stack, not another object"
+					]
+				],
+				[
+					"is_ignored",
+					[
+						[
+							"undefined",
+							[
+								"TypeError",
+								"an ignore stack's methods are called on an ignore stack, not another object"
+							]
+						],
+						[
+							"an object",
+							[
+								"TypeError",
+								"an ignore stack's methods are called on an ignore stack, not another object"
+							]
+						],
+						[
+							"a look-alike",
+							[
+								"TypeError",
+								"an ignore stack's methods are called on an ignore stack, not another object"
+							]
+						],
+						[
+							"a proxy of a stack",
+							[
+								"TypeError",
+								"an ignore stack's methods are called on an ignore stack, not another object"
+							]
+						],
+						[
+							"a copy",
+							[
+								"TypeError",
+								"an ignore stack's methods are called on an ignore stack, not another object"
+							]
+						],
+						[
+							"a function",
+							[
+								"TypeError",
+								"an ignore stack's methods are called on an ignore stack, not another object"
+							]
+						]
+					],
+					[
+						"TypeError",
+						"an ignore stack's methods are called on an ignore stack, not another object"
+					]
+				]
+			],
+			"layers": [
+				[
+					"push_gitignore",
+					[
+						[
+							"undefined",
+							[
+								"TypeError",
+								"an ignore layer's anchor and content are strings"
+							],
+							[
+								"TypeError",
+								"an ignore layer's anchor and content are strings"
+							]
+						],
+						[
+							"null",
+							[
+								"TypeError",
+								"an ignore layer's anchor and content are strings"
+							],
+							[
+								"TypeError",
+								"an ignore layer's anchor and content are strings"
+							]
+						],
+						[
+							"a number",
+							[
+								"TypeError",
+								"an ignore layer's anchor and content are strings"
+							],
+							[
+								"TypeError",
+								"an ignore layer's anchor and content are strings"
+							]
+						],
+						[
+							"a boxed string",
+							[
+								"TypeError",
+								"an ignore layer's anchor and content are strings"
+							],
+							[
+								"TypeError",
+								"an ignore layer's anchor and content are strings"
+							]
+						],
+						[
+							"an array",
+							[
+								"TypeError",
+								"an ignore layer's anchor and content are strings"
+							],
+							[
+								"TypeError",
+								"an ignore layer's anchor and content are strings"
+							]
+						],
+						[
+							"an object",
+							[
+								"TypeError",
+								"an ignore layer's anchor and content are strings"
+							],
+							[
+								"TypeError",
+								"an ignore layer's anchor and content are strings"
+							]
+						]
+					],
+					[
+						"TypeError",
+						"an ignore layer's anchor and content are strings"
+					],
+					null
+				],
+				[
+					"push_formatignore",
+					[
+						[
+							"undefined",
+							[
+								"TypeError",
+								"an ignore layer's anchor and content are strings"
+							],
+							[
+								"TypeError",
+								"an ignore layer's anchor and content are strings"
+							]
+						],
+						[
+							"null",
+							[
+								"TypeError",
+								"an ignore layer's anchor and content are strings"
+							],
+							[
+								"TypeError",
+								"an ignore layer's anchor and content are strings"
+							]
+						],
+						[
+							"a number",
+							[
+								"TypeError",
+								"an ignore layer's anchor and content are strings"
+							],
+							[
+								"TypeError",
+								"an ignore layer's anchor and content are strings"
+							]
+						],
+						[
+							"a boxed string",
+							[
+								"TypeError",
+								"an ignore layer's anchor and content are strings"
+							],
+							[
+								"TypeError",
+								"an ignore layer's anchor and content are strings"
+							]
+						],
+						[
+							"an array",
+							[
+								"TypeError",
+								"an ignore layer's anchor and content are strings"
+							],
+							[
+								"TypeError",
+								"an ignore layer's anchor and content are strings"
+							]
+						],
+						[
+							"an object",
+							[
+								"TypeError",
+								"an ignore layer's anchor and content are strings"
+							],
+							[
+								"TypeError",
+								"an ignore layer's anchor and content are strings"
+							]
+						]
+					],
+					[
+						"TypeError",
+						"an ignore layer's anchor and content are strings"
+					],
+					null
+				],
+				[
+					"push_prettierignore",
+					[
+						[
+							"undefined",
+							[
+								"TypeError",
+								"an ignore layer's anchor and content are strings"
+							],
+							[
+								"TypeError",
+								"an ignore layer's anchor and content are strings"
+							]
+						],
+						[
+							"null",
+							[
+								"TypeError",
+								"an ignore layer's anchor and content are strings"
+							],
+							[
+								"TypeError",
+								"an ignore layer's anchor and content are strings"
+							]
+						],
+						[
+							"a number",
+							[
+								"TypeError",
+								"an ignore layer's anchor and content are strings"
+							],
+							[
+								"TypeError",
+								"an ignore layer's anchor and content are strings"
+							]
+						],
+						[
+							"a boxed string",
+							[
+								"TypeError",
+								"an ignore layer's anchor and content are strings"
+							],
+							[
+								"TypeError",
+								"an ignore layer's anchor and content are strings"
+							]
+						],
+						[
+							"an array",
+							[
+								"TypeError",
+								"an ignore layer's anchor and content are strings"
+							],
+							[
+								"TypeError",
+								"an ignore layer's anchor and content are strings"
+							]
+						],
+						[
+							"an object",
+							[
+								"TypeError",
+								"an ignore layer's anchor and content are strings"
+							],
+							[
+								"TypeError",
+								"an ignore layer's anchor and content are strings"
+							]
+						]
+					],
+					[
+						"TypeError",
+						"an ignore layer's anchor and content are strings"
+					],
+					null
+				]
+			],
+			"paths": [
+				[
+					"undefined",
+					[
+						"TypeError",
+						"is_ignored takes a path string and an is_dir boolean"
+					]
+				],
+				[
+					"null",
+					[
+						"TypeError",
+						"is_ignored takes a path string and an is_dir boolean"
+					]
+				],
+				[
+					"a number",
+					[
+						"TypeError",
+						"is_ignored takes a path string and an is_dir boolean"
+					]
+				],
+				[
+					"a boxed string",
+					[
+						"TypeError",
+						"is_ignored takes a path string and an is_dir boolean"
+					]
+				],
+				[
+					"an array",
+					[
+						"TypeError",
+						"is_ignored takes a path string and an is_dir boolean"
+					]
+				],
+				[
+					"an object",
+					[
+						"TypeError",
+						"is_ignored takes a path string and an is_dir boolean"
+					]
+				]
+			],
+			"dirs": [
+				[
+					"undefined",
+					[
+						"TypeError",
+						"is_ignored takes a path string and an is_dir boolean"
+					]
+				],
+				[
+					"a number",
+					[
+						"TypeError",
+						"is_ignored takes a path string and an is_dir boolean"
+					]
+				],
+				[
+					"a string",
+					[
+						"TypeError",
+						"is_ignored takes a path string and an is_dir boolean"
+					]
+				],
+				[
+					"a boxed boolean",
+					[
+						"TypeError",
+						"is_ignored takes a path string and an is_dir boolean"
+					]
+				],
+				[
+					"null",
+					[
+						"TypeError",
+						"is_ignored takes a path string and an is_dir boolean"
+					]
+				]
+			],
+			"after_refusals": false,
+			"borrowed": [
+				true,
+				false
+			]
+		}
+	},
 	"fs_error": {
 		"code": 0,
 		"output": {

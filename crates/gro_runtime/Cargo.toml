@@ -29,6 +29,9 @@ serde.workspace = true
 serde_json = { workspace = true, features = ["preserve_order"] }
 thiserror.workspace = true
 tokio.workspace = true
+tsv_css.workspace = true
+tsv_ignore.workspace = true
+tsv_svelte.workspace = true
 tsv_ts.workspace = true
 url.workspace = true
 

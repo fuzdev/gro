@@ -1,7 +1,7 @@
 # host modules
 
 > the imports that reach the OS, `fs`, `spawn`, `net`, `watch`, and the process modules (`env`, `args`, `exit`,
-> `stdin`, `stdout`, `stderr`, `cwd`, `pid`, `runtime_version`), and `blake3`, which reaches nothing:
+> `stdin`, `stdout`, `stderr`, `cwd`, `pid`, `runtime_version`), and `blake3` and `tsv`, which reach nothing:
 > how to import them, hand them down, and what the Node implementation does and doesn't guarantee
 
 > **status**: every host module here exists as the Node implementation in Gro's npm package.
@@ -36,6 +36,7 @@ This table is the reference for what's on `fgro`.
 | `pid.ts`             | nothing: the process's id, a value      | built, no grant          |
 | `runtime_version.ts` | nothing: the runtime's name, a value    | built, no grant          |
 | `blake3.ts`          | nothing: BLAKE3 hashing over bytes      | built, no grant          |
+| `tsv.ts`             | nothing: tsv's formatters and parses    | built, no grant          |
 | `env_error.ts`       | nothing: `env`'s error class            | built, no grant          |
 | `fs_error.ts`        | nothing: `fs`'s error class             | built, no grant          |
 | `spawn_error.ts`     | nothing: `spawn`'s error class          | built, no grant          |
@@ -938,6 +939,60 @@ Its functions, the hasher's methods among them, are the host's, so their source 
 and a throw's stack starts at the caller, with no frame of the module's.
 Its digests are the Node module's, held to the official test vectors' inputs by the differential cases.
 
+## tsv
+
+```ts
+import {create_ignore_stack, format_typescript, parse_imports_svelte} from '@fuzdev/gro/tsv.ts';
+
+const result = format_typescript(source); // {ok: true, code} or {ok: false, error}
+if (!result.ok) throw new Error(`${result.error.message}\n${result.error.frame}`);
+
+const parsed = parse_imports_svelte(component); // {ok: true, hasModuleSyntax, imports} or {ok: false, error}
+
+const stack = create_ignore_stack();
+stack.push_gitignore('', gitignore);
+stack.is_ignored('dist/app.js', false);
+```
+
+- `format_typescript`, `format_svelte`, and `format_css` format a source, returning `{ok: true, code}`,
+  or `{ok: false, error}` for one that doesn't parse, or, from `format_svelte` alone, that it refuses to print
+  because printing would change its meaning (a lone CR inside an in-tag `//` comment).
+  `parse_imports_typescript` and `parse_imports_svelte` return a source's module requests in source order,
+  each record's `kind`, span, `specifier` (its decoded `value` and span, `null` for a computed `import()`),
+  `typeOnly`, `phase`, and `attributes`, with `hasModuleSyntax`, or the same `{ok: false, error}`.
+  The results, error texts, and offsets are tsv's binding's, `@fuzdev/tsv`: an error's `message` is one line
+  and its `frame` the excerpt and caret under it, and every offset is a UTF-16 one, of the source with
+  a leading byte-order mark removed for a Svelte document.
+  What a function concludes about the source is returned, never thrown.
+- A source is a well-formed string, and options are `undefined`, `null`, or an object.
+  TypeScript's functions take `sourceType`, `'script'` or `'module'`, exact when set and otherwise a module retried as a script,
+  and the Svelte and CSS functions take no key, but a `sourceType` of `undefined`, so one bag can be passed to any of them.
+  Anything else is a `TypeError` of tsv's own text, a key it doesn't take among it, and so is a proxy, refused as options that aren't an object;
+  a `sourceType` that's a getter is a `TypeError` of Gro's own text: options are read as data, so no code of a caller's runs.
+- `create_ignore_stack()` makes a matcher of gitignore-style layers, pushed shallowest-first, each anchored at a directory
+  relative to the stack's root (`''` the root): `push_gitignore`, and the override layers `push_formatignore` and
+  `push_prettierignore`, applied after every `.gitignore` one, each popped by `pop_gitignore` and `pop_override`.
+  `is_ignored(path, is_dir)` matches a `/`-separated path relative to the root, `is_dir` marking a directory,
+  so a pattern ending in `/` applies.
+  Precedence is push order: a deeper layer pushed before a shallower one loses to it, where git would have the deeper one win,
+  and a debug build of `fgro` aborts on such a push (`tsv_ignore` asserts the order there).
+  A stack lives as long as it can be reached, with no call to end it; it's frozen, null-prototype,
+  and its methods throw a `TypeError` called on any other object.
+- The module reaches nothing, so it needs no grant, and on `fgro` the project's modules and every package's import it alike.
+  Gro's own modules format, read import requests, and match ignore files through it, never `@fuzdev/tsv`,
+  but for the Node loader's type strip, which `fgro` does natively.
+
+On `fgro` the module is tsv's own crates, `tsv_ts`, `tsv_svelte`, `tsv_css`, and `tsv_ignore`, at the version of the Node package,
+and a stack's state is the host's, dropped once the stack is collected and counted toward V8's external memory
+by its size and its layers' text, not the rules parsed from it, with nothing subtracted for a pop;
+nothing bounds a stack's memory but the process's.
+Its functions, a stack's methods among them, are the host's, so their source text is native code's,
+and a throw's stack starts at the caller, with no frame of the module's.
+A call runs on the run's thread, sized to tsv's stack contract, where input nested past tsv's depth limits is a parse error.
+A panic in tsv, which only a bug of tsv's is, ends the process, where the Node binding throws it as an error:
+the release build aborts on a panic, and a debug one can't unwind out of the host's callback.
+Its results are the Node module's, held to them by the differential cases on Gro's own files and sources of every kind.
+
 ## Where to import them
 
 - Import host modules at the [composition root](glossary.md#composition-root),
@@ -1003,6 +1058,8 @@ Its digests are the Node module's, held to the official test vectors' inputs by 
   and the sync stats behind the task-path hints (`internal/task_hints.ts`),
   which the synchronous args parsing calls, where no sync boundary opens a path from outside.
   `spawn.ts` is the one module on `node:child_process`.
+  Gro's code formats, reads import requests, and matches ignore files through the tsv host module,
+  and the Node loader's type strip (`loader.ts`) is the one module importing `@fuzdev/tsv` itself.
   Gro's code reads the process through the process modules, except what stays on the global,
   Node-only like the fs machinery above: `process.on`, `once`, and `kill`, which no module has,
   so `invoke.ts`'s handlers and `spawn.ts` use them directly, and `spawn.ts`'s live read of the
@@ -1289,6 +1346,12 @@ It documents each gap rather than weakening the API to match, and is a review si
   so a polluted `Object.prototype` can change the connection, including its destination, through options like `socketPath` and `lookup`.
   That is part of this module being advisory, as any holder of a handle can already call the global `fetch` or `node:net`, and no list of polluted keys could be complete.
   Every send names `redirect` and the dispatcher, so an ordinary option or a `Request` can't reroute or follow.
+
+### tsv
+
+- The module is over the N-API binding, `@fuzdev/tsv`, which loads a native addon through `node:module`,
+  and reads its options as data before handing the binding a bag of its own,
+  so a proxy and a getter are refused on both runtimes, where the binding alone would run them.
 
 ### blake3
 

@@ -30,7 +30,8 @@
  * object, and lives as long as it can be reached, with no call to end it.
  *
  * This is the Node implementation, which runs on the Node Gro, over tsv's N-API binding,
- * `@fuzdev/tsv`.
+ * `@fuzdev/tsv`. On `fgro` the module is the runtime's own, over tsv's crates, and grant-free, so
+ * the project and every package may import it.
  *
  * @module
  */

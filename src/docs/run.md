@@ -165,6 +165,8 @@ The binary embeds the commit, so a dirty tree (a changed file, or an untracked o
   the class and guard the runtime makes ([host modules](host_modules.md#error-classes-on-fgro)).
 - `@fuzdev/gro/blake3.ts`, a builtin module that needs no grant: BLAKE3 over bytes by the native `blake3` crate,
   one-shot and by hashers whose state is the runtime's ([host modules](host_modules.md#blake3)).
+- `@fuzdev/gro/tsv.ts`, a builtin module that needs no grant: tsv's formatters, its import parse, and its ignore stacks,
+  by tsv's own crates, whose results are the Node module's, and a stack's state the runtime's ([host modules](host_modules.md#tsv)).
 - `@fuzdev/gro/fs.ts`, a builtin module that needs the `fs` grant: every member of the Node module,
   beneath the project's root, the directories the flags grant, and those `fs.temp_dir` makes under `--allow-temp`,
   a read refusing anything but a regular file at once; `fs.open_dir` or `fs.real_path` outside them rejects

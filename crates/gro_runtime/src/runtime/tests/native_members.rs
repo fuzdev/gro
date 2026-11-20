@@ -2,15 +2,16 @@
 
 use super::*;
 
-/// Puts what the blake3 row's namespace and hashers need in `runtime`'s
+/// Puts what the native rows' namespaces, hashers, and stacks need in `runtime`'s
 /// `OpState`, in a run that grants nothing, as a run's start does.
-fn put_blake3_state(runtime: &mut JsRuntime) {
+fn put_native_state(runtime: &mut JsRuntime) {
     let state = runtime.op_state();
     state.borrow_mut().put(Authority::default());
     state.borrow_mut().put(ErrorClasses::default());
     let namespaces = NativeNamespaces::new(runtime);
     state.borrow_mut().put(namespaces);
     state.borrow_mut().put(Blake3State::default());
+    state.borrow_mut().put(TsvState::default());
 }
 
 /// The JS the native members' probe defines first: `thrown`, what a
@@ -138,7 +139,7 @@ const NATIVE_VALUES: &str = "{
 /// what every member threw called in that runtime.
 pub(super) fn native_members(start: Start) -> Value {
     on_runtime("native_members", start, Mode::Run, move |runtime| {
-        put_blake3_state(runtime);
+        put_native_state(runtime);
         let state = runtime.op_state();
         state.borrow_mut().put(host_data());
         state.borrow_mut().put(ErrorClasses::default());
@@ -712,7 +713,7 @@ fn the_namespace_op_knows_the_row_by_its_script() {
 fn a_hashers_native_state_is_dropped_once_its_handle_is_collected() {
     let (made, collected, digest, external) =
         on_runtime("blake3_collected", Start::Source, Mode::Run, |runtime| {
-            put_blake3_state(runtime);
+            put_native_state(runtime);
             // the external memory V8 counts, read as a change of nothing
             let external = |runtime: &mut JsRuntime| {
                 runtime
@@ -763,7 +764,7 @@ JSON.stringify(globalThis.kept.finalize().length)",
 #[test]
 fn a_live_hasher_keeps_its_state_across_collections() {
     let kept = on_runtime("blake3_ids", Start::Source, Mode::Run, |runtime| {
-        put_blake3_state(runtime);
+        put_native_state(runtime);
         runtime
             .execute_script(
                 backing_script("@fuzdev/gro/blake3.ts"),
@@ -792,4 +793,63 @@ globalThis.before = live.map((hasher) => hasher.finalize().join());",
         )
     });
     assert_eq!(kept, true);
+}
+
+/// An ignore stack's native state lives as long as its handle can be
+/// reached, as a hasher's does, and V8 counts it as external memory, its
+/// size and each layer pushed, until it's dropped.
+#[test]
+fn an_ignore_stacks_native_state_is_dropped_once_its_handle_is_collected() {
+    let (made, collected, ignored, external) = on_runtime(
+        "tsv_collected",
+        Start::Source,
+        Mode::Run,
+        |runtime| {
+            put_native_state(runtime);
+            let external = |runtime: &mut JsRuntime| {
+                runtime
+                    .v8_isolate()
+                    .adjust_amount_of_external_allocated_memory(0)
+            };
+            runtime.v8_isolate().low_memory_notification();
+            let before = external(runtime);
+            runtime
+                .execute_script(
+                    backing_script("@fuzdev/gro/tsv.ts"),
+                    "const { create_ignore_stack } = Deno.core.ops.op_gro_namespace(undefined);
+globalThis.kept = create_ignore_stack();
+kept.push_gitignore('', 'dist/');
+for (let i = 0; i < 100; i++) create_ignore_stack().push_gitignore('a', 'xy');",
+                )
+                .unwrap();
+            let len = |runtime: &mut JsRuntime| {
+                runtime
+                    .op_state()
+                    .borrow()
+                    .borrow::<TsvState>()
+                    .stacks_len()
+            };
+            let made = len(runtime);
+            let made_external = external(runtime) - before;
+            runtime.v8_isolate().low_memory_notification();
+            let collected = len(runtime);
+            let collected_external = external(runtime) - before;
+            let ignored = script_json(
+                runtime,
+                "JSON.stringify([globalThis.kept.is_ignored('dist', true), globalThis.kept.is_ignored('src', true)])",
+            );
+            (
+                made,
+                collected,
+                ignored,
+                (made_external, collected_external),
+            )
+        },
+    );
+    assert_eq!(made, 101);
+    assert_eq!(collected, 1);
+    assert_eq!(ignored, serde_json::json!([true, false]));
+    let size = i64::try_from(size_of::<tsv_ignore::IgnoreStack>()).unwrap();
+    // each stack's size, and the bytes of each layer's anchor and content
+    assert_eq!(external, (101 * size + 5 + 100 * 3, size + 5));
 }

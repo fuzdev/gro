@@ -130,6 +130,18 @@ macro_rules! builtin_rows {
                 Some($crate::resolver::Capability::Spawn),
                 ["spawn"]
             ),
+            $row!(
+                "@fuzdev/gro/tsv.ts",
+                None,
+                [
+                    "format_typescript",
+                    "format_svelte",
+                    "format_css",
+                    "parse_imports_typescript",
+                    "parse_imports_svelte",
+                    "create_ignore_stack"
+                ]
+            ),
         ]
     };
 }

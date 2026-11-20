@@ -439,6 +439,72 @@
 		"differs": []
 	},
 	{
+		"name": "tsv_shape",
+		"module": "tsv",
+		"args": ["shape"],
+		"differs": [
+			{
+				"at": "/prototype/own",
+				"fgro": {
+					"push_gitignore": {"type": "function", "writable": false, "enumerable": true, "configurable": false},
+					"pop_gitignore": {"type": "function", "writable": false, "enumerable": true, "configurable": false},
+					"push_formatignore": {"type": "function", "writable": false, "enumerable": true, "configurable": false},
+					"push_prettierignore": {"type": "function", "writable": false, "enumerable": true, "configurable": false},
+					"pop_override": {"type": "function", "writable": false, "enumerable": true, "configurable": false},
+					"is_ignored": {"type": "function", "writable": false, "enumerable": true, "configurable": false}
+				},
+				"why": "a stack's prototype is the host's frozen null-prototype record of native methods, each an enumerable property as an object literal's is, and it has no constructor, so nothing reached from a stack makes another"
+			},
+			{
+				"at": "/namespace/own/default",
+				"fgro": {"type": "undefined", "writable": true, "enumerable": true, "configurable": false},
+				"why": "a builtin module's namespace has a default export of undefined, where a Node module has none"
+			}
+		]
+	},
+	{
+		"name": "tsv_format",
+		"module": "tsv",
+		"args": ["format"],
+		"differs": []
+	},
+	{
+		"name": "tsv_options",
+		"module": "tsv",
+		"args": ["options"],
+		"differs": []
+	},
+	{
+		"name": "tsv_sources",
+		"module": "tsv",
+		"args": ["sources"],
+		"differs": []
+	},
+	{
+		"name": "tsv_deep",
+		"module": "tsv",
+		"args": ["deep"],
+		"differs": []
+	},
+	{
+		"name": "tsv_imports",
+		"module": "tsv",
+		"args": ["imports"],
+		"differs": []
+	},
+	{
+		"name": "tsv_ignore",
+		"module": "tsv",
+		"args": ["ignore"],
+		"differs": []
+	},
+	{
+		"name": "tsv_receiver",
+		"module": "tsv",
+		"args": ["receiver"],
+		"differs": []
+	},
+	{
 		"name": "fs_error",
 		"module": "fs_error",
 		"args": [],

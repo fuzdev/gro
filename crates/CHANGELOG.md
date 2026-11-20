@@ -63,11 +63,13 @@ for Linux x86_64 only, built from source ([install](../src/docs/runtime.md#insta
     Until each child is boxed, granting any program is close to granting what `-A` grants, since most programs can be made to run code
     by their arguments or environment and the root's `env` values set any variable; hand library code a narrowed root, which refuses them.
     A program outside a handle's set, a directory outside every exec root, or a variable its program's grant doesn't forward, throws `SpawnError` `not_granted`.
-  - Four more builtin modules need no grant, so a package's modules import them as the project's do:
+  - More builtin modules need no grant, so a package's modules import them as the project's do:
     `@fuzdev/gro/cwd.ts`, whose `cwd()` is the directory `fgro` was started in,
     `@fuzdev/gro/pid.ts`, whose `pid` is the process's id,
     `@fuzdev/gro/runtime_version.ts`, whose `runtime_version` is `fgro/<version>+<commit>`, the commit the binary was built from,
-    and `@fuzdev/gro/blake3.ts`, BLAKE3 over bytes, one-shot and by hashers.
+    `@fuzdev/gro/blake3.ts`, BLAKE3 over bytes, one-shot and by hashers,
+    and `@fuzdev/gro/tsv.ts`, tsv's formatters for TypeScript, Svelte, and CSS, its import parse, and its ignore stacks, by tsv's own crates.
+    A panic in tsv, a bug of tsv's, ends the process.
   - `@fuzdev/gro/env_error.ts`, `@fuzdev/gro/fs_error.ts`, and `@fuzdev/gro/spawn_error.ts` need none either: each error class and its guards are made by the runtime, natively,
     the first time a run needs them, and match the Node module's but that a guard runs no code of a caller's.
   - `fgro run -A <file>` runs unconfined: every builtin module is granted to every module of the run, a package's included,

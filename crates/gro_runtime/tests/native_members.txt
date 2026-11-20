@@ -71,6 +71,18 @@
 @fuzdev/gro/spawn.ts next method of @fuzdev/gro/spawn.ts#AsyncIterator length 0 async grant spawn
 @fuzdev/gro/spawn.ts return method of @fuzdev/gro/spawn.ts#AsyncIterator length 0 async grant spawn
 @fuzdev/gro/spawn.ts throw method of @fuzdev/gro/spawn.ts#AsyncIterator length 1 async grant spawn
+@fuzdev/gro/tsv.ts format_typescript export length 2 grant-free
+@fuzdev/gro/tsv.ts format_svelte export length 2 grant-free
+@fuzdev/gro/tsv.ts format_css export length 2 grant-free
+@fuzdev/gro/tsv.ts parse_imports_typescript export length 2 grant-free
+@fuzdev/gro/tsv.ts parse_imports_svelte export length 2 grant-free
+@fuzdev/gro/tsv.ts create_ignore_stack export length 0 grant-free
+@fuzdev/gro/tsv.ts push_gitignore method of @fuzdev/gro/tsv.ts#TsvIgnoreStack length 2 grant-free
+@fuzdev/gro/tsv.ts pop_gitignore method of @fuzdev/gro/tsv.ts#TsvIgnoreStack length 0 grant-free
+@fuzdev/gro/tsv.ts push_formatignore method of @fuzdev/gro/tsv.ts#TsvIgnoreStack length 2 grant-free
+@fuzdev/gro/tsv.ts push_prettierignore method of @fuzdev/gro/tsv.ts#TsvIgnoreStack length 2 grant-free
+@fuzdev/gro/tsv.ts pop_override method of @fuzdev/gro/tsv.ts#TsvIgnoreStack length 0 grant-free
+@fuzdev/gro/tsv.ts is_ignored method of @fuzdev/gro/tsv.ts#TsvIgnoreStack length 2 grant-free
 @fuzdev/gro/fs.ts path data of @fuzdev/gro/fs.ts#FsReadDir data grant fs
 @fuzdev/gro/spawn.ts name data of @fuzdev/gro/spawn.ts#SpawnProgram data grant spawn
 @fuzdev/gro/spawn.ts path data of @fuzdev/gro/spawn.ts#SpawnProgram data grant spawn

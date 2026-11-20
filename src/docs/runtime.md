@@ -206,7 +206,7 @@ Each bullet marks what's built; anything unmarked past the omissions is designed
   Built so far for `fgro eval` alone, as a fixed box with no grants to enforce yet
   ([eval](eval.md#the-box) has its exact walls; [backstop](backstop.md) has what each layer holds, why not namespaces, and the box designed for runs and children).
 - **Native code: first-party crates linked in, WASM as the portable path, FFI as a grant.**
-  blake3 is exposed as a builtin module (`@fuzdev/gro/blake3.ts`), and tsv, linked in already, will be exposed the same way, with no boundary to cross.
+  blake3 and tsv are exposed as builtin modules (`@fuzdev/gro/blake3.ts`, `@fuzdev/gro/tsv.ts`), with no boundary to cross.
   Third-party native code arrives as WASM, or as an embedder's own host modules.
   FFI (calling a native library from JS) is planned as a grant, denied by default,
   with the library loaded in its own confined process, out of reach of the runtime's memory and grants.

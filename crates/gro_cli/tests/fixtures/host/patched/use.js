@@ -116,6 +116,27 @@ const EXERCISES = new Map([
 	['@fuzdev/gro/blake3.ts create_keyed_hasher(arguments 1).finalize', []],
 	['@fuzdev/gro/blake3.ts create_derive_key_hasher(arguments 1).update', [[new Uint8Array([1])]]],
 	['@fuzdev/gro/blake3.ts create_derive_key_hasher(arguments 1).finalize', []],
+	// a source of each language, and TypeScript's with its options, so a hostile one in their
+	// place is read; and the same of a stack the factory made: layers pushed and popped, and a
+	// path matched
+	[
+		'@fuzdev/gro/tsv.ts format_typescript',
+		[['let x=1'], ['let x=1', { __proto__: null, sourceType: 'module' }]]
+	],
+	['@fuzdev/gro/tsv.ts format_svelte', [['<p>{ x }</p>']]],
+	['@fuzdev/gro/tsv.ts format_css', [['a{color:red}']]],
+	[
+		'@fuzdev/gro/tsv.ts parse_imports_typescript',
+		[["import a from 'a';", { __proto__: null, sourceType: 'module' }]]
+	],
+	['@fuzdev/gro/tsv.ts parse_imports_svelte', [["<script>import a from 'a';</script>"]]],
+	['@fuzdev/gro/tsv.ts create_ignore_stack', []],
+	['@fuzdev/gro/tsv.ts create_ignore_stack().push_gitignore', [['', 'dist/']]],
+	['@fuzdev/gro/tsv.ts create_ignore_stack().pop_gitignore', []],
+	['@fuzdev/gro/tsv.ts create_ignore_stack().push_formatignore', [['', '!dist/x']]],
+	['@fuzdev/gro/tsv.ts create_ignore_stack().push_prettierignore', [['', '*.md']]],
+	['@fuzdev/gro/tsv.ts create_ignore_stack().pop_override', []],
+	['@fuzdev/gro/tsv.ts create_ignore_stack().is_ignored', [['dist', true]]],
 	// a kind and a path, and with them the options of its cause
 	[
 		'@fuzdev/gro/fs_error.ts FsError',

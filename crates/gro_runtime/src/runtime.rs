@@ -14,6 +14,7 @@ use crate::host::exit::{ExitState, ExitStep};
 use crate::host::fs::FsState;
 use crate::host::later::LaterState;
 use crate::host::native::NativeNamespaces;
+use crate::host::tsv::TsvState;
 use crate::loader::Loader;
 use crate::phases::{self, Phase};
 use crate::prices::{self, EvalDefault};
@@ -147,6 +148,7 @@ pub fn start_runtime(
     state.borrow_mut().put(namespaces);
     state.borrow_mut().put(Blake3State::default());
     state.borrow_mut().put(FsState::default());
+    state.borrow_mut().put(TsvState::default());
     state.borrow_mut().put(LaterState::default());
     if let Some(exit) = exit {
         state.borrow_mut().put(exit);

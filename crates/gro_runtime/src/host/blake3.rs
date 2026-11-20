@@ -21,29 +21,18 @@
 //!
 //! A hasher is a handle of [`BLAKE3_HASHER`]'s kind (`handle.rs`), made of
 //! the prototype the host made with the module's namespace, whose state is
-//! a number naming its `blake3::Hasher` in the run's table, in `OpState`
-//! ([`Blake3State`]). The table holds each hasher beside a weak
-//! reference to its handle, whose finalizer takes the hasher out of the
-//! table once the handle is collected, so a hasher lives as long as its
-//! handle can be reached, and no longer, with no call to end it: the
-//! module has none. No borrow of the table is held across a call into V8,
-//! which is what could collect a handle, so a finalizer always finds the
-//! table free; were it ever held, the finalizer leaves the hasher to the
-//! run's end rather than fail. The finalizers run after V8 collects, which
-//! allocation triggers in any loop, yielding or not. Each hasher's native
-//! state is boxed, so the table holds a pointer per hasher, and is counted
-//! as external memory to V8 while it lives, so collections come as the
-//! native state grows, not only as the handles do.
+//! a number naming its `blake3::Hasher` in the run's [`NativeTable`], in
+//! `OpState` ([`Blake3State`]), so a hasher lives as long as its handle can
+//! be reached, and no longer, with no call to end it: the module has none.
 //!
 //! A digest is 32 bytes, a new `Uint8Array` of its own buffer each call.
 
-use std::cell::{Cell, OnceCell, RefCell};
-use std::collections::HashMap;
+use std::cell::OnceCell;
 use std::rc::Rc;
 
 use deno_core::{OpState, v8};
 
-use super::handle::{self, BLAKE3_HASHER};
+use super::handle::{self, BLAKE3_HASHER, NativeTable};
 use super::{native, throw_error, throw_range_error, throw_type_error};
 
 /// What a member throws for bytes that aren't a `Uint8Array`.
@@ -81,72 +70,16 @@ const LENGTH: usize = 32;
 /// starts, empty: the table joins when a run makes its first hasher.
 #[derive(Default)]
 pub struct Blake3State {
-    /// The hashers, shared with each one's finalizer.
-    hashers: OnceCell<Rc<Hashers>>,
+    /// The hashers.
+    hashers: OnceCell<Rc<NativeTable<blake3::Hasher>>>,
 }
 
 impl Blake3State {
     /// How many hashers the run's table holds.
     #[cfg(test)]
     pub fn hashers_len(&self) -> usize {
-        self.hashers
-            .get()
-            .map_or(0, |hashers| hashers.table.borrow().len())
+        self.hashers.get().map_or(0, |hashers| hashers.len())
     }
-}
-
-/// The run's hashers, by the number each one's handle holds.
-#[derive(Default)]
-struct Hashers {
-    /// Each hasher, by the bits of its number, beside the weak reference
-    /// to its handle whose finalizer removes it.
-    table: RefCell<HashMap<u64, Entry>>,
-    /// The number the next hasher gets, an integer exact as a JS number:
-    /// never one a hasher had before.
-    next: Cell<f64>,
-}
-
-/// A hasher in the table.
-struct Entry {
-    /// Its native state, boxed, so the table holds a pointer per hasher
-    /// and growing the table copies only that.
-    hasher: Box<blake3::Hasher>,
-    /// Its handle, weakly: dropped with the entry, which cancels the
-    /// finalizer, and the finalizer drops the entry once the handle is
-    /// collected.
-    _handle: v8::Weak<v8::Object>,
-}
-
-impl Hashers {
-    /// Runs `step` on the hasher `id` names, `None` when the table holds
-    /// none. `step` is given the hasher alone, so no call into V8 runs
-    /// while the table is borrowed.
-    fn with<R>(&self, id: u64, step: impl FnOnce(&mut blake3::Hasher) -> R) -> Option<R> {
-        let mut table = self.table.try_borrow_mut().ok()?;
-        table.get_mut(&id).map(|entry| step(&mut entry.hasher))
-    }
-
-    /// Takes the hasher `id` names out of the table, when the table is
-    /// free, which it always is when a finalizer runs, and tells
-    /// `isolate` its native state is gone.
-    fn remove(&self, isolate: &mut v8::Isolate, id: u64) {
-        let removed = self
-            .table
-            .try_borrow_mut()
-            .ok()
-            .and_then(|mut table| table.remove(&id));
-        if removed.is_some() {
-            isolate.adjust_amount_of_external_allocated_memory(-native_size());
-        }
-        // dropped once the table's borrow ended: dropping its weak
-        // reference reaches the isolate
-        drop(removed);
-    }
-}
-
-/// The bytes a hasher's native state takes, as V8 counts external memory.
-fn native_size() -> i64 {
-    i64::try_from(size_of::<blake3::Hasher>()).unwrap_or(i64::MAX)
 }
 
 /// `hash(data)`: the BLAKE3 digest of `data`, or a `TypeError` thrown when
@@ -208,26 +141,11 @@ pub fn hasher<'s>(
         throw_error(scope, NO_PROTOTYPE);
         return None;
     };
-    let hashers = blake3.hashers.get_or_init(Rc::default);
-    let number = hashers.next.get();
-    hashers.next.set(number + 1.0);
-    let id = number.to_bits();
-    let held = v8::Number::new(scope, number);
-    let made = handle::make(scope, &BLAKE3_HASHER, prototype, held.into(), &[])?;
-    let finalized = Rc::clone(hashers);
-    let weak = v8::Weak::with_finalizer(
-        scope,
-        made,
-        Box::new(move |isolate: &mut v8::Isolate| finalized.remove(isolate, id)),
-    );
-    hashers.table.borrow_mut().insert(
-        id,
-        Entry {
-            hasher: Box::new(hasher),
-            _handle: weak,
-        },
-    );
-    scope.adjust_amount_of_external_allocated_memory(native_size());
+    let made =
+        blake3
+            .hashers
+            .get_or_init(Rc::default)
+            .make(scope, &BLAKE3_HASHER, prototype, hasher)?;
     Some(made.into())
 }
 
@@ -291,14 +209,11 @@ fn with_hasher<R>(
 /// The number the hasher `receiver` is holds, or `None` with a `TypeError`
 /// thrown when it's no hasher.
 fn read<'s>(scope: &v8::PinScope<'s, '_>, receiver: v8::Local<'s, v8::Value>) -> Option<u64> {
-    let held = handle::read(scope, &BLAKE3_HASHER, receiver)
-        .and_then(|(_, held)| v8::Local::<v8::Number>::try_from(held).ok());
-    let Some(held) = held else {
+    let id = handle::read_number(scope, &BLAKE3_HASHER, receiver);
+    if id.is_none() {
         throw_type_error(scope, NOT_A_HASHER);
-        return None;
-    };
-    // the host's own number, keyed by its bits
-    Some(held.value().to_bits())
+    }
+    id
 }
 
 /// `value` as bytes, or `None` with a `TypeError` of `message` thrown when

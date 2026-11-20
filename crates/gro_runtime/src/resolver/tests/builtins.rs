@@ -111,6 +111,19 @@ fn the_table_is_pinned() {
                 Some(Capability::Spawn),
                 &["spawn"][..],
             ),
+            (
+                "@fuzdev/gro/tsv.ts",
+                "builtin:@fuzdev/gro/tsv.ts",
+                None,
+                &[
+                    "format_typescript",
+                    "format_svelte",
+                    "format_css",
+                    "parse_imports_typescript",
+                    "parse_imports_svelte",
+                    "create_ignore_stack"
+                ][..],
+            ),
         ]
     );
 }

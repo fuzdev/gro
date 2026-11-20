@@ -102,7 +102,9 @@ and the contracts no one module doc owns.
     the host made, its state under its kind's brand, a private symbol. A
     method refuses anything without the brand and decides from the handle's
     state, never from the run's grants, which gate only that the run holds
-    the row.
+    the row. A handle's native Rust state (a `blake3` hasher, a `tsv` ignore
+    stack) lives in a `NativeTable` of the run's, which drops it once the
+    handle is collected.
   - An `fs` handle's state is plain data, and only a root holds a descriptor
     (`host/fs.rs`'s module doc maps its children and owns the `openat2`
     lookups beneath a handle; `host/fs/roots.rs`'s owns the run table of
