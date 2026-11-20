@@ -16,10 +16,13 @@ import { GIT_LOCAL_PASS_ENV, git_check_clean_workspace } from './git.ts';
 import { spawn } from './spawn.ts';
 import { args } from './args.ts';
 import { env } from './env.ts';
-import { paths, to_root_path } from './paths.ts';
+import { create_paths, to_root_path } from './paths.ts';
 import { find_test_files, project_has_vitest } from './vitest_helpers.ts';
 import type { FsSearchResult } from './fs_search.ts';
 import { format_error_detail } from './error_detail.ts';
+
+// the project's paths, from the working directory, its root
+const paths = create_paths(cwd());
 
 const TEST_FILES_PRINTED_MAX = 5;
 
@@ -188,7 +191,7 @@ const find_test_files_or_throw = async (fs_paths: FsPaths): Promise<Array<FsSear
 	} catch (error) {
 		if (!is_fs_error(error)) throw error;
 		throw new TaskError(
-			`failed to search ${to_root_path(paths.source)} for test files, as vitest isn't declared: ` +
+			`failed to search ${to_root_path(paths.source, paths.root)} for test files, as vitest isn't declared: ` +
 				format_error_detail(error),
 			{ cause: error }
 		);
@@ -197,7 +200,9 @@ const find_test_files_or_throw = async (fs_paths: FsPaths): Promise<Array<FsSear
 
 const to_undeclared_vitest_message = (test_files: Array<FsSearchResult>): string => {
 	const count = test_files.length;
-	const printed = test_files.slice(0, TEST_FILES_PRINTED_MAX).map((f) => to_root_path(f.id));
+	const printed = test_files
+		.slice(0, TEST_FILES_PRINTED_MAX)
+		.map((f) => to_root_path(f.id, paths.root));
 	const unprinted = count - printed.length;
 	return (
 		`found ${count} test file${plural(count)} but vitest isn't declared in package.json: ` +

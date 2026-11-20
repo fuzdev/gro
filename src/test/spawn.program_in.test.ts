@@ -17,10 +17,10 @@ import { fs, type FsReadDir } from '#lib/fs.ts';
 import { format_error_detail } from '#lib/error_detail.ts';
 import { is_fs_error } from '#lib/fs_error.ts';
 import { register_fs_handle, to_fs_handle_resolve } from '#lib/internal/fs_handles.ts';
-import { paths } from '#lib/paths.ts';
 import { spawn, type SpawnProgram } from '#lib/spawn.ts';
 import { is_spawn_error, type SpawnError, type SpawnErrorKind } from '#lib/spawn_error.ts';
 import { create_fs_sandbox, remove_fs_sandbox, type FsSandbox } from './fs_test_helpers.ts';
+import { paths } from './test_helpers.ts';
 
 let sandbox: FsSandbox;
 

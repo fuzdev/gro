@@ -6,10 +6,15 @@ import { json_stringify_deterministic } from '@fuzdev/fuz_util/json.ts';
 import { hash_blake3 } from '@fuzdev/fuz_util/hash_blake3.ts';
 
 import type { GroConfig } from '#lib/gro_config.ts';
-import { paths } from '#lib/paths.ts';
+import { create_paths } from '#lib/paths.ts';
 import type { ModuleGraph } from '#lib/module_graph.ts';
 import type { ParsedSvelteConfig } from '#lib/svelte_config.ts';
 import type { TaskContext } from '#lib/task.ts';
+
+/**
+ * The paths of the project the tests run in, Gro's own repo, from the working directory.
+ */
+export const paths = create_paths(process.cwd());
 
 /**
  * Creates a mock logger for testing.

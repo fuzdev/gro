@@ -9,7 +9,7 @@ import {
 	resolve_specifier,
 	to_specifier_path_id
 } from '#lib/resolve_specifier.ts';
-import { paths } from '#lib/paths.ts';
+import { paths } from './test_helpers.ts';
 
 const dir = paths.source + 'test/fixtures/';
 const importer = join(dir, 'importer.ts');

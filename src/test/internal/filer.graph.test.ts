@@ -1,5 +1,4 @@
 import { test, assert, vi } from 'vitest';
-import { paths } from '#lib/paths.ts';
 import { dirname, join, resolve } from 'node:path';
 import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -8,6 +7,7 @@ import type { WatchNodeFs, WatcherChange } from '#lib/internal/watch_dir.ts';
 import { Filer, filter_dependents } from '#lib/internal/filer.ts';
 
 import { create_test_disknode } from './filer_test_helpers.ts';
+import { paths } from '../test_helpers.ts';
 
 const fixtures_dir = resolve(import.meta.dirname, '../fixtures');
 

@@ -4,7 +4,7 @@ import { throttle } from '@fuzdev/fuz_util/throttle.ts';
 
 import type { Plugin } from './plugin.ts';
 import type { ModuleGraph } from './module_graph.ts';
-import { paths } from './paths.ts';
+import { create_paths } from './paths.ts';
 import { find_genfiles, is_gen_path } from './gen.ts';
 import { fs } from './fs.ts';
 import { create_fs_paths } from './fs_paths.ts';
@@ -45,6 +45,7 @@ export const gro_plugin_gen = ({
 	const queued_files: Set<string> = new Set();
 	const reported_invalid_inputs: Set<string> = new Set();
 	const fs_paths = create_fs_paths(fs, { cwd: cwd(), home: env.get('HOME') });
+	const paths = create_paths(fs_paths.project.path);
 
 	let cleanup_watch: (() => Promise<void>) | undefined;
 
@@ -109,7 +110,8 @@ export const gro_plugin_gen = ({
 										change.id,
 										dependents,
 										log,
-										reported_invalid_inputs
+										reported_invalid_inputs,
+										fs_paths.project.path
 									)
 								) {
 									queue_gen(gen_file_id);

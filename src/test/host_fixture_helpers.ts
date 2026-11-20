@@ -3,8 +3,8 @@ import { spawnSync } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { paths } from '#lib/paths.ts';
 import { create_fs_sandbox, remove_fs_sandbox, type FsSandbox } from './fs_test_helpers.ts';
+import { paths } from './test_helpers.ts';
 
 /*
 

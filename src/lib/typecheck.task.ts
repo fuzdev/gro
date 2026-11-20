@@ -18,11 +18,14 @@ import { fs } from './fs.ts';
 import { create_fs_paths } from './fs_paths.ts';
 import { cwd as process_cwd } from './cwd.ts';
 import { env } from './env.ts';
-import { paths } from './paths.ts';
+import { create_paths } from './paths.ts';
 import { spawn } from './spawn.ts';
 import { project_has_sveltekit_app, sveltekit_sync } from './sveltekit_helpers.ts';
 import type { Task } from './task.ts';
 import { TaskError } from './task_error.ts';
+
+// the project's paths, from the working directory, its root
+const paths = create_paths(process_cwd());
 
 /** @nodocs */
 export const Args = s.object({

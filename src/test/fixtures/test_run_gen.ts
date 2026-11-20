@@ -42,7 +42,8 @@ const run_test = async () => {
 		await load_gro_config(create_fs_paths(fs, { cwd: cwd(), home: env.get('HOME') })),
 		log,
 		new Timings(),
-		Function.prototype as any
+		Function.prototype as any,
+		cwd()
 	);
 
 	if (gen_results.input_count !== 1) {

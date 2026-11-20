@@ -17,6 +17,7 @@ import { env } from './env.ts';
 import { exit, set_exit_code } from './exit.ts';
 import { stderr } from './stderr.ts';
 import { stdout } from './stdout.ts';
+import { listen_to_node_process } from './internal/node_cli_process.ts';
 
 /*
 
@@ -49,25 +50,6 @@ const to_exit_code = (err: unknown): number => {
 		: 1;
 };
 
-// Node-only: the host module has no listeners, so the handlers below go on the global
-const host_process = globalThis.process;
-
-/**
- * A reader of stdout or stderr that left, like `head` in `gro foo | head`, only loses the writes
- * after it left: the run finishes with its own exit code, so `gro foo | head` exits `0`
- * only when `foo` passed, and a run that never ends on its own runs until signalled.
- * Any other stream failure is rethrown, as with no listener, unless the host is already exiting
- * on an uncaught error, whose own writes to the same failed output would otherwise never end.
- */
-let exiting = false;
-const on_output_error = (error: NodeJS.ErrnoException): void => {
-	if (error.code === 'EPIPE' || exiting) return;
-	throw error;
-};
-
-host_process.stdout.on('error', on_output_error);
-host_process.stderr.on('error', on_output_error);
-
 // how long an uncaught error's exit waits on a reader that isn't reading
 const FLUSH_TIMEOUT_MS = 5_000;
 
@@ -89,8 +71,7 @@ const flush_output = async (): Promise<void> => {
 };
 
 // handle uncaught errors, the spawn module's exit hook ending any child still running
-host_process.on('uncaughtException', (err, origin) => {
-	exiting = true;
+listen_to_node_process((err, origin) => {
 	// so every exit path carries the code, even if the flush below never settles
 	set_exit_code(to_exit_code(err));
 	if (is_task_error(err)) {

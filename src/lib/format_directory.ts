@@ -6,7 +6,7 @@ import { IgnoreStack } from '@fuzdev/tsv';
 
 import { GRO_CONFIG_FILENAME, VITE_CONFIG_FILENAMES } from './constants.ts';
 import { format_file } from './format_file.ts';
-import { paths, to_search_filters_relative } from './paths.ts';
+import { to_search_filters_relative } from './paths.ts';
 import type { FsDir } from './fs.ts';
 import { is_fs_error } from './fs_error.ts';
 import { fs_search } from './fs_search.ts';
@@ -91,7 +91,7 @@ export interface FormatDirectoryOptions {
 	patterns?: Array<string>;
 	/**
 	 * The project root `filter` tests paths relative to, and where the ignore files are read.
-	 * @default `paths.root`
+	 * @default the project of `fs_paths`
 	 */
 	root?: string;
 }
@@ -117,7 +117,14 @@ export interface FormatDirectoryOptions {
  */
 export const format_directory = async (
 	fs_paths: FsPaths,
-	{ log, dir, check = false, filter, patterns, root = paths.root }: FormatDirectoryOptions
+	{
+		log,
+		dir,
+		check = false,
+		filter,
+		patterns,
+		root = fs_paths.project.path
+	}: FormatDirectoryOptions
 ): Promise<FormatDirectoryResult> => {
 	const [collected, is_ignored] = await Promise.all([
 		patterns?.length

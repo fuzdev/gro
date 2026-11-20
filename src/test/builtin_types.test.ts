@@ -2,8 +2,7 @@ import { describe, test, assert } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import ts from 'typescript';
-
-import { paths } from '#lib/paths.ts';
+import { paths } from './test_helpers.ts';
 
 /*
 

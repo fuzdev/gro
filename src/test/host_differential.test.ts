@@ -1,8 +1,7 @@
 import { test, assert, vi } from 'vitest';
 import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
-
-import { paths } from '#lib/paths.ts';
+import { paths } from './test_helpers.ts';
 
 /*
 

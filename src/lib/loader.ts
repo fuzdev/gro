@@ -1,3 +1,4 @@
+import { ensure_end } from '@fuzdev/fuz_util/string.ts';
 import { compile, compileModule, preprocess } from 'svelte/compiler';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { extname, join } from 'node:path';
@@ -18,7 +19,7 @@ import {
 	SVELTEKIT_SHIM_APP_SPECIFIERS
 } from './sveltekit_shim_app.ts';
 import { load_default_svelte_config } from './svelte_config.ts';
-import { paths } from './paths.ts';
+import { to_checked_cwd } from './internal/cwd.ts';
 import { TS_MATCHER, SVELTE_MATCHER, SVELTE_RUNES_MATCHER } from './constants.ts';
 import {
 	is_path_specifier,
@@ -55,7 +56,8 @@ node --import 'data:text/javascript,import%20%7Bregister%7D%20from%20%22node%3Am
 // dev is always true in the loader
 const dev = true;
 
-const dir = paths.root;
+// the project root, the working directory, with a trailing slash
+const dir = ensure_end(to_checked_cwd(), '/');
 
 // The shims resolve to the loader's own sibling modules rather than `@fuzdev/gro/*`,
 // so they work in projects that run a global Gro without installing it.

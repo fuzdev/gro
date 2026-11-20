@@ -18,7 +18,7 @@ import { fs } from '#lib/fs.ts';
 import { create_fs_paths } from '#lib/fs_paths.ts';
 import { to_fs_paths_options } from './fs_test_helpers.ts';
 
-import { create_mock_logger } from './test_helpers.ts';
+import { create_mock_logger, paths } from './test_helpers.ts';
 
 // over the cwd, as `gro format` builds it, the tests' paths absolute in a temp dir
 const fs_paths = create_fs_paths(fs, to_fs_paths_options());
@@ -111,7 +111,7 @@ test('format_directory searches a project under a dot-directory', async () => {
 		log: create_mock_logger(),
 		dir: join(dir, 'src'),
 		check: true,
-		filter: create_empty_gro_config().search_filters,
+		filter: create_empty_gro_config(paths.root).search_filters,
 		root: dir
 	});
 	expect(result.formatted).toEqual([join(dir, 'src/lib/a.ts')]);
@@ -125,7 +125,7 @@ test('format_directory tests glob patterns relative to the root, absolute or fro
 	writeFileSync(join(dir, 'src/lib/a.ts'), 'const  a=1\n');
 	writeFileSync(join(dir, 'src/.hidden/b.ts'), 'const  b=1\n');
 	writeFileSync(join(dir, 'node_modules/x/c.ts'), 'const  c=1\n');
-	const { search_filters } = create_empty_gro_config();
+	const { search_filters } = create_empty_gro_config(paths.root);
 	const format = (patterns: Array<string>) =>
 		format_directory(fs_paths, {
 			log: create_mock_logger(),
@@ -155,7 +155,7 @@ test('format_directory finds files outside the root under a dot-directory, swept
 	mkdirSync(join(other, 'src/lib'), { recursive: true });
 	writeFileSync(join(other, 'src/lib/a.ts'), 'const  a=1\n');
 	writeFileSync(join(other, 'src/.hidden/b.ts'), 'const  b=1\n');
-	const { search_filters } = create_empty_gro_config();
+	const { search_filters } = create_empty_gro_config(paths.root);
 	const swept = await format_directory(fs_paths, {
 		log: create_mock_logger(),
 		dir: join(other, 'src'),
@@ -216,7 +216,7 @@ test('format_directory reads the ignore file from its root', async () => {
 		log: create_mock_logger(),
 		dir: join(dir, 'src'),
 		check: true,
-		filter: create_empty_gro_config().search_filters,
+		filter: create_empty_gro_config(paths.root).search_filters,
 		root: dir
 	});
 	expect(result.formatted).toEqual([join(dir, 'src/lib/a.ts')]);
@@ -339,7 +339,7 @@ test("format_directory logs a file it can't read with the OS's detail", async ()
 		log,
 		dir: join(root, 'src'),
 		check: true,
-		filter: create_empty_gro_config().search_filters,
+		filter: create_empty_gro_config(paths.root).search_filters,
 		root
 	});
 	expect(result.ok).toBe(false);

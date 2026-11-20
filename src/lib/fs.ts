@@ -56,7 +56,7 @@
  * - Any module can import `node:fs`, so a narrowed handle bounds only code that
  *   uses the handles.
  * - `fs.project` is the working directory when this module loads, the same source
- *   as Gro's `paths.root`; `getcwd` returns a path with symlinks resolved. Importing
+ *   as the cwd host module's `cwd`; `getcwd` returns a path with symlinks resolved. Importing
  *   the module throws when the working directory has been removed, or when its path
  *   isn't UTF-8, which Node would report lossily as a different path.
  *

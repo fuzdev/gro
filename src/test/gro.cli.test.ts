@@ -4,8 +4,7 @@ import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-
-import { paths } from '#lib/paths.ts';
+import { paths } from './test_helpers.ts';
 
 /*
 

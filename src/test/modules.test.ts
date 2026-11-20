@@ -6,6 +6,7 @@ import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 
 import { load_module, load_modules } from '#lib/modules.ts';
+import { paths } from './test_helpers.ts';
 
 // TODO if we import directly, svelte-package generates types in `src/test/fixtures`
 
@@ -102,7 +103,8 @@ test('load_modules reports a module whose import throws with its stack, then its
 		const result = await load_modules(
 			[{ id, input_path: id, resolved_input_path: null as any }],
 			(mod): mod is Record<string, unknown> => !!mod,
-			(_file, mod) => ({ id, mod })
+			(_file, mod) => ({ id, mod }),
+			paths.root
 		);
 		expect(result.ok).toBe(false);
 		if (result.ok) return;

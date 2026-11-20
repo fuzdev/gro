@@ -9,10 +9,10 @@ import {
 	cook_gro_config,
 	load_gro_config
 } from '#lib/gro_config.ts';
-import { paths } from '#lib/paths.ts';
 import { fs } from '#lib/fs.ts';
 import { create_fs_paths } from '#lib/fs_paths.ts';
 import { to_fs_paths_options } from './fs_test_helpers.ts';
+import { paths } from './test_helpers.ts';
 
 test('load_gro_config', async () => {
 	const config = await load_gro_config(create_fs_paths(fs, to_fs_paths_options()));
@@ -80,14 +80,14 @@ test('EMPTY_BUILD_CACHE_CONFIG_HASH matches hash of empty string', () => {
 });
 
 test('cook_gro_config defaults each `watch` field and resolves a relative `dir`', async () => {
-	const defaults = await cook_gro_config({});
+	const defaults = await cook_gro_config({}, paths.root);
 	expect(defaults.watch).toEqual({ dir: resolve(paths.source), filter: null });
 
 	const filter = (path: string) => !path.endsWith('.md');
-	const with_filter = await cook_gro_config({ watch: { filter } });
+	const with_filter = await cook_gro_config({ watch: { filter } }, paths.root);
 	expect(with_filter.watch).toEqual({ dir: resolve(paths.source), filter });
 
-	const with_dir = await cook_gro_config({ watch: { dir: 'lib/' } });
+	const with_dir = await cook_gro_config({ watch: { dir: 'lib/' } }, paths.root);
 	expect(with_dir.watch).toEqual({ dir: resolve('lib'), filter: null });
 });
 
@@ -98,22 +98,25 @@ test('cook_gro_config hashes `build_cache_config` as deterministic JSON and drop
 		{ a: '1', m: '2', z: '3' }
 	]) {
 		const raw = { build_cache_config };
-		const cooked = await cook_gro_config(raw);
+		const cooked = await cook_gro_config(raw, paths.root);
 		expect(cooked.build_cache_config_hash).toBe(expected);
 		expect('build_cache_config' in raw).toBe(false);
 	}
 });
 
 test('cook_gro_config hashes what a `build_cache_config` function resolves to', async () => {
-	const cooked = await cook_gro_config({
-		build_cache_config: async () => ({ feature_flag: true })
-	});
+	const cooked = await cook_gro_config(
+		{
+			build_cache_config: async () => ({ feature_flag: true })
+		},
+		paths.root
+	);
 	expect(cooked.build_cache_config_hash).toBe(
 		hash_blake3(json_stringify_deterministic({ feature_flag: true }))
 	);
 });
 
 test('cook_gro_config without `build_cache_config` has the empty hash', async () => {
-	const cooked = await cook_gro_config({});
+	const cooked = await cook_gro_config({}, paths.root);
 	expect(cooked.build_cache_config_hash).toBe(EMPTY_BUILD_CACHE_CONFIG_HASH);
 });

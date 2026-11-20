@@ -3,14 +3,15 @@ import { resolve, join } from 'node:path';
 
 import {
 	create_paths,
-	paths,
 	gro_paths,
 	is_gro_id,
+	print_path,
 	to_root_path,
 	to_search_filters_relative,
 	to_gro_package_dir
 } from '#lib/paths.ts';
 import { SEARCH_EXCLUDER_DEFAULT } from '#lib/gro_config.ts';
+import { paths } from './test_helpers.ts';
 
 describe('create_paths', () => {
 	test('basic behavior', () => {
@@ -20,8 +21,8 @@ describe('create_paths', () => {
 		expect(p.source).toBe(join(root, 'src/'));
 	});
 
-	test('paths object has the same identity as the gro_paths object', () => {
-		expect(paths).toBe(gro_paths); // because we're testing inside the Gro project
+	test('the project paths equal the gro_paths', () => {
+		expect(paths).toEqual(gro_paths); // because we're testing inside the Gro project
 	});
 });
 
@@ -41,9 +42,29 @@ describe('is_gro_id', () => {
 
 describe('to_root_path', () => {
 	test('basic behavior', () => {
-		expect(to_root_path(resolve('foo/bar'))).toBe('foo/bar');
-		expect(to_root_path(resolve('./'))).toBe('./');
-		expect(to_root_path(resolve('./'))).toBe('./');
+		expect(to_root_path(resolve('foo/bar'), paths.root)).toBe('foo/bar');
+		expect(to_root_path(resolve('./'), paths.root)).toBe('./');
+	});
+
+	test('reads a path against the given root', () => {
+		expect(to_root_path('/p/src/a.ts', '/p')).toBe('src/a.ts');
+		expect(to_root_path('/p/src/a.ts', '/p/')).toBe('src/a.ts');
+		expect(to_root_path('src/a.ts', '/p')).toBe('src/a.ts');
+		expect(to_root_path('./src/../a.ts', '/p')).toBe('a.ts');
+		expect(to_root_path('/q/a.ts', '/p')).toBe('../q/a.ts');
+		expect(to_root_path('/p', '/p')).toBe('./');
+	});
+
+	test("reads a path in Gro's package against Gro's root, whatever the root given", () => {
+		expect(to_root_path(gro_paths.source + 'lib/x.ts', '/p')).toBe('src/lib/x.ts');
+	});
+});
+
+describe('print_path', () => {
+	test('prints the root path starting with `.`', () => {
+		expect(print_path('/p/src/a.ts', '/p')).toBe('./src/a.ts');
+		expect(print_path('/q/a.ts', '/p')).toBe('../q/a.ts');
+		expect(print_path('/p', '/p')).toBe('./');
 	});
 });
 

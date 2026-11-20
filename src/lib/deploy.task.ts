@@ -23,7 +23,7 @@ import {
 	git_current_commit_hash,
 	to_git_program
 } from './git.ts';
-import { paths, print_path } from './paths.ts';
+import { create_paths, print_path } from './paths.ts';
 import { GRO_DIRNAME, GIT_DIRNAME, SVELTEKIT_BUILD_DIRNAME } from './constants.ts';
 import { fs, type FsDir } from './fs.ts';
 import {
@@ -53,6 +53,7 @@ import { print_error_with_causes } from './internal/error_report.ts';
 
 // TODO customize
 const dir = cwd();
+const paths = create_paths(dir);
 const INITIAL_FILE_PATH = '.gitkeep';
 const DEPLOY_DIR = GRO_DIRNAME + '/deploy';
 const SOURCE_BRANCH = 'main';
@@ -244,7 +245,7 @@ export const task: Task<Args> = {
 						// so delete the directory and continue as if it wasn't there.
 						log.warn(
 							'`git reset --hard` failed in',
-							print_path(resolved_deploy_dir),
+							print_path(resolved_deploy_dir, dir),
 							'- recreating it'
 						);
 						await fs_paths.remove_path(resolved_deploy_dir, { recursive: true });
@@ -289,7 +290,7 @@ export const task: Task<Args> = {
 				if (!spawn_result_is_ok(reset_result)) {
 					throw new TaskError(
 						`\`git reset --hard ${first_commit_hash}\` failed resetting the target branch '${target}'` +
-							` in ${print_path(resolved_deploy_dir)}, so nothing was pushed - see the output above,` +
+							` in ${print_path(resolved_deploy_dir, dir)}, so nothing was pushed - see the output above,` +
 							' resolve the failure, then deploy again'
 					);
 				}
@@ -316,7 +317,7 @@ export const task: Task<Args> = {
 			const to_init_error = (command: string): TaskError =>
 				new TaskError(
 					`\`${command}\` failed creating the target branch '${target}'` +
-						` in ${print_path(resolved_deploy_dir)}, so nothing was pushed - see the output above,` +
+						` in ${print_path(resolved_deploy_dir, dir)}, so nothing was pushed - see the output above,` +
 						' resolve the failure, then deploy again'
 				);
 			const git_init = async (git_args: Array<string>): Promise<void> => {
@@ -398,14 +399,18 @@ export const task: Task<Args> = {
 
 		// At this point, `dist/` is ready to be committed and deployed!
 		if (dry) {
-			log.info(st('green', 'dry deploy complete:'), 'files at', print_path(resolved_deploy_dir));
+			log.info(
+				st('green', 'dry deploy complete:'),
+				'files at',
+				print_path(resolved_deploy_dir, dir)
+			);
 			return;
 		}
 
 		// Commit and push
 		const bad_state_message = (step: string): string =>
 			`Deploy failed in a bad state: built but not pushed: \`${step}\` failed` +
-			` in ${print_path(resolved_deploy_dir)} - see the output above,` +
+			` in ${print_path(resolved_deploy_dir, dir)} - see the output above,` +
 			` resolve the failure, then deploy again`;
 		// no `-f`: the deploy dir is its own clone, so only its own ignore rules apply -
 		// a `.gitignore` the build emits and the user's global excludes - and they're respected
@@ -431,7 +436,7 @@ export const task: Task<Args> = {
 					' (a `.gitignore` in the build output or your global git excludes):\n' +
 					ignored_paths.map((p) => '  ' + p).join('\n') +
 					'\nto deploy them, remove the matching rule' +
-					` - \`git check-ignore -v <path>\` in ${print_path(resolved_deploy_dir)} names it`
+					` - \`git check-ignore -v <path>\` in ${print_path(resolved_deploy_dir, dir)} names it`
 			);
 		}
 		// `git diff --cached --quiet` exits 0 with nothing staged and 1 with changes,
@@ -476,7 +481,7 @@ const open_deploy_dir = async (
 		is_protected_dir(real, await to_protected_dirs(fs, fs_paths.project.path, fs_paths_options))
 	) {
 		throw new TaskError(
-			`The deploy dir ${print_path(resolved_deploy_dir)} resolves to ${real},` +
+			`The deploy dir ${print_path(resolved_deploy_dir, dir)} resolves to ${real},` +
 				` ${PROTECTED_DIRS_TEXT}`
 		);
 	}
@@ -484,7 +489,7 @@ const open_deploy_dir = async (
 		const segments = opened.path.split('/').filter(Boolean);
 		if (segments[0] !== GRO_DIRNAME || segments.length < 2) {
 			throw new TaskError(
-				`The deploy dir ${print_path(resolved_deploy_dir)} resolves to ${real}, inside the project` +
+				`The deploy dir ${print_path(resolved_deploy_dir, dir)} resolves to ${real}, inside the project` +
 					` but not beneath \`${GRO_DIRNAME}/\`, so it could hold the project's own files` +
 					` - choose a deploy dir beneath \`${GRO_DIRNAME}/\` or outside the project`
 			);
@@ -522,7 +527,7 @@ const assert_deploy_dir_owned = async (
 	const real = to_opened_real_path(opened);
 	const refuse = (reason: string): TaskError =>
 		new TaskError(
-			`The deploy dir ${print_path(real)} exists but isn't a clone \`gro deploy\` made: ${reason}.` +
+			`The deploy dir ${print_path(real, dir)} exists but isn't a clone \`gro deploy\` made: ${reason}.` +
 				' Gro never removes it - if nothing in it is needed, remove it yourself, then deploy again'
 		);
 	// before any git call, which would run with a file as its cwd
@@ -602,7 +607,7 @@ const clone_deploy_dir = async (
 	if (resolved_deploy_dir.startsWith(paths.build)) await gro_dir_ensure(fs_paths);
 	const fail = (step: string): TaskError =>
 		new TaskError(
-			`\`${step}\` failed preparing the deploy dir ${print_path(resolved_deploy_dir)},` +
+			`\`${step}\` failed preparing the deploy dir ${print_path(resolved_deploy_dir, dir)},` +
 				' so nothing was pushed - see the output above, resolve the failure, then deploy again'
 		);
 	const clone = await git.run([

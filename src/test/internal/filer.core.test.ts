@@ -1,5 +1,4 @@
 import { test, assert, vi, onTestFinished } from 'vitest';
-import { paths } from '#lib/paths.ts';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -9,6 +8,7 @@ import type { WatchNodeFs } from '#lib/internal/watch_dir.ts';
 import { Filer } from '#lib/internal/filer.ts';
 
 import { create_mock_watch_dir } from './filer_test_helpers.ts';
+import { paths } from '../test_helpers.ts';
 
 // Lifecycle tests
 test('filer starts uninitialized', async () => {

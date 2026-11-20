@@ -3,9 +3,9 @@ import { readFileSync } from 'node:fs';
 import { createRequire, isBuiltin } from 'node:module';
 import { dirname, join, relative, resolve } from 'node:path';
 
-import { paths } from '#lib/paths.ts';
 import { parse_imports } from '#lib/internal/parse_imports.ts';
 import { to_lib_url, use_fixture_runner } from './host_fixture_helpers.ts';
+import { paths } from './test_helpers.ts';
 
 /*
 

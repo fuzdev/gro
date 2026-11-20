@@ -10,10 +10,10 @@ import { log_builtin_tasks, log_error_reasons, log_tasks } from '#lib/task_loggi
 import { create_empty_gro_config, type GroConfig } from '#lib/gro_config.ts';
 import { to_builtin_task_id } from '#lib/task.ts';
 import { ReportedError } from '#lib/task_error.ts';
-import { paths } from '#lib/paths.ts';
 import { GRO_BUILTIN_TASK_SUMMARIES } from '#lib/gro_builtin_tasks.ts';
 import { to_task_args, type CliTaskArgs } from '#lib/task_args.ts';
 import { create_project_fs_paths } from './fs_test_helpers.ts';
+import { paths } from './test_helpers.ts';
 
 vi.mock('#lib/run_task.ts', () => ({
 	run_task: vi.fn(async () => ({ ok: true }))
@@ -45,7 +45,7 @@ const write_tasks = (files: Array<string>): void => {
 	}
 };
 
-const config: GroConfig = create_empty_gro_config();
+const config: GroConfig = create_empty_gro_config(paths.root);
 
 const cli_task_args = (
 	task_name: string,

@@ -11,45 +11,49 @@ import {
 	validate_gen_module,
 	type GenInputs
 } from '#lib/gen.ts';
-import { paths } from '#lib/paths.ts';
 import { is_task_error } from '#lib/task_error.ts';
 import { create_empty_gro_config } from '#lib/gro_config.ts';
 import { create_project_fs_paths } from './fs_test_helpers.ts';
+import { paths } from './test_helpers.ts';
 
 const origin_id = resolve('src/foo.gen.ts');
 
 test('to_gen_result plain string', () => {
-	expect(to_gen_result(origin_id, '/**/')).toEqual({
+	expect(to_gen_result(origin_id, '/**/', paths.root)).toEqual({
 		origin_id,
 		files: [{ id: resolve('src/foo.ts'), content: '/**/', origin_id, format: true }]
 	});
 });
 
 test('to_gen_result object with a content string', () => {
-	expect(to_gen_result(origin_id, { content: '/**/' })).toEqual({
+	expect(to_gen_result(origin_id, { content: '/**/' }, paths.root)).toEqual({
 		origin_id,
 		files: [{ id: resolve('src/foo.ts'), content: '/**/', origin_id, format: true }]
 	});
 });
 
 test('to_gen_result fail with an unresolved id', () => {
-	expect(() => to_gen_result('src/foo.ts', { content: '/**/' })).toThrow();
+	expect(() => to_gen_result('src/foo.ts', { content: '/**/' }, paths.root)).toThrow();
 });
 
 test('to_gen_result fail with a build id', () => {
-	expect(() => to_gen_result(resolve('.gro/foo.js'), { content: '/**/' })).toThrow();
+	expect(() => to_gen_result(resolve('.gro/foo.js'), { content: '/**/' }, paths.root)).toThrow();
 });
 
 test('to_gen_result fail with an empty id', () => {
-	expect(() => to_gen_result('', { content: '/**/' })).toThrow();
+	expect(() => to_gen_result('', { content: '/**/' }, paths.root)).toThrow();
 });
 
 test('to_gen_result custom file name', () => {
 	expect(
-		to_gen_result(origin_id, {
-			filename: 'fooz.ts',
-			content: '/**/'
-		})
+		to_gen_result(
+			origin_id,
+			{
+				filename: 'fooz.ts',
+				content: '/**/'
+			},
+			paths.root
+		)
 	).toEqual({
 		origin_id,
 		files: [{ id: resolve('src/fooz.ts'), content: '/**/', origin_id, format: true }]
@@ -58,10 +62,14 @@ test('to_gen_result custom file name', () => {
 
 test('to_gen_result custom file name that matches the default file name', () => {
 	expect(
-		to_gen_result(origin_id, {
-			filename: 'foo.ts',
-			content: '/**/'
-		})
+		to_gen_result(
+			origin_id,
+			{
+				filename: 'foo.ts',
+				content: '/**/'
+			},
+			paths.root
+		)
 	).toEqual({
 		origin_id,
 		files: [{ id: resolve('src/foo.ts'), content: '/**/', origin_id, format: true }]
@@ -70,25 +78,29 @@ test('to_gen_result custom file name that matches the default file name', () => 
 
 test('to_gen_result fail when custom file name explicitly matches the origin', () => {
 	expect(() => {
-		to_gen_result(origin_id, {
-			filename: 'foo.gen.ts',
-			content: '/**/'
-		});
+		to_gen_result(
+			origin_id,
+			{
+				filename: 'foo.gen.ts',
+				content: '/**/'
+			},
+			paths.root
+		);
 	}).toThrow();
 });
 
 test('to_gen_result fail when file name implicitly matches the origin', () => {
 	expect(() => {
-		to_gen_result(resolve('src/foo.ts'), { content: '/**/' });
+		to_gen_result(resolve('src/foo.ts'), { content: '/**/' }, paths.root);
 	}).toThrow();
 });
 
 test('to_gen_result fail with an empty file name', () => {
-	expect(() => to_gen_result(origin_id, { filename: '', content: '/**/' })).toThrow();
+	expect(() => to_gen_result(origin_id, { filename: '', content: '/**/' }, paths.root)).toThrow();
 });
 
 test('to_gen_result additional file name parts', () => {
-	expect(to_gen_result(resolve('src/foo.bar.gen.ts'), { content: '/**/' })).toEqual({
+	expect(to_gen_result(resolve('src/foo.bar.gen.ts'), { content: '/**/' }, paths.root)).toEqual({
 		origin_id: resolve('src/foo.bar.gen.ts'),
 		files: [
 			{
@@ -103,10 +115,14 @@ test('to_gen_result additional file name parts', () => {
 
 test('to_gen_result js', () => {
 	expect(
-		to_gen_result(origin_id, {
-			filename: 'foo.js',
-			content: '/**/'
-		})
+		to_gen_result(
+			origin_id,
+			{
+				filename: 'foo.js',
+				content: '/**/'
+			},
+			paths.root
+		)
 	).toEqual({
 		origin_id,
 		files: [{ id: resolve('src/foo.js'), content: '/**/', origin_id, format: true }]
@@ -114,7 +130,7 @@ test('to_gen_result js', () => {
 });
 
 test('to_gen_result implicit custom file extension', () => {
-	expect(to_gen_result(resolve('src/foo.gen.json.ts'), '[/**/]')).toEqual({
+	expect(to_gen_result(resolve('src/foo.gen.json.ts'), '[/**/]', paths.root)).toEqual({
 		origin_id: resolve('src/foo.gen.json.ts'),
 		files: [
 			{
@@ -128,7 +144,7 @@ test('to_gen_result implicit custom file extension', () => {
 });
 
 test('to_gen_result implicit empty file extension', () => {
-	expect(to_gen_result(resolve('src/foo.gen..ts'), '[/**/]')).toEqual({
+	expect(to_gen_result(resolve('src/foo.gen..ts'), '[/**/]', paths.root)).toEqual({
 		origin_id: resolve('src/foo.gen..ts'),
 		files: [
 			{
@@ -142,7 +158,9 @@ test('to_gen_result implicit empty file extension', () => {
 });
 
 test('to_gen_result implicit custom file extension with additional file name parts', () => {
-	expect(to_gen_result(resolve('src/foo.bar.gen.json.ts'), { content: '[/**/]' })).toEqual({
+	expect(
+		to_gen_result(resolve('src/foo.bar.gen.json.ts'), { content: '[/**/]' }, paths.root)
+	).toEqual({
 		origin_id: resolve('src/foo.bar.gen.json.ts'),
 		files: [
 			{
@@ -156,7 +174,7 @@ test('to_gen_result implicit custom file extension with additional file name par
 });
 
 test('to_gen_result implicit custom file extension with many dots in between', () => {
-	expect(to_gen_result(resolve('src/foo...gen.ts'), '[/**/]')).toEqual({
+	expect(to_gen_result(resolve('src/foo...gen.ts'), '[/**/]', paths.root)).toEqual({
 		origin_id: resolve('src/foo...gen.ts'),
 		files: [
 			{
@@ -173,7 +191,7 @@ test('to_gen_result fail with two parts following the .gen. pattern in the file 
 	// This just ensures consistent file names - maybe loosen the restriction?
 	// You can still implicitly name files like this,
 	// but you have to move ".bar" before ".gen".
-	expect(() => to_gen_result(resolve('src/foo.gen.bar.json.ts'), '/**/')).toThrow();
+	expect(() => to_gen_result(resolve('src/foo.gen.bar.json.ts'), '/**/', paths.root)).toThrow();
 });
 
 test('to_gen_result fail implicit file extension ending with a dot', () => {
@@ -181,34 +199,38 @@ test('to_gen_result fail implicit file extension ending with a dot', () => {
 	// This one is more restrictive than the above,
 	// because to have a file ending with a dot
 	// you have to use an explicit file name.
-	expect(() => to_gen_result(resolve('src/foo.gen...ts'), '[/**/]')).toThrow();
+	expect(() => to_gen_result(resolve('src/foo.gen...ts'), '[/**/]', paths.root)).toThrow();
 });
 
 test('to_gen_result fail without a .gen. pattern in the file name', () => {
 	expect(() => {
-		to_gen_result(resolve('src/foo.ts'), '/**/');
+		to_gen_result(resolve('src/foo.ts'), '/**/', paths.root);
 	}).toThrow();
 });
 
 test('to_gen_result fail without a .gen. pattern in a file name that has multiple other patterns', () => {
 	expect(() => {
-		to_gen_result(resolve('src/foo.bar.baz.ts'), '/**/');
+		to_gen_result(resolve('src/foo.bar.baz.ts'), '/**/', paths.root);
 	}).toThrow();
 });
 
 test('to_gen_result fail with two .gen. patterns in the file name', () => {
-	expect(() => to_gen_result(resolve('src/lib/gen.gen.ts'), '/**/')).toThrow();
-	expect(() => to_gen_result(resolve('src/foo.gen.gen.ts'), '/**/')).toThrow();
-	expect(() => to_gen_result(resolve('src/foo.gen.bar.gen.ts'), '/**/')).toThrow();
-	expect(() => to_gen_result(resolve('src/foo.gen.bar.gen.baz.ts'), '/**/')).toThrow();
+	expect(() => to_gen_result(resolve('src/lib/gen.gen.ts'), '/**/', paths.root)).toThrow();
+	expect(() => to_gen_result(resolve('src/foo.gen.gen.ts'), '/**/', paths.root)).toThrow();
+	expect(() => to_gen_result(resolve('src/foo.gen.bar.gen.ts'), '/**/', paths.root)).toThrow();
+	expect(() => to_gen_result(resolve('src/foo.gen.bar.gen.baz.ts'), '/**/', paths.root)).toThrow();
 });
 
 test('to_gen_result explicit custom file extension', () => {
 	expect(
-		to_gen_result(origin_id, {
-			filename: 'foo.json',
-			content: '[/**/]'
-		})
+		to_gen_result(
+			origin_id,
+			{
+				filename: 'foo.json',
+				content: '[/**/]'
+			},
+			paths.root
+		)
 	).toEqual({
 		origin_id,
 		files: [{ id: resolve('src/foo.json'), content: '[/**/]', origin_id, format: true }]
@@ -217,10 +239,14 @@ test('to_gen_result explicit custom file extension', () => {
 
 test('to_gen_result explicit custom empty file extension', () => {
 	expect(
-		to_gen_result(origin_id, {
-			filename: 'foo',
-			content: '[/**/]'
-		})
+		to_gen_result(
+			origin_id,
+			{
+				filename: 'foo',
+				content: '[/**/]'
+			},
+			paths.root
+		)
 	).toEqual({
 		origin_id,
 		files: [{ id: resolve('src/foo'), content: '[/**/]', origin_id, format: true }]
@@ -229,10 +255,14 @@ test('to_gen_result explicit custom empty file extension', () => {
 
 test('to_gen_result explicit custom file extension ending with a dot', () => {
 	expect(
-		to_gen_result(origin_id, {
-			filename: 'foo.',
-			content: '[/**/]'
-		})
+		to_gen_result(
+			origin_id,
+			{
+				filename: 'foo.',
+				content: '[/**/]'
+			},
+			paths.root
+		)
 	).toEqual({
 		origin_id,
 		files: [{ id: resolve('src/foo.'), content: '[/**/]', origin_id, format: true }]
@@ -241,7 +271,11 @@ test('to_gen_result explicit custom file extension ending with a dot', () => {
 
 test('to_gen_result simple array of raw files', () => {
 	expect(
-		to_gen_result(origin_id, [{ content: '/*1*/' }, { filename: 'foo2.ts', content: '/*2*/' }])
+		to_gen_result(
+			origin_id,
+			[{ content: '/*1*/' }, { filename: 'foo2.ts', content: '/*2*/' }],
+			paths.root
+		)
 	).toEqual({
 		origin_id,
 		files: [
@@ -253,13 +287,17 @@ test('to_gen_result simple array of raw files', () => {
 
 test('to_gen_result complex array of raw files', () => {
 	expect(
-		to_gen_result(origin_id, [
-			{ content: '/*1*/' },
-			{ filename: 'foo2.ts', content: '/*2*/' },
-			{ filename: 'foo3.ts', content: '/*3*/' },
-			{ filename: 'foo4.ts', content: '/*4*/' },
-			{ filename: 'foo5.json', content: '[/*5*/]' }
-		])
+		to_gen_result(
+			origin_id,
+			[
+				{ content: '/*1*/' },
+				{ filename: 'foo2.ts', content: '/*2*/' },
+				{ filename: 'foo3.ts', content: '/*3*/' },
+				{ filename: 'foo4.ts', content: '/*4*/' },
+				{ filename: 'foo5.json', content: '[/*5*/]' }
+			],
+			paths.root
+		)
 	).toEqual({
 		origin_id,
 		files: [
@@ -274,22 +312,30 @@ test('to_gen_result complex array of raw files', () => {
 
 test('to_gen_result fail with duplicate names because of omissions', () => {
 	expect(() => {
-		to_gen_result(origin_id, [{ content: '/*1*/' }, { content: '/*2*/' }]);
+		to_gen_result(origin_id, [{ content: '/*1*/' }, { content: '/*2*/' }], paths.root);
 	}).toThrow();
 });
 
 test('to_gen_result fail with duplicate explicit names', () => {
 	expect(() => {
-		to_gen_result(origin_id, [
-			{ filename: 'foo.ts', content: '/*1*/' },
-			{ filename: 'foo.ts', content: '/*2*/' }
-		]);
+		to_gen_result(
+			origin_id,
+			[
+				{ filename: 'foo.ts', content: '/*1*/' },
+				{ filename: 'foo.ts', content: '/*2*/' }
+			],
+			paths.root
+		);
 	}).toThrow();
 });
 
 test('to_gen_result fail with duplicate explicit and implicit names', () => {
 	expect(() => {
-		to_gen_result(origin_id, [{ content: '/*1*/' }, { filename: 'foo.ts', content: '/*2*/' }]);
+		to_gen_result(
+			origin_id,
+			[{ content: '/*1*/' }, { filename: 'foo.ts', content: '/*2*/' }],
+			paths.root
+		);
 	}).toThrow();
 });
 
@@ -304,7 +350,7 @@ test('to_gen_result refuses a result whose content is not a string, naming the g
 		[1, 'a number'],
 		[['ok', stale], 'an object with keys `generate`, `inputs` whose `content` is missing']
 	] as const) {
-		expect(() => to_gen_result(origin_id, raw as any)).toThrow(
+		expect(() => to_gen_result(origin_id, raw as any, paths.root)).toThrow(
 			`Genfile ./src/foo.gen.ts returned ${described},`
 		);
 	}
@@ -321,7 +367,7 @@ test('find_genfiles_result finds gen modules in a directory', async () => {
 		await create_project_fs_paths(paths.root),
 		['../docs'],
 		[paths.lib],
-		create_empty_gro_config()
+		create_empty_gro_config(paths.root)
 	);
 	if (!find_genfiles_result.ok) {
 		throw new Error('Expected find_genfiles to succeed');
@@ -341,7 +387,7 @@ test('find_genfiles finds gen modules in a project under a dot-directory', async
 			await create_project_fs_paths(dir),
 			[join(dir, 'src')],
 			[dir],
-			create_empty_gro_config()
+			create_empty_gro_config(paths.root)
 		);
 		if (!result.ok) throw new Error('Expected find_genfiles to succeed');
 		expect(result.value.resolved_input_files.map((f) => f.id)).toEqual([
@@ -366,7 +412,7 @@ test('find_genfiles finds gen modules outside the root under a dot-directory', a
 			await create_project_fs_paths(root),
 			[join(other, 'src')],
 			[root],
-			create_empty_gro_config()
+			create_empty_gro_config(paths.root)
 		);
 		if (!result.ok) throw new Error('Expected find_genfiles to succeed');
 		expect(result.value.resolved_input_files.map((f) => f.id)).toEqual([
@@ -384,7 +430,7 @@ test('find_genfiles filters relative to the root, whichever directory it searche
 			mkdirSync(dirname(join(dir, file)), { recursive: true });
 			writeFileSync(join(dir, file), 'export const gen = () => "";\n');
 		}
-		const config = create_empty_gro_config();
+		const config = create_empty_gro_config(paths.root);
 		config.search_filters = [
 			(p) => !p.startsWith('src/lib/fixtures'),
 			(p) => !/^src\/(test|spec)\//.test(p) // a root-anchored regexp
@@ -425,7 +471,7 @@ test('find_genfiles in a project under a `.gen.` directory finds only genfiles',
 			await create_project_fs_paths(dir),
 			[join(dir, 'src')],
 			[dir],
-			create_empty_gro_config()
+			create_empty_gro_config(paths.root)
 		);
 		if (!result.ok) throw new Error('Expected find_genfiles to succeed');
 		expect(result.value.resolved_input_files.map((f) => f.id)).toEqual([

@@ -18,7 +18,6 @@ import { pathToFileURL } from 'node:url';
 
 import { is_fs_error } from '#lib/fs_error.ts';
 import { register_fs_handle } from '#lib/internal/fs_handles.ts';
-import { paths } from '#lib/paths.ts';
 import { watch, type WatchEvent, type Watcher } from '#lib/watch.ts';
 
 import {
@@ -27,6 +26,7 @@ import {
 	remove_fs_sandbox,
 	type FsSandbox
 } from './fs_test_helpers.ts';
+import { paths } from './test_helpers.ts';
 
 // how long a test waits for an event before failing, a bound, never an assertion
 const EVENT_TIMEOUT_MS = 10_000;

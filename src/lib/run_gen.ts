@@ -1,6 +1,7 @@
 import { st } from '@fuzdev/fuz_util/print.ts';
 import type { Timings } from '@fuzdev/fuz_util/timings.ts';
 import type { Logger } from '@fuzdev/fuz_util/log.ts';
+import type { PathId } from '@fuzdev/fuz_util/path.ts';
 import { map_concurrent } from '@fuzdev/fuz_util/async.ts';
 
 import {
@@ -18,12 +19,17 @@ import type { format_file as base_format_file } from './format_file.ts';
 import type { GroConfig } from './gro_config.ts';
 import type { InvokeTask } from './task.ts';
 
+/**
+ * Runs each genfile, normalizing and optionally formatting what it returns.
+ * @param root - the absolute project root, `origin_path` relative to it and `inputs` anchored at it
+ */
 export const run_gen = async (
 	gen_modules: Array<GenfileModuleMeta>,
 	config: GroConfig,
 	log: Logger,
 	timings: Timings,
 	invoke_task: InvokeTask,
+	root: PathId,
 	format_file?: typeof base_format_file
 ): Promise<GenResults> => {
 	let input_count = 0;
@@ -39,17 +45,17 @@ export const run_gen = async (
 
 			let gen_config;
 			try {
-				gen_config = normalize_gen_config(module_meta.mod.gen, id);
+				gen_config = normalize_gen_config(module_meta.mod.gen, id, root);
 			} catch (error) {
 				return {
 					ok: false,
 					id,
 					error,
-					reason: st('red', `Error generating ${print_path(id)}`),
+					reason: st('red', `Error generating ${print_path(id, root)}`),
 					elapsed: timing_for_module()
 				};
 			}
-			const gen_ctx = create_gen_context({ config, log, timings, invoke_task }, id);
+			const gen_ctx = create_gen_context({ config, log, timings, invoke_task }, id, root);
 			let raw_gen_result: RawGenResult;
 			try {
 				raw_gen_result = await gen_config.generate(gen_ctx);
@@ -58,7 +64,7 @@ export const run_gen = async (
 					ok: false,
 					id,
 					error,
-					reason: st('red', `Error generating ${print_path(id)}`),
+					reason: st('red', `Error generating ${print_path(id, root)}`),
 					elapsed: timing_for_module()
 				};
 			}
@@ -66,13 +72,13 @@ export const run_gen = async (
 			// Convert the module's return value to a normalized form.
 			let gen_result;
 			try {
-				gen_result = to_gen_result(id, raw_gen_result);
+				gen_result = to_gen_result(id, raw_gen_result, root);
 			} catch (error) {
 				return {
 					ok: false,
 					id,
 					error,
-					reason: st('red', `Error generating ${print_path(id)}`),
+					reason: st('red', `Error generating ${print_path(id, root)}`),
 					elapsed: timing_for_module()
 				};
 			}
@@ -92,7 +98,10 @@ export const run_gen = async (
 						ok: false,
 						id,
 						error,
-						reason: st('red', `Error formatting ${print_path(file.id)} via ${print_path(id)}`),
+						reason: st(
+							'red',
+							`Error formatting ${print_path(file.id, root)} via ${print_path(id, root)}`
+						),
 						elapsed: timing_for_module()
 					};
 				}

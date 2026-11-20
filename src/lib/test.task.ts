@@ -4,7 +4,7 @@ import { meta } from '@fuzdev/fuz_schema/meta.ts';
 import { to_forwarded_argv, to_implicit_forwarded_argv, to_raw_rest_args } from './task_args.ts';
 import { find_cli, spawn_cli, spawn_result_is_ok, to_spawn_result_message } from './cli.ts';
 import { VITEST_CLI } from './constants.ts';
-import { paths } from './paths.ts';
+import { create_paths } from './paths.ts';
 import { fs } from './fs.ts';
 import { spawn } from './spawn.ts';
 import { args } from './args.ts';
@@ -14,6 +14,9 @@ import { env } from './env.ts';
 import type { Task } from './task.ts';
 import { TaskError } from './task_error.ts';
 import { project_has_vitest, TEST_FILE_PATTERN } from './vitest_helpers.ts';
+
+// the project's paths, from the working directory, its root
+const paths = create_paths(cwd());
 
 const TEST_TASK_NAME = 'test';
 

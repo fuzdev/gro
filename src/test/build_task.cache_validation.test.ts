@@ -39,15 +39,6 @@ vi.mock('#lib/build_cache.ts', async (import_original) => {
 	};
 });
 
-vi.mock('#lib/paths.ts', () => ({
-	paths: {
-		root: './',
-		source: './src/',
-		lib: './src/lib/',
-		build: './.gro/'
-	}
-}));
-
 vi.mock('@fuzdev/fuz_util/hash_blake3.js', () => ({
 	hash_blake3: vi.fn()
 }));

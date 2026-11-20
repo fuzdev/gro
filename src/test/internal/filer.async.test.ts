@@ -1,5 +1,4 @@
 import { test, assert, vi } from 'vitest';
-import { paths } from '#lib/paths.ts';
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -9,6 +8,7 @@ import type { WatchNodeFs, WatcherChangeCallback } from '#lib/internal/watch_dir
 import { Filer } from '#lib/internal/filer.ts';
 
 import { create_mock_watch_dir } from './filer_test_helpers.ts';
+import { paths } from '../test_helpers.ts';
 
 // Close/init race condition tests
 test('close() during init() handles gracefully', async () => {

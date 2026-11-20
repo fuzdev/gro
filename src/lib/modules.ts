@@ -57,6 +57,10 @@ export type LoadModulesResult<TModuleMeta extends ModuleMeta> = Result<
 >;
 
 // TODO parallelize and sort afterwards
+/**
+ * Imports each of the resolved input files, validating each module.
+ * @param root - the absolute project root the failures name paths relative to
+ */
 export const load_modules = async <
 	TModule extends Record<string, any>,
 	TModuleMeta extends ModuleMeta<TModule>
@@ -64,6 +68,7 @@ export const load_modules = async <
 	resolved_input_files: Array<ResolvedInputFile>,
 	validate: (mod: any) => mod is TModule,
 	map_module_meta: (resolved_input_file: ResolvedInputFile, mod: TModule) => TModuleMeta,
+	root: PathId,
 	timings?: Timings
 ): Promise<LoadModulesResult<TModuleMeta>> => {
 	const timing_to_load_modules = timings?.start('load modules');
@@ -80,14 +85,15 @@ export const load_modules = async <
 			switch (result.type) {
 				case 'failed_import': {
 					reasons.push(
-						`Module import ${print_path(id)} failed from input ${print_path(
-							input_path
+						`Module import ${print_path(id, root)} failed from input ${print_path(
+							input_path,
+							root
 						)}: ${print_error_with_causes(result.error)}`
 					);
 					break;
 				}
 				case 'failed_validation': {
-					reasons.push(`Module ${print_path(id)} failed validation '${result.validation}'.`);
+					reasons.push(`Module ${print_path(id, root)} failed validation '${result.validation}'.`);
 					break;
 				}
 				default:

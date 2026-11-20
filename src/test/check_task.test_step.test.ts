@@ -2,13 +2,12 @@ import { describe, test, assert, vi, beforeEach } from 'vitest';
 import type { PackageJson } from '@fuzdev/fuz_util/package_json.ts';
 
 import { task as check_task, type Args } from '#lib/check.task.ts';
-import { paths } from '#lib/paths.ts';
 import type { TaskContext } from '#lib/task.ts';
 import { is_task_error } from '#lib/task_error.ts';
 import { fs } from '#lib/fs.ts';
 import type { FsSearchResult } from '#lib/fs_search.ts';
 
-import { create_mock_task_context } from './test_helpers.ts';
+import { create_mock_task_context, paths } from './test_helpers.ts';
 import { get_mock_spawn } from './spawn_mocks.ts';
 import { git_ops, install_mock_git } from './git_mocks.ts';
 import { set_mock_args } from './args_mocks.ts';

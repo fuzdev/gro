@@ -107,12 +107,14 @@ const config: CreateGroConfig = async (cfg) => {
 export default config;
 ```
 
-You can also export a config object and use `create_empty_gro_config` to get the defaults:
+You can also export a config object and use `create_empty_gro_config` to get the defaults,
+given the project root:
 
 ```ts
 import {create_empty_gro_config} from '@fuzdev/gro/gro_config.ts';
+import {cwd} from '@fuzdev/gro/cwd.ts';
 
-const config = create_empty_gro_config();
+const config = create_empty_gro_config(cwd());
 
 // config.plugins = ...;
 // config.map_package_json = ...;

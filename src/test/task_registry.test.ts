@@ -15,13 +15,12 @@ import {
 import { create_gen_context } from '#lib/gen.ts';
 import { gen_inputs_match } from '#lib/gen_helpers.ts';
 import { create_empty_gro_config } from '#lib/gro_config.ts';
-import { paths } from '#lib/paths.ts';
 import { to_builtin_task_id, type InvokeTask } from '#lib/task.ts';
 import { GRO_BUILTIN_TASK_SUMMARIES } from '#lib/gro_builtin_tasks.ts';
 import { fs } from '#lib/fs.ts';
 import { LIB_PATH } from '#lib/constants.ts';
 
-import { create_mock_logger, create_mock_timings } from './test_helpers.ts';
+import { create_mock_logger, create_mock_timings, paths } from './test_helpers.ts';
 import { create_project_fs_paths } from './fs_test_helpers.ts';
 import { create_mock_fs_paths } from './fs_mocks.ts';
 
@@ -54,7 +53,7 @@ const find_tasks = async (
 	task_registry_find(await create_project_fs_paths(root), dir, search_filters, root);
 
 describe('task_registry_find', () => {
-	const { search_filters } = create_empty_gro_config();
+	const { search_filters } = create_empty_gro_config(paths.root);
 
 	test('names tasks by their paths relative to the root, sorted', async () => {
 		const dir = create_project([
@@ -230,12 +229,13 @@ describe('gen_task_registry', () => {
 	test("generates the augmentation from the project's `src/` with specifiers relative to the genfile", async () => {
 		const ctx = create_gen_context(
 			{
-				config: create_empty_gro_config(),
+				config: create_empty_gro_config(paths.root),
 				log: create_mock_logger(),
 				timings: create_mock_timings(),
 				invoke_task: vi.fn()
 			},
-			join(paths.source, 'gro_tasks.gen.ts')
+			join(paths.source, 'gro_tasks.gen.ts'),
+			paths.root
 		);
 		const rendered = await gen_task_registry(await create_project_fs_paths(paths.root)).generate(
 			ctx
@@ -251,12 +251,13 @@ describe('gen_task_registry', () => {
 		const dir = create_project(['src/lib/a.task.ts', 'outside.task.ts']);
 		const ctx = create_gen_context(
 			{
-				config: create_empty_gro_config(),
+				config: create_empty_gro_config(paths.root),
 				log: create_mock_logger(),
 				timings: create_mock_timings(),
 				invoke_task: vi.fn()
 			},
-			join(dir, 'src/gro_tasks.gen.ts')
+			join(dir, 'src/gro_tasks.gen.ts'),
+			paths.root
 		);
 		const rendered = await gen_task_registry(await create_project_fs_paths(dir)).generate(ctx);
 		assert.ok(typeof rendered === 'string');

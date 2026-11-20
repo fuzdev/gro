@@ -74,7 +74,8 @@ export const task: Task<Args> = {
 			'gen files',
 			found_genfiles.resolved_input_files.map((f) => f.id)
 		);
-		const loaded = await load_genfiles(found_genfiles, timings);
+		const root = fs_paths.project.path;
+		const loaded = await load_genfiles(found_genfiles, root, timings);
 		if (!loaded.ok) {
 			log_error_reasons(log, loaded.reasons);
 			throw new TaskError('Failed to load gen modules.');
@@ -89,6 +90,7 @@ export const task: Task<Args> = {
 			log,
 			timings,
 			invoke_task,
+			root,
 			format_file
 		);
 		timing_to_generate_code();
@@ -110,8 +112,9 @@ export const task: Task<Args> = {
 					log.error(
 						st(
 							'red',
-							`Generated file ${print_path(analyzed.file.id)} via ${print_path(
-								analyzed.file.origin_id
+							`Generated file ${print_path(analyzed.file.id, root)} via ${print_path(
+								analyzed.file.origin_id,
+								root
 							)} ${analyzed.is_new ? 'is new' : 'has changed'}.`
 						)
 					);
@@ -131,7 +134,7 @@ export const task: Task<Args> = {
 		}
 
 		// collect and format output with summary
-		const output_lines = collect_output_lines(gen_results, analyzed_gen_results);
+		const output_lines = collect_output_lines(gen_results, analyzed_gen_results, root);
 		const new_count = analyzed_gen_results.filter((r) => r.is_new).length;
 		const changed_count = analyzed_gen_results.filter((r) => r.has_changed && !r.is_new).length;
 		const unchanged_count = analyzed_gen_results.filter((r) => !r.is_new && !r.has_changed).length;
@@ -185,7 +188,8 @@ interface OutputLine {
 
 const collect_output_lines = (
 	gen_results: GenResults,
-	analyzed_gen_results: Array<AnalyzedGenResult>
+	analyzed_gen_results: Array<AnalyzedGenResult>,
+	root: string
 ): Array<OutputLine> => {
 	const output_lines: Array<OutputLine> = [];
 
@@ -196,8 +200,8 @@ const collect_output_lines = (
 				output_lines.push({
 					status: format_gen_status(analyzed),
 					elapsed: print_ms(result.elapsed),
-					source: print_path(result.id),
-					target: print_path(file.id),
+					source: print_path(result.id, root),
+					target: print_path(file.id, root),
 					is_error: false
 				});
 			}
@@ -205,7 +209,7 @@ const collect_output_lines = (
 			output_lines.push({
 				status: { symbol: '🞩', color: 'red', text: 'error' },
 				elapsed: print_ms(result.elapsed),
-				source: print_path(result.id),
+				source: print_path(result.id, root),
 				target: st(
 					'red',
 					(is_task_error(result.error) || !result.error.stack

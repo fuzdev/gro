@@ -3,7 +3,6 @@ import type { Logger } from '@fuzdev/fuz_util/log.ts';
 import type { PathId } from '@fuzdev/fuz_util/path.ts';
 import { IgnoreStack } from '@fuzdev/tsv';
 
-import { paths } from './paths.ts';
 import { posix_relative, posix_resolve } from './internal/posix_path.ts';
 import { normalize_gen_config, validate_gen_module, type GenInputs } from './gen.ts';
 import { load_module } from './modules.ts';
@@ -22,6 +21,7 @@ import { load_module } from './modules.ts';
  * @param log - logs a genfile that fails to import or has invalid `inputs`
  * @param reported_invalid_inputs - the genfiles whose invalid `inputs` were already logged,
  * so each is reported once, as its `inputs` are read once
+ * @param root - the absolute project root that `inputs` resolve against and anchor at
  * @mutates reported_invalid_inputs - adds a genfile on logging its invalid `inputs`
  */
 export const should_trigger_gen = async (
@@ -29,7 +29,8 @@ export const should_trigger_gen = async (
 	changed_file_id: PathId,
 	dependents: ReadonlySet<PathId>,
 	log: Logger,
-	reported_invalid_inputs: Set<PathId>
+	reported_invalid_inputs: Set<PathId>,
+	root: PathId
 ): Promise<boolean> => {
 	if (gen_file_id === changed_file_id || dependents.has(gen_file_id)) return true;
 
@@ -43,7 +44,7 @@ export const should_trigger_gen = async (
 
 	let inputs: GenInputs | undefined;
 	try {
-		({ inputs } = normalize_gen_config(result.mod.gen, gen_file_id));
+		({ inputs } = normalize_gen_config(result.mod.gen, gen_file_id, root));
 	} catch (error) {
 		// logged rather than thrown, as one bad genfile shouldn't end the dev server
 		if (!reported_invalid_inputs.has(gen_file_id)) {
@@ -52,7 +53,7 @@ export const should_trigger_gen = async (
 		}
 		return false;
 	}
-	return !!inputs && gen_inputs_match(inputs, changed_file_id);
+	return !!inputs && gen_inputs_match(inputs, changed_file_id, root);
 };
 
 /**
@@ -61,13 +62,9 @@ export const should_trigger_gen = async (
  * and `patterns` match like a root `.gitignore`, only for files inside the root.
  * @param inputs - the genfile's `inputs`
  * @param id - the file to check
- * @param root - the project root that `files` resolve against and `patterns` anchor at
+ * @param root - the absolute project root that `files` resolve against and `patterns` anchor at
  */
-export const gen_inputs_match = (
-	inputs: GenInputs,
-	id: PathId,
-	root: PathId = paths.root
-): boolean => {
+export const gen_inputs_match = (inputs: GenInputs, id: PathId, root: PathId): boolean => {
 	if (inputs === 'all') return true;
 	const { files, patterns } = inputs;
 	if (files?.some((f) => posix_resolve(root, f) === id)) return true;

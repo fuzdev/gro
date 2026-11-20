@@ -10,7 +10,6 @@ import {
 	type ResolvedInputPath,
 	type ResolvedInputFile
 } from '#lib/input_path.ts';
-import { paths } from '#lib/paths.ts';
 import type { FileInfo } from '#lib/fs.ts';
 import {
 	create_mock_fs_dir,
@@ -18,6 +17,7 @@ import {
 	create_mock_project_fs_paths,
 	type MockFsPaths
 } from './fs_mocks.ts';
+import { paths } from './test_helpers.ts';
 
 // a mock project on the cwd where `stat` finds `info` at every path
 const create_stat_fs_paths = (info: FileInfo | null = null): MockFsPaths => {

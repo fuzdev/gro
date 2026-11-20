@@ -3,7 +3,6 @@ import { getEventListeners } from 'node:events';
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { paths } from '#lib/paths.ts';
 import { spawn, type Spawn, type SpawnChild, type SpawnProgram } from '#lib/spawn.ts';
 import { is_spawn_error } from '#lib/spawn_error.ts';
 import {
@@ -12,7 +11,7 @@ import {
 	remove_fs_sandbox,
 	type FsSandbox
 } from './fs_test_helpers.ts';
-import { assert_rejects_type } from './test_helpers.ts';
+import { assert_rejects_type, paths } from './test_helpers.ts';
 
 // grace periods and child startups on a loaded machine, none of them a sleep the assertions rest on
 vi.setConfig({ testTimeout: 30_000 });

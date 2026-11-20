@@ -1,11 +1,11 @@
-import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { identity } from '@fuzdev/fuz_util/function.ts';
 import type { PathFilter } from '@fuzdev/fuz_util/path.ts';
 import { json_stringify_deterministic } from '@fuzdev/fuz_util/json.ts';
 import { hash_blake3 } from '@fuzdev/fuz_util/hash_blake3.ts';
 
-import { paths } from './paths.ts';
+import { create_paths } from './paths.ts';
+import { posix_join, posix_resolve } from './internal/posix_path.ts';
 import type { FsPaths } from './fs_paths.ts';
 import {
 	GRO_CONFIG_FILENAME,
@@ -105,13 +105,17 @@ export interface RawGroConfig {
 
 export type CreateGroConfig = (base_config: GroConfig) => RawGroConfig | Promise<RawGroConfig>;
 
-export const create_empty_gro_config = (): GroConfig => ({
+/**
+ * The config with every option at its empty value.
+ * @param root - the absolute project root, whose `src/` the graph watches
+ */
+export const create_empty_gro_config = (root: string): GroConfig => ({
 	plugins: () => [],
 	map_package_json: identity,
 	search_filters: [(id) => !SEARCH_EXCLUDER_DEFAULT.test(id)],
 	pm_cli: PM_CLI_DEFAULT,
 	build_cache_config_hash: EMPTY_BUILD_CACHE_CONFIG_HASH,
-	watch: { dir: paths.source, filter: null }
+	watch: { dir: create_paths(root).source, filter: null }
 });
 
 /**
@@ -135,9 +139,13 @@ export const SEARCH_EXCLUDER_DEFAULT = new RegExp(
  * Transforms a `RawGroConfig` to the more strict `GroConfig`.
  * This allows users to provide a more relaxed config.
  * Hashes the `build_cache_config` and drops the raw value from the config.
+ * @param root - the absolute project root a relative `watch.dir` resolves against
  */
-export const cook_gro_config = async (raw_config: RawGroConfig): Promise<GroConfig> => {
-	const empty_config = create_empty_gro_config();
+export const cook_gro_config = async (
+	raw_config: RawGroConfig,
+	root: string
+): Promise<GroConfig> => {
+	const empty_config = create_empty_gro_config(root);
 
 	// All of the raw config properties are optional,
 	// so fall back to the empty values when `undefined`.
@@ -177,7 +185,7 @@ export const cook_gro_config = async (raw_config: RawGroConfig): Promise<GroConf
 		pm_cli,
 		build_cache_config_hash,
 		watch: {
-			dir: resolve(watch?.dir ?? empty_config.watch.dir),
+			dir: posix_resolve(root, watch?.dir ?? empty_config.watch.dir),
 			filter: watch?.filter ?? empty_config.watch.filter
 		}
 	};
@@ -196,11 +204,13 @@ export const load_gro_config = async (
 	fs_paths: FsPaths,
 	dir: string = fs_paths.project.path
 ): Promise<GroConfig> => {
+	const root = fs_paths.project.path;
 	const default_config = await cook_gro_config(
-		await create_default_config(create_empty_gro_config())
+		await create_default_config(create_empty_gro_config(root)),
+		root
 	);
 
-	const config_path = join(dir, GRO_CONFIG_FILENAME);
+	const config_path = posix_join(dir, GRO_CONFIG_FILENAME);
 	const config_file = await fs_paths.open_path(config_path);
 	if (!(await config_file.dir.exists(config_file.path))) {
 		// No user config file found, so return the default.
@@ -215,7 +225,8 @@ export const load_gro_config = async (
 	return await cook_gro_config(
 		typeof config_module.default === 'function'
 			? await config_module.default(default_config)
-			: config_module.default
+			: config_module.default,
+		root
 	);
 };
 

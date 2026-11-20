@@ -20,7 +20,7 @@ import {
 	type GenResults
 } from '#lib/gen.ts';
 import type { FsPaths } from '#lib/fs_paths.ts';
-import { create_mock_logger } from './test_helpers.ts';
+import { create_mock_logger, paths } from './test_helpers.ts';
 import { create_project_fs_paths } from './fs_test_helpers.ts';
 
 // hermetic: the `FsPaths` is over a sandbox project, so no gen output reaches the repo
@@ -47,7 +47,7 @@ afterEach(() => {
 const origin = (): string => join(project, 'src/a/x.gen.ts');
 
 const to_results = (filename: string): GenResults => {
-	const { files } = to_gen_result(origin(), { content: 'generated\n', filename });
+	const { files } = to_gen_result(origin(), { content: 'generated\n', filename }, paths.root);
 	return {
 		results: [],
 		successes: [{ ok: true, id: origin(), files, elapsed: 0 }],

@@ -11,7 +11,8 @@ import {
 	TEST_TIMEOUT_MD,
 	create_mock_config,
 	create_mock_logger,
-	create_mock_timings
+	create_mock_timings,
+	paths
 } from './test_helpers.ts';
 
 test(
@@ -40,6 +41,7 @@ const run = async (
 		create_mock_logger(),
 		create_mock_timings(),
 		() => Promise.resolve(),
+		paths.root,
 		format_file
 	);
 

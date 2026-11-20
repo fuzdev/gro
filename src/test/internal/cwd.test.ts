@@ -39,7 +39,7 @@ const load_in_lossy_cwd = (module_path: string) =>
 	);
 
 describe('the checked cwd', () => {
-	for (const module of ['src/lib/fs.ts', 'src/lib/paths.ts']) {
+	for (const module of ['src/lib/fs.ts', 'src/lib/cwd.ts']) {
 		test(`${module} refuses to load in a cwd whose path isn't UTF-8`, () => {
 			const result = load_in_lossy_cwd(resolve(module));
 			assert.notStrictEqual(result.status, 0, result.stderr);

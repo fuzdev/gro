@@ -3,14 +3,16 @@ import { st } from '@fuzdev/fuz_util/print.ts';
 import { to_file_path, type PathFilter, type PathId } from '@fuzdev/fuz_util/path.ts';
 
 import { GRO_DIR, LIB_DIR, SOURCE_DIR } from './constants.ts';
-import { to_checked_cwd } from './internal/cwd.ts';
 import { posix_extname, posix_join, posix_relative, posix_resolve } from './internal/posix_path.ts';
 
 /*
 
-`paths` is built from the conventional locations in `./constants.ts`, never from the
+`Paths` are built from the conventional locations in `./constants.ts`, never from the
 SvelteKit `files` config values - reading those costs a full Vite config resolution,
 which is too expensive for a module every Gro invocation imports.
+
+Nothing here reads the process: a project's root comes from the caller,
+like `create_paths(cwd())` at a composition root or `fs_paths.project.path` below one.
 
 */
 
@@ -36,19 +38,27 @@ export const create_paths = (root_dir: string): Paths => {
 	};
 };
 
-export const infer_paths = (id: PathId): Paths => (is_gro_id(id) ? gro_paths : paths);
-
 export const is_gro_id = (id: PathId): boolean =>
 	id.startsWith(gro_paths.root) || gro_paths.root === ensure_end(id, '/');
 
-// '/home/me/app/src/foo/bar/baz.ts' → 'src/foo/bar/baz.ts', a relative path read against the root
-export const to_root_path = (id: PathId): string => {
-	const { root } = infer_paths(id);
-	return posix_relative(root, posix_resolve(root, id)) || './';
+/**
+ * A path relative to the root it's in, like `src/foo/bar/baz.ts` for
+ * `/home/me/app/src/foo/bar/baz.ts`: Gro's own package root for a path in it, else `root`.
+ * @param id - an absolute path, or one relative to `root`
+ * @param root - the absolute project root
+ */
+export const to_root_path = (id: PathId, root: string): string => {
+	const base = is_gro_id(id) ? gro_paths.root : root;
+	return posix_relative(base, posix_resolve(base, id)) || './';
 };
 
-export const print_path = (path: string): string => {
-	const root_path = to_root_path(path);
+/**
+ * A path for display, relative to the root it's in as `to_root_path` reads it, starting `.`.
+ * @param path - an absolute path, or one relative to `root`
+ * @param root - the absolute project root
+ */
+export const print_path = (path: string, root: string): string => {
+	const root_path = to_root_path(path, root);
 	return st('gray', root_path[0] === '.' ? root_path : './' + root_path);
 };
 
@@ -56,11 +66,6 @@ export const replace_extension = (path: string, new_extension: string): string =
 	const { length } = posix_extname(path);
 	return (length === 0 ? path : path.substring(0, path.length - length)) + new_extension;
 };
-
-/**
- * `Paths` for the user repo.
- */
-export const paths = create_paths(to_checked_cwd());
 
 /**
  * Finds the Gro package directory from the path of Gro's own `paths` module,
@@ -81,11 +86,10 @@ export const to_gro_package_dir = (module_path: PathId): string =>
 	);
 
 const gro_package_dir_path = to_gro_package_dir(to_file_path(new URL(import.meta.url)));
-export const IS_THIS_GRO = gro_package_dir_path === paths.root;
 /**
- * `Paths` for the Gro package being used by the user repo.
+ * `Paths` for the Gro package being used by the user repo, found from this module's URL.
  */
-export const gro_paths = IS_THIS_GRO ? paths : create_paths(gro_package_dir_path);
+export const gro_paths = create_paths(gro_package_dir_path);
 
 /**
  * Binds `search_filters` to the project root,
@@ -96,7 +100,7 @@ export const gro_paths = IS_THIS_GRO ? paths : create_paths(gro_package_dir_path
  * so a search of a directory outside the project, like `~/.cache/other/src`, finds its files too,
  * and any other path is tested as its absolute id.
  * @param search_filters - the filters each file and directory must pass, usually `config.search_filters`
- * @param root - the absolute project root the paths are relative to, usually `paths.root`
+ * @param root - the absolute project root the paths are relative to, usually `fs_paths.project.path`
  * @param search_dir - the absolute directory being searched, the base for the paths outside `root`
  * @returns filters for `fs_search`, which passes them absolute ids
  */

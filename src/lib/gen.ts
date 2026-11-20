@@ -5,7 +5,7 @@ import type { PathId } from '@fuzdev/fuz_util/path.ts';
 import { each_concurrent, map_concurrent } from '@fuzdev/fuz_util/async.ts';
 import { ensure_end } from '@fuzdev/fuz_util/string.ts';
 
-import { paths, print_path, to_root_path, to_search_filters_relative } from './paths.ts';
+import { print_path, to_root_path, to_search_filters_relative } from './paths.ts';
 import type { GroConfig } from './gro_config.ts';
 import { load_default_svelte_config, type ParsedSvelteConfig } from './svelte_config.ts';
 import { load_modules, type LoadModulesFailure, type ModuleMeta } from './modules.ts';
@@ -112,14 +112,19 @@ export type GenContextBase = Pick<GenContext, 'config' | 'log' | 'timings' | 'in
 /**
  * Builds a `GenContext` for one genfile, with a lazy `svelte_config`
  * that's a getter rather than a value so a genfile that ignores it never resolves it.
+ * @param root - the absolute project root `origin_path` is relative to
  */
-export const create_gen_context = (base: GenContextBase, origin_id: PathId): GenContext => ({
+export const create_gen_context = (
+	base: GenContextBase,
+	origin_id: PathId,
+	root: PathId
+): GenContext => ({
 	...base,
 	get svelte_config() {
 		return load_default_svelte_config();
 	},
 	origin_id,
-	origin_path: to_root_path(origin_id)
+	origin_path: to_root_path(origin_id, root)
 });
 
 // TODO consider other return data - metadata? effects? non-file build artifacts?
@@ -161,26 +166,34 @@ export interface GenfileModuleResultFailure {
  * isn't a string, naming the genfile and what it returned
  * @throws `Error` - for an invalid or duplicate output file name
  */
-export const to_gen_result = (origin_id: PathId, raw_result: RawGenResult): GenResult => {
+export const to_gen_result = (
+	origin_id: PathId,
+	raw_result: RawGenResult,
+	root: PathId
+): GenResult => {
 	return {
 		origin_id,
-		files: to_gen_files(origin_id, raw_result)
+		files: to_gen_files(origin_id, raw_result, root)
 	};
 };
 
-const to_gen_files = (origin_id: PathId, raw_result: RawGenResult): Array<GenFile> => {
+const to_gen_files = (
+	origin_id: PathId,
+	raw_result: RawGenResult,
+	root: PathId
+): Array<GenFile> => {
 	if (raw_result === null) {
 		return [];
 	} else if (typeof raw_result === 'string') {
 		return [to_gen_file(origin_id, { content: raw_result })];
 	} else if (Array.isArray(raw_result)) {
-		const files = raw_result.flatMap((f) => to_gen_files(origin_id, f));
+		const files = raw_result.flatMap((f) => to_gen_files(origin_id, f, root));
 		validate_gen_files(files);
 		return files;
 	}
 	if (typeof raw_result !== 'object' || typeof raw_result.content !== 'string') {
 		throw new TaskError(
-			`Genfile ${print_path(origin_id)} returned ${describe_raw_gen_result(raw_result)},` +
+			`Genfile ${print_path(origin_id, root)} returned ${describe_raw_gen_result(raw_result)},` +
 				' expected a string, `{content: string}`, an array of them, or `null`' +
 				' (a `gen` export that is a factory, like `gen_task_registry`, must be called)'
 		);
@@ -301,14 +314,14 @@ const open_gen_output = async (fs_paths: FsPaths, file: GenFile): Promise<FsOpen
 	const output = await fs_paths.open_path(file.id);
 	if (output.dir !== fs_paths.project) {
 		throw new TaskError(
-			`Gen output ${file.id} from ${print_path(file.origin_id)} resolves outside the project` +
+			`Gen output ${file.id} from ${print_path(file.origin_id, fs_paths.project.path)} resolves outside the project` +
 				` (${output.path ? output.dir.path + '/' + output.path : output.dir.path}),` +
 				' and genfiles write only inside it'
 		);
 	}
 	if (!output.path) {
 		throw new TaskError(
-			`Gen output ${file.id} from ${print_path(file.origin_id)} resolves to the project` +
+			`Gen output ${file.id} from ${print_path(file.origin_id, fs_paths.project.path)} resolves to the project` +
 				' directory itself, which a genfile can never write'
 		);
 	}
@@ -357,7 +370,12 @@ export const write_gen_results = async (
 	await each_concurrent(files, 10, async (file) => {
 		const analyzed = analyzed_gen_results.find((r) => r.file.id === file.id);
 		if (!analyzed) throw Error('Expected to find analyzed result: ' + file.id);
-		const log_args = [print_path(file.id), 'generated from', print_path(file.origin_id)];
+		const root = fs_paths.project.path;
+		const log_args = [
+			print_path(file.id, root),
+			'generated from',
+			print_path(file.origin_id, root)
+		];
 		if (analyzed.is_new) {
 			log.info('writing new', ...log_args);
 			const output = await open_gen_output(fs_paths, file);
@@ -435,7 +453,7 @@ export const find_genfiles = async (
 			resolved_input_paths,
 			reasons: unmapped_input_paths.map(
 				(input_path) =>
-					`Input path ${print_path(input_path)} cannot be mapped to a file or directory.`
+					`Input path ${print_path(input_path, root)} cannot be mapped to a file or directory.`
 			)
 		};
 	}
@@ -461,7 +479,8 @@ export const find_genfiles = async (
 			resolved_input_files,
 			resolved_input_paths,
 			reasons: input_directories_with_no_files.map(
-				(input_path) => `Input directory contains no matching files: ${print_path(input_path)}`
+				(input_path) =>
+					`Input directory contains no matching files: ${print_path(input_path, root)}`
 			)
 		};
 	}
@@ -489,14 +508,20 @@ export interface LoadedGenfiles {
 export type LoadGenfilesResult = Result<{ value: LoadedGenfiles }, LoadGenfilesFailure>;
 export type LoadGenfilesFailure = LoadModulesFailure<GenfileModuleMeta>;
 
+/**
+ * Imports the genfiles `find_genfiles` found.
+ * @param root - the absolute project root the failures name paths relative to
+ */
 export const load_genfiles = async (
 	found_genfiles: FoundGenfiles,
+	root: PathId,
 	timings?: Timings
 ): Promise<LoadGenfilesResult> => {
 	const loaded_modules = await load_modules(
 		found_genfiles.resolved_input_files,
 		validate_gen_module,
 		(resolved_input_file, mod): GenfileModuleMeta => ({ id: resolved_input_file.id, mod }),
+		root,
 		timings
 	);
 	if (!loaded_modules.ok) {
@@ -520,18 +545,14 @@ export const validate_gen_module = (mod: Record<string, any>): mod is GenfileMod
  * Normalizes a genfile's `gen` export to a `GenConfig`, validating its `inputs`.
  * @param gen - the genfile's `gen` export
  * @param id - the genfile, named in the error
- * @param root - the project root that `inputs` patterns anchor at
+ * @param root - the absolute project root that `inputs` patterns anchor at
  * @throws `TaskError` - for `inputs` that can never match as written, saying what to write instead
  */
-export const normalize_gen_config = (
-	gen: Gen,
-	id: PathId,
-	root: PathId = paths.root
-): GenConfig => {
+export const normalize_gen_config = (gen: Gen, id: PathId, root: PathId): GenConfig => {
 	if (typeof gen === 'function') return { generate: gen };
 	const problem = to_gen_inputs_problem(gen.inputs, root);
 	if (problem !== null) {
-		throw new TaskError(`Genfile ${print_path(id)} has invalid \`inputs\`: ${problem}`);
+		throw new TaskError(`Genfile ${print_path(id, root)} has invalid \`inputs\`: ${problem}`);
 	}
 	return gen;
 };

@@ -3,10 +3,9 @@ import { join } from 'node:path';
 
 import { gen_inputs_match, should_trigger_gen } from '#lib/gen_helpers.ts';
 import type { GenInputs } from '#lib/gen.ts';
-import { paths } from '#lib/paths.ts';
 import * as modules from '#lib/modules.ts';
 
-import { create_mock_logger } from './test_helpers.ts';
+import { create_mock_logger, paths } from './test_helpers.ts';
 
 vi.mock('#lib/modules.ts', async () => {
 	const actual = await vi.importActual('#lib/modules.ts');
@@ -43,7 +42,8 @@ describe('should_trigger_gen', () => {
 			TEST_GEN_FILE,
 			NO_DEPENDENTS,
 			create_mock_logger(),
-			new Set()
+			new Set(),
+			paths.root
 		);
 		expect(result).toBe(true);
 		expect(modules.load_module).not.toHaveBeenCalled();
@@ -55,7 +55,8 @@ describe('should_trigger_gen', () => {
 			TEST_HELPER_FILE,
 			new Set([TEST_GEN_FILE]),
 			create_mock_logger(),
-			new Set()
+			new Set(),
+			paths.root
 		);
 		expect(result).toBe(true);
 		expect(modules.load_module).not.toHaveBeenCalled();
@@ -68,7 +69,8 @@ describe('should_trigger_gen', () => {
 			TEST_HELPER_FILE,
 			new Set([join(paths.root, 'src/another.gen.ts')]),
 			create_mock_logger(),
-			new Set()
+			new Set(),
+			paths.root
 		);
 		expect(result).toBe(false);
 	});
@@ -77,10 +79,24 @@ describe('should_trigger_gen', () => {
 		mock_inputs({ patterns: ['*.json'] });
 		const log = create_mock_logger();
 		expect(
-			await should_trigger_gen(TEST_GEN_FILE, TEST_JSON_FILE, NO_DEPENDENTS, log, new Set())
+			await should_trigger_gen(
+				TEST_GEN_FILE,
+				TEST_JSON_FILE,
+				NO_DEPENDENTS,
+				log,
+				new Set(),
+				paths.root
+			)
 		).toBe(true);
 		expect(
-			await should_trigger_gen(TEST_GEN_FILE, TEST_OTHER_FILE, NO_DEPENDENTS, log, new Set())
+			await should_trigger_gen(
+				TEST_GEN_FILE,
+				TEST_OTHER_FILE,
+				NO_DEPENDENTS,
+				log,
+				new Set(),
+				paths.root
+			)
 		).toBe(false);
 		expect(modules.load_module).toHaveBeenCalledWith(TEST_GEN_FILE, expect.any(Function));
 	});
@@ -92,7 +108,8 @@ describe('should_trigger_gen', () => {
 			TEST_OTHER_FILE,
 			NO_DEPENDENTS,
 			create_mock_logger(),
-			new Set()
+			new Set(),
+			paths.root
 		);
 		expect(result).toBe(true);
 	});
@@ -104,7 +121,8 @@ describe('should_trigger_gen', () => {
 			TEST_OTHER_FILE,
 			NO_DEPENDENTS,
 			create_mock_logger(),
-			new Set()
+			new Set(),
+			paths.root
 		);
 		expect(result).toBe(false);
 	});
@@ -120,7 +138,8 @@ describe('should_trigger_gen', () => {
 			TEST_OTHER_FILE,
 			NO_DEPENDENTS,
 			create_mock_logger(),
-			new Set()
+			new Set(),
+			paths.root
 		);
 		expect(result).toBe(false);
 	});
@@ -138,7 +157,8 @@ describe('should_trigger_gen', () => {
 			TEST_OTHER_FILE,
 			NO_DEPENDENTS,
 			log,
-			new Set()
+			new Set(),
+			paths.root
 		);
 		expect(result).toBe(false);
 		expect(log.error).toHaveBeenCalledWith(`Failed to import ${TEST_GEN_FILE}:`, expect.any(Error));
@@ -153,7 +173,8 @@ describe('should_trigger_gen', () => {
 			TEST_OTHER_FILE,
 			NO_DEPENDENTS,
 			log,
-			reported
+			reported,
+			paths.root
 		);
 		expect(result).toBe(false);
 		const [message] = vi.mocked(log.error).mock.calls[0]!;
@@ -170,7 +191,8 @@ describe('should_trigger_gen', () => {
 			TEST_OTHER_FILE,
 			NO_DEPENDENTS,
 			log,
-			new Set([TEST_GEN_FILE])
+			new Set([TEST_GEN_FILE]),
+			paths.root
 		);
 		expect(result).toBe(false);
 		expect(log.error).not.toHaveBeenCalled();
@@ -190,7 +212,8 @@ describe('should_trigger_gen', () => {
 			TEST_OTHER_FILE,
 			NO_DEPENDENTS,
 			log,
-			new Set()
+			new Set(),
+			paths.root
 		);
 		expect(result).toBe(false);
 		expect(log.error).not.toHaveBeenCalled();
@@ -271,7 +294,7 @@ describe('gen_inputs_match', () => {
 	});
 
 	test('defaults the root to the project root', () => {
-		expect(gen_inputs_match({ patterns: ['*.json'] }, TEST_JSON_FILE)).toBe(true);
-		expect(gen_inputs_match({ files: ['src/data.json'] }, TEST_JSON_FILE)).toBe(true);
+		expect(gen_inputs_match({ patterns: ['*.json'] }, TEST_JSON_FILE, paths.root)).toBe(true);
+		expect(gen_inputs_match({ files: ['src/data.json'] }, TEST_JSON_FILE, paths.root)).toBe(true);
 	});
 });

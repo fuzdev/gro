@@ -3,9 +3,8 @@ import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { spawn_with_loader_args } from '#lib/gro_helpers.ts';
-import { paths } from '#lib/paths.ts';
 import { to_lib_url, use_fixture_runner } from './host_fixture_helpers.ts';
-import { LOADER_SOURCE_PATH } from './test_helpers.ts';
+import { LOADER_SOURCE_PATH, paths } from './test_helpers.ts';
 
 vi.setConfig({ testTimeout: 30_000 });
 

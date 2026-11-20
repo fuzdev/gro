@@ -5,7 +5,7 @@ import type { AnySchema, InferInput } from '@fuzdev/fuz_schema/schema.ts';
 
 import type { GenConfig } from './gen.ts';
 import type { GroBuiltinTasks } from './gro_builtin_tasks.ts';
-import { to_search_filters_relative } from './paths.ts';
+import { gro_paths, to_search_filters_relative } from './paths.ts';
 import type { FsReadDir } from './fs.ts';
 import type { FsPaths } from './fs_paths.ts';
 import { SOURCE_DIRNAME } from './constants.ts';
@@ -171,7 +171,7 @@ export const task_registry_find_builtins = async (
 	for (const filename of filenames) {
 		const name = strip_end(filename, TASK_FILE_SUFFIX_TS);
 		const id = posix_join(src_lib.path, filename);
-		const loaded = await load_task(id, name);
+		const loaded = await load_task(id, name, gro_paths.root);
 		if (!loaded.ok) throw new TaskError(loaded.reason);
 		entries.push({ name, id, summary: loaded.value.mod.task.summary ?? '' });
 	}

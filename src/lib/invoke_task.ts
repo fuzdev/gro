@@ -125,7 +125,7 @@ export const invoke_task = async (
 		log_error_reasons(log, resolved.reasons);
 		throw new ReportedError();
 	}
-	const loaded = await load_task(resolved.id, resolved.name);
+	const loaded = await load_task(resolved.id, resolved.name, root);
 	if (!loaded.ok) {
 		log_error_reasons(log, [loaded.reason]);
 		throw new ReportedError();
@@ -406,12 +406,13 @@ const list_tasks = async (
 	const modules: Array<TaskModuleMeta> = [];
 	const reasons: Array<string> = [];
 	for (const { id, name } of entries) {
-		const loaded = await load_task(id, name);
+		const loaded = await load_task(id, name, fs_paths.project.path);
 		if (loaded.ok) modules.push(loaded.value);
 		else reasons.push(loaded.reason);
 	}
 	// list what loads, so one broken task hides none of the others
-	if (modules.length || !reasons.length) log_tasks(log, modules, print_path(dir_id));
+	if (modules.length || !reasons.length)
+		log_tasks(log, modules, print_path(dir_id, fs_paths.project.path));
 	// a directory with no tasks beside a task file of its name, like `update/` and `update.task.ts`
 	if (!modules.length && !reasons.length && dir !== null) {
 		const task_file = find_task_file_for_input(dir, fs_paths.project.path);
