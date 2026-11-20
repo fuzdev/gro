@@ -12,6 +12,17 @@ vi.mock('#lib/sveltekit_helpers.ts', async (import_original) => ({
 	sveltekit_sync: vi.fn(async () => undefined)
 }));
 
+vi.mock('#lib/package_json.ts', async (import_original) => ({
+	...(await import_original<typeof import('#lib/package_json.ts')>()),
+	project_has_dependency: vi.fn()
+}));
+
+// the project's `src/` has no Svelte files, so an undeclared svelte-check leaves tsc
+vi.mock('#lib/svelte_helpers.ts', async (import_original) => ({
+	...(await import_original<typeof import('#lib/svelte_helpers.ts')>()),
+	find_svelte_files: vi.fn(() => Promise.resolve([]))
+}));
+
 afterEach(async () => {
 	vi.clearAllMocks();
 	(await get_mock_spawn()).reset();
@@ -22,9 +33,13 @@ const ARGS = {
 	cwd: process.cwd()
 };
 
-// finds only the named CLI
+// declares and finds only the named CLI, `typescript` for tsc
 const find_only = async (found: string): Promise<void> => {
 	(await get_mock_spawn()).available = (name) => name === 'node_modules/.bin/' + found;
+	const declared = found === 'tsc' ? 'typescript' : found;
+	vi.mocked(await import('#lib/package_json.ts')).project_has_dependency.mockImplementation(
+		(_fs_paths, dep_name) => Promise.resolve(dep_name === declared)
+	);
 };
 
 const run_tsc = async (forwarded: Array<string>): Promise<Array<string>> => {

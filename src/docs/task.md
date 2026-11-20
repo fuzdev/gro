@@ -399,7 +399,7 @@ A wrapper doesn't have to call the builtin at all:
 copy an existing task and customize it,
 rewrite it from scratch, compose several, or whatever each project needs.
 
-`gro test` and `gro lint` run their tool only when the project's `package.json` declares it,
+`gro test`, `gro lint`, and `gro typecheck` run their tool only when the project's `package.json` declares it,
 in `dependencies` or `devDependencies`, so an undeclared copy on `PATH` never runs.
 Vitest's rule is in [test](./test.md#when-vitest-isnt-declared), and ESLint's follows it:
 `gro lint` fails when ESLint isn't declared, and when it's declared but found neither
@@ -409,6 +409,13 @@ a `-- gro lint` section or a nonempty `-- eslint` one.
 Without either, the step is skipped with a log line, unless the project's root has an ESLint config
 (`eslint.config.js` and its `.mjs`, `.cjs`, `.ts`, `.mts`, and `.cts` forms, or a legacy `.eslintrc*`),
 and then `gro check` fails naming it; `gro check --no-lint` skips the step without looking.
+`gro typecheck` follows the same rule with files as the evidence:
+svelte-check runs when it's declared, else, when the project's `src/` has `.svelte` files,
+which only svelte-check checks, it fails naming them;
+otherwise tsc runs when `typescript` is declared, and with neither declared it fails saying what to add.
+A declared checker found neither in the project's `node_modules/.bin` nor on `PATH` fails with the install hint.
+`gro check` always runs its typecheck step, so a project with no checker declared fails there,
+where its test and lint steps would be skipped; `gro check --no-typecheck` turns the step off.
 
 A builtin runs only its own tools, each named by its grants (`gro lint` runs ESLint),
 so a project that uses another tool runs it from a project task.
@@ -510,7 +517,7 @@ Any number of sections separated by `--` may be defined, and the first arg
 that appears after each `--` is assumed to be the CLI command.
 If `gro check` or its invoked tasks don't call `vitest` or `eslint`,
 the `--` args will be ignored.
-`gro check` reads a nonempty `-- vitest` or `-- eslint` section as asking for its test or lint step,
+Otherwise `gro check` reads a nonempty `-- vitest` or `-- eslint` section as asking for its test or lint step,
 which then fails when the tool isn't declared.
 An outside command gets its section's text verbatim, never parsed and reserialized,
 so `-- eslint --max-warnings -1 --no-cache` reaches `eslint` exactly as written.

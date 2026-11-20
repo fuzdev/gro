@@ -4,6 +4,7 @@ import { relative, resolve } from 'node:path';
 import type { DirEntry, FileInfo, FsDir, FsStatOptions } from '#lib/fs.ts';
 import { FsError } from '#lib/fs_error.ts';
 import type { FsOpenedPath, FsPaths } from '#lib/fs_paths.ts';
+import { fs_search } from '#lib/fs_search.ts';
 import { compare_code_points } from '#lib/internal/code_points.ts';
 
 /**
@@ -265,8 +266,9 @@ export const create_mock_fs_paths = (
  * Creates a mock `FsPaths` whose ops resolve every path beneath its project,
  * lexically, following no symlink, a relative path against the project's `path`,
  * each op then run on the mock project as the real boundary runs it on `fs.project`.
- * A path outside the project throws, since the mock opens no other directory,
- * and so does `search_path`. `vi.resetAllMocks` keeps the ops resolving.
+ * A path outside the project throws, since the mock opens no other directory.
+ * `search_path` runs `fs_search` on the project, its ids starting with the path as named.
+ * `vi.resetAllMocks` keeps the ops resolving.
  * @param project - the mock project directory, defaults to one at `/project`
  */
 export const create_mock_project_fs_paths = (
@@ -285,6 +287,8 @@ export const create_mock_project_fs_paths = (
 	return create_mock_fs_paths(project, {
 		open_path: async (path) => open(path),
 		open_dir_path: async (path) => open(path),
+		search_path: async (path, options) =>
+			fs_search(dir, { ...options, path: to_relative(path), id_dir: resolve(project.path, path) }),
 		copy_path: async (from, to, options) =>
 			project.copy(to_relative(from), to_relative(to), options),
 		remove_path: async (path, options) => project.remove(to_relative(path), options),

@@ -1,6 +1,7 @@
 import * as s from '@fuzdev/fuz_schema/schema.ts';
 import { meta } from '@fuzdev/fuz_schema/meta.ts';
 import type { Logger } from '@fuzdev/fuz_util/log.ts';
+import { plural } from '@fuzdev/fuz_util/string.ts';
 
 import { has_forwarded_flag, to_forwarded_argv } from './task_args.ts';
 import type { ProcessOutput } from './stdout.ts';
@@ -14,12 +15,21 @@ import {
 import { SVELTE_CHECK_CLI, SVELTEKIT_CLI } from './constants.ts';
 import type { FsPaths } from './fs_paths.ts';
 import { cwd as process_cwd } from './cwd.ts';
-import { create_paths } from './paths.ts';
+import { create_paths, to_root_path } from './paths.ts';
+import { project_has_dependency } from './package_json.ts';
+import type { FsSearchResult } from './fs_search.ts';
+import { is_fs_error } from './fs_error.ts';
+import { format_error_detail } from './error_detail.ts';
+import { find_svelte_files } from './svelte_helpers.ts';
 import { project_has_sveltekit_app, sveltekit_sync } from './sveltekit_helpers.ts';
 import { TaskError } from './task_error.ts';
 import type { BuiltinPrograms, BuiltinTask, BuiltinTaskGrants } from './builtin_host.ts';
 
 const TYPESCRIPT_CLI = 'tsc';
+// the package that installs `tsc`
+const TYPESCRIPT_DEP_NAME = 'typescript';
+
+const SVELTE_FILES_PRINTED_MAX = 5;
 
 /** @nodocs */
 export const Args = s.object({
@@ -35,7 +45,7 @@ export const Args = s.object({
 export type Args = s.Infer<typeof Args>;
 
 const grants = {
-	// reads `package.json` for SvelteKit
+	// reads `package.json` for SvelteKit and the declared checker, and `src/` for Svelte files
 	fs: { read: ['.'] },
 	// each loads the project's config and code, whose environment Gro can't know
 	programs: {
@@ -96,9 +106,13 @@ export interface TypecheckDeps {
 
 /**
  * Typechecks the project with svelte-check, or tsc without it, `gro typecheck`'s body.
+ * Each runs only when `package.json` declares it, as vitest for `gro test`:
+ * svelte-check when declared, else tsc, unless the project's `src/` has Svelte files,
+ * which tsc can't check, so their project fails naming them.
  * @param args - the task's parsed args
  * @param options - the forwarded args
  * @param deps - the project's boundary, the checkers, the output streams, and the log
+ * @throws `TaskError` when the checker isn't declared or installed, or the project doesn't typecheck
  */
 export const run_typecheck = async (
 	args: Args,
@@ -113,9 +127,11 @@ export const run_typecheck = async (
 		await sveltekit_sync({ find: () => programs.find('sveltekit_cli') });
 	}
 
-	// Prefer svelte-check if available.
-	const found_svelte_check_cli = programs.find('svelte_check_cli');
-	if (found_svelte_check_cli) {
+	if (await project_has_dependency(fs_paths, SVELTE_CHECK_CLI, log)) {
+		const found_svelte_check_cli = programs.find('svelte_check_cli');
+		if (!found_svelte_check_cli) {
+			throw new TaskError(`${SVELTE_CHECK_CLI} is a dependency but not installed; run \`npm i\`?`);
+		}
 		const forwarded_argv = to_forwarded_argv(SVELTE_CHECK_CLI, raw_rest_args);
 		const svelte_check_child = await spawn_cli_process(
 			found_svelte_check_cli,
@@ -140,23 +156,63 @@ export const run_typecheck = async (
 		return;
 	}
 
-	// Fall back to tsc.
-	const found_typescript_cli = programs.find('typescript_cli');
-	if (found_typescript_cli) {
-		const forwarded_argv = to_forwarded_argv(TYPESCRIPT_CLI, raw_rest_args);
-		// tsc's flags are case-insensitive, so a forwarded `--noemit` overrides too,
-		// and `--noEmit` goes last because `--build` must be tsc's first arg
-		const tsc_argv = has_forwarded_flag(forwarded_argv, 'noEmit', true)
-			? forwarded_argv
-			: [...forwarded_argv, '--noEmit'];
-		const tsc_result = await spawn_cli(found_typescript_cli, tsc_argv, log);
-		if (!spawn_result_is_ok(tsc_result)) {
-			throw new TaskError(`Failed to typecheck. ${to_spawn_result_message(tsc_result)}`);
-		}
-		return;
+	const source_dir = create_paths(fs_paths.project.path).source;
+	const svelte_files = await find_svelte_files_or_throw(fs_paths, source_dir);
+	if (svelte_files.length > 0) {
+		throw new TaskError(
+			to_undeclared_svelte_check_message(svelte_files, fs_paths.project.path, source_dir)
+		);
 	}
 
-	throw new TaskError(
-		`Failed to typecheck because neither \`${SVELTE_CHECK_CLI}\` nor \`${TYPESCRIPT_CLI}\` was found`
+	if (!(await project_has_dependency(fs_paths, TYPESCRIPT_DEP_NAME, log))) {
+		throw new TaskError(`no typechecker found, add ${TYPESCRIPT_DEP_NAME} to devDependencies`);
+	}
+	const found_typescript_cli = programs.find('typescript_cli');
+	if (!found_typescript_cli) {
+		throw new TaskError(`${TYPESCRIPT_DEP_NAME} is a dependency but not installed; run \`npm i\`?`);
+	}
+	const forwarded_argv = to_forwarded_argv(TYPESCRIPT_CLI, raw_rest_args);
+	// tsc's flags are case-insensitive, so a forwarded `--noemit` overrides too,
+	// and `--noEmit` goes last because `--build` must be tsc's first arg
+	const tsc_argv = has_forwarded_flag(forwarded_argv, 'noEmit', true)
+		? forwarded_argv
+		: [...forwarded_argv, '--noEmit'];
+	const tsc_result = await spawn_cli(found_typescript_cli, tsc_argv, log);
+	if (!spawn_result_is_ok(tsc_result)) {
+		throw new TaskError(`Failed to typecheck. ${to_spawn_result_message(tsc_result)}`);
+	}
+};
+
+const find_svelte_files_or_throw = async (
+	fs_paths: FsPaths,
+	dir: string
+): Promise<Array<FsSearchResult>> => {
+	try {
+		return await find_svelte_files(fs_paths, dir);
+	} catch (error) {
+		if (!is_fs_error(error)) throw error;
+		throw new TaskError(
+			`failed to search ${to_root_path(dir, fs_paths.project.path)} for Svelte files, as ${SVELTE_CHECK_CLI} isn't declared: ` +
+				format_error_detail(error),
+			{ cause: error }
+		);
+	}
+};
+
+const to_undeclared_svelte_check_message = (
+	svelte_files: Array<FsSearchResult>,
+	root: string,
+	source_dir: string
+): string => {
+	const count = svelte_files.length;
+	const printed = svelte_files
+		.slice(0, SVELTE_FILES_PRINTED_MAX)
+		.map((f) => to_root_path(f.id, root));
+	const unprinted = count - printed.length;
+	return (
+		`found ${count} Svelte file${plural(count)} in ${to_root_path(source_dir, root)} but ${SVELTE_CHECK_CLI} isn't declared in package.json: ` +
+		printed.join(', ') +
+		(unprinted > 0 ? ` and ${unprinted} more` : '') +
+		` - add ${SVELTE_CHECK_CLI} to devDependencies`
 	);
 };
