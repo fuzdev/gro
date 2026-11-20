@@ -14,6 +14,9 @@ import type { TaskArgsInput, TaskName } from './task_registry.ts';
 import { print_error_with_causes } from './internal/error_report.ts';
 import { posix_relative, posix_resolve } from './internal/posix_path.ts';
 
+// copied when this module loads, so a later patch of `Object.hasOwn` makes no other name a builtin
+const { hasOwn } = Object;
+
 export interface Task<
 	TArgs = Args,
 	TArgsSchema extends Schema<Args, Args> = Schema<Args, Args>, // TODO improve type? separate input/output?
@@ -178,7 +181,7 @@ export const to_task_command = (name: string): string =>
  * Whether `name` is one of Gro's builtin tasks.
  */
 export const is_builtin_task_name = (name: string): name is keyof GroBuiltinTasks =>
-	Object.hasOwn(GRO_BUILTIN_TASK_SUMMARIES, name);
+	hasOwn(GRO_BUILTIN_TASK_SUMMARIES, name);
 
 // builtins sit beside this module, `.ts` in Gro's source and `.js` in its dist
 const BUILTIN_TASK_FILE_SUFFIX = import.meta.url.endsWith('.ts')

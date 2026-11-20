@@ -243,8 +243,11 @@ runs the builtin with the builtin's own grants, so a project task needs no handl
 A project task can import a host module itself:
 on Node every module can, and the cut above is a review signal, as Node's narrowed roots are,
 not an enforced boundary (`env` is narrowed and `programs` refuses an ungranted role,
-but `fs_paths` is the root's whole `FsPaths`, and code in the same realm,
-which can patch the intrinsics or the grants the cut reads, isn't held by it).
+but `fs_paths` is the root's whole `FsPaths`).
+`GRO_BUILTIN_TASK_GRANTS` is deep-frozen with null-prototype objects,
+and the cut copies `Object.hasOwn` when it loads,
+a guardrail against accidental prototype pollution widening a host,
+not against a module built to defeat it.
 
 A builtin's body is a function over its own `*Deps`, picked from its `host` and context,
 so its `run` is one call and a test passes plain objects:

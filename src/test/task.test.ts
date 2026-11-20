@@ -76,6 +76,17 @@ describe('task', () => {
 		expect(is_builtin_task_name('toString')).toBe(false);
 	});
 
+	test('is_builtin_task_name holds after a later patch of `Object.hasOwn`', () => {
+		const original = Object.hasOwn;
+		Object.hasOwn = () => true;
+		try {
+			expect(is_builtin_task_name('toString')).toBe(false);
+			expect(is_builtin_task_name('evil')).toBe(false);
+		} finally {
+			Object.hasOwn = original;
+		}
+	});
+
 	test('to_builtin_task_id is beside the task module, in source here', () => {
 		expect(to_builtin_task_id('check')).toBe(join(paths.lib, 'check.task.ts'));
 	});

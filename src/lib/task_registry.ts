@@ -188,7 +188,8 @@ export const task_registry_find_builtins = async (
 
 /**
  * Renders the `GroBuiltinTasks` interface for Gro's own tasks
- * and their summaries and grants, so listing them or reading what they need imports no task module.
+ * and their summaries and grants, so listing them or reading what they need imports no task module,
+ * the grants deep-frozen with null-prototype objects when the rendered module loads.
  */
 export const task_registry_render_builtins = (
 	entries: Array<BuiltinTaskEntry>,
@@ -219,12 +220,29 @@ ${properties}}
 export const GRO_BUILTIN_TASK_SUMMARIES: Record<keyof GroBuiltinTasks, string> = {
 ${summaries}};
 
+const { create, freeze, keys } = Object;
+
+// a deep-frozen copy of \`value\`, each object null-prototype, so a property added to
+// \`Object.prototype\` widens no grant, a guardrail against accidental pollution,
+// not against a module built to defeat it
+const to_frozen_record = <T>(value: T): T => {
+	if (value === null || typeof value !== 'object') return value;
+	if (Array.isArray(value)) return freeze(value.map(to_frozen_record)) as T;
+	const record: Record<string, unknown> = create(null);
+	for (const key of keys(value)) {
+		record[key] = to_frozen_record((value as Record<string, unknown>)[key]);
+	}
+	return freeze(record) as T;
+};
+
 /**
  * The grants of each of Gro's builtin tasks by name, as data a runtime reads without importing
- * the task, \`null\` for a builtin that declares none and gets no \`host\`.
+ * the task, \`null\` for a builtin that declares none and gets no \`host\`,
+ * deep-frozen with null-prototype objects.
  */
-export const GRO_BUILTIN_TASK_GRANTS: Record<keyof GroBuiltinTasks, BuiltinTaskGrants | null> = {
-${grants}};
+export const GRO_BUILTIN_TASK_GRANTS: Record<keyof GroBuiltinTasks, BuiltinTaskGrants | null> =
+	to_frozen_record({
+${grants}});
 `;
 };
 

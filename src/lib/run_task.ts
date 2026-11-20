@@ -26,8 +26,9 @@ import { is_env_error } from './env_error.ts';
 import { is_stdio_error } from './stdio_error.ts';
 import { GRO_BUILTIN_TASK_SUMMARIES } from './gro_builtin_tasks.ts';
 
-// copied when this module loads; the grants and the table are still read when a task runs,
-// so code in the same realm isn't held by the invokes check
+// copied when this module loads, so a later patch of `Object.hasOwn` doesn't change the refusal
+// of a builtin by path, while the invokes check reads the frozen grants table;
+// a guardrail against accidental pollution, not against a module built to defeat it
 const { freeze, hasOwn, keys } = Object;
 
 /**

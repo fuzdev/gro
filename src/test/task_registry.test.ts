@@ -250,7 +250,7 @@ describe('task_registry_render', () => {
 		assert.include(rendered, '\tquiet: "",\n');
 		assert.include(
 			rendered,
-			'export const GRO_BUILTIN_TASK_GRANTS: Record<keyof GroBuiltinTasks, BuiltinTaskGrants | null> = {'
+			'export const GRO_BUILTIN_TASK_GRANTS: Record<keyof GroBuiltinTasks, BuiltinTaskGrants | null> =\n\tto_frozen_record({\n'
 		);
 		assert.include(
 			rendered,

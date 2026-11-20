@@ -24,10 +24,11 @@ so a builtin that loads the project's modules takes it from its `host` rather th
 On the Node Gro the cut is a review signal, as a narrowed root is, not an enforced boundary:
 `env` is narrowed and `programs` refuses a role the grants don't list,
 but `fs_paths` is the root's whole `FsPaths`, and any module can still import a host module.
-`Object.freeze` and `Object.hasOwn` are copied when this module loads, and the host and its
-`programs` are null-prototype records, but the grants are read by plain property access and the
-args are copied through the array iterator, so code in the same realm that patches intrinsics
-or the grants isn't held by the cut.
+`Object.freeze` and `Object.hasOwn` are copied when this module loads, the host and its
+`programs` are null-prototype records, and `GRO_BUILTIN_TASK_GRANTS` is deep-frozen with
+null-prototype objects, so a property added to `Object.prototype` widens no host:
+a guardrail against accidental prototype pollution, not against a module built to defeat it,
+and an `invoke_task` of a builtin lends its grants by design.
 
 */
 

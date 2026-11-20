@@ -68,64 +68,81 @@ export const GRO_BUILTIN_TASK_SUMMARIES: Record<keyof GroBuiltinTasks, string> =
 	upgrade: 'upgrade deps'
 };
 
+const { create, freeze, keys } = Object;
+
+// a deep-frozen copy of `value`, each object null-prototype, so a property added to
+// `Object.prototype` widens no grant, a guardrail against accidental pollution,
+// not against a module built to defeat it
+const to_frozen_record = <T>(value: T): T => {
+	if (value === null || typeof value !== 'object') return value;
+	if (Array.isArray(value)) return freeze(value.map(to_frozen_record)) as T;
+	const record: Record<string, unknown> = create(null);
+	for (const key of keys(value)) {
+		record[key] = to_frozen_record((value as Record<string, unknown>)[key]);
+	}
+	return freeze(record) as T;
+};
+
 /**
  * The grants of each of Gro's builtin tasks by name, as data a runtime reads without importing
- * the task, `null` for a builtin that declares none and gets no `host`.
+ * the task, `null` for a builtin that declares none and gets no `host`,
+ * deep-frozen with null-prototype objects.
  */
-export const GRO_BUILTIN_TASK_GRANTS: Record<keyof GroBuiltinTasks, BuiltinTaskGrants | null> = {
-	build: null,
-	changeset: null,
-	check: {
-		fs: { read: ['.'] },
-		env: ['CI'],
-		programs: { git_cli: { name: 'git', pass_env: ['GIT_*', 'XDG_CONFIG_HOME', 'SUDO_UID'] } },
-		invokes: ['sync', 'build', 'typecheck', 'test', 'gen', 'format', 'lint']
-	},
-	clean: {
-		fs: { read: ['.'], write: ['.'] },
-		programs: { git_cli: { name: 'git', pass_env: 'all' } }
-	},
-	commit: null,
-	deploy: null,
-	dev: null,
-	format: { fs: { read: ['.'], write: ['.'] } },
-	gen: { fs: { read: ['.'], write: ['.'] }, project_modules: true },
-	lint: { programs: { eslint_cli: { name: 'eslint', local_first: true, pass_env: 'all' } } },
-	publish: null,
-	reinstall: null,
-	release: { fs: { read: ['.'] }, invokes: ['publish', 'deploy'] },
-	run: null,
-	sync: {
-		fs: { read: ['.'], write: ['.'] },
-		programs: {
-			npm_cli: {
-				name: 'npm',
-				pass_env: 'all',
-				omit_env: ['NODE_ENV', 'npm_config_production', 'npm_config_omit']
-			},
-			sveltekit_cli: { name: 'svelte-kit', local_first: true, pass_env: 'all' }
+export const GRO_BUILTIN_TASK_GRANTS: Record<keyof GroBuiltinTasks, BuiltinTaskGrants | null> =
+	to_frozen_record({
+		build: null,
+		changeset: null,
+		check: {
+			fs: { read: ['.'] },
+			env: ['CI'],
+			programs: { git_cli: { name: 'git', pass_env: ['GIT_*', 'XDG_CONFIG_HOME', 'SUDO_UID'] } },
+			invokes: ['sync', 'build', 'typecheck', 'test', 'gen', 'format', 'lint']
 		},
-		stderr: true,
-		invokes: ['gen']
-	},
-	test: {
-		fs: { read: ['.'] },
-		programs: { vitest_cli: { name: 'vitest', local_first: true, pass_env: 'all' } }
-	},
-	typecheck: {
-		fs: { read: ['.'] },
-		programs: {
-			sveltekit_cli: { name: 'svelte-kit', local_first: true, pass_env: 'all' },
-			svelte_check_cli: {
-				name: 'svelte-check',
-				local_first: true,
-				pass_env: 'all',
-				env: { FORCE_COLOR: '1' }
-			},
-			typescript_cli: { name: 'tsc', local_first: true, pass_env: 'all' }
+		clean: {
+			fs: { read: ['.'], write: ['.'] },
+			programs: { git_cli: { name: 'git', pass_env: 'all' } }
 		},
-		stdout: true,
-		stderr: true
-	},
-	upgrade: null
-};
+		commit: null,
+		deploy: null,
+		dev: null,
+		format: { fs: { read: ['.'], write: ['.'] } },
+		gen: { fs: { read: ['.'], write: ['.'] }, project_modules: true },
+		lint: { programs: { eslint_cli: { name: 'eslint', local_first: true, pass_env: 'all' } } },
+		publish: null,
+		reinstall: null,
+		release: { fs: { read: ['.'] }, invokes: ['publish', 'deploy'] },
+		run: null,
+		sync: {
+			fs: { read: ['.'], write: ['.'] },
+			programs: {
+				npm_cli: {
+					name: 'npm',
+					pass_env: 'all',
+					omit_env: ['NODE_ENV', 'npm_config_production', 'npm_config_omit']
+				},
+				sveltekit_cli: { name: 'svelte-kit', local_first: true, pass_env: 'all' }
+			},
+			stderr: true,
+			invokes: ['gen']
+		},
+		test: {
+			fs: { read: ['.'] },
+			programs: { vitest_cli: { name: 'vitest', local_first: true, pass_env: 'all' } }
+		},
+		typecheck: {
+			fs: { read: ['.'] },
+			programs: {
+				sveltekit_cli: { name: 'svelte-kit', local_first: true, pass_env: 'all' },
+				svelte_check_cli: {
+					name: 'svelte-check',
+					local_first: true,
+					pass_env: 'all',
+					env: { FORCE_COLOR: '1' }
+				},
+				typescript_cli: { name: 'tsc', local_first: true, pass_env: 'all' }
+			},
+			stdout: true,
+			stderr: true
+		},
+		upgrade: null
+	});
