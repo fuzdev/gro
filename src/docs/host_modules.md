@@ -1047,7 +1047,10 @@ Its results are the Node module's, held to them by the differential cases on Gro
   importing `fs` and `create_fs_paths` to read the `.env` files, and `env` and `cwd`
   for the ambient env and the `FsPaths`' protected directories, when they run, so a module importing `$app/env/*` shows those reads in its import graph,
   while the loader that renders them never loads the host module on its hooks thread.
-  Gro reads its own `package.json` through the module system (`package_json_load_for_gro`), with no fs grant.
+  Nothing imports Gro's `package.json`, and beside the Node-only bootstrap and loader
+  (`gro_helpers.ts`, `loader.ts`, `register.ts`), only `internal/node_platform.ts` reads its own
+  module's URL, to find the running Gro: the root passes it down in its `GroPlatform`,
+  a task's context holding it as `gro`, a `GroPackage` with its version and package directory.
   A function that reads files outside the directory it's named for takes an `FsPaths` rather than a handle,
   like `library_load_from_repo({fs_paths, git}, repo_dir)`,
   since a repo's `package.json`, `tsconfig.json`, or `.gro/` can be a symlink out of it,

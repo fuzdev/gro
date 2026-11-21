@@ -35,7 +35,7 @@ import {
 	to_task_path_hint,
 	to_task_path_without_verb_message
 } from './internal/task_hints.ts';
-import { package_json_load_for_gro } from './package_json.ts';
+import type { GroPackage } from './package_json.ts';
 import { log_builtin_tasks, log_error_reasons, log_tasks } from './task_logging.ts';
 import type { GroConfig } from './gro_config.ts';
 import { create_node_module_graph } from './module_graph_node.ts';
@@ -52,6 +52,18 @@ import type { FsPaths } from './fs_paths.ts';
 import type { ImportModule } from './modules.ts';
 import { format_error_detail } from './error_detail.ts';
 import { posix_join, posix_resolve } from './internal/posix_path.ts';
+
+/**
+ * What the composition root hands every task's run beside its handles and project loader,
+ * the parts of running tasks that differ between the Node Gro and the binary,
+ * passed unchanged to nested tasks.
+ */
+export interface GroPlatform {
+	/**
+	 * The running Gro, every task's context's `gro`.
+	 */
+	readonly gro: GroPackage;
+}
 
 /**
  * What `invoke_task` runs a task with, after the task name and args.
@@ -82,6 +94,10 @@ export interface InvokeTaskOptions {
 	 * built by the composition root and passed to nested tasks.
 	 */
 	host_root: BuiltinHostRoot;
+	/**
+	 * The root's platform, passed to nested tasks.
+	 */
+	platform: GroPlatform;
 	/**
 	 * The `graph` from the invoking task,
 	 * created from `config.watch` and closed on finish when absent.
@@ -135,6 +151,7 @@ export const invoke_task = async (
 		raw_rest_args,
 		import_module,
 		host_root,
+		platform,
 		graph: initial_graph,
 		timings: initial_timings,
 		parent_log,
@@ -207,6 +224,7 @@ export const invoke_task = async (
 			raw_rest_args,
 			import_module,
 			host_root,
+			platform,
 			implicit_rest_args,
 			// a name that resolved is a builtin, a path never is
 			grants: is_builtin_task_name(task.name) ? GRO_BUILTIN_TASK_GRANTS[task.name] : null,
@@ -363,6 +381,7 @@ const to_no_builtin_reasons = async (
  * @param raw_rest_args - the CLI args from the first `--` on, from `to_raw_rest_args`
  * @param import_module - loads the project's task modules
  * @param host_root - the root's handles, cut into each builtin's `host`
+ * @param platform - the root's platform, which names the running Gro
  */
 export const invoke_cli = async (
 	fs_paths: FsPaths,
@@ -370,7 +389,8 @@ export const invoke_cli = async (
 	config: GroConfig,
 	raw_rest_args: ReadonlyArray<string>,
 	import_module: ImportModule,
-	host_root: BuiltinHostRoot
+	host_root: BuiltinHostRoot,
+	platform: GroPlatform
 ): Promise<void> => {
 	const { task_name, task_path, args } = task_args;
 	// the CLI's own task reads the first section as its own, the tasks it invokes never do
@@ -379,8 +399,7 @@ export const invoke_cli = async (
 	if (!task_name) {
 		const log = new Logger('gro');
 		if (args.version || args.v) {
-			const gro_package_json = await package_json_load_for_gro();
-			log.info(`${st('gray', 'v')}${st('cyan', gro_package_json.version ?? '[no version]')}`);
+			log.info(`${st('gray', 'v')}${st('cyan', platform.gro.version || '[no version]')}`);
 			return;
 		}
 		log_builtin_tasks(log);
@@ -395,6 +414,7 @@ export const invoke_cli = async (
 				raw_rest_args,
 				import_module,
 				host_root,
+				platform,
 				implicit_rest_args
 			});
 			return;
@@ -416,6 +436,7 @@ export const invoke_cli = async (
 		raw_rest_args,
 		import_module,
 		host_root,
+		platform,
 		implicit_rest_args,
 		timings: task_name === RUN_TASK_NAME ? new Timings() : undefined
 	});

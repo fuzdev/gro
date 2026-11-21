@@ -91,6 +91,13 @@ errors and exit codes. Where it lives:
 - Builtin loading - by name: `invoke_task` imports the generated `GRO_BUILTIN_TASK_IMPORTS`
   (`gro_builtin_task_imports.ts`, from the summaries genfile), a literal import per builtin,
   never a path built from `import.meta.url`
+- The platform - what differs between the Node Gro and the binary, a `GroPlatform`
+  (`invoke_task.ts`) the root passes as `invoke_task`'s `platform`, carried to every task it runs
+- The running Gro - the root finds it and passes it in the platform's `gro`, a `GroPackage`
+  (`package_json.ts`: its version and package directory, `null` off disk), every task's
+  context's `gro`; beside the Node-only bootstrap and loader (`gro_helpers.ts`, `loader.ts`,
+  `register.ts`), only `internal/node_platform.ts` reads its own module's URL, to find the
+  running Gro, and nothing imports Gro's `package.json`
 - Project loader - every project file Gro loads (tasks, genfiles, `gro.config.ts`) goes
   through an `ImportModule` (`modules.ts`) taken as a parameter: `invoke_task` takes the
   root's as `import_module` in `InvokeTaskOptions`, passed down as `fs_paths` is, and the

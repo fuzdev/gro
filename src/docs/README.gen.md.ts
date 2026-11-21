@@ -42,8 +42,9 @@ export const gen: Gen = {
 	inputs: { files: ['src/docs/runtime.md'] }, // `RUNTIME_INDEX_FILE`, as a literal
 	generate: async ({ origin_id }) => {
 		const fs_paths = create_fs_paths(fs, { cwd: cwd(), home: env.get('HOME') });
-		const ctx = create_gen_doc_context(origin_id);
-		const { origin_dir, origin_base, root_path, output_file_name, relative_dir } = ctx;
+		// Gro's own repo, the project this genfile runs in
+		const ctx = create_gen_doc_context(origin_id, fs_paths.project.path);
+		const { origin_dir, origin_base, root_path, base_dir, output_file_name, relative_dir } = ctx;
 
 		// TODO this is GitHub-specific
 		const root_link = create_root_link(root_path);
@@ -69,6 +70,7 @@ export const gen: Gen = {
 		const is_index_file = output_file_name === 'README.md';
 		const breadcrumbs = create_breadcrumbs(
 			root_link,
+			base_dir,
 			relative_dir,
 			origin_dir,
 			output_file_name,

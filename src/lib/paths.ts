@@ -1,9 +1,9 @@
 import { ensure_end } from '@fuzdev/fuz_util/string.ts';
 import { st } from '@fuzdev/fuz_util/print.ts';
-import { to_file_path, type PathFilter, type PathId } from '@fuzdev/fuz_util/path.ts';
+import type { PathFilter, PathId } from '@fuzdev/fuz_util/path.ts';
 
 import { GRO_DIR, LIB_DIR, SOURCE_DIR } from './constants.ts';
-import { posix_extname, posix_join, posix_relative, posix_resolve } from './internal/posix_path.ts';
+import { posix_extname, posix_relative, posix_resolve } from './internal/posix_path.ts';
 
 /*
 
@@ -38,22 +38,17 @@ export const create_paths = (root_dir: string): Paths => {
 	};
 };
 
-export const is_gro_id = (id: PathId): boolean =>
-	id.startsWith(gro_paths.root) || gro_paths.root === ensure_end(id, '/');
-
 /**
- * A path relative to the root it's in, like `src/foo/bar/baz.ts` for
- * `/home/me/app/src/foo/bar/baz.ts`: Gro's own package root for a path in it, else `root`.
+ * A path relative to the project root, like `src/foo/bar/baz.ts` for
+ * `/home/me/app/src/foo/bar/baz.ts`, `./` for the root itself.
  * @param id - an absolute path, or one relative to `root`
  * @param root - the absolute project root
  */
-export const to_root_path = (id: PathId, root: string): string => {
-	const base = is_gro_id(id) ? gro_paths.root : root;
-	return posix_relative(base, posix_resolve(base, id)) || './';
-};
+export const to_root_path = (id: PathId, root: string): string =>
+	posix_relative(root, posix_resolve(root, id)) || './';
 
 /**
- * A path for display, relative to the root it's in as `to_root_path` reads it, starting `.`.
+ * A path for display, relative to the project root as `to_root_path` reads it, starting `.`.
  * @param path - an absolute path, or one relative to `root`
  * @param root - the absolute project root
  */
@@ -66,30 +61,6 @@ export const replace_extension = (path: string, new_extension: string): string =
 	const { length } = posix_extname(path);
 	return (length === 0 ? path : path.substring(0, path.length - length)) + new_extension;
 };
-
-/**
- * Finds the Gro package directory from the path of Gro's own `paths` module,
- * by its location in the package (`src/lib/paths.ts` from source, `dist/paths.js` built),
- * so a checkout or worktree of any name works.
- * @param module_path - the absolute path of Gro's `paths` module
- * @returns the package directory with a trailing slash
- * @internal
- */
-export const to_gro_package_dir = (module_path: PathId): string =>
-	posix_join(
-		module_path,
-		module_path.endsWith('/src/lib/paths.ts')
-			? '../../../'
-			: module_path.endsWith('/dist/paths.js')
-				? '../../'
-				: '../'
-	);
-
-const gro_package_dir_path = to_gro_package_dir(to_file_path(new URL(import.meta.url)));
-/**
- * `Paths` for the Gro package being used by the user repo, found from this module's URL.
- */
-export const gro_paths = create_paths(gro_package_dir_path);
 
 /**
  * Binds `search_filters` to the project root,

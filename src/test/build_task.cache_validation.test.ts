@@ -102,6 +102,29 @@ describe('build_task cache validation', () => {
 		);
 	});
 
+	test("folds the running Gro's version, the context's `gro.version`, into the cache key", async () => {
+		const { git_check_clean_workspace, git_current_commit_hash } = git_ops;
+		const { is_build_cache_valid } = vi.mocked(await import('#lib/build_cache.ts'));
+		const { load_build_cache_dependencies } = vi.mocked(
+			await import('#lib/build_cache_dependencies.ts')
+		);
+		const { Plugins } = vi.mocked(await import('#lib/plugin.ts'));
+		vi.mocked(Plugins.create).mockResolvedValue(create_mock_plugins() as any);
+		vi.mocked(git_check_clean_workspace).mockResolvedValue(null);
+		vi.mocked(git_current_commit_hash).mockResolvedValue('abc123');
+		vi.mocked(is_build_cache_valid).mockResolvedValue(true);
+
+		const ctx = create_mock_build_task_context();
+		ctx.gro = { version: '9.8.7-test', dir: null };
+		await build_task.run(ctx);
+
+		expect(load_build_cache_dependencies).toHaveBeenCalledWith(
+			expect.anything(),
+			'9.8.7-test',
+			expect.any(String)
+		);
+	});
+
 	test('forces rebuild even when cache is valid with force_build flag', async () => {
 		const { git_check_clean_workspace } = git_ops;
 		const { is_build_cache_valid } = vi.mocked(await import('#lib/build_cache.ts'));

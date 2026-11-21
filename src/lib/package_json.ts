@@ -114,16 +114,21 @@ export const package_json_sync = async (
 };
 
 /**
- * Loads the running Gro's own `package.json` through the module system, a JSON import
- * resolved from this module, so it needs no fs capability, imported when first called
- * rather than when this module loads.
- * @throws when it fails the `PackageJson` schema
+ * The Gro that's running, as the composition root finds it and passes it down,
+ * so nothing imports Gro's `package.json`, and beside the Node-only bootstrap and loader,
+ * only the Node root's `internal/node_platform.ts` reads its own module's URL, to find Gro.
  */
-export const package_json_load_for_gro = async (): Promise<PackageJson> =>
-	parse_package_json(
-		PackageJson,
-		(await import('@fuzdev/gro/package.json', { with: { type: 'json' } })).default
-	);
+export interface GroPackage {
+	/**
+	 * The `version` of Gro's `package.json`, `''` when it has none.
+	 */
+	readonly version: string;
+	/**
+	 * Gro's package directory, absolute with a trailing slash,
+	 * `null` when the running Gro isn't a directory on disk.
+	 */
+	readonly dir: string | null;
+}
 
 /**
  * Reads the text of the `package.json` in `dir`.

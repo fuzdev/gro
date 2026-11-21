@@ -6,7 +6,7 @@ import type { AnySchema, InferInput } from '@fuzdev/fuz_schema/schema.ts';
 import type { GenConfig } from './gen.ts';
 import type { GroBuiltinTasks } from './gro_builtin_tasks.ts';
 import type { BuiltinTaskGrants } from './builtin_host.ts';
-import { gro_paths, to_search_filters_relative } from './paths.ts';
+import { to_search_filters_relative } from './paths.ts';
 import type { FsReadDir } from './fs.ts';
 import type { FsPaths } from './fs_paths.ts';
 import type { ImportModule } from './modules.ts';
@@ -163,10 +163,12 @@ export interface BuiltinTaskEntry extends TaskRegistryEntry {
  * importing each to read its summary and grants.
  * @param src_lib - Gro's `src/lib/`
  * @param import_module - loads each task module
+ * @param root - Gro's root, which a task that fails to load is named relative to
  */
 export const task_registry_find_builtins = async (
 	src_lib: FsReadDir,
-	import_module: ImportModule
+	import_module: ImportModule,
+	root: PathId
 ): Promise<Array<BuiltinTaskEntry>> => {
 	const filenames: Array<string> = [];
 	for await (const { name } of src_lib.list()) {
@@ -177,7 +179,7 @@ export const task_registry_find_builtins = async (
 	for (const filename of filenames) {
 		const name = strip_end(filename, TASK_FILE_SUFFIX_TS);
 		const id = posix_join(src_lib.path, filename);
-		const loaded = await load_task(id, name, gro_paths.root, import_module);
+		const loaded = await load_task(id, name, root, import_module);
 		if (!loaded.ok) throw new TaskError(loaded.reason);
 		const { task } = loaded.value.mod;
 		const { grants } = task as { grants?: BuiltinTaskGrants };

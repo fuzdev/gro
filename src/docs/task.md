@@ -166,6 +166,7 @@ export interface TaskContext<TArgs = object> {
 	graph: ModuleGraph;
 	log: Logger;
 	timings: Timings;
+	gro: GroPackage;
 	invoke_task: InvokeTask;
 	implicit_rest_args: ReadonlyArray<string>;
 	raw_rest_args: ReadonlyArray<string>;
@@ -177,6 +178,9 @@ and their changes).
 It loads on first use, so a task that never touches it never starts a watch;
 `config.watch` sets what it watches.
 A task invoked with `invoke_task` shares its invoker's `graph`.
+
+`gro` is the running Gro, a `GroPackage` (`package_json.ts`): its `version` and its package
+directory, `dir`, `null` when it isn't on disk, as the root found them.
 
 `implicit_rest_args` is the forwarded section the task reads as its own without naming a tool,
 frozen, data about the command line rather than authority.

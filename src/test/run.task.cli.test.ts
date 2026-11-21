@@ -8,7 +8,8 @@ import { import_module_node } from '#lib/internal/node_import_module.ts';
 import {
 	create_mock_config,
 	create_mock_module_graph,
-	create_throwing_builtin_host_root
+	create_throwing_builtin_host_root,
+	create_test_platform
 } from './test_helpers.ts';
 import { create_mock_fs_paths } from './fs_mocks.ts';
 
@@ -33,7 +34,8 @@ const run_cli = async (argv: Array<string>): Promise<Array<string>> => {
 		await create_mock_config(),
 		to_raw_rest_args(argv),
 		import_module_node,
-		create_throwing_builtin_host_root()
+		create_throwing_builtin_host_root(),
+		create_test_platform()
 	);
 	expect(vi.mocked(spawn_with_loader)).toHaveBeenCalledTimes(1);
 	const [, loader_path, path, script_argv] = vi.mocked(spawn_with_loader).mock.calls[0]!;
@@ -85,6 +87,7 @@ describe('gro run script args', () => {
 				raw_rest_args: [],
 				import_module: import_module_node,
 				host_root: create_throwing_builtin_host_root(),
+				platform: create_test_platform(),
 				graph: create_mock_module_graph()
 			}
 		);
@@ -109,7 +112,8 @@ describe('gro run failure', () => {
 				await create_mock_config(),
 				to_raw_rest_args(argv),
 				import_module_node,
-				create_throwing_builtin_host_root()
+				create_throwing_builtin_host_root(),
+				create_test_platform()
 			);
 		} catch (e) {
 			error = e;

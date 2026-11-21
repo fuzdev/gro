@@ -9,7 +9,6 @@ import {
 	PACKAGE_JSON_EMPTY,
 	package_json_has_dependency,
 	package_json_load,
-	package_json_load_for_gro,
 	package_json_parse_repo_url,
 	package_json_serialize,
 	package_json_sync,
@@ -69,15 +68,6 @@ test('package_json_load without `parse` returns the empty package.json for JSON 
 			PACKAGE_JSON_EMPTY
 		);
 	}
-});
-
-test('package_json_load_for_gro reads the running Gro through the module system', async () => {
-	const gro_package_json = await package_json_load_for_gro();
-	assert.strictEqual(gro_package_json.name, '@fuzdev/gro');
-	assert.strictEqual(
-		gro_package_json.version,
-		(await package_json_load(repo_fs_paths)).version // this repo is the running Gro
-	);
 });
 
 test('package_json_update writes the package.json in `dir`', async () => {

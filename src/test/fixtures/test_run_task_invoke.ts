@@ -17,6 +17,7 @@ import { spawn } from '#lib/spawn.ts';
 import { stdout } from '#lib/stdout.ts';
 import { stderr } from '#lib/stderr.ts';
 import { import_module_node } from '#lib/internal/node_import_module.ts';
+import { create_node_platform } from '#lib/internal/node_platform.ts';
 
 async function runTest() {
 	console.log('Testing run_task invokes sub tasks...\n');
@@ -54,6 +55,7 @@ async function runTest() {
 			raw_rest_args: [],
 			import_module: import_module_node,
 			host_root: { env, spawn, stdout, stderr },
+			platform: await create_node_platform(fs_paths),
 			implicit_rest_args: [],
 			grants: null,
 			graph,

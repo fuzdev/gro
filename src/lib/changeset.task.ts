@@ -92,7 +92,8 @@ export const task: Task<Args> = {
 				dep,
 				origin
 			},
-			log
+			log,
+			gro
 		} = ctx;
 
 		if (!message && (minor || major)) throw new TaskError('cannot bump version without a message');
@@ -153,13 +154,19 @@ export const task: Task<Args> = {
 			await git_add_or_throw(git, dir);
 
 			if (dep) {
-				await install_with_cache_healing_or_throw(to_install_programs(spawn), {
-					install_args: ['-D', changelog],
-					log,
-					stderr,
-					throw_if_gro_packages_changed: true,
-					fs_paths
-				});
+				await install_with_cache_healing_or_throw(
+					to_install_programs(spawn),
+					gro.dir === null
+						? { install_args: ['-D', changelog], log, stderr }
+						: {
+								install_args: ['-D', changelog],
+								log,
+								stderr,
+								throw_if_gro_packages_changed: true,
+								fs_paths,
+								gro_dir: gro.dir
+							}
+				);
 			}
 		}
 

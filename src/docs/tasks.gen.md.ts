@@ -28,24 +28,31 @@ export const gen: Gen = async ({ origin_id }) => {
 	// read from the task modules, not the generated summaries, so one `gro gen` pass is enough
 	// Gro's `src/lib/`, beside this genfile's `src/docs/`
 	const src_lib_path = posix_join(posix_dirname(origin_id), '../lib');
-	const opened = await create_fs_paths(fs, { cwd: cwd(), home: env.get('HOME') }).open_dir_path(
-		src_lib_path
-	);
+	const fs_paths = create_fs_paths(fs, { cwd: cwd(), home: env.get('HOME') });
+	const opened = await fs_paths.open_dir_path(src_lib_path);
 	if (!opened) throw Error(`no directory at ${src_lib_path}`);
 	const tasks = await task_registry_find_builtins(
 		opened.dir.dir(opened.path).readonly(),
-		import_module_node
+		import_module_node,
+		fs_paths.project.path
 	);
 
-	const ctx = create_gen_doc_context(origin_id);
-	const { origin_dir, origin_base, root_path, output_file_name, relative_dir } = ctx;
+	// Gro's own repo, the project this genfile runs in
+	const ctx = create_gen_doc_context(origin_id, fs_paths.project.path);
+	const { origin_dir, origin_base, root_path, base_dir, output_file_name, relative_dir } = ctx;
 
 	// TODO this is GitHub-specific
 	const root_link = create_root_link(root_path);
 
 	// TODO do we want to use absolute paths instead of relative paths,
 	// because GitHub works with them and it simplifies the code?
-	const breadcrumbs = create_breadcrumbs(root_link, relative_dir, origin_dir, output_file_name);
+	const breadcrumbs = create_breadcrumbs(
+		root_link,
+		base_dir,
+		relative_dir,
+		origin_dir,
+		output_file_name
+	);
 
 	// TODO render the footer with the origin_id
 	return `# tasks

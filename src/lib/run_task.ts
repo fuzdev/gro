@@ -8,7 +8,7 @@ import type { ModuleGraph } from './module_graph.ts';
 import type { GroConfig } from './gro_config.ts';
 import type { FsPaths } from './fs_paths.ts';
 import type { ImportModule } from './modules.ts';
-import type { invoke_task as base_invoke_task } from './invoke_task.ts';
+import type { invoke_task as base_invoke_task, GroPlatform } from './invoke_task.ts';
 import { load_default_svelte_config } from './svelte_config.ts';
 import type { InvokeTaskContextOptions, TaskContext, TaskModuleMeta } from './task.ts';
 import { is_reported_error, is_task_error, TaskError } from './task_error.ts';
@@ -48,8 +48,8 @@ export type RunTaskResult =
 /**
  * What `run_task` builds the task's context from:
  * `config`, `graph`, `log`, `timings`, and a frozen copy of `raw_rest_args`
- * become its fields of the same name,
- * and `fs_paths`, `import_module`, and `host_root` pass to the tasks it invokes,
+ * become its fields of the same name, and the platform's `gro` its `gro`,
+ * and `fs_paths`, `import_module`, `host_root`, and `platform` pass to the tasks it invokes,
  * never onto its context, but for a builtin's `host`, cut from them by its `grants`.
  */
 export interface RunTaskOptions {
@@ -78,6 +78,10 @@ export interface RunTaskOptions {
 	 * The root's handles, passed to the tasks this task invokes.
 	 */
 	host_root: BuiltinHostRoot;
+	/**
+	 * The root's platform, passed to the tasks this task invokes.
+	 */
+	platform: GroPlatform;
 	/**
 	 * The section the task reads as its own forwarded args without naming a tool,
 	 * its context's own frozen copy, never passed to the tasks it invokes
@@ -115,6 +119,7 @@ export const run_task = async (
 		raw_rest_args,
 		import_module,
 		host_root,
+		platform,
 		implicit_rest_args,
 		grants,
 		graph,
@@ -162,6 +167,7 @@ export const run_task = async (
 			raw_rest_args,
 			import_module,
 			host_root,
+			platform,
 			// none unless the invoking task passes one on purpose
 			...(invoked_options?.implicit_rest_args && {
 				implicit_rest_args: invoked_options.implicit_rest_args
@@ -180,6 +186,7 @@ export const run_task = async (
 		graph,
 		log,
 		timings,
+		gro: platform.gro,
 		invoke_task: grants
 			? async (invoked_task_name, invoked_args, invoked_options) => {
 					if (!is_invoke_granted(grants, invoked_task_name)) {

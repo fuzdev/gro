@@ -23,6 +23,7 @@ import { stderr } from './stderr.ts';
 import { stdout } from './stdout.ts';
 import { listen_to_node_process } from './internal/node_cli_process.ts';
 import { import_module_node } from './internal/node_import_module.ts';
+import { create_node_platform } from './internal/node_platform.ts';
 
 /*
 
@@ -118,5 +119,6 @@ await invoke_cli(
 	await load_gro_config(fs_paths, import_module_node),
 	to_raw_rest_args(args),
 	import_module_node,
-	{ env, spawn, stdout, stderr }
+	{ env, spawn, stdout, stderr },
+	await create_node_platform(fs_paths)
 );

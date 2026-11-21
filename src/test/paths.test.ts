@@ -1,15 +1,7 @@
 import { describe, test, expect } from 'vitest';
 import { resolve, join } from 'node:path';
 
-import {
-	create_paths,
-	gro_paths,
-	is_gro_id,
-	print_path,
-	to_root_path,
-	to_search_filters_relative,
-	to_gro_package_dir
-} from '#lib/paths.ts';
+import { create_paths, print_path, to_root_path, to_search_filters_relative } from '#lib/paths.ts';
 import { SEARCH_EXCLUDER_DEFAULT } from '#lib/gro_config.ts';
 import { paths } from './test_helpers.ts';
 
@@ -19,24 +11,6 @@ describe('create_paths', () => {
 		const p = create_paths(root);
 		expect(p.root).toBe(join(root, '/'));
 		expect(p.source).toBe(join(root, 'src/'));
-	});
-
-	test('the project paths equal the gro_paths', () => {
-		expect(paths).toEqual(gro_paths); // because we're testing inside the Gro project
-	});
-});
-
-describe('is_gro_id', () => {
-	test('basic behavior', () => {
-		expect(is_gro_id(resolve(paths.root))).toBe(true);
-		expect(is_gro_id(resolve(paths.root.slice(0, -1)))).toBe(true);
-		expect(is_gro_id(resolve(paths.source).slice(0, -1))).toBe(true);
-		expect(is_gro_id(resolve('../fake/src'))).toBe(false);
-		expect(is_gro_id(resolve('../fake/src/'))).toBe(false);
-		expect(is_gro_id(resolve('../gro_fake'))).toBe(false);
-		expect(is_gro_id(resolve('../gro_fake/'))).toBe(false);
-		expect(is_gro_id(resolve('../gro_fake/src'))).toBe(false);
-		expect(is_gro_id(resolve('../gro_fake/src/'))).toBe(false);
 	});
 });
 
@@ -55,8 +29,8 @@ describe('to_root_path', () => {
 		expect(to_root_path('/p', '/p')).toBe('./');
 	});
 
-	test("reads a path in Gro's package against Gro's root, whatever the root given", () => {
-		expect(to_root_path(gro_paths.source + 'lib/x.ts', '/p')).toBe('src/lib/x.ts');
+	test("reads a path in Gro's own package against the given root, as any other", () => {
+		expect(to_root_path(paths.source + 'lib/x.ts', '/p')).toBe('..' + paths.source + 'lib/x.ts');
 	});
 });
 
@@ -130,23 +104,5 @@ describe('to_search_filters_relative', () => {
 		const filter = (p: string) => p === 'x';
 		expect(to_search_filters_relative(filter, '/a/')[0]!('/a/x', false)).toBe(true);
 		expect(to_search_filters_relative(null, '/a')).toEqual([]);
-	});
-});
-
-describe('to_gro_package_dir', () => {
-	test('finds the package dir from source or dist under any directory name', () => {
-		expect(to_gro_package_dir('/home/me/dev/gro/src/lib/paths.ts')).toBe('/home/me/dev/gro/');
-		expect(to_gro_package_dir('/a/.claude/worktrees/wt1/src/lib/paths.ts')).toBe(
-			'/a/.claude/worktrees/wt1/'
-		);
-		expect(to_gro_package_dir('/a/gro_checkout/src/lib/paths.ts')).toBe('/a/gro_checkout/');
-		expect(to_gro_package_dir('/a/node_modules/@fuzdev/gro/dist/paths.js')).toBe(
-			'/a/node_modules/@fuzdev/gro/'
-		);
-		expect(to_gro_package_dir('/a/my_fork/dist/paths.js')).toBe('/a/my_fork/');
-	});
-
-	test('the gro package dir is this repo when run from source', () => {
-		expect(gro_paths.root).toBe(paths.root);
 	});
 });

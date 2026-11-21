@@ -14,7 +14,7 @@ import { to_task_args, type CliTaskArgs } from '#lib/task_args.ts';
 import type { ImportModule } from '#lib/modules.ts';
 import { import_module_node } from '#lib/internal/node_import_module.ts';
 import { create_project_fs_paths } from './fs_test_helpers.ts';
-import { create_throwing_builtin_host_root, paths } from './test_helpers.ts';
+import { create_throwing_builtin_host_root, paths, create_test_platform } from './test_helpers.ts';
 
 vi.mock('#lib/run_task.ts', () => ({
 	run_task: vi.fn(async () => ({ ok: true }))
@@ -70,7 +70,8 @@ const cli = async (
 		cli_config,
 		raw_rest_args,
 		import_module_node,
-		create_throwing_builtin_host_root()
+		create_throwing_builtin_host_root(),
+		create_test_platform()
 	);
 
 const error_text = (): string =>
@@ -538,7 +539,8 @@ describe('the `import_module` option', () => {
 				fs_paths: await create_project_fs_paths(dir),
 				raw_rest_args: [],
 				import_module,
-				host_root: create_throwing_builtin_host_root()
+				host_root: create_throwing_builtin_host_root(),
+				platform: create_test_platform()
 			}
 		);
 		assert.deepEqual(ids, [join(dir, 'src/x.task.ts')]);
@@ -556,7 +558,8 @@ describe('the `import_module` option', () => {
 			config,
 			[],
 			import_module,
-			create_throwing_builtin_host_root()
+			create_throwing_builtin_host_root(),
+			create_test_platform()
 		);
 		assert.deepEqual(ids, [join(dir, 'src/a.task.ts'), join(dir, 'src/b.task.ts')]);
 		const listed = vi.mocked(log_tasks).mock.calls[0]![1];
@@ -583,6 +586,7 @@ describe('the grants `run_task` gets', () => {
 				raw_rest_args: ['--', '--watch'],
 				import_module,
 				host_root: create_throwing_builtin_host_root(),
+				platform: create_test_platform(),
 				...options
 			}
 		);

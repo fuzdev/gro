@@ -11,7 +11,7 @@ import type { TaskContext } from '#lib/task.ts';
 import { ReportedError } from '#lib/task_error.ts';
 import type { FsPaths } from '#lib/fs_paths.ts';
 import { import_module_node } from '#lib/internal/node_import_module.ts';
-import { create_throwing_builtin_host_root } from './test_helpers.ts';
+import { create_throwing_builtin_host_root, create_test_platform } from './test_helpers.ts';
 import { create_project_fs_paths } from './fs_test_helpers.ts';
 
 let dir: string;
@@ -63,6 +63,7 @@ describe('invoke_task finish', () => {
 				raw_rest_args: [],
 				import_module: import_module_node,
 				host_root: create_throwing_builtin_host_root(),
+				platform: create_test_platform(),
 				parent_log: create_log()
 			}
 		);
@@ -95,6 +96,7 @@ describe('invoke_task finish', () => {
 					raw_rest_args: [],
 					import_module: import_module_node,
 					host_root: create_throwing_builtin_host_root(),
+					platform: create_test_platform(),
 					parent_log: create_log()
 				}
 			);

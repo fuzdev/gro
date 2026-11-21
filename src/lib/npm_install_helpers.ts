@@ -2,7 +2,6 @@ import type { Logger } from '@fuzdev/fuz_util/log.ts';
 import { st } from '@fuzdev/fuz_util/print.ts';
 
 import { TaskError } from './task_error.ts';
-import { gro_paths } from './paths.ts';
 import { posix_dirname, posix_join } from './internal/posix_path.ts';
 import { spawn_result_is_ok, to_spawn_result_message } from './cli.ts';
 import type { Spawn, SpawnProgram } from './spawn.ts';
@@ -278,14 +277,14 @@ const installed_version_load = async (
  * Read from disk, not through the module system, whose cache keeps what it first loaded.
  *
  * @param fs_paths - opens the `package.json` files, beneath the project or not
- * @param gro_dir - the Gro package directory; defaults to the running Gro's
+ * @param gro_dir - the Gro package directory, usually the running Gro's, `TaskContext`'s `gro.dir`
  * @param names - more packages to read beside the ones Gro's `package.json` names,
  *   so an after-install snapshot covers the deps an upgraded Gro dropped
  * @returns the versions keyed by package name, `@fuzdev/gro` included
  */
 export const gro_package_versions_load = async (
 	fs_paths: FsPaths,
-	gro_dir: string = gro_paths.root,
+	gro_dir: string,
 	names: Iterable<string> = []
 ): Promise<GroPackageVersions> => {
 	const versions: GroPackageVersions = new Map();
@@ -328,7 +327,7 @@ export const gro_package_versions_diff = (
 
 /**
  * Options for `install_with_cache_healing_or_throw`,
- * with `fs_paths` exactly when `throw_if_gro_packages_changed` is set.
+ * with `fs_paths` and `gro_dir` exactly when `throw_if_gro_packages_changed` is set.
  */
 export type InstallOrThrowOptions = InstallCacheHealingOptions & {
 	/** clause appended after the command in the error, e.g. `'after version bump'` */
@@ -347,8 +346,8 @@ export type InstallOrThrowOptions = InstallCacheHealingOptions & {
 				throw_if_gro_packages_changed: true;
 				/** reads the installed versions, as `gro_package_versions_load` does */
 				fs_paths: FsPaths;
-				/** the Gro package directory to check; defaults to the running Gro's, for tests */
-				gro_dir?: string;
+				/** the Gro package directory to check, the running Gro's, `TaskContext`'s `gro.dir` */
+				gro_dir: string;
 		  }
 	);
 
@@ -368,9 +367,10 @@ export const install_with_cache_healing_or_throw = async (
 	programs: InstallPrograms,
 	options: InstallOrThrowOptions
 ): Promise<void> => {
-	const { gro_dir } = options;
-	const fs_paths = options.throw_if_gro_packages_changed ? options.fs_paths : null;
-	const before = fs_paths ? await gro_package_versions_load(fs_paths, gro_dir) : null;
+	const checked = options.throw_if_gro_packages_changed ? options : null;
+	const before = checked
+		? await gro_package_versions_load(checked.fs_paths, checked.gro_dir)
+		: null;
 	const result = await install_with_cache_healing(programs, options);
 	const command = ['install', ...(options.install_args ?? [])].join(' ');
 	if (!result.ok) {
@@ -378,8 +378,8 @@ export const install_with_cache_healing_or_throw = async (
 		const detail = result.detail ? `: ${result.detail}` : '';
 		throw new TaskError(`Failed \`npm ${command}\`${context}${detail}`);
 	}
-	if (!before || !fs_paths) return;
-	const after = await gro_package_versions_load(fs_paths, gro_dir, before.keys());
+	if (!before || !checked) return;
+	const after = await gro_package_versions_load(checked.fs_paths, checked.gro_dir, before.keys());
 	const changed = gro_package_versions_diff(before, after);
 	if (changed.length === 0) return;
 	throw new TaskError(

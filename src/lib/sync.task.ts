@@ -57,10 +57,10 @@ export const task: BuiltinTask<Args, typeof grants> = {
 	summary: 'optionally install packages, sync SvelteKit, update `package.json`, and run `gro gen`',
 	Args,
 	grants,
-	run: ({ task_args, invoke_task, config, log, host }) =>
+	run: ({ task_args, invoke_task, config, log, gro, host }) =>
 		run_sync(
 			task_args,
-			{ map_package_json: config.map_package_json },
+			{ map_package_json: config.map_package_json, gro_dir: gro.dir },
 			{ fs_paths: host.fs_paths, programs: host.programs, stderr: host.stderr, invoke_task, log }
 		)
 };
@@ -70,6 +70,11 @@ export const task: BuiltinTask<Args, typeof grants> = {
  */
 export interface SyncOptions {
 	map_package_json: GroConfig['map_package_json'];
+	/**
+	 * The running Gro's package directory, whose installed packages `install` checks for changes,
+	 * `null` when the running Gro isn't on disk, so there's nothing loaded from it to go stale.
+	 */
+	gro_dir: string | null;
 }
 
 /**
@@ -92,13 +97,15 @@ export interface SyncDeps {
  */
 export const run_sync = async (args: Args, options: SyncOptions, deps: SyncDeps): Promise<void> => {
 	const { sveltekit, package_json, gen, install } = args;
-	const { map_package_json } = options;
+	const { map_package_json, gro_dir } = options;
 	const { fs_paths, programs, stderr, invoke_task, log } = deps;
 
 	if (install) {
 		await install_with_cache_healing_or_throw(
 			{ program: () => programs.program('npm_cli') },
-			{ log, stderr, throw_if_gro_packages_changed: true, fs_paths }
+			gro_dir === null
+				? { log, stderr }
+				: { log, stderr, throw_if_gro_packages_changed: true, fs_paths, gro_dir }
 		);
 	}
 

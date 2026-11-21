@@ -6,6 +6,7 @@ import type { Timings } from '@fuzdev/fuz_util/timings.ts';
 import type { Schema } from '@fuzdev/fuz_schema/schema.ts';
 import type { GroConfig } from './gro_config.ts';
 import type { ParsedSvelteConfig } from './svelte_config.ts';
+import type { GroPackage } from './package_json.ts';
 import { print_path } from './paths.ts';
 import { load_module, type ImportModule } from './modules.ts';
 import type { ModuleGraph } from './module_graph.ts';
@@ -41,6 +42,10 @@ export interface TaskContext<TArgs = object> {
 	graph: ModuleGraph;
 	log: Logger;
 	timings: Timings;
+	/**
+	 * The running Gro, its version and package directory, as the root found it.
+	 */
+	gro: GroPackage;
 	invoke_task: InvokeTask;
 	/**
 	 * The forwarded section the task reads as its own without naming a tool,

@@ -1,4 +1,5 @@
-import { resolve } from 'node:path';
+import { readFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { assert, vi } from 'vitest';
 import type { Logger } from '@fuzdev/fuz_util/log.ts';
 import type { Timings } from '@fuzdev/fuz_util/timings.ts';
@@ -21,6 +22,8 @@ import type { Spawn } from '#lib/spawn.ts';
 import type { ProcessOutput } from '#lib/stdout.ts';
 import type { FsPaths } from '#lib/fs_paths.ts';
 import { to_implicit_rest_args, to_raw_rest_args, to_task_args } from '#lib/task_args.ts';
+import type { GroPlatform } from '#lib/invoke_task.ts';
+import type { GroPackage } from '#lib/package_json.ts';
 
 /**
  * The paths of the project the tests run in, Gro's own repo, from the working directory.
@@ -45,6 +48,21 @@ export const create_throwing_builtin_host_root = (): BuiltinHostRoot => {
 		stderr: create_stub('stderr')
 	};
 };
+
+/**
+ * The running Gro as a test's tasks see it, Gro's own repo, where the tests run.
+ */
+export const TEST_GRO_PACKAGE: GroPackage = Object.freeze({
+	version: JSON.parse(readFileSync(join(paths.root, 'package.json'), 'utf8')).version,
+	dir: paths.root
+});
+
+/**
+ * The platform a test's tasks run with, the Node Gro's but for `TEST_GRO_PACKAGE`.
+ */
+export const create_test_platform = (): GroPlatform => ({
+	gro: TEST_GRO_PACKAGE
+});
 
 /**
  * What `create_mock_builtin_context` builds a builtin's context from beside its args.
@@ -234,6 +252,7 @@ export const create_mock_task_context = <TArgs extends object = any>(
 	graph: create_mock_module_graph(),
 	log: create_mock_logger(),
 	timings: create_mock_timings(),
+	gro: TEST_GRO_PACKAGE,
 	invoke_task: vi.fn(),
 	implicit_rest_args: [],
 	raw_rest_args: []

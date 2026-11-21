@@ -61,7 +61,7 @@ describe('the gro entry with a child killed by a signal', () => {
 });
 
 describe('the CLI under its loader', () => {
-	test("`gro --version` prints Gro's version, its `package.json` imported as JSON", () => {
+	test("`gro --version` prints Gro's version, read from its `package.json`", () => {
 		const register = `data:text/javascript,${encodeURIComponent(
 			`import {register} from "node:module"; register(${JSON.stringify(
 				pathToFileURL(join(paths.lib, 'loader.ts')).href

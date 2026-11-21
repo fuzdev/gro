@@ -47,6 +47,19 @@ describe('sync_task install', () => {
 		vi.clearAllMocks();
 	});
 
+	test("installs with no check of Gro's packages when the running Gro isn't on disk", async () => {
+		const { install_with_cache_healing_or_throw } = vi.mocked(
+			await import('#lib/npm_install_helpers.ts')
+		);
+		const ctx = await create_mock_sync_task_context({ install: true });
+
+		await sync_task.run({ ...ctx, gro: { version: '0.0.0-test', dir: null } });
+
+		assert.strictEqual(install_with_cache_healing_or_throw.mock.calls.length, 1);
+		const [, options] = install_with_cache_healing_or_throw.mock.calls[0]!;
+		assert.deepEqual(options, { log: ctx.log, stderr });
+	});
+
 	test('installs with the check that Gro and its deps are unchanged', async () => {
 		const { install_with_cache_healing_or_throw } = vi.mocked(
 			await import('#lib/npm_install_helpers.ts')
@@ -60,7 +73,8 @@ describe('sync_task install', () => {
 		assert.deepEqual(options, {
 			log: ctx.log,
 			stderr,
-			throw_if_gro_packages_changed: true
+			throw_if_gro_packages_changed: true,
+			gro_dir: ctx.gro.dir!
 		});
 		// the host's boundary and npm, with the grant's environment
 		assert.strictEqual(fs_paths, ctx.host.fs_paths);

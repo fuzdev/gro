@@ -20,6 +20,11 @@ vi.mock('#lib/package_json.ts', async (import_original) => {
 	return { ...actual, package_json_load: vi.fn(async () => ({ name: 'pkg', private: false })) };
 });
 
+vi.mock('#lib/npm_install_helpers.ts', async (import_original) => ({
+	...(await import_original<typeof import('#lib/npm_install_helpers.ts')>()),
+	install_with_cache_healing_or_throw: vi.fn(async () => undefined)
+}));
+
 vi.mock('#lib/sveltekit_helpers.ts', async (import_original) => ({
 	...(await import_original<typeof import('#lib/sveltekit_helpers.ts')>()),
 	has_sveltekit_library: vi.fn(async () => ({ ok: true }))
@@ -219,6 +224,28 @@ describe('gro changeset initing', () => {
 		await install_cli_mocks(null, 0, 'public');
 		await run_changeset({ _: [], access: 'restricted', changelog: 'my-changelog' });
 		assert.deepEqual(await read_config(), { access: 'restricted', changelog: 'my-changelog' });
+	});
+
+	test("`--dep` installs the changelog, checking Gro's packages only when Gro is on disk", async () => {
+		const { install_with_cache_healing_or_throw } = vi.mocked(
+			await import('#lib/npm_install_helpers.ts')
+		);
+		await install_cli_mocks(null);
+		const ctx = to_context({ _: [], dep: true });
+		await changeset_task.run(ctx);
+		const [, checked] = install_with_cache_healing_or_throw.mock.calls[0]!;
+		assert.ok(checked.throw_if_gro_packages_changed);
+		assert.strictEqual(checked.gro_dir, ctx.gro.dir);
+		vi.clearAllMocks();
+		// not inited again, so `--dep` installs again
+		await dir.remove('config.json');
+		await install_cli_mocks(null);
+		await changeset_task.run({
+			...to_context({ _: [], dep: true }),
+			gro: { version: '0.0.0-test', dir: null }
+		});
+		const [, unchecked] = install_with_cache_healing_or_throw.mock.calls[0]!;
+		assert.deepEqual(Object.keys(unchecked).sort(), ['install_args', 'log', 'stderr']);
 	});
 
 	test('public access writes both', async () => {

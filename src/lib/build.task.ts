@@ -68,7 +68,7 @@ export const task: Task<Args> = {
 	summary: 'build the project',
 	Args,
 	run: async (ctx): Promise<void> => {
-		const { task_args, invoke_task, log, config } = ctx;
+		const { task_args, invoke_task, log, config, gro } = ctx;
 		const { sync, gen, install, force_build, allow_dirty } = task_args;
 		const fs_paths = create_fs_paths(fs, { cwd: cwd(), home: env.get('HOME') });
 		// only reads the local repo, so the named set is all it needs
@@ -89,7 +89,7 @@ export const task: Task<Args> = {
 		const [workspace_status, initial_commit, cache_dependencies] = await Promise.all([
 			git_check_clean_workspace(git),
 			git_current_commit_hash(git),
-			load_build_cache_dependencies(fs_paths, runtime_version)
+			load_build_cache_dependencies(fs_paths, gro.version, runtime_version)
 		]);
 		const workspace_dirty = !!workspace_status;
 

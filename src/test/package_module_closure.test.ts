@@ -128,6 +128,8 @@ const NODE_ONLY = [
 	'internal/node_cli_process.ts',
 	// Node's project loader, which the runtime's entry hands in instead
 	'internal/node_import_module.ts',
+	// the Node Gro's platform, which the runtime's entry hands in instead
+	'internal/node_platform.ts',
 	// the Node module graph and the Filer family it imports when first used
 	'module_graph_node.ts',
 	'internal/filer.ts',

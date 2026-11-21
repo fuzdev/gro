@@ -1,6 +1,5 @@
 import { hash_blake3 } from '@fuzdev/fuz_util/hash_blake3.ts';
 
-import { package_json_load_for_gro } from './package_json.ts';
 import { NODE_MODULES_DIRNAME } from './constants.ts';
 import type { FsPaths } from './fs_paths.ts';
 
@@ -15,7 +14,7 @@ export const NPM_HIDDEN_LOCKFILE_PATH = NODE_MODULES_DIRNAME + '/.package-lock.j
  */
 export interface BuildCacheDependencies {
 	/**
-	 * Version of the running Gro, from its `package.json`.
+	 * Version of the running Gro, from its `package.json`, as `TaskContext`'s `gro` has it.
 	 * A Gro rebuilt without a version change keeps the same value.
 	 */
 	gro_version: string;
@@ -37,15 +36,17 @@ export interface BuildCacheDependencies {
  * Reads the build inputs outside git that the build cache key folds in.
  *
  * @param fs_paths - opens the project's `node_modules/`
+ * @param gro_version - the running Gro's version, `TaskContext`'s `gro.version`
  * @param runtime_version - the running runtime's name and version, like `process.runtime_version`
  */
 export const load_build_cache_dependencies = async (
 	fs_paths: FsPaths,
+	gro_version: string,
 	runtime_version: string
 ): Promise<BuildCacheDependencies> => {
 	const package_lock_hash = await hash_npm_hidden_lockfile(fs_paths);
 	return {
-		gro_version: (await package_json_load_for_gro()).version ?? '',
+		gro_version,
 		runtime_version,
 		package_lock_hash
 	};

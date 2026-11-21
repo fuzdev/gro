@@ -30,7 +30,8 @@ import {
 	create_mock_logger,
 	create_mock_timings,
 	create_throwing_builtin_host_root,
-	assert_throws_matching
+	assert_throws_matching,
+	create_test_platform
 } from './test_helpers.ts';
 import { create_mock_fs_paths } from './fs_mocks.ts';
 
@@ -97,6 +98,7 @@ const create_mock_run_task_options = async (): Promise<RunTaskOptions> => ({
 	raw_rest_args: [],
 	import_module: import_module_node,
 	host_root: create_throwing_builtin_host_root(),
+	platform: create_test_platform(),
 	implicit_rest_args: [],
 	grants: null,
 	graph: create_mock_module_graph(),
@@ -277,6 +279,7 @@ test('run_task passes the graph to the task, and it, `fs_paths`, and `host_root`
 			raw_rest_args: ['--', 'x'],
 			import_module: import_module_node,
 			host_root,
+			platform: create_test_platform(),
 			implicit_rest_args: ['x'],
 			grants: null,
 			graph,
@@ -298,6 +301,7 @@ test('run_task passes the graph to the task, and it, `fs_paths`, and `host_root`
 		raw_rest_args: ['--', 'x'],
 		import_module: import_module_node,
 		host_root,
+		platform: create_test_platform(),
 		graph,
 		timings: expect.anything(),
 		parent_log: expect.anything()
@@ -308,6 +312,7 @@ test('run_task passes the graph to the task, and it, `fs_paths`, and `host_root`
 		raw_rest_args: ['--', 'x'],
 		import_module: import_module_node,
 		host_root,
+		platform: create_test_platform(),
 		graph,
 		timings: expect.anything(),
 		parent_log: expect.anything()
@@ -322,6 +327,7 @@ test('run_task gives a builtin with grants a `host` cut by them, and a project t
 		fs_paths,
 		raw_rest_args: ['--', 'x'],
 		host_root: { env, spawn, stdout, stderr },
+		platform: create_test_platform(),
 		implicit_rest_args: ['x']
 	};
 	const project = await run_task(

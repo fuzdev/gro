@@ -9,7 +9,11 @@ import { invoke_task } from '#lib/invoke_task.ts';
 import { create_empty_gro_config } from '#lib/gro_config.ts';
 import { ReportedError } from '#lib/task_error.ts';
 import { import_module_node } from '#lib/internal/node_import_module.ts';
-import { create_mock_module_graph, create_throwing_builtin_host_root } from './test_helpers.ts';
+import {
+	create_mock_module_graph,
+	create_throwing_builtin_host_root,
+	create_test_platform
+} from './test_helpers.ts';
 import { create_project_fs_paths } from './fs_test_helpers.ts';
 
 let dir: string;
@@ -64,6 +68,7 @@ const invoke_outer = async (outer: string): Promise<unknown> => {
 				raw_rest_args: [],
 				import_module: import_module_node,
 				host_root: create_throwing_builtin_host_root(),
+				platform: create_test_platform(),
 				graph: create_mock_module_graph(),
 				// the tasks' loggers are its children, logging at `info` despite Vitest's default `off`
 				parent_log: new Logger('test', {

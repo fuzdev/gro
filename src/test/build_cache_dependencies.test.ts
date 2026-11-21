@@ -8,7 +8,6 @@ import {
 	load_build_cache_dependencies,
 	NPM_HIDDEN_LOCKFILE_PATH
 } from '#lib/build_cache_dependencies.ts';
-import { package_json_load_for_gro } from '#lib/package_json.ts';
 
 import { create_project_fs_paths } from './fs_test_helpers.ts';
 
@@ -23,17 +22,24 @@ const write_lockfile = async (dir: string, contents: string): Promise<void> => {
 	await writeFile(join(dir, NPM_HIDDEN_LOCKFILE_PATH), contents);
 };
 
-test('reads the running Gro version and takes the runtime version', async () => {
+test('takes the running Gro version and the runtime version', async () => {
 	const dir = await create_temp_dir();
-	const deps = await load_build_cache_dependencies(await create_project_fs_paths(dir), 'test/v1');
-	const gro_package_json = await package_json_load_for_gro();
-	assert.equal(deps.gro_version, gro_package_json.version);
+	const deps = await load_build_cache_dependencies(
+		await create_project_fs_paths(dir),
+		'0.0.0-test',
+		'test/v1'
+	);
+	assert.equal(deps.gro_version, '0.0.0-test');
 	assert.equal(deps.runtime_version, 'test/v1');
 });
 
 test('package_lock_hash is null without node_modules/.package-lock.json', async () => {
 	const dir = await create_temp_dir();
-	const deps = await load_build_cache_dependencies(await create_project_fs_paths(dir), 'test/v1');
+	const deps = await load_build_cache_dependencies(
+		await create_project_fs_paths(dir),
+		'0.0.0-test',
+		'test/v1'
+	);
 	assert.equal(deps.package_lock_hash, null);
 });
 
@@ -41,16 +47,28 @@ test('package_lock_hash is the BLAKE3 hash of the hidden lockfile', async () => 
 	const dir = await create_temp_dir();
 	const contents = '{"name":"a","lockfileVersion":3,"packages":{}}';
 	await write_lockfile(dir, contents);
-	const deps = await load_build_cache_dependencies(await create_project_fs_paths(dir), 'test/v1');
+	const deps = await load_build_cache_dependencies(
+		await create_project_fs_paths(dir),
+		'0.0.0-test',
+		'test/v1'
+	);
 	assert.equal(deps.package_lock_hash, hash_blake3(contents));
 });
 
 test('package_lock_hash changes when the installed packages change', async () => {
 	const dir = await create_temp_dir();
 	await write_lockfile(dir, '{"packages":{"node_modules/a":{"version":"1.0.0"}}}');
-	const before = await load_build_cache_dependencies(await create_project_fs_paths(dir), 'test/v1');
+	const before = await load_build_cache_dependencies(
+		await create_project_fs_paths(dir),
+		'0.0.0-test',
+		'test/v1'
+	);
 	await write_lockfile(dir, '{"packages":{"node_modules/a":{"version":"1.0.1"}}}');
-	const after = await load_build_cache_dependencies(await create_project_fs_paths(dir), 'test/v1');
+	const after = await load_build_cache_dependencies(
+		await create_project_fs_paths(dir),
+		'0.0.0-test',
+		'test/v1'
+	);
 	assert.ok(before.package_lock_hash);
 	assert.notEqual(before.package_lock_hash, after.package_lock_hash);
 });

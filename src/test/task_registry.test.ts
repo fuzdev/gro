@@ -143,7 +143,8 @@ describe('task_registry_find_builtins', () => {
 	test("finds Gro's builtins with their summaries and grants, matching the generated ones", async () => {
 		const entries = await task_registry_find_builtins(
 			fs.project.dir(LIB_PATH).readonly(),
-			import_module_node
+			import_module_node,
+			paths.root
 		);
 		assert.deepEqual(
 			Object.fromEntries(entries.map((e) => [e.name, e.summary])),

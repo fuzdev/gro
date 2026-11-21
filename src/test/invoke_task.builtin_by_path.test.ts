@@ -10,7 +10,7 @@ import { is_reported_error } from '#lib/task_error.ts';
 import { import_module_node } from '#lib/internal/node_import_module.ts';
 
 import { create_project_fs_paths } from './fs_test_helpers.ts';
-import { create_throwing_builtin_host_root, paths } from './test_helpers.ts';
+import { create_throwing_builtin_host_root, paths, create_test_platform } from './test_helpers.ts';
 
 let dir: string;
 
@@ -35,7 +35,8 @@ const to_refusal = async (task_name: string, root: string): Promise<string> => {
 				fs_paths: await create_project_fs_paths(root),
 				raw_rest_args: [],
 				import_module: import_module_node,
-				host_root: create_throwing_builtin_host_root()
+				host_root: create_throwing_builtin_host_root(),
+				platform: create_test_platform()
 			}
 		);
 	} catch (error) {
