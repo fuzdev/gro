@@ -86,15 +86,32 @@ jobs:
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
+      # The run's box where unprivileged user namespaces are restricted, as
+      # this image restricts them until the next step's flip. The box's check
+      # before `unshare` infers the namespace is unusable here and takes the
+      # host's network, internet sockets refused, the cause AppArmor's; this
+      # step proves the namespace is unusable: run_box runs an `unshare` and
+      # its maps here with no check first and fails unless they were refused
+      # or stranded the process, and its first printed line says which. A
+      # plain build, by the workspace's features so the next step reuses it:
+      # the case that starts V8 needs the snapshot build, which the next step
+      # runs with the namespaces allowed.
+      - name: Check the run's box with user namespaces restricted
+        run: |
+          test "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns)" = 1
+          cargo xtask fetch-v8
+          cargo test --locked --workspace --test run_box
+
       # The Rust gates as `cargo xtask check` runs them, in one command: the
       # pinned V8 archive (fetched, SHA-256 verified), the vendored crates
       # (each its published crate, fetched and verified, plus its patch), fmt,
       # clippy, the V8 library copy checked before the tests run V8 code, test,
       # doc, and fgro with an embedded startup snapshot, verified by remaking
       # the snapshot byte for byte, by its tests, and by a run with the build
-      # tree's sources hidden in a private user and mount namespace. That run
-      # and gro_sys's tests that enter a private user and network namespace
-      # need unprivileged user namespaces, which the runner's AppArmor policy
+      # tree's sources hidden in a private user and mount namespace. That run,
+      # gro_sys's tests that enter a private user and network namespace, and
+      # run_box's, which then expect the run's own namespace, need
+      # unprivileged user namespaces, which the runner's AppArmor policy
       # forbids by default.
       - name: Check
         run: |
