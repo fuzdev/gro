@@ -4,10 +4,6 @@ import { gro_plugin_sveltekit_app } from './gro_plugin_sveltekit_app.ts';
 import { has_sveltekit_app, has_sveltekit_library } from './sveltekit_helpers.ts';
 import { gro_plugin_gen } from './gro_plugin_gen.ts';
 import { package_json_load } from './package_json.ts';
-import { fs } from './fs.ts';
-import { create_fs_paths } from './fs_paths.ts';
-import { cwd } from './cwd.ts';
-import { env } from './env.ts';
 
 // TODO hacky, maybe extract utils?
 
@@ -23,9 +19,7 @@ const config: CreateGroConfig = (cfg) => {
 	// Detection is deferred into `plugins` because every Gro invocation loads the config,
 	// but only `dev` and `build` create plugins - this keeps `package.json`
 	// and the SvelteKit config off the path of every other task.
-	cfg.plugins = async () => {
-		// the default config is a composition root, where the fs host module enters
-		const fs_paths = create_fs_paths(fs, { cwd: cwd(), home: env.get('HOME') });
+	cfg.plugins = async ({ host: { fs_paths } }) => {
 		const package_json = await package_json_load(fs_paths); // TODO gets wastefully loaded by some plugins, maybe put in plugin/task context? how does that interact with `map_package_json`?
 
 		const has_sveltekit_app_result = has_sveltekit_app(package_json);

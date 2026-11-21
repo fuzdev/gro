@@ -7,11 +7,13 @@ import { gro_plugin_server } from '#lib/gro_plugin_server.ts';
 import type { PluginContext } from '#lib/plugin.ts';
 import type { ModuleGraph } from '#lib/module_graph.ts';
 import { TaskError } from '#lib/task_error.ts';
+import { env } from '#lib/env.ts';
+import { fs } from '#lib/fs.ts';
+import { create_fs_paths } from '#lib/fs_paths.ts';
 
 import { create_mock_logger, paths } from './test_helpers.ts';
-import { create_mock_child, get_mock_spawn } from './spawn_mocks.ts';
-
-vi.mock('#lib/spawn.ts', async () => (await import('./spawn_mocks.ts')).create_mock_spawn_module());
+import { create_mock_child, create_mock_spawn } from './spawn_mocks.ts';
+import { create_project_fs_paths } from './fs_test_helpers.ts';
 vi.mock('#lib/gro_helpers.ts', async (import_original) => ({
 	...(await import_original<typeof import('#lib/gro_helpers.ts')>()),
 	resolve_gro_module_path: vi.fn(() => '/gro/loader.js')
@@ -34,6 +36,11 @@ const create_graph = (): ModuleGraph & { watches: number } => {
 	return graph;
 };
 
+const spawn = create_mock_spawn();
+
+// the handles `gro dev` gives the plugin, but for the mock spawn
+const fs_paths = create_fs_paths(fs, { cwd: process.cwd(), home: env.get('HOME') });
+
 const to_ctx = (overrides: Partial<PluginContext> = {}): PluginContext =>
 	({
 		dev: true,
@@ -41,6 +48,7 @@ const to_ctx = (overrides: Partial<PluginContext> = {}): PluginContext =>
 		log: create_mock_logger(),
 		config: { watch: { dir: paths.source.slice(0, -1), filter: null } },
 		graph: create_graph(),
+		host: { fs_paths, env, spawn, import_module: () => Promise.reject(Error('unused')) },
 		...overrides
 	}) as unknown as PluginContext;
 
@@ -54,13 +62,13 @@ const create_env_file = async (contents: string): Promise<string> => {
 
 describe('gro_plugin_server', () => {
 	beforeEach(async () => {
-		const mock = await get_mock_spawn();
+		const mock = spawn;
 		mock.reset();
 		mock.available = (name) => name === 'node';
 	});
 
 	test('pins `node` with the whole environment and runs the entry with the loader', async () => {
-		const mock = await get_mock_spawn();
+		const mock = spawn;
 		const plugin = gro_plugin_server({ entry: ENTRY, env_file: null, env: { PORT: '4242' } });
 		await plugin.setup!(to_ctx());
 		expect(mock.calls).toHaveLength(1);
@@ -78,7 +86,7 @@ describe('gro_plugin_server', () => {
 	});
 
 	test("the env file's vars go beneath the host's and `env`, which wins over both", async () => {
-		const mock = await get_mock_spawn();
+		const mock = spawn;
 		const env_file = await create_env_file(
 			'GRO_TEST_FILE_ONLY=file\nHOME=file\nGRO_TEST_BOTH=file\nNODE_ENV=production\n'
 		);
@@ -94,7 +102,7 @@ describe('gro_plugin_server', () => {
 	});
 
 	test('`env` sets `NODE_ENV`, which the loader args follow', async () => {
-		const mock = await get_mock_spawn();
+		const mock = spawn;
 		const plugin = gro_plugin_server({
 			entry: ENTRY,
 			env_file: null,
@@ -107,7 +115,7 @@ describe('gro_plugin_server', () => {
 	});
 
 	test('a missing env file warns and loads nothing', async () => {
-		const mock = await get_mock_spawn();
+		const mock = spawn;
 		const log = create_mock_logger();
 		const plugin = gro_plugin_server({ entry: ENTRY, env_file: '/nonexistent/.env.nope' });
 		await plugin.setup!(to_ctx({ log }));
@@ -119,7 +127,7 @@ describe('gro_plugin_server', () => {
 	});
 
 	test('watches the graph by default, and not with watch false', async () => {
-		const mock = await get_mock_spawn();
+		const mock = spawn;
 		const graph = create_graph();
 		const plugin = gro_plugin_server({ entry: ENTRY, env_file: null });
 		await plugin.setup!(to_ctx({ graph }));
@@ -134,7 +142,7 @@ describe('gro_plugin_server', () => {
 	});
 
 	test('`gro dev --no-watch` starts nothing, since it tears down right after setup', async () => {
-		const mock = await get_mock_spawn();
+		const mock = spawn;
 		const graph = create_graph();
 		const log = create_mock_logger();
 		await gro_plugin_server({ entry: ENTRY }).setup!(to_ctx({ graph, log, watch: false }));
@@ -167,14 +175,14 @@ describe('gro_plugin_server', () => {
 	});
 
 	test('a non-dev run starts nothing', async () => {
-		const mock = await get_mock_spawn();
+		const mock = spawn;
 		await gro_plugin_server({ entry: ENTRY }).setup!(to_ctx({ dev: false }));
 		expect(mock.finds).toEqual([]);
 		expect(mock.calls).toEqual([]);
 	});
 
 	test('a missing entry fails setup', async () => {
-		const mock = await get_mock_spawn();
+		const mock = spawn;
 		const error = await Promise.resolve(
 			gro_plugin_server({ entry: 'src/nope.ts' }).setup!(to_ctx())
 		).catch((e: unknown) => e);
@@ -184,7 +192,7 @@ describe('gro_plugin_server', () => {
 	});
 
 	test('a missing `node` fails with the host module message', async () => {
-		const mock = await get_mock_spawn();
+		const mock = spawn;
 		mock.available = () => false;
 		const graph = create_graph();
 		const error = await Promise.resolve(
@@ -195,7 +203,7 @@ describe('gro_plugin_server', () => {
 	});
 
 	test('teardown stops the server, then does nothing more', async () => {
-		const mock = await get_mock_spawn();
+		const mock = spawn;
 		const dispose = vi.fn(async () => undefined);
 		mock.create_child = () => create_mock_child({ [Symbol.asyncDispose]: dispose });
 		const plugin = gro_plugin_server({ entry: ENTRY, env_file: null });
@@ -205,4 +213,27 @@ describe('gro_plugin_server', () => {
 		await plugin.teardown!(to_ctx());
 		expect(dispose).toHaveBeenCalledTimes(1);
 	});
+});
+
+test("the entry resolves against the host's project, not the process's working directory", async () => {
+	const dir = await mkdtemp(join(tmpdir(), 'gro_plugin_server_project_'));
+	onTestFinished(() => rm(dir, { recursive: true, force: true }));
+	await writeFile(join(dir, 'server.ts'), '');
+	const log = create_mock_logger();
+	const plugin = gro_plugin_server({ entry: 'server.ts', env_file: null });
+	await plugin.setup!(
+		to_ctx({
+			log,
+			config: { watch: { dir, filter: null } } as never,
+			host: {
+				fs_paths: await create_project_fs_paths(dir),
+				env,
+				spawn,
+				import_module: () => Promise.reject(Error('unused'))
+			}
+		})
+	);
+	// inside `watch.dir` as the host's project resolves it, so no warning that changes restart nothing
+	assert.strictEqual(vi.mocked(log.warn).mock.calls.length, 0);
+	await plugin.teardown!(to_ctx());
 });

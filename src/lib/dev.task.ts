@@ -2,7 +2,13 @@ import * as s from '@fuzdev/fuz_schema/schema.ts';
 import { meta } from '@fuzdev/fuz_schema/meta.ts';
 
 import type { Task } from './task.ts';
-import { Plugins, to_plugin_context } from './plugin.ts';
+import { Plugins, to_plugin_context, type PluginHost } from './plugin.ts';
+import { fs } from './fs.ts';
+import { create_fs_paths } from './fs_paths.ts';
+import { cwd } from './cwd.ts';
+import { env } from './env.ts';
+import { spawn } from './spawn.ts';
+import { import_module_node } from './internal/node_import_module.ts';
 
 /** @nodocs */
 export const Args = s.object({
@@ -33,7 +39,15 @@ export const task: Task<Args> = {
 			await invoke_task('sync', { install, gen: false });
 		}
 
-		const plugins = await Plugins.create(to_plugin_context(ctx, true, watch));
+		// a builtin with no grants, so a root: its plugins get the handles it opens,
+		// and the Node project loader
+		const host: PluginHost = {
+			fs_paths: create_fs_paths(fs, { cwd: cwd(), home: env.get('HOME') }),
+			env,
+			spawn,
+			import_module: import_module_node
+		};
+		const plugins = await Plugins.create(to_plugin_context(ctx, host, true, watch));
 		await plugins.setup();
 		if (!watch) {
 			await plugins.teardown();

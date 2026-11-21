@@ -1,4 +1,8 @@
 import type { TaskContext } from './task.ts';
+import type { Env } from './env.ts';
+import type { FsPaths } from './fs_paths.ts';
+import type { ImportModule } from './modules.ts';
+import type { Spawn } from './spawn.ts';
 
 /**
  * Gro `Plugin`s enable custom behavior during `gro dev` and `gro build`.
@@ -15,24 +19,46 @@ export type PluginsCreateConfig<TPluginContext extends PluginContext = PluginCon
 	ctx: TPluginContext
 ) => Array<Plugin<TPluginContext>> | Promise<Array<Plugin<TPluginContext>>>;
 
+/**
+ * The handles a plugin reaches, opened by the task that sets the plugins up, `gro dev` or
+ * `gro build`, and handed over at setup, so a plugin module needn't import a host module:
+ * Gro's plugins and its default config import none when they load, so loading the config,
+ * which every command does, reaches none unless the project's own config imports one.
+ * The handles are the task's own, uncut: a plugin holds what the task holds.
+ */
+export interface PluginHost {
+	/**
+	 * The task's boundary, built from the fs host module with the working directory and `HOME`.
+	 */
+	readonly fs_paths: FsPaths;
+	readonly env: Env;
+	readonly spawn: Spawn;
+	/**
+	 * Loads the project's modules, like the genfiles `gro_plugin_gen` checks.
+	 */
+	readonly import_module: ImportModule;
+}
+
 export interface PluginContext<TArgs = object> extends TaskContext<TArgs> {
 	dev: boolean;
 	watch: boolean;
+	host: PluginHost;
 }
 
 /**
- * Widens a `TaskContext` to a `PluginContext` by adding `dev` and `watch`.
+ * Widens a `TaskContext` to a `PluginContext` by adding `host`, `dev`, and `watch`.
  * Copies property descriptors rather than spreading, because `svelte_config` is a lazy getter -
  * spreading would call it, resolving the Svelte config even for a plugin set that never reads it,
  * and pinning whichever promise it returned instead of the memoized one.
  */
 export const to_plugin_context = <TArgs>(
 	ctx: TaskContext<TArgs>,
+	host: PluginHost,
 	dev: boolean,
 	watch: boolean
 ): PluginContext<TArgs> =>
 	Object.defineProperties(
-		{ dev, watch },
+		{ dev, watch, host },
 		Object.getOwnPropertyDescriptors(ctx)
 	) as PluginContext<TArgs>;
 

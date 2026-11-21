@@ -2,40 +2,47 @@ import { describe, test, expect, vi, beforeEach, afterAll } from 'vitest';
 import {
 	chmodSync,
 	mkdirSync,
+	mkdtempSync,
 	readdirSync,
+	realpathSync,
 	rmSync,
 	statSync,
 	symlinkSync,
 	writeFileSync
 } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { gro_plugin_sveltekit_library } from '#lib/gro_plugin_sveltekit_library.ts';
 import type { PluginContext } from '#lib/plugin.ts';
+import { fs } from '#lib/fs.ts';
+import { create_fs_paths } from '#lib/fs_paths.ts';
 
-import { create_mock_task_context } from './test_helpers.ts';
-import { get_mock_spawn } from './spawn_mocks.ts';
-
-vi.mock('#lib/spawn.ts', async () => (await import('./spawn_mocks.ts')).create_mock_spawn_module());
-
-// the real fs module with its project a fresh temp directory, so the bins are real files
-vi.mock('#lib/fs.ts', async () => {
-	const actual = await vi.importActual<typeof import('#lib/fs.ts')>('#lib/fs.ts');
-	const { mkdtempSync, realpathSync } = await import('node:fs');
-	const { tmpdir } = await import('node:os');
-	const project = realpathSync(mkdtempSync(tmpdir() + '/gro-plugin-bin-test-'));
-	return { ...actual, fs: { ...actual.fs, project: await actual.fs.open_dir(project) } };
-});
+import { create_mock_plugin_context } from './test_helpers.ts';
+import { create_mock_spawn } from './spawn_mocks.ts';
 
 vi.mock('#lib/package_json.ts', async (import_original) => ({
 	...(await import_original<typeof import('#lib/package_json.ts')>()),
 	package_json_load: vi.fn(async () => ({ name: 'a', version: '0', bin: { a: 'dist/a.js' } }))
 }));
 
-const to_ctx = async (): Promise<PluginContext> =>
-	create_mock_task_context({}) as unknown as PluginContext;
+// the plugin's project, a fresh temp directory, so the bins are real files
+const project = realpathSync(mkdtempSync(tmpdir() + '/gro-plugin-bin-test-'));
 
-const get_project_path = async (): Promise<string> => (await import('#lib/fs.ts')).fs.project.path;
+const spawn = create_mock_spawn();
+
+const to_ctx = async (): Promise<PluginContext> =>
+	create_mock_plugin_context({
+		dev: false,
+		watch: false,
+		host: {
+			fs_paths: create_fs_paths(
+				{ ...fs, project: await fs.open_dir(project) },
+				{ cwd: project, home: undefined }
+			),
+			spawn
+		}
+	});
 
 const mode_of = (path: string): number => statSync(path).mode & 0o7777;
 
@@ -47,25 +54,20 @@ const write_bin = (project: string, path: string, mode: number): void => {
 };
 
 describe('gro_plugin_sveltekit_library adapt', () => {
-	let project: string;
-
-	beforeEach(async () => {
-		const mock = await get_mock_spawn();
-		mock.reset();
-		mock.available = () => true;
-		project = await get_project_path();
+	beforeEach(() => {
+		spawn.reset();
 		for (const name of readdirSync(project)) rmSync(join(project, name), { recursive: true });
 	});
 
-	afterAll(async () => {
-		rmSync(await get_project_path(), { recursive: true, force: true });
+	afterAll(() => {
+		rmSync(project, { recursive: true, force: true });
 	});
 
 	test('adds the execute bits to each bin, keeping the rest, and spawns nothing', async () => {
 		write_bin(project, 'dist/a.js', 0o644);
 		await gro_plugin_sveltekit_library().adapt!(await to_ctx());
 		expect(mode_of(join(project, 'dist/a.js'))).toBe(0o755);
-		expect((await get_mock_spawn()).calls).toEqual([]);
+		expect(spawn.calls).toEqual([]);
 	});
 
 	test('sets every bin of a package with several', async () => {
@@ -102,7 +104,7 @@ describe('gro_plugin_sveltekit_library adapt', () => {
 		write_bin(project, 'dist/a.js', 0o644);
 		await gro_plugin_sveltekit_library().adapt!(await to_ctx());
 		expect(mode_of(join(project, 'dist/a.js'))).toBe(0o644);
-		expect((await get_mock_spawn()).calls).toEqual([]);
+		expect(spawn.calls).toEqual([]);
 	});
 
 	test('a missing bin is logged, not thrown', async () => {

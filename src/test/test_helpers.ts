@@ -11,6 +11,7 @@ import { create_paths } from '#lib/paths.ts';
 import type { ModuleGraph } from '#lib/module_graph.ts';
 import { load_default_svelte_config, type ParsedSvelteConfig } from '#lib/svelte_config.ts';
 import type { TaskContext } from '#lib/task.ts';
+import type { PluginContext, PluginHost } from '#lib/plugin.ts';
 import {
 	create_builtin_host,
 	type BuiltinHostRoot,
@@ -260,6 +261,48 @@ export const create_mock_task_context = <TArgs extends object = any>(
 	implicit_rest_args: [],
 	raw_rest_args: []
 });
+
+/**
+ * What `create_mock_plugin_context` builds a plugin's context from.
+ */
+export interface MockPluginContextOptions {
+	dev: boolean;
+	watch: boolean;
+	/**
+	 * The handles the test gives the plugin, each one left out throwing on any use.
+	 */
+	host?: Partial<PluginHost>;
+	/**
+	 * The CLI args from the first `--` on.
+	 */
+	raw_rest_args?: ReadonlyArray<string>;
+}
+
+/**
+ * A plugin's context over `create_mock_task_context`, with the test's handles as its `host`,
+ * so a plugin reaches only what the test gives it.
+ */
+export const create_mock_plugin_context = (options: MockPluginContextOptions): PluginContext => {
+	const { dev, watch, host = {}, raw_rest_args = [] } = options;
+	const create_stub = <T extends object>(label: string): T =>
+		new Proxy({} as T, {
+			get: (_target, key) => {
+				throw Error(`the mock plugin host's \`${label}\` was used: ${String(key)}`);
+			}
+		});
+	return {
+		...create_mock_task_context(),
+		raw_rest_args,
+		dev,
+		watch,
+		host: {
+			fs_paths: host.fs_paths ?? create_stub('fs_paths'),
+			env: host.env ?? create_stub('env'),
+			spawn: host.spawn ?? create_stub('spawn'),
+			import_module: host.import_module ?? create_stub('import_module')
+		}
+	};
+};
 
 /**
  * Asserts that `value`, returned from an async function while `Object.prototype.then` is

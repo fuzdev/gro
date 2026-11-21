@@ -1,16 +1,11 @@
 import type { Plugin } from './plugin.ts';
 import { package_json_load } from './package_json.ts';
-import { to_forwarded_argv, to_forwarded_flag_value, to_raw_rest_args } from './task_args.ts';
-import { args } from './args.ts';
+import { to_forwarded_argv, to_forwarded_flag_value } from './task_args.ts';
 import { run_svelte_package, type SveltePackageOptions } from './sveltekit_helpers.ts';
 import { SVELTE_PACKAGE_CLI, SVELTEKIT_DIST_DIRNAME } from './constants.ts';
 import { rewrite_dist_imports } from './dist_rewrite_imports.ts';
-import { fs } from './fs.ts';
 import { is_fs_error } from './fs_error.ts';
-import { create_fs_paths, type FsPaths } from './fs_paths.ts';
-import { cwd } from './cwd.ts';
-import { env } from './env.ts';
-import { spawn } from './spawn.ts';
+import type { FsPaths } from './fs_paths.ts';
 import { format_error_detail } from './error_detail.ts';
 import { assert_no_forwarded_info_flag } from './internal/forwarded_info_flags.ts';
 
@@ -43,14 +38,12 @@ const chmod_bin = async (fs_paths: FsPaths, bin_path: string): Promise<string | 
 export const gro_plugin_sveltekit_library = ({
 	svelte_package_options
 }: GroPluginSveltekitLibraryOptions = {}): Plugin => {
-	// the plugin is a composition root, where the fs and spawn host modules enter
-	const fs_paths = create_fs_paths(fs, { cwd: cwd(), home: env.get('HOME') });
 	return {
 		name: 'gro_plugin_sveltekit_library',
-		setup: async ({ dev, log }) => {
+		setup: async ({ dev, log, raw_rest_args, host: { fs_paths, spawn } }) => {
 			if (!dev) {
 				const package_json = await package_json_load(fs_paths);
-				const forwarded_argv = to_forwarded_argv(SVELTE_PACKAGE_CLI, to_raw_rest_args(args));
+				const forwarded_argv = to_forwarded_argv(SVELTE_PACKAGE_CLI, raw_rest_args);
 				assert_no_forwarded_info_flag(SVELTE_PACKAGE_CLI, forwarded_argv, true);
 				await run_svelte_package(fs_paths, spawn, {
 					package_json,
@@ -70,7 +63,7 @@ export const gro_plugin_sveltekit_library = ({
 				await rewrite_dist_imports(fs_paths, output_dir, log);
 			}
 		},
-		adapt: async ({ log }) => {
+		adapt: async ({ log, host: { fs_paths } }) => {
 			const package_json = await package_json_load(fs_paths);
 			// a build recreates the binaries, and an `npm link` of them runs them in place
 			if (package_json.bin) {

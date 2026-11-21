@@ -1,17 +1,11 @@
-import { resolve } from 'node:path';
-
 import type { Plugin } from './plugin.ts';
-import { spawn } from './spawn.ts';
 import { is_spawn_error } from './spawn_error.ts';
-import { cwd } from './cwd.ts';
-import { env } from './env.ts';
-import { fs } from './fs.ts';
-import { create_fs_paths } from './fs_paths.ts';
 import { load_env_file } from './env_files.ts';
 import { resolve_gro_module_path, spawn_with_loader_args } from './gro_helpers.ts';
 import { TaskError } from './task_error.ts';
 import { start_watched_server, type WatchedServer } from './internal/server_restarts.ts';
 import { format_error_detail } from './error_detail.ts';
+import { posix_resolve } from './internal/posix_path.ts';
 
 const LABEL = '[gro_plugin_server]';
 
@@ -61,7 +55,7 @@ export const gro_plugin_server = (options: GroPluginServerOptions): Plugin => {
 
 	return {
 		name: 'gro_plugin_server',
-		setup: async ({ dev, watch: task_watch, log, config, graph }) => {
+		setup: async ({ dev, watch: task_watch, log, config, graph, host }) => {
 			if (!dev) return;
 			// `gro dev --no-watch` tears down right after setup, so a server would only start to stop
 			if (!task_watch) {
@@ -69,12 +63,13 @@ export const gro_plugin_server = (options: GroPluginServerOptions): Plugin => {
 				return;
 			}
 
-			const fs_paths = create_fs_paths(fs, { cwd: cwd(), home: env.get('HOME') });
+			const { fs_paths, env, spawn } = host;
+			const root = fs_paths.project.path;
 			const entry_file = await fs_paths.open_path(entry);
 			if (!(await entry_file.dir.exists(entry_file.path))) {
 				throw new TaskError(`${LABEL} cannot find the server entry: ${entry}`);
 			}
-			const entry_id = resolve(cwd(), entry);
+			const entry_id = posix_resolve(root, entry);
 
 			if (watch) {
 				const { dir, filter } = config.watch;
@@ -117,7 +112,7 @@ export const gro_plugin_server = (options: GroPluginServerOptions): Plugin => {
 					graph: watch ? graph : null,
 					log,
 					label: LABEL,
-					cwd: cwd()
+					cwd: root
 				});
 			} catch (error) {
 				if (is_spawn_error(error)) {

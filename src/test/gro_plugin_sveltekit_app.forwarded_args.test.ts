@@ -1,32 +1,29 @@
-import { describe, test, expect, vi, afterEach } from 'vitest';
+import { describe, test, expect, afterEach } from 'vitest';
 
 import { gro_plugin_sveltekit_app } from '#lib/gro_plugin_sveltekit_app.ts';
-import type { PluginContext } from '#lib/plugin.ts';
-import { create_mock_task_context } from './test_helpers.ts';
-import { get_mock_spawn } from './spawn_mocks.ts';
-import { set_mock_args } from './args_mocks.ts';
+import { create_mock_plugin_context } from './test_helpers.ts';
+import { create_mock_spawn } from './spawn_mocks.ts';
 
-vi.mock('#lib/args.ts', async () => (await import('./args_mocks.ts')).create_mock_args_module());
+const spawn = create_mock_spawn();
 
-vi.mock('#lib/spawn.ts', async () => (await import('./spawn_mocks.ts')).create_mock_spawn_module());
-
-afterEach(async () => {
-	set_mock_args([]);
-	(await get_mock_spawn()).reset();
+afterEach(() => {
+	spawn.reset();
 });
 
 const FORWARDED = ['--port', '0123', '--no-open', '--mode', '-foo', '--x='];
 
+// the plugin's context, its forwarded args the CLI's after the first `--`
+const to_ctx = (dev: boolean, raw_rest_args: ReadonlyArray<string>) =>
+	create_mock_plugin_context({ dev, watch: true, host: { spawn }, raw_rest_args });
+
 const setup = async (dev: boolean): Promise<void> => {
-	set_mock_args([dev ? 'dev' : 'build', '--', 'vite', ...FORWARDED]);
-	const ctx = { ...create_mock_task_context(), dev, watch: true } as unknown as PluginContext;
-	await gro_plugin_sveltekit_app().setup!(ctx);
+	await gro_plugin_sveltekit_app().setup!(to_ctx(dev, ['--', 'vite', ...FORWARDED]));
 };
 
 describe('gro_plugin_sveltekit_app forwarded args', () => {
 	test('`vite dev` gets the text verbatim', async () => {
 		await setup(true);
-		const { calls } = await get_mock_spawn();
+		const { calls } = spawn;
 		expect(calls[0]!.method).toBe('start');
 		expect(calls[0]!.args).toEqual(['dev', ...FORWARDED]);
 		expect(calls[0]!.program_options).toEqual({ pass_env: 'all' });
@@ -34,7 +31,7 @@ describe('gro_plugin_sveltekit_app forwarded args', () => {
 
 	test('`vite build` gets the text verbatim', async () => {
 		await setup(false);
-		const { calls } = await get_mock_spawn();
+		const { calls } = spawn;
 		expect(calls[0]!.method).toBe('run');
 		expect(calls[0]!.args).toEqual(['build', ...FORWARDED]);
 		expect(calls[0]!.program_options).toEqual({ pass_env: 'all' });
@@ -43,20 +40,12 @@ describe('gro_plugin_sveltekit_app forwarded args', () => {
 
 test('a forwarded help flag is refused for `vite dev` and `vite build`, a version flag left to vite', async () => {
 	for (const dev of [true, false]) {
-		set_mock_args([dev ? 'dev' : 'build', '--', 'vite', '--help']);
-		const ctx = { ...create_mock_task_context(), dev, watch: true } as unknown as PluginContext;
-		await expect(gro_plugin_sveltekit_app().setup!(ctx)).rejects.toThrow(
-			'`--help` forwarded to vite asks it for its help'
-		);
+		await expect(
+			gro_plugin_sveltekit_app().setup!(to_ctx(dev, ['--', 'vite', '--help']))
+		).rejects.toThrow('`--help` forwarded to vite asks it for its help');
 	}
-	expect((await get_mock_spawn()).calls).toHaveLength(0);
+	expect(spawn.calls).toHaveLength(0);
 	// Vite ignores a version flag after the command Gro gives it
-	set_mock_args(['build', '--', 'vite', '-v']);
-	const ctx = {
-		...create_mock_task_context(),
-		dev: false,
-		watch: true
-	} as unknown as PluginContext;
-	await gro_plugin_sveltekit_app().setup!(ctx);
-	expect((await get_mock_spawn()).calls[0]!.args).toEqual(['build', '-v']);
+	await gro_plugin_sveltekit_app().setup!(to_ctx(false, ['--', 'vite', '-v']));
+	expect(spawn.calls[0]!.args).toEqual(['build', '-v']);
 });

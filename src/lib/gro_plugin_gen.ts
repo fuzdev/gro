@@ -6,21 +6,16 @@ import type { Plugin } from './plugin.ts';
 import type { ModuleGraph } from './module_graph.ts';
 import { create_paths } from './paths.ts';
 import { find_genfiles, is_gen_path } from './gen.ts';
-import { fs } from './fs.ts';
-import { create_fs_paths } from './fs_paths.ts';
-import { cwd } from './cwd.ts';
-import { env } from './env.ts';
 import { should_trigger_gen } from './gen_helpers.ts';
 import { find_cli, spawn_cli } from './cli.ts';
-import { spawn } from './spawn.ts';
-import { import_module_node } from './internal/node_import_module.ts';
+import type { Spawn } from './spawn.ts';
 
 const FLUSH_DEBOUNCE_DELAY = 500;
 
 /**
  * Spawns `gro gen` for `files`, a new process so an edited genfile isn't read from the module cache.
  */
-const spawn_gen = async (files: Array<string>): Promise<void> => {
+const spawn_gen = async (spawn: Spawn, files: Array<string>): Promise<void> => {
 	const gro = find_cli(spawn, 'gro', { pass_env: 'all' });
 	if (gro) await spawn_cli(gro, ['gen', ...files]);
 };
@@ -45,17 +40,17 @@ export const gro_plugin_gen = ({
 }: GroPluginGenOptions = EMPTY_OBJECT): Plugin => {
 	const queued_files: Set<string> = new Set();
 	const reported_invalid_inputs: Set<string> = new Set();
-	const fs_paths = create_fs_paths(fs, { cwd: cwd(), home: env.get('HOME') });
-	const paths = create_paths(fs_paths.project.path);
 
 	let cleanup_watch: (() => Promise<void>) | undefined;
 
 	return {
 		name: 'gro_plugin_gen',
-		setup: async ({ watch, dev, log, config, graph, invoke_task }) => {
+		setup: async ({ watch, dev, log, config, graph, invoke_task, host }) => {
 			// For production builds, we assume `gen` is already fresh,
 			// which should be checked by CI via `gro check` which calls `gro gen --check`.
 			if (!dev) return;
+			const { fs_paths, spawn, import_module } = host;
+			const paths = create_paths(fs_paths.project.path);
 
 			// Do we need to just generate everything once and exit?
 			if (!watch) {
@@ -85,7 +80,7 @@ export const gro_plugin_gen = ({
 					queued_files.clear();
 					// a file queued while this runs opens the throttle's next window, which takes it
 					try {
-						await spawn_gen(files);
+						await spawn_gen(spawn, files);
 					} catch (error) {
 						// nothing awaits the flush, and a dev server shouldn't die to a broken `.bin/gro`
 						log.error('[gen] failed to run gen', error);
@@ -113,7 +108,7 @@ export const gro_plugin_gen = ({
 										log,
 										reported_invalid_inputs,
 										fs_paths.project.path,
-										import_module_node
+										import_module
 									)
 								) {
 									queue_gen(gen_file_id);

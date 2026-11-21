@@ -188,7 +188,9 @@ global Gro in a project that doesn't install it.
 
 [src/docs/plugin.md](src/docs/plugin.md) owns the lifecycle
 (`setup` → `adapt` → `teardown`), the `Plugin` and `PluginContext` interfaces,
-and error handling; `plugin.ts` implements them. Builtin plugins:
+and error handling; `plugin.ts` implements them. A plugin takes its handles from the
+context's `host` (`PluginHost`, opened by `gro dev` and `gro build`), so the default config
+and the builtin plugins import no host module when the config loads. Builtin plugins:
 
 - `gro_plugin_gen` - reruns genfiles when they, their imports, or their inputs
   change
@@ -401,7 +403,7 @@ Key utilities:
   `create_fs_paths(fs, {cwd: cwd(), home: env.get('HOME')})` and passed down, its machinery
   in `internal/fs_boundary.ts` with `is_protected_dir` guarding every removal; library code
   takes an `FsPaths` or a narrow handle as a parameter, and only roots (`invoke.ts`, the builtins that declare no
-  `grants`, project tasks, genfiles, the default config, plugin modules, the rendered `$app/env/*` shims) import
+  `grants`, project tasks, genfiles, the rendered `$app/env/*` shims) import
   `fs`, as they import the process
   modules, one per kind of authority: `env.ts`, `args.ts`, `exit.ts` (`exit`, `set_exit_code`),
   `stdin.ts`, `stdout.ts` (with `ProcessOutput`, the type `stderr.ts` shares), `stderr.ts`,

@@ -2,11 +2,8 @@ import { describe, test, expect, vi, afterEach } from 'vitest';
 
 import { gro_plugin_sveltekit_library } from '#lib/gro_plugin_sveltekit_library.ts';
 import { rewrite_dist_imports } from '#lib/dist_rewrite_imports.ts';
-import type { PluginContext } from '#lib/plugin.ts';
-import { create_mock_task_context } from './test_helpers.ts';
-import { set_mock_args } from './args_mocks.ts';
-
-vi.mock('#lib/args.ts', async () => (await import('./args_mocks.ts')).create_mock_args_module());
+import { create_mock_plugin_context } from './test_helpers.ts';
+import { create_mock_spawn } from './spawn_mocks.ts';
 
 vi.mock('#lib/sveltekit_helpers.ts', async (import_original) => ({
 	...(await import_original<typeof import('#lib/sveltekit_helpers.ts')>()),
@@ -23,24 +20,27 @@ vi.mock('#lib/package_json.ts', async (import_original) => ({
 }));
 
 afterEach(() => {
-	set_mock_args([]);
 	vi.clearAllMocks();
 });
+
+// a build's plugin context, its forwarded args the CLI's after the first `--`,
+// with no fs or spawn of its own, since what reaches them is mocked
+const to_ctx = (raw_rest_args: ReadonlyArray<string>) =>
+	create_mock_plugin_context({
+		dev: false,
+		watch: false,
+		host: { fs_paths: {} as never, spawn: create_mock_spawn() },
+		raw_rest_args
+	});
 
 // the directory the plugin rewrites imports in after `svelte-package`
 const to_rewritten_dir = async (
 	forwarded: Array<string> | null,
 	output?: string
 ): Promise<string> => {
-	set_mock_args(['build', ...(forwarded ? ['--', 'svelte-package', ...forwarded] : [])]);
-	const ctx = {
-		...create_mock_task_context(),
-		dev: false,
-		watch: false
-	} as unknown as PluginContext;
 	await gro_plugin_sveltekit_library({
 		svelte_package_options: output === undefined ? undefined : { output }
-	}).setup!(ctx);
+	}).setup!(to_ctx(forwarded ? ['--', 'svelte-package', ...forwarded] : []));
 	expect(vi.mocked(rewrite_dist_imports)).toHaveBeenCalledTimes(1);
 	return vi.mocked(rewrite_dist_imports).mock.calls[0]![1]!;
 };
@@ -62,15 +62,9 @@ describe('gro_plugin_sveltekit_library forwarded output', () => {
 test('a forwarded help or version flag is refused before `svelte-package` runs', async () => {
 	const { run_svelte_package } = vi.mocked(await import('#lib/sveltekit_helpers.ts'));
 	for (const flag of ['-h', '--version']) {
-		set_mock_args(['build', '--', 'svelte-package', flag]);
-		const ctx = {
-			...create_mock_task_context(),
-			dev: false,
-			watch: false
-		} as unknown as PluginContext;
-		await expect(gro_plugin_sveltekit_library().setup!(ctx)).rejects.toThrow(
-			`\`${flag}\` forwarded to svelte-package asks it for its `
-		);
+		await expect(
+			gro_plugin_sveltekit_library().setup!(to_ctx(['--', 'svelte-package', flag]))
+		).rejects.toThrow(`\`${flag}\` forwarded to svelte-package asks it for its `);
 	}
 	expect(run_svelte_package).not.toHaveBeenCalled();
 });

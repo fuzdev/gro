@@ -1,5 +1,5 @@
 import { describe, test, assert } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { createRequire, isBuiltin } from 'node:module';
 import { dirname, join, relative, resolve } from 'node:path';
 
@@ -49,6 +49,7 @@ const PACKAGE_MODULES = [
 	'github.ts',
 	'gro_builtin_task_imports.ts',
 	'gro_builtin_tasks.ts',
+	'gro_plugin_sveltekit_app.ts',
 	'input_path.ts',
 	'internal/code_points.ts',
 	'internal/env_name.ts',
@@ -116,13 +117,7 @@ const BUILTIN_TASK_IMPORTS_ID = join(paths.lib, 'gro_builtin_task_imports.ts');
 const PACKAGE_MODULES_BEYOND_THE_CLI = ['git.ts'];
 
 // the composition roots, which import the host modules and pass what they open down
-const ROOTS = [
-	'invoke.ts',
-	'gro.config.default.ts',
-	'gro_plugin_gen.ts',
-	'gro_plugin_sveltekit_app.ts',
-	'gro_plugin_sveltekit_library.ts'
-];
+const ROOTS = ['invoke.ts'];
 
 // the grant-free error modules beside the host modules, which a package module may import
 const ERROR_MODULES = [
@@ -160,7 +155,11 @@ const EXCEPTIONS = [
 	// the tsv host module, whose Node file a relative import loads
 	'dist_rewrite_imports.ts',
 	'gen_helpers.ts',
-	// the default config, a root, reached when loading the config
+	// and through them the default config and its plugins
+	'gro.config.default.ts',
+	'gro_plugin_gen.ts',
+	'gro_plugin_sveltekit_library.ts',
+	// the config, which hashes with the blake3 host module and loads the default config
 	'gro_config.ts',
 	// the CLI's body, which loads the config through `gro_config.ts`
 	'gro_main.ts'
@@ -382,6 +381,75 @@ describe('builtin tasks that take their handles from their `host`', () => {
 });
 
 /**
+ * The chains by which the static import closure of the module at `entry` reaches a module
+ * in `BUILTIN_TASK_FORBIDDEN`: a granted host module, Node's project loader, or its module graph.
+ */
+const to_forbidden_reaches = (entry: string): Array<string> => {
+	const parents: Map<string, string | null> = new Map([[entry, null]]);
+	const queue = [entry];
+	const reaches: Array<string> = [];
+	const to_chain = (id: string): string => {
+		const chain: Array<string> = [];
+		for (let at: string | null = id; at !== null; at = parents.get(at) ?? null) {
+			chain.push(relative(paths.root, at));
+		}
+		return chain.join(' <- ');
+	};
+	for (let id = queue.shift(); id !== undefined; id = queue.shift()) {
+		if (id === BUILTIN_TASK_IMPORTS_ID) continue;
+		for (const specifier of to_specifiers(id)) {
+			// a package's imports are its own, and gro's reach its host modules only by path
+			if (!specifier.startsWith('.')) continue;
+			const target = resolve(dirname(id), specifier);
+			if (BUILTIN_TASK_FORBIDDEN.has(target)) {
+				reaches.push(`${relative(paths.root, target)} <- ${to_chain(id)}`);
+				continue;
+			}
+			if (!parents.has(target)) {
+				parents.set(target, id);
+				queue.push(target);
+			}
+		}
+	}
+	return reaches;
+};
+
+// the default config and every plugin Gro ships, which a project's config loads,
+// and the config loads on every command, so what they import when they load links then;
+// a plugin takes its handles from the `host` of the context it's set up with
+const CONFIG_AND_PLUGINS = [
+	'gro.config.default.ts',
+	...readdirSync(paths.lib).filter((name) => name.startsWith('gro_plugin_') && name.endsWith('.ts'))
+];
+
+describe('the default config and the plugins Gro ships', () => {
+	test('include every plugin module', () => {
+		assert.includeMembers(CONFIG_AND_PLUGINS, [
+			'gro_plugin_gen.ts',
+			'gro_plugin_server.ts',
+			'gro_plugin_sveltekit_app.ts',
+			'gro_plugin_sveltekit_library.ts'
+		]);
+	});
+
+	// the walk finds a reach when there is one, directly and through another module
+	test('finds what a root reaches', () => {
+		const reaches = to_forbidden_reaches(join(paths.lib, 'invoke.ts'));
+		assert.include(reaches, 'src/lib/fs.ts <- src/lib/invoke.ts');
+		assert.include(
+			reaches,
+			'src/lib/module_graph_node.ts <- src/lib/internal/node_platform.ts <- src/lib/invoke.ts'
+		);
+	});
+
+	for (const name of CONFIG_AND_PLUGINS) {
+		test(`${name} imports no granted host module, project loader, or module graph when it loads`, () => {
+			assert.deepEqual(to_forbidden_reaches(join(paths.lib, name)), []);
+		});
+	}
+});
+
+/**
  * The modules `entry` reaches by relative value imports, `entry` included, relative to `src/lib`.
  */
 const to_lib_closure = (entry: string): Array<string> => {
@@ -453,18 +521,13 @@ describe("the CLI entry's closure", () => {
 	});
 
 	// what the binary's entry calls, where a relative import of a host module is its builtin:
-	// it reaches no `node:` builtin, and a granted host module only through the default config,
-	// whose plugins import theirs when it loads
-	test('the CLI body, `gro_main.ts`, reaches Node only through the default config', () => {
+	// it reaches no `node:` builtin and only the grant-free host modules
+	test('the CLI body, `gro_main.ts`, reaches Node only through the grant-free host modules', () => {
 		const grant_free = GRANT_FREE_HOST_MODULES.map((id) => relative(paths.root, id) + ' <- ');
 		const violations = to_closure_violations(join(paths.lib, 'gro_main.ts'));
 		assert.ok(violations.length > 0);
 		assert.deepEqual(
-			violations.filter(
-				(violation) =>
-					!violation.includes(' <- src/lib/gro.config.default.ts <- ') &&
-					!grant_free.some((prefix) => violation.startsWith(prefix))
-			),
+			violations.filter((violation) => !grant_free.some((prefix) => violation.startsWith(prefix))),
 			[]
 		);
 	});

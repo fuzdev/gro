@@ -3,16 +3,18 @@ import { wait } from '@fuzdev/fuz_util/async.ts';
 
 import { gro_plugin_gen, type GroPluginGenOptions } from '#lib/gro_plugin_gen.ts';
 import type { FileChange, ModuleGraph } from '#lib/module_graph.ts';
-import type { PluginContext } from '#lib/plugin.ts';
+import type { PluginContext, PluginHost } from '#lib/plugin.ts';
 import { SpawnError } from '#lib/spawn_error.ts';
 import { is_task_error, ReportedError } from '#lib/task_error.ts';
 import { find_genfiles, is_gen_path } from '#lib/gen.ts';
 import { load_module } from '#lib/modules.ts';
 
-import { get_mock_spawn } from './spawn_mocks.ts';
-import { create_mock_logger } from './test_helpers.ts';
+import { fs } from '#lib/fs.ts';
+import { create_fs_paths } from '#lib/fs_paths.ts';
+import { import_module_node } from '#lib/internal/node_import_module.ts';
 
-vi.mock('#lib/spawn.ts', async () => (await import('./spawn_mocks.ts')).create_mock_spawn_module());
+import { create_mock_spawn } from './spawn_mocks.ts';
+import { create_mock_logger } from './test_helpers.ts';
 
 vi.mock('#lib/gen.ts', async (import_original) => ({
 	...(await import_original<typeof import('#lib/gen.ts')>()),
@@ -35,8 +37,18 @@ beforeEach(() => {
 	});
 });
 
-afterEach(async () => {
-	(await get_mock_spawn()).reset();
+const spawn = create_mock_spawn();
+
+// the handles `gro dev` gives the plugin, but for the mock spawn
+const host: PluginHost = {
+	fs_paths: create_fs_paths(fs, { cwd: process.cwd(), home: process.env.HOME }),
+	env: {} as never,
+	spawn,
+	import_module: import_module_node
+};
+
+afterEach(() => {
+	spawn.reset();
 });
 
 /**
@@ -74,7 +86,8 @@ const setup = async (graph: ModuleGraph, options?: GroPluginGenOptions) => {
 		dev: true,
 		watch: true,
 		log,
-		graph
+		graph,
+		host
 	} as unknown as PluginContext);
 	return log;
 };
@@ -98,7 +111,7 @@ test('a change whose check fails on an open graph logs the error', async () => {
 });
 
 test('a change re-invokes `gro gen` for the affected genfile with the whole environment', async () => {
-	const mock = await get_mock_spawn();
+	const mock = spawn;
 	const { graph, change } = create_graph();
 	await setup(graph, { flush_debounce_delay: 0 });
 	await change(GENFILE);
@@ -111,7 +124,7 @@ test('a change re-invokes `gro gen` for the affected genfile with the whole envi
 });
 
 test('a genfile deleted after being queued is dropped, and an emptied queue runs no gen', async () => {
-	const mock = await get_mock_spawn();
+	const mock = spawn;
 	const { graph, change } = create_graph();
 	await setup(graph, { flush_debounce_delay: 10 });
 	await change(GENFILE);
@@ -121,7 +134,7 @@ test('a genfile deleted after being queued is dropped, and an emptied queue runs
 });
 
 test('a deleted genfile leaves the rest of the queue to run', async () => {
-	const mock = await get_mock_spawn();
+	const mock = spawn;
 	const other = '/p/src/c.gen.ts';
 	const { graph, change } = create_graph();
 	graph.modules = () => Promise.resolve([GENFILE, other]);
@@ -134,7 +147,7 @@ test('a deleted genfile leaves the rest of the queue to run', async () => {
 });
 
 test('a change queries the dependents once and runs only the genfiles among them', async () => {
-	const mock = await get_mock_spawn();
+	const mock = spawn;
 	const dependent = '/p/src/c.gen.ts';
 	const { graph, change } = create_graph();
 	graph.modules = () => Promise.resolve([GENFILE, dependent]);
@@ -170,7 +183,7 @@ test('invalid inputs are logged once per genfile across changes, naming each', a
 });
 
 test('a gen run that throws logs the error, and the queue keeps working', async () => {
-	const mock = await get_mock_spawn();
+	const mock = spawn;
 	const spawn_error = new SpawnError('not_executable', 'node_modules/.bin/gro');
 	mock.find_error = () => spawn_error;
 	const on_unhandled = vi.fn();
@@ -196,7 +209,7 @@ test('a gen run that throws logs the error, and the queue keeps working', async 
 });
 
 test('a gen run that exits non-zero with watch logs nothing fatal and the queue keeps working', async () => {
-	const mock = await get_mock_spawn();
+	const mock = spawn;
 	mock.result = { kind: 'exited', code: 1 };
 	const { graph, change } = create_graph();
 	await setup(graph, { flush_debounce_delay: 0 });
@@ -223,7 +236,8 @@ const setup_no_watch = async (
 			log: create_mock_logger(),
 			config: {},
 			graph,
-			invoke_task
+			invoke_task,
+			host
 		} as unknown as PluginContext);
 	} catch (error) {
 		return error;
@@ -232,7 +246,7 @@ const setup_no_watch = async (
 };
 
 test('with no watch, gen runs in-process, spawning no `gro`', async () => {
-	const mock = await get_mock_spawn();
+	const mock = spawn;
 	mock.available = () => false; // none on `PATH` or in `.bin`, as with an absolute-path gro
 	const invoke_task = vi.fn();
 	assert.equal(await setup_no_watch(undefined, invoke_task as never), undefined);
@@ -250,4 +264,14 @@ test('with no watch, a failing gen fails the setup with its error', async () => 
 	const failure = new ReportedError();
 	const error = await setup_no_watch(undefined, () => Promise.reject(failure));
 	assert.strictEqual(error, failure);
+});
+
+test("a change loads each genfile through the host's `import_module`", async () => {
+	const { graph, change } = create_graph();
+	await setup(graph, { flush_debounce_delay: 0 });
+	await change();
+	assert.ok(vi.mocked(load_module).mock.calls.length > 0);
+	for (const call of vi.mocked(load_module).mock.calls) {
+		assert.strictEqual(call[1], host.import_module);
+	}
 });

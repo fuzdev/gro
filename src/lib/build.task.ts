@@ -4,7 +4,7 @@ import { styleText as st } from 'node:util';
 
 import type { Task } from './task.ts';
 import { TaskError } from './task_error.ts';
-import { Plugins, to_plugin_context } from './plugin.ts';
+import { Plugins, to_plugin_context, type PluginHost } from './plugin.ts';
 import { clean_fs } from './clean_fs.ts';
 import {
 	is_build_cache_valid,
@@ -27,6 +27,7 @@ import {
 } from './git.ts';
 import { spawn } from './spawn.ts';
 import { runtime_version } from './runtime_version.ts';
+import { import_module_node } from './internal/node_import_module.ts';
 
 /** @nodocs */
 export const Args = s.object({
@@ -137,7 +138,10 @@ export const task: Task<Args> = {
 			await clean_fs({ fs_paths }, { dist_dirs: true });
 		}
 
-		const plugins = await Plugins.create(to_plugin_context(ctx, false, false));
+		// a builtin with no grants, so a root: its plugins get the handles it opens,
+		// and the Node project loader
+		const host: PluginHost = { fs_paths, env, spawn, import_module: import_module_node };
+		const plugins = await Plugins.create(to_plugin_context(ctx, host, false, false));
 		await plugins.setup();
 		await plugins.adapt();
 		await plugins.teardown();
