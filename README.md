@@ -4,6 +4,9 @@
 
 > security-first JS runtime and toolchain on V8 🌰 generate, run, optimize
 
+> ⚠️ **Experimental.** Gro is a dev tool, not for production use, and its Rust
+> runtime is an in-progress design.
+
 > ⚠️ The TypeScript tool [doesn't support Windows](https://github.com/fuzdev/gro/issues/319) because its spawn host module runs only ELF, Mach-O, and `#!` programs, not a Windows `.exe`, `.bat`, or `.cmd`;
 > the Rust [runtime](/src/docs/runtime.md) will.
 
@@ -58,6 +61,11 @@ The Node tool includes:
   and formatting with [`tsv`](https://github.com/fuzdev/tsv)
 - its modules exported from `src/lib`, except those under `internal/`,
   and [Changesets](https://github.com/changesets/changesets) for versioning and changelogs
+
+Gro is part of the Fuz stack
+([fuz.dev](https://www.fuz.dev/), [@fuzdev](https://github.com/fuzdev)).
+
+AI disclosure: much of this codebase is LLM-generated with uneven human review.
 
 ## Docs
 
