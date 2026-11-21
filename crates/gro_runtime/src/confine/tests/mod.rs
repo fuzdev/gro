@@ -1,6 +1,6 @@
 //! Tests for confinement: shared scratch directories here, then the link
-//! closure, the seccomp tables and filters, the Landlock floor, and the
-//! rules by topic.
+//! closure, the BPF interpreter and eval's seccomp tables and filters read
+//! by it, the Landlock floor, and the rules by topic.
 
 use std::path::{Path, PathBuf};
 
@@ -9,6 +9,7 @@ use std::os::unix::fs::PermissionsExt as _;
 use super::{BoxRoots, ConfineError, Jit, Prepared};
 use crate::test_support::TestDir;
 
+mod bpf;
 mod closure;
 mod landlock;
 mod rules;

@@ -1,6 +1,7 @@
-//! Tests for the seccomp tables and filters: the census lists, a BPF
-//! interpreter, and the decision table.
+//! Tests for eval's seccomp tables and filters: the census lists and the
+//! decision table, read by the BPF interpreter.
 
+use super::bpf::{audit_arch, check_classic, decide};
 use crate::confine::Jit;
 use crate::confine::seccomp::{
     ALLOWED_CALLS, KEPT_ACCESS_MODE, KEPT_FCNTLS, KEPT_IOCTLS, KEPT_PRCTLS, KEPT_SOCKETPAIR,
@@ -250,67 +251,6 @@ fn the_allowlist_is_the_census() {
     );
 }
 
-/// The `seccomp_data` architecture value of the kernel's ABI this test runs on:
-/// `AUDIT_ARCH_X86_64` or `AUDIT_ARCH_AARCH64`, the architectures the box is
-/// built for.
-fn audit_arch() -> u32 {
-    match std::env::consts::ARCH {
-        "x86_64" => 0xc000_003e,
-        "aarch64" => 0xc000_00b7,
-        other => panic!("no seccomp_data architecture value for {other}"),
-    }
-}
-
-/// What the kernel would decide for the call `nr` with `args`, from the
-/// architecture `arch`, under the compiled `filter`: a classic BPF
-/// interpreter over the instructions `seccompiler` emits, run on the
-/// `seccomp_data` the kernel hands a filter (`nr` and `arch`, 32 bits
-/// each, the instruction pointer, then the six arguments, 64 bits each,
-/// little-endian on both architectures), so a table can pin the policy
-/// as compiled. Returns the filter's return value, its action and data.
-/// An instruction it doesn't know panics, never passes.
-fn decide(filter: &[seccompiler::sock_filter], arch: u32, nr: libc::c_long, args: [u64; 6]) -> u32 {
-    const LOAD: u32 = libc::BPF_LD | libc::BPF_W | libc::BPF_ABS;
-    const AND: u32 = libc::BPF_ALU | libc::BPF_AND | libc::BPF_K;
-    const JUMP: u32 = libc::BPF_JMP | libc::BPF_JA;
-    const EQUAL: u32 = libc::BPF_JMP | libc::BPF_JEQ | libc::BPF_K;
-    const ABOVE: u32 = libc::BPF_JMP | libc::BPF_JGT | libc::BPF_K;
-    const AT_LEAST: u32 = libc::BPF_JMP | libc::BPF_JGE | libc::BPF_K;
-    const RETURN: u32 = libc::BPF_RET | libc::BPF_K;
-    let mut data = [0_u8; 64];
-    data[..4].copy_from_slice(&i32::try_from(nr).unwrap().to_le_bytes());
-    data[4..8].copy_from_slice(&arch.to_le_bytes());
-    for (slot, arg) in data[16..].as_chunks_mut::<8>().0.iter_mut().zip(args) {
-        slot.copy_from_slice(&arg.to_le_bytes());
-    }
-    let (mut pc, mut accumulator) = (0, 0_u32);
-    loop {
-        let instruction = &filter[pc];
-        pc += 1;
-        let k = instruction.k;
-        let taken = |taken: bool| {
-            usize::from(if taken {
-                instruction.jt
-            } else {
-                instruction.jf
-            })
-        };
-        match u32::from(instruction.code) {
-            LOAD => {
-                let at = usize::try_from(k).unwrap();
-                accumulator = u32::from_le_bytes(data[at..at + 4].try_into().unwrap());
-            }
-            AND => accumulator &= k,
-            JUMP => pc += usize::try_from(k).unwrap(),
-            EQUAL => pc += taken(accumulator == k),
-            ABOVE => pc += taken(accumulator > k),
-            AT_LEAST => pc += taken(accumulator >= k),
-            RETURN => return k,
-            code => panic!("an instruction the evaluator doesn't know: {code:#x}"),
-        }
-    }
-}
-
 /// The filters decide each call as the policy says, read as the kernel
 /// reads them, for a box with the JIT off and one with it on. The
 /// allowlist allows every listed call, and the calls allowed by their
@@ -319,7 +259,8 @@ fn decide(filter: &[seccompiler::sock_filter], arch: u32, nr: libc::c_long, args
 /// `PROT_EXEC` clear in `prot`, and with the JIT, whatever their
 /// arguments; every other call, an x32 call among them, fails with
 /// `ENOSYS`. The killing filter allows all of those and kills on its own
-/// calls, and both kill a call from another architecture.
+/// calls, and both kill a call from another architecture. Both pass the
+/// kernel's checks first.
 #[test]
 fn the_filters_decide_by_the_allowlist() {
     const ALLOW: u32 = libc::SECCOMP_RET_ALLOW;
@@ -558,6 +499,8 @@ fn the_filters_decide_by_the_allowlist() {
     ];
     for jit in [Jit::Off, Jit::On] {
         let [killing, allowing] = seccomp_filters(jit).unwrap();
+        check_classic(&killing);
+        check_classic(&allowing);
         let mut cases = cases.clone();
         // listed apart from `MAPPING_CALLS`, so a call dropped there
         // fails here too
