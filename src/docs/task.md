@@ -252,6 +252,9 @@ declared in the genfile: reading the project and loading its config
 `gro_main` cuts the root's handles by that row as `run_task` cuts a builtin's,
 loading the config through it, and every command's closure holds it
 beside the grants of the builtins the command runs.
+The genfile writes both again as JSON, `src/builtin_grants.json`,
+for the binary to read natively, before any JS runs,
+the two renders held equal by a test.
 `run_task` cuts the root's handles by `GRO_BUILTIN_TASK_GRANTS` into the builtin's `host`,
 a `BuiltinTaskContext` field present only on a builtin's context:
 `fs_paths` with an `fs` grant, `env` narrowed to the names,

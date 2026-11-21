@@ -88,7 +88,8 @@ errors and exit codes. Where it lives:
   with the program's `name`, the only one the role runs,
   `local` for the project's own install in `node_modules/.bin`, never one on `PATH`,
   and its environment as `SpawnProgramOptions` has it),
-  emitted as `GRO_BUILTIN_TASK_GRANTS` by the summaries genfile; the root's
+  emitted as `GRO_BUILTIN_TASK_GRANTS` by the summaries genfile, and with the CLI's row as JSON
+  in `src/builtin_grants.json` for the binary to read natively; the root's
   `BuiltinHostRoot` (`env`, `spawn`, `stdout`, `stderr`) rides `InvokeTaskOptions` as `host_root`,
   and `run_task` cuts it by the table (`create_builtin_host`) into the `host`
   of a `BuiltinTaskContext`, only for a builtin, refusing an invoke its grants
