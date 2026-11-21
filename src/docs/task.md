@@ -403,6 +403,10 @@ rewrite it from scratch, compose several, or whatever each project needs.
 in `dependencies` or `devDependencies`, and only the project's own install in `node_modules/.bin`,
 so the tool that runs is the one `package.json` names, never a copy on `PATH`;
 `svelte-kit`, from `@sveltejs/kit`, is found the same way.
+Before the task the CLI invokes, Gro runs `svelte-kit sync` once for a project declaring `@sveltejs/kit`
+whose `.svelte-kit` directory or generated `node_modules/$app/tsconfig.json` is missing;
+when `svelte-kit` isn't in `node_modules/.bin` it skips the sync and warns that SvelteKit's files
+weren't synced, except on a fresh clone with no `node_modules`, where `gro sync --install` installs first.
 Vitest's rule is in [test](./test.md#when-vitest-isnt-declared), and ESLint's follows it:
 `gro lint` fails when ESLint isn't declared, and when it's declared but not installed in the project.
 `gro check` runs its lint step only when ESLint is declared or args are forwarded to the linter,

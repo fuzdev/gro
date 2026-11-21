@@ -36,7 +36,8 @@ describe('sveltekit_sync_if_obviously_needed', () => {
 		const spawn = create_mock_spawn();
 		await sveltekit_sync_if_obviously_needed(
 			fs_paths,
-			to_cli_finder(spawn, SVELTEKIT_PROGRAM_OPTIONS)
+			to_cli_finder(spawn, SVELTEKIT_PROGRAM_OPTIONS),
+			{ warn: vi.fn() }
 		);
 		assert.strictEqual(count_syncs(spawn), 0);
 		for (const [path] of open_path.mock.calls) {
@@ -50,11 +51,54 @@ describe('sveltekit_sync_if_obviously_needed', () => {
 		['only the generated tsconfig', SVELTEKIT_TSCONFIG_PATH]
 	])('syncs a declared project with %s', async (_name, present) => {
 		const spawn = create_mock_spawn();
+		const warn = vi.fn();
 		await sveltekit_sync_if_obviously_needed(
 			to_project({ 'package.json': DECLARED, [present]: '{}' }),
-			to_cli_finder(spawn, SVELTEKIT_PROGRAM_OPTIONS)
+			to_cli_finder(spawn, SVELTEKIT_PROGRAM_OPTIONS),
+			{ warn }
 		);
 		assert.strictEqual(count_syncs(spawn), 1);
+		assert.deepEqual(warn.mock.calls, []);
+	});
+});
+
+describe('sveltekit_sync_if_obviously_needed without the CLI', () => {
+	const run = async (tree: Record<string, string>): Promise<Array<unknown>> => {
+		const spawn = create_mock_spawn();
+		spawn.available = () => false;
+		const warn = vi.fn();
+		await sveltekit_sync_if_obviously_needed(
+			to_project(tree),
+			to_cli_finder(spawn, SVELTEKIT_PROGRAM_OPTIONS),
+			{ warn }
+		);
+		assert.strictEqual(count_syncs(spawn), 0);
+		return warn.mock.calls;
+	};
+
+	test('a declared project with a `node_modules` missing the CLI warns once', async () => {
+		assert.deepEqual(await run({ 'package.json': DECLARED, 'node_modules/x/package.json': '{}' }), [
+			[
+				"@sveltejs/kit is declared but `svelte-kit` isn't in node_modules/.bin," +
+					" so SvelteKit's files weren't synced - run `npm i`"
+			]
+		]);
+	});
+
+	test('a fresh clone with no `node_modules` skips quietly, so an install can run', async () => {
+		assert.deepEqual(await run({ 'package.json': DECLARED }), []);
+	});
+
+	test('a project not declaring SvelteKit, or already synced, never warns', async () => {
+		assert.deepEqual(await run({ 'package.json': '{}', 'node_modules/x/package.json': '{}' }), []);
+		assert.deepEqual(
+			await run({
+				'package.json': DECLARED,
+				[`${SVELTEKIT_DEV_DIRNAME}/x`]: '',
+				[SVELTEKIT_TSCONFIG_PATH]: '{}'
+			}),
+			[]
+		);
 	});
 });
 

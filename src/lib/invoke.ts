@@ -97,7 +97,12 @@ if (!env.get('NO_COLOR')) {
 // the builtins getting what their grants name from the env, spawn, and stream roots
 const fs_paths = create_fs_paths(fs, { cwd: cwd(), home: env.get('HOME') });
 
-await sveltekit_sync_if_obviously_needed(fs_paths, to_cli_finder(spawn, SVELTEKIT_PROGRAM_OPTIONS));
+// once per CLI run, as only this root calls it, never a task `invoke_task` runs
+await sveltekit_sync_if_obviously_needed(
+	fs_paths,
+	to_cli_finder(spawn, SVELTEKIT_PROGRAM_OPTIONS),
+	new Logger('gro')
+);
 
 let task_args: CliTaskArgs;
 try {

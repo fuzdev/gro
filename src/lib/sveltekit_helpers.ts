@@ -19,7 +19,8 @@ import {
 	SVELTEKIT_TSCONFIG_PATH,
 	SVELTEKIT_TSCONFIG_SPECIFIER,
 	TSCONFIG_FILENAME,
-	LIB_PATH
+	LIB_PATH,
+	NODE_MODULES_DIRNAME
 } from './constants.ts';
 import { package_json_has_dependency, package_json_load } from './package_json.ts';
 import { TaskError } from './task_error.ts';
@@ -119,14 +120,19 @@ const run_sveltekit_sync = async (found_sveltekit_cli: SpawnProgram): Promise<vo
  * What runs before every task: `svelte-kit sync` for a project `has_sveltekit_app` detects whose
  * `.svelte-kit` directory or generated `$app/tsconfig` is missing, the tsconfig checked because
  * it lives in `node_modules`, which reinstalls wipe. A project with both pays only their checks.
- * A CLI that isn't found skips rather than throws, so `gro sync --install` runs on a fresh clone.
+ * A CLI that isn't found skips rather than throws, so `gro sync --install` runs on a fresh clone,
+ * and warns that the files weren't synced when the project has a `node_modules`,
+ * an install missing SvelteKit, and stays quiet on a fresh clone with none,
+ * which `gro sync --install` installs.
  * @param fs_paths - checks for the project's synced files and reads its `package.json`
  * @param finder - finds the CLI, with its environment
+ * @param log - warns of a skip
  * @throws `TaskError` if the CLI fails
  */
 export const sveltekit_sync_if_obviously_needed = async (
 	fs_paths: FsPaths,
-	finder: CliFinder
+	finder: CliFinder,
+	log: Pick<Logger, 'warn'>
 ): Promise<void> => {
 	if (
 		(await path_exists(fs_paths, SVELTEKIT_DEV_DIRNAME)) &&
@@ -136,7 +142,14 @@ export const sveltekit_sync_if_obviously_needed = async (
 	}
 	if (!(await project_has_sveltekit_app(fs_paths))) return;
 	const found_sveltekit_cli = finder.find(SVELTEKIT_CLI);
-	if (found_sveltekit_cli) await run_sveltekit_sync(found_sveltekit_cli);
+	if (found_sveltekit_cli) {
+		await run_sveltekit_sync(found_sveltekit_cli);
+	} else if (await path_exists(fs_paths, NODE_MODULES_DIRNAME)) {
+		log.warn(
+			`${SVELTEKIT_DEP_NAME} is declared but \`${SVELTEKIT_CLI}\` isn't in node_modules/.bin,` +
+				" so SvelteKit's files weren't synced - run `npm i`"
+		);
+	}
 };
 
 /**
