@@ -1,0 +1,172 @@
+{
+	"description": "Sorts every file of `src/lib` for the binary's embed of Gro's own code: the modules it takes, and the ones it leaves out, by group, each group with its reason. Paths are relative to `src/lib`, each list sorted.",
+	"embedded": [
+		"builtin_host.ts",
+		"changelog.ts",
+		"changeset_helpers.ts",
+		"check.task.ts",
+		"child_process_logging.ts",
+		"clean.task.ts",
+		"clean_fs.ts",
+		"cli.ts",
+		"constants.ts",
+		"dist_rewrite_imports.ts",
+		"env_declarations.ts",
+		"env_files.ts",
+		"error_detail.ts",
+		"eslint_helpers.ts",
+		"format.task.ts",
+		"format_directory.ts",
+		"format_file.ts",
+		"fs_paths.ts",
+		"fs_search.ts",
+		"gen.task.ts",
+		"gen.ts",
+		"gen_helpers.ts",
+		"git.ts",
+		"github.ts",
+		"gro.config.default.ts",
+		"gro_builtin_task_imports.ts",
+		"gro_builtin_tasks.ts",
+		"gro_config.ts",
+		"gro_helpers.ts",
+		"gro_main.ts",
+		"gro_plugin_gen.ts",
+		"gro_plugin_server.ts",
+		"gro_plugin_sveltekit_app.ts",
+		"gro_plugin_sveltekit_library.ts",
+		"index.ts",
+		"input_path.ts",
+		"internal/code_points.ts",
+		"internal/env_name.ts",
+		"internal/error_class.ts",
+		"internal/error_report.ts",
+		"internal/forwarded_info_flags.ts",
+		"internal/fs_boundary.ts",
+		"internal/fs_handles.ts",
+		"internal/glob.ts",
+		"internal/gro_dir.ts",
+		"internal/posix_path.ts",
+		"internal/records.ts",
+		"internal/server_restarts.ts",
+		"internal/task_hints.ts",
+		"invoke_task.ts",
+		"lint.task.ts",
+		"module_graph.ts",
+		"modules.ts",
+		"npm_install_check.ts",
+		"npm_install_helpers.ts",
+		"package_json.ts",
+		"paths.ts",
+		"plugin.ts",
+		"release.task.ts",
+		"run_gen.ts",
+		"run_task.ts",
+		"spawn_restartable.ts",
+		"svelte_helpers.ts",
+		"sveltekit_helpers.ts",
+		"sync.task.ts",
+		"task.ts",
+		"task_args.ts",
+		"task_error.ts",
+		"task_logging.ts",
+		"task_registry.ts",
+		"test.task.ts",
+		"typecheck.task.ts",
+		"vitest_helpers.ts"
+	],
+	"excluded": {
+		"host_modules": {
+			"reason": "The host modules and their error modules, each a builtin the runtime serves, or reserves until it's built: an embedded module's relative import of one is the builtin, so its Node file never loads.",
+			"modules": [
+				"args.ts",
+				"blake3.ts",
+				"cwd.ts",
+				"env.ts",
+				"env_error.ts",
+				"exit.ts",
+				"fs.ts",
+				"fs_error.ts",
+				"net.ts",
+				"net_error.ts",
+				"pid.ts",
+				"runtime_version.ts",
+				"spawn.ts",
+				"spawn_error.ts",
+				"stderr.ts",
+				"stdin.ts",
+				"stdio_error.ts",
+				"stdout.ts",
+				"tsv.ts",
+				"watch.ts"
+			]
+		},
+		"node_roots": {
+			"reason": "The Node Gro's composition roots, which open the host modules and pass them down: the CLI's entry, and the launcher that hands off to a project's own install. The binary has its own entry.",
+			"modules": [
+				"gro.ts",
+				"invoke.ts"
+			]
+		},
+		"node_loader": {
+			"reason": "Node's module loader, its registration, and the SvelteKit `$app` shims its resolve hook maps to, which the runtime's resolver and loader replace.",
+			"modules": [
+				"loader.ts",
+				"register.ts",
+				"sveltekit_shim_app.ts",
+				"sveltekit_shim_app_env.ts",
+				"sveltekit_shim_app_env_vars.ts",
+				"sveltekit_shim_app_forms.ts",
+				"sveltekit_shim_app_navigation.ts",
+				"sveltekit_shim_app_paths.ts",
+				"sveltekit_shim_app_state.ts"
+			]
+		},
+		"node_only": {
+			"reason": "Machinery only the Node Gro runs, which the runtime replaces rather than loads: the checked working directory and the streams behind the Node host modules, the CLI's process listeners, the running Gro's module paths, Node's project loader and platform, the Svelte config read through Vite, and the Node module graph with the Filer family.",
+			"modules": [
+				"internal/cwd.ts",
+				"internal/disknode.ts",
+				"internal/filer.ts",
+				"internal/node_cli_process.ts",
+				"internal/node_gro_module_path.ts",
+				"internal/node_import_module.ts",
+				"internal/node_platform.ts",
+				"internal/parse_imports.ts",
+				"internal/process_output.ts",
+				"internal/watch_dir.ts",
+				"module_graph_node.ts",
+				"resolve_specifier.ts",
+				"svelte_config.ts"
+			]
+		},
+		"node_builtin_tasks": {
+			"reason": "The builtin tasks with no grants, which import their host modules, so they run only on the Node Gro.",
+			"modules": [
+				"build.task.ts",
+				"changeset.task.ts",
+				"commit.task.ts",
+				"deploy.task.ts",
+				"dev.task.ts",
+				"publish.task.ts",
+				"reinstall.task.ts",
+				"run.task.ts",
+				"upgrade.task.ts"
+			]
+		},
+		"genfiles": {
+			"reason": "Genfiles, which generate Gro's own source in its checkout.",
+			"modules": [
+				"gro_builtin_tasks.gen.ts"
+			]
+		},
+		"reaches_node": {
+			"reason": "Library modules whose imports still reach a `node:` builtin, or a package outside the ones the embed's modules import, each embedded once they reach neither.",
+			"modules": [
+				"build_cache.ts",
+				"build_cache_dependencies.ts",
+				"library_load.ts"
+			]
+		}
+	}
+}
