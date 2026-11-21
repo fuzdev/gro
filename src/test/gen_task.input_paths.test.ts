@@ -22,6 +22,8 @@ const REASON = 'Input directory contains no matching files: src/foo';
 const to_deps = (): GenTaskDeps => ({
 	fs_paths: create_fs_paths(fs, to_fs_paths_options()),
 	import_module: vi.fn(),
+	// Gro's own repo, synced, so no `svelte-kit` is found
+	programs: { find: vi.fn(() => null) },
 	load_svelte_config: vi.fn(),
 	log: create_mock_logger(),
 	timings: create_mock_timings()

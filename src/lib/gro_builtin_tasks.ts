@@ -95,7 +95,10 @@ export const GRO_BUILTIN_TASK_GRANTS: Record<keyof GroBuiltinTasks, BuiltinTaskG
 		check: {
 			fs: { read: ['.'] },
 			env: ['CI'],
-			programs: { git_cli: { name: 'git', pass_env: ['GIT_*', 'XDG_CONFIG_HOME', 'SUDO_UID'] } },
+			programs: {
+				git_cli: { name: 'git', pass_env: ['GIT_*', 'XDG_CONFIG_HOME', 'SUDO_UID'] },
+				sveltekit_cli: { name: 'svelte-kit', local: true, pass_env: 'all' }
+			},
 			invokes: {
 				sync: {},
 				build: { when: 'build' },
@@ -114,10 +117,17 @@ export const GRO_BUILTIN_TASK_GRANTS: Record<keyof GroBuiltinTasks, BuiltinTaskG
 		deploy: null,
 		dev: null,
 		format: { fs: { read: ['.'], write: ['.'] } },
-		gen: { fs: { read: ['.'], write: ['.'] }, project_modules: true },
+		gen: {
+			fs: { read: ['.'], write: ['.'] },
+			project_modules: true,
+			programs: { sveltekit_cli: { name: 'svelte-kit', local: true, pass_env: 'all' } }
+		},
 		lint: {
 			fs: { read: ['.'] },
-			programs: { eslint_cli: { name: 'eslint', local: true, pass_env: 'all' } }
+			programs: {
+				eslint_cli: { name: 'eslint', local: true, pass_env: 'all' },
+				sveltekit_cli: { name: 'svelte-kit', local: true, pass_env: 'all' }
+			}
 		},
 		publish: null,
 		reinstall: null,

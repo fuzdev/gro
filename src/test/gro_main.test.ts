@@ -23,10 +23,14 @@ afterEach(() => {
 // what a run writes to the root's stderr, the throwing root's other handles left as they are
 let stderr_writes: Array<string> = [];
 
-const run = async (args: Array<string>, version = '0.0.0-test'): Promise<void> => {
+const run = async (
+	args: Array<string>,
+	version = '0.0.0-test',
+	package_json = '{"name": "x"}'
+): Promise<void> => {
 	const dir = mkdtempSync(join(tmpdir(), 'gro_main_'));
 	try {
-		writeFileSync(join(dir, 'package.json'), '{"name": "x"}');
+		writeFileSync(join(dir, 'package.json'), package_json);
 		mkdirSync(join(dir, 'src'));
 		await gro_main({
 			args,
@@ -148,4 +152,15 @@ test('a misspelled grant flag is a usage error before anything runs', async () =
 	assert.instanceOf(thrown, ReportedError);
 	assert.strictEqual(error.mock.calls.length, 1);
 	assert.include(String(error.mock.calls[0]![0]), 'is no grant flag');
+});
+
+test("an unsynced SvelteKit app's `--version` runs no program, as no sync precedes the command", async () => {
+	const info = vi.spyOn(Logger.prototype, 'info').mockImplementation(() => undefined);
+	// the root's spawn throws on any use, and a SvelteKit app never synced would want `svelte-kit`
+	await run(
+		['--version'],
+		'1.2.3-test',
+		'{"name": "x", "devDependencies": {"@sveltejs/kit": "*"}}'
+	);
+	assert.ok(info.mock.calls.some((call) => String(call[0]).includes('1.2.3-test')));
 });

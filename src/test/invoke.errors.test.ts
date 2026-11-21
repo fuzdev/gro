@@ -14,11 +14,11 @@ const INVOKE_SOURCE_PATH = resolve('src/lib/invoke.ts');
 const SPAWN_SOURCE_PATH = resolve('src/lib/spawn.ts');
 
 test(
-	'a TaskError raised before any task prints its message with no stack and exits 1',
+	"a TaskError from a builtin's sync prints its message with no stack and exits 1",
 	async () => {
 		const dir = await mkdtemp(join(tmpdir(), 'gro_invoke_errors_'));
 		onTestFinished(() => rm(dir, { recursive: true, force: true }));
-		// a failing `svelte-kit` CLI, what `sveltekit_sync_if_obviously_needed` runs before any task
+		// a failing `svelte-kit` CLI, what `gen` runs first for an unsynced project
 		await mkdir(join(dir, 'node_modules/.bin'), { recursive: true });
 		const cli = join(dir, 'node_modules/.bin/svelte-kit');
 		await writeFile(cli, '#!/bin/sh\nexit 1\n');
@@ -30,7 +30,7 @@ test(
 
 		const result = spawnSync(
 			process.execPath,
-			spawn_with_loader_args(LOADER_SOURCE_PATH, INVOKE_SOURCE_PATH, [], undefined),
+			spawn_with_loader_args(LOADER_SOURCE_PATH, INVOKE_SOURCE_PATH, ['gen'], undefined),
 			// the logger goes quiet under `VITEST`, and a child inherits it
 			{ cwd: dir, encoding: 'utf8', env: { ...process.env, NO_COLOR: '1', VITEST: '' } }
 		);
@@ -64,6 +64,7 @@ describe('SvelteKit sync without SvelteKit in the dependencies', () => {
 		const dir = await mkdtemp(join(tmpdir(), 'gro_invoke_sync_'));
 		onTestFinished(() => rm(dir, { recursive: true, force: true }));
 		await writeFile(join(dir, 'package.json'), package_json);
+		await mkdir(join(dir, 'src'));
 		if (bin !== null) await write_cli(dir, bin);
 		const env = cli_env();
 		env.PATH = `${join(dir, 'global_bin')}:${env.PATH}`;
@@ -85,7 +86,20 @@ describe('SvelteKit sync without SvelteKit in the dependencies', () => {
 	const SYNC = ['sync', '--no-package_json', '--no-gen'];
 
 	test(
-		'before any task, a CLI runs for no project that does not declare SvelteKit',
+		"the listing, `--version`, `format`, and a project task run no CLI, even an unsynced app's",
+		async () => {
+			const package_json = to_package_json({ devDependencies: KIT });
+			for (const argv of [[], ['--version'], ['format', '--check'], ['task']]) {
+				const { status, ran, output } = await run_cli(argv, package_json, 'node_modules/.bin');
+				assert.isFalse(ran, argv.join(' '));
+				assert.strictEqual(status, 0, output);
+			}
+		},
+		TEST_TIMEOUT_MD * 2
+	);
+
+	test(
+		'`gen` runs no CLI for a project that does not declare SvelteKit',
 		async () => {
 			for (const [package_json, bin] of [
 				[to_package_json({}), 'node_modules/.bin'],
@@ -94,7 +108,7 @@ describe('SvelteKit sync without SvelteKit in the dependencies', () => {
 				['null\n', 'node_modules/.bin'],
 				['{\n', 'node_modules/.bin']
 			] as const) {
-				const { status, ran, output } = await run_cli([], package_json, bin);
+				const { status, ran, output } = await run_cli(['gen'], package_json, bin);
 				assert.isFalse(ran, `${package_json} with ${bin}`);
 				assert.strictEqual(status, 0, output);
 				assert.notInclude(output, 'Failed to load package.json');
@@ -104,9 +118,13 @@ describe('SvelteKit sync without SvelteKit in the dependencies', () => {
 	);
 
 	test(
-		'before any task, a project declaring SvelteKit with no CLI skips, as on a fresh clone',
+		'`gen` in a project declaring SvelteKit with no CLI skips its sync, as on a fresh clone',
 		async () => {
-			const { status, output } = await run_cli([], to_package_json({ devDependencies: KIT }), null);
+			const { status, output } = await run_cli(
+				['gen'],
+				to_package_json({ devDependencies: KIT }),
+				null
+			);
 			assert.strictEqual(status, 0, output);
 		},
 		TEST_TIMEOUT_MD

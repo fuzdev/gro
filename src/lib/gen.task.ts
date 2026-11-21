@@ -20,13 +20,14 @@ import {
 	type AnalyzedGenResult,
 	type GenResults
 } from './gen.ts';
-import { SOURCE_DIRNAME } from './constants.ts';
+import { SOURCE_DIRNAME, SVELTEKIT_CLI } from './constants.ts';
 import type { FsPaths } from './fs_paths.ts';
 import type { GroConfig } from './gro_config.ts';
 import type { ImportModule } from './modules.ts';
 import type { ParsedSvelteConfig } from './svelte_config.ts';
 import { cwd } from './cwd.ts';
-import type { BuiltinTask, BuiltinTaskGrants } from './builtin_host.ts';
+import { sveltekit_sync_if_obviously_needed } from './sveltekit_helpers.ts';
+import type { BuiltinPrograms, BuiltinTask, BuiltinTaskGrants } from './builtin_host.ts';
 
 /** @nodocs */
 export const Args = s.object({
@@ -49,7 +50,13 @@ const grants = {
 	// reads the genfiles and their inputs, and writes what they generate
 	fs: { read: ['.'], write: ['.'] },
 	// loads the genfiles, which run as the project's code
-	project_modules: true
+	project_modules: true,
+	programs: {
+		// syncs SvelteKit's files when they're missing, as a genfile reading the library's types
+		// needs `$app/tsconfig`; `svelte-kit sync` loads the project's Vite config,
+		// code whose environment Gro can't know
+		sveltekit_cli: { name: SVELTEKIT_CLI, local: true, pass_env: 'all' }
+	}
 } as const satisfies BuiltinTaskGrants;
 
 /** @nodocs */
@@ -64,6 +71,7 @@ export const task: BuiltinTask<Args, typeof grants> = {
 			{
 				fs_paths: ctx.host.fs_paths,
 				import_module: ctx.host.import_module,
+				programs: ctx.host.programs,
 				load_svelte_config: () => ctx.svelte_config,
 				log: ctx.log,
 				timings: ctx.timings
@@ -91,6 +99,10 @@ export interface GenTaskDeps {
 	 */
 	import_module: ImportModule;
 	/**
+	 * Finds `svelte-kit` to sync SvelteKit's files when they're missing.
+	 */
+	programs: Pick<BuiltinPrograms<'sveltekit_cli'>, 'find'>;
+	/**
 	 * Loads the Svelte config, when a genfile reads it.
 	 */
 	load_svelte_config: () => Promise<ParsedSvelteConfig>;
@@ -102,7 +114,7 @@ export interface GenTaskDeps {
  * Runs the genfiles under the input paths, writing what they generate or checking it, `gro gen`'s body.
  * @param args - the task's parsed args
  * @param options - the config
- * @param deps - the project's boundary and loader, the Svelte config, the log, and the timings
+ * @param deps - the project's boundary and loader, `svelte-kit`, the Svelte config, the log, and the timings
  */
 export const run_gen_task = async (
 	args: Args,
@@ -111,7 +123,13 @@ export const run_gen_task = async (
 ): Promise<void> => {
 	const { _: raw_input_paths, root_dirs, check } = args;
 	const { config } = options;
-	const { fs_paths, import_module, load_svelte_config, log, timings } = deps;
+	const { fs_paths, import_module, programs, load_svelte_config, log, timings } = deps;
+
+	await sveltekit_sync_if_obviously_needed(
+		fs_paths,
+		{ find: () => programs.find('sveltekit_cli') },
+		log
+	);
 
 	const root = fs_paths.project.path;
 	const input_paths = to_input_paths(raw_input_paths, root);

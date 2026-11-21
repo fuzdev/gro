@@ -117,7 +117,8 @@ const run_sveltekit_sync = async (found_sveltekit_cli: SpawnProgram): Promise<vo
 };
 
 /**
- * What runs before every task: `svelte-kit sync` for a project `has_sveltekit_app` detects whose
+ * What the builtins that read SvelteKit's generated files run first, `gen`, `lint`, and `check`
+ * (`typecheck` runs a full sync): `svelte-kit sync` for a project `has_sveltekit_app` detects whose
  * `.svelte-kit` directory or generated `$app/tsconfig` is missing, the tsconfig checked because
  * it lives in `node_modules`, which reinstalls wipe. A project with both pays only their checks.
  * A CLI that isn't found skips rather than throws, so `gro sync --install` runs on a fresh clone,

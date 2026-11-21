@@ -2,8 +2,7 @@
  * The Gro CLI's body, which every root of the CLI calls with what it opened:
  * the Node Gro's entry, `invoke.ts`, and the binary's.
  *
- * It splits off the grant flags, warning that they confine nothing here,
- * syncs SvelteKit when that's obviously needed, parses the CLI args,
+ * It splits off the grant flags, warning that they confine nothing here, parses the CLI args,
  * loads the project's config, and invokes what the args name, the CLI's primary concept,
  * a task; to learn more about them, see `src/docs/task.md`.
  * It imports no host module itself, reads nothing of the process itself,
@@ -22,11 +21,6 @@ import { invoke_cli, type GroPlatform } from './invoke_task.ts';
 import { to_grant_flags, to_raw_rest_args, to_task_args, type CliTaskArgs } from './task_args.ts';
 import { ReportedError, is_reported_error, is_task_error } from './task_error.ts';
 import { load_gro_config } from './gro_config.ts';
-import {
-	SVELTEKIT_PROGRAM_OPTIONS,
-	sveltekit_sync_if_obviously_needed
-} from './sveltekit_helpers.ts';
-import { to_cli_finder } from './cli.ts';
 import type { BuiltinHostRoot } from './builtin_host.ts';
 import type { FsPaths } from './fs_paths.ts';
 import type { ImportModule } from './modules.ts';
@@ -49,7 +43,6 @@ export interface GroMainDeps {
 	readonly fs_paths: FsPaths;
 	/**
 	 * The root's env, spawn, and stream handles, cut by each builtin's grants into its `host`,
-	 * the spawn handle also finding `svelte-kit` for the sync before every task,
 	 * and stderr taking the warning for grant flags that confine nothing.
 	 */
 	readonly host_root: BuiltinHostRoot;
@@ -87,13 +80,6 @@ export const gro_main = async (deps: GroMainDeps): Promise<void> => {
 		// straight to stderr, as the only notice that nothing is confined, which no log level hides
 		await host_root.stderr.write(to_grant_flags_unenforced_message(grant_flags) + '\n');
 	}
-
-	// once per CLI run, as only this body calls it, never a task `invoke_task` runs
-	await sveltekit_sync_if_obviously_needed(
-		fs_paths,
-		to_cli_finder(host_root.spawn, SVELTEKIT_PROGRAM_OPTIONS),
-		new Logger('gro')
-	);
 
 	let task_args: CliTaskArgs;
 	try {

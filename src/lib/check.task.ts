@@ -7,7 +7,8 @@ import type { Logger } from '@fuzdev/fuz_util/log.ts';
 import { to_task_command } from './task.ts';
 import { TaskError } from './task_error.ts';
 import { to_forwarded_args_by_command, to_forwarded_argv } from './task_args.ts';
-import { ESLINT_CLI, VITEST_CLI } from './constants.ts';
+import { ESLINT_CLI, SVELTEKIT_CLI, VITEST_CLI } from './constants.ts';
+import { sveltekit_sync_if_obviously_needed } from './sveltekit_helpers.ts';
 import { find_eslint_config } from './eslint_helpers.ts';
 import { is_fs_error } from './fs_error.ts';
 import { package_json_sync, project_has_dependency } from './package_json.ts';
@@ -76,8 +77,13 @@ const grants = {
 	// reads `package.json`, `src/` for test files, and the root's listing for `TODO*.md`
 	fs: { read: ['.'] },
 	env: ['CI'],
-	// `--workspace` reads the local repo's status
-	programs: { git_cli: { name: 'git', pass_env: GIT_LOCAL_PASS_ENV } },
+	programs: {
+		// `--workspace` reads the local repo's status
+		git_cli: { name: 'git', pass_env: GIT_LOCAL_PASS_ENV },
+		// syncs SvelteKit's files when they're missing, before `build`, whose `svelte-package` reads them;
+		// `svelte-kit sync` loads the project's Vite config, code whose environment Gro can't know
+		sveltekit_cli: { name: SVELTEKIT_CLI, local: true, pass_env: 'all' }
+	},
 	invokes: {
 		sync: {},
 		// a plain `check` holds no build in its closure
@@ -122,7 +128,7 @@ export interface CheckOptions {
 export interface CheckDeps {
 	fs_paths: FsPaths;
 	env: Pick<Env, 'get'>;
-	programs: Pick<BuiltinPrograms<'git_cli'>, 'find'>;
+	programs: Pick<BuiltinPrograms<'git_cli' | 'sveltekit_cli'>, 'find'>;
 	invoke_task: BuiltinInvokeTask<BuiltinInvokes<typeof grants>>;
 	log: Logger;
 }
@@ -131,7 +137,7 @@ export interface CheckDeps {
  * Checks that everything is ready to commit, `gro check`'s body.
  * @param args - the task's parsed args
  * @param options - the config's `map_package_json` and the forwarded args
- * @param deps - the project's boundary, `CI`, git, the nested tasks, and the log
+ * @param deps - the project's boundary, `CI`, git and `svelte-kit`, the nested tasks, and the log
  */
 export const run_check = async (
 	args: Args,
@@ -166,6 +172,13 @@ export const run_check = async (
 
 	// Build before typechecking and tests so there can be a dependency
 	if (build) {
+		// `build`'s `svelte-package` reads SvelteKit's files, which nothing has synced
+		// on a fresh install under `--workspace`, and `build` is told not to sync
+		await sveltekit_sync_if_obviously_needed(
+			fs_paths,
+			{ find: () => programs.find('sveltekit_cli') },
+			log
+		);
 		// Skip sync/gen/install since check handles those separately
 		await invoke_task('build', { sync: false, gen: false, install: false, force_build });
 	}

@@ -281,7 +281,10 @@ so its `run` is one call and a test passes plain objects:
 const grants = {
 	fs: {read: ['.']},
 	env: ['CI'],
-	programs: {git_cli: {name: 'git', pass_env: GIT_LOCAL_PASS_ENV}},
+	programs: {
+		git_cli: {name: 'git', pass_env: GIT_LOCAL_PASS_ENV},
+		sveltekit_cli: {name: SVELTEKIT_CLI, local: true, pass_env: 'all'},
+	},
 	invokes: {
 		sync: {},
 		build: {when: 'build'},
@@ -440,9 +443,13 @@ rewrite it from scratch, compose several, or whatever each project needs.
 in `dependencies` or `devDependencies`, and only the project's own install in `node_modules/.bin`,
 so the tool that runs is the one `package.json` names, never a copy on `PATH`;
 `svelte-kit`, from `@sveltejs/kit`, is found the same way.
-Before the task the CLI invokes, Gro runs `svelte-kit sync` once for a project declaring `@sveltejs/kit`
-whose `.svelte-kit` directory or generated `node_modules/$app/tsconfig.json` is missing;
-when `svelte-kit` isn't in `node_modules/.bin` it skips the sync and warns that SvelteKit's files
+The builtins that read SvelteKit's generated files, `gen`, `lint`, and `check` (before its `build` step),
+run `svelte-kit sync` first for a project declaring `@sveltejs/kit`
+whose `.svelte-kit` directory or generated `node_modules/$app/tsconfig.json` is missing,
+each through its own `sveltekit_cli` grant, and `typecheck` always runs a full sync,
+as `dev`, `build`, and `sync` do in their sync step, and `test`'s Vite does when it starts;
+the listing, `--version`, `format`, `clean`, `run`, and project tasks run none.
+When `svelte-kit` isn't in `node_modules/.bin` it skips the sync and warns that SvelteKit's files
 weren't synced, except on a fresh clone with no `node_modules`, where `gro sync --install` installs first.
 Vitest's rule is in [test](./test.md#when-vitest-isnt-declared), and ESLint's follows it:
 `gro lint` fails when ESLint isn't declared, and when it's declared but not installed in the project.

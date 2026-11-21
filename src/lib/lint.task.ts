@@ -6,7 +6,8 @@ import { has_forwarded_flag, to_forwarded_argv } from './task_args.ts';
 import { assert_no_forwarded_info_flag } from './internal/forwarded_info_flags.ts';
 import { spawn_cli, spawn_result_is_ok, to_spawn_result_message } from './cli.ts';
 import { TaskError } from './task_error.ts';
-import { ESLINT_CLI } from './constants.ts';
+import { ESLINT_CLI, SVELTEKIT_CLI } from './constants.ts';
+import { sveltekit_sync_if_obviously_needed } from './sveltekit_helpers.ts';
 import type { FsPaths } from './fs_paths.ts';
 import { project_has_dependency } from './package_json.ts';
 import type { BuiltinPrograms, BuiltinTask, BuiltinTaskGrants } from './builtin_host.ts';
@@ -22,7 +23,10 @@ const grants = {
 	fs: { read: ['.'] },
 	// ESLint loads the project's config and plugins, code whose environment Gro can't know
 	programs: {
-		eslint_cli: { name: ESLINT_CLI, local: true, pass_env: 'all' }
+		eslint_cli: { name: ESLINT_CLI, local: true, pass_env: 'all' },
+		// syncs SvelteKit's files when they're missing, as typed lint reads `tsconfig.json`,
+		// which extends `$app/tsconfig`; `svelte-kit sync` loads the project's Vite config
+		sveltekit_cli: { name: SVELTEKIT_CLI, local: true, pass_env: 'all' }
 	}
 } as const satisfies BuiltinTaskGrants;
 
@@ -54,7 +58,7 @@ export interface LintOptions {
  */
 export interface LintDeps {
 	fs_paths: FsPaths;
-	programs: Pick<BuiltinPrograms<'eslint_cli'>, 'find'>;
+	programs: Pick<BuiltinPrograms<'eslint_cli' | 'sveltekit_cli'>, 'find'>;
 	log: Logger;
 }
 
@@ -63,7 +67,7 @@ export interface LintDeps {
  * ESLint runs only when `package.json` declares it, as vitest for `gro test`.
  * @param args - the task's parsed args
  * @param options - the forwarded args
- * @param deps - the project's boundary, ESLint, and the log
+ * @param deps - the project's boundary, ESLint and `svelte-kit`, and the log
  * @throws `TaskError` when eslint isn't declared or installed, or finds problems
  */
 export const run_lint = async (args: Args, options: LintOptions, deps: LintDeps): Promise<void> => {
@@ -73,6 +77,12 @@ export const run_lint = async (args: Args, options: LintOptions, deps: LintDeps)
 	if (!(await project_has_dependency(fs_paths, ESLINT_CLI, log))) {
 		throw new TaskError('no linter found, add eslint to devDependencies');
 	}
+
+	await sveltekit_sync_if_obviously_needed(
+		fs_paths,
+		{ find: () => programs.find('sveltekit_cli') },
+		log
+	);
 
 	const found_eslint_cli = programs.find('eslint_cli');
 	if (!found_eslint_cli) {
