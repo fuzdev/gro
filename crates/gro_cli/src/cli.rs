@@ -80,53 +80,114 @@ const HELP_TRIGGERS: [&str; 2] = ["--help", "help"];
 /// The option that grants the env host module the names it lists.
 pub const ALLOW_ENV: &str = "--allow-env";
 
-/// `--allow-env`'s spelling with its names, which follow it.
-const ALLOW_ENV_NAMES: &str = "--allow-env=";
-
 /// The option that grants the fs host module the directories it lists, to
 /// read.
 pub const ALLOW_READ: &str = "--allow-read";
-
-/// `--allow-read`'s spelling with its directories, which follow it.
-const ALLOW_READ_DIRS: &str = "--allow-read=";
 
 /// The option that grants the fs host module the directories it lists, to
 /// write.
 pub const ALLOW_WRITE: &str = "--allow-write";
 
-/// `--allow-write`'s spelling with its directories, which follow it.
-const ALLOW_WRITE_DIRS: &str = "--allow-write=";
-
 /// The option that grants the fs host module fresh directories under the
 /// OS's temporary directory, made by `fs.temp_dir`.
 pub const ALLOW_TEMP: &str = "--allow-temp";
 
-/// `--allow-temp` given a value, which it takes none of.
-const ALLOW_TEMP_VALUE: &str = "--allow-temp=";
-
 /// The option that grants the spawn host module the programs it lists.
 pub const ALLOW_RUN: &str = "--allow-run";
-
-/// `--allow-run`'s spelling with its names, which follow it.
-const ALLOW_RUN_NAMES: &str = "--allow-run=";
 
 /// The option that grants the spawn host module the directories it lists
 /// as exec roots, beneath which `program_in` and `find_in` find a program.
 pub const ALLOW_RUN_IN: &str = "--allow-run-in";
-
-/// `--allow-run-in`'s spelling with its directories, which follow it.
-const ALLOW_RUN_IN_DIRS: &str = "--allow-run-in=";
 
 /// The option that forwards to the programs `--allow-run` grants, and those
 /// found beneath what `--allow-run-in` grants, the environment variables it
 /// lists, when a program's `pass_env` names them.
 pub const ALLOW_RUN_ENV: &str = "--allow-run-env";
 
-/// `--allow-run-env`'s spelling with its names, which follow it.
-const ALLOW_RUN_ENV_NAMES: &str = "--allow-run-env=";
-
 /// The option that runs unconfined, every grant at its widest.
 pub const ALLOW_ALL: &str = "-A";
+
+/// A grant flag that lists what it grants after `=`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ListFlag {
+    /// `--allow-env`.
+    Env,
+    /// `--allow-read`.
+    Read,
+    /// `--allow-write`.
+    Write,
+    /// `--allow-run`.
+    Run,
+    /// `--allow-run-in`.
+    RunIn,
+    /// `--allow-run-env`.
+    RunEnv,
+}
+
+impl ListFlag {
+    /// Every one, in the order usage names them.
+    pub const ALL: [Self; 6] = [
+        Self::Env,
+        Self::Read,
+        Self::Write,
+        Self::Run,
+        Self::RunIn,
+        Self::RunEnv,
+    ];
+
+    /// The flag as it's spelled, without its list.
+    pub const fn spelled(self) -> &'static str {
+        match self {
+            Self::Env => ALLOW_ENV,
+            Self::Read => ALLOW_READ,
+            Self::Write => ALLOW_WRITE,
+            Self::Run => ALLOW_RUN,
+            Self::RunIn => ALLOW_RUN_IN,
+            Self::RunEnv => ALLOW_RUN_ENV,
+        }
+    }
+}
+
+/// A grant flag as it's spelled, what it lists not yet read: the spelling
+/// `fgro run` takes before its file and the verb right after its command
+/// word, one grammar for both.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GrantFlag<'a> {
+    /// `-A`.
+    All,
+    /// `--allow-temp`.
+    Temp,
+    /// `--allow-temp=…`, a value given to the flag that takes none.
+    TempWithValue,
+    /// A flag that lists, with what follows its first `=`, which may be
+    /// empty, or with no `=`.
+    List(ListFlag, Option<&'a str>),
+}
+
+impl<'a> GrantFlag<'a> {
+    /// The grant flag `arg` spells, `None` for any other argument: `-A`
+    /// exactly, or a flag's name, up to any `=`, exactly.
+    pub fn parse(arg: &'a str) -> Option<Self> {
+        if arg == ALLOW_ALL {
+            return Some(Self::All);
+        }
+        let (name, list) = match arg.split_once('=') {
+            Some((name, list)) => (name, Some(list)),
+            None => (arg, None),
+        };
+        if name == ALLOW_TEMP {
+            return Some(if list.is_some() {
+                Self::TempWithValue
+            } else {
+                Self::Temp
+            });
+        }
+        ListFlag::ALL
+            .into_iter()
+            .find(|flag| flag.spelled() == name)
+            .map(|flag| Self::List(flag, list))
+    }
+}
 
 /// `fgro run --help`, laid out as argh lays out the other commands' help.
 fn run_help() -> String {
@@ -289,46 +350,42 @@ impl RunInvocation {
         let mut dirs = FlagDirs::default();
         let mut args = args.args.into_iter();
         let file = loop {
-            match args.next() {
-                Some(arg) if HELP_TRIGGERS.contains(&arg.as_str()) => help = true,
-                Some(arg) if arg == "--" => break args.next(),
-                Some(arg) if arg == ALLOW_ALL => all = true,
-                Some(arg) if arg == ALLOW_TEMP => temp = true,
-                Some(arg) if arg.starts_with(ALLOW_TEMP_VALUE) => {
-                    return Err(CliError::AllowTempValue);
+            let Some(arg) = args.next() else {
+                break None;
+            };
+            if HELP_TRIGGERS.contains(&arg.as_str()) {
+                help = true;
+                continue;
+            }
+            if arg == "--" {
+                break args.next();
+            }
+            match GrantFlag::parse(&arg) {
+                Some(GrantFlag::All) => all = true,
+                Some(GrantFlag::Temp) => temp = true,
+                Some(GrantFlag::TempWithValue) => return Err(CliError::AllowTempValue),
+                Some(GrantFlag::List(flag, None)) => {
+                    return Err(match flag {
+                        ListFlag::Env => CliError::AllowEnvBare,
+                        ListFlag::Read => CliError::AllowDirsBare(DirFlag::Read),
+                        ListFlag::Write => CliError::AllowDirsBare(DirFlag::Write),
+                        ListFlag::Run => CliError::AllowRunBare,
+                        ListFlag::RunIn => CliError::AllowDirsBare(DirFlag::RunIn),
+                        ListFlag::RunEnv => CliError::AllowRunEnvBare,
+                    });
                 }
-                Some(arg) if arg == ALLOW_ENV => return Err(CliError::AllowEnvBare),
-                Some(ref arg) if let Some(names) = arg.strip_prefix(ALLOW_ENV_NAMES) => {
-                    env.extend(check_env_flag_names(names)?);
-                }
-                Some(arg) if arg == ALLOW_READ => {
-                    return Err(CliError::AllowDirsBare(DirFlag::Read));
-                }
-                Some(arg) if arg == ALLOW_WRITE => {
-                    return Err(CliError::AllowDirsBare(DirFlag::Write));
-                }
-                Some(ref arg) if let Some(listed) = arg.strip_prefix(ALLOW_READ_DIRS) => {
-                    dirs.read.extend(check_dir_flag(DirFlag::Read, listed)?);
-                }
-                Some(ref arg) if let Some(listed) = arg.strip_prefix(ALLOW_WRITE_DIRS) => {
-                    dirs.write.extend(check_dir_flag(DirFlag::Write, listed)?);
-                }
-                Some(arg) if arg == ALLOW_RUN => return Err(CliError::AllowRunBare),
-                Some(ref arg) if let Some(names) = arg.strip_prefix(ALLOW_RUN_NAMES) => {
-                    run.extend(check_run_flag_names(names)?);
-                }
-                Some(arg) if arg == ALLOW_RUN_IN => {
-                    return Err(CliError::AllowDirsBare(DirFlag::RunIn));
-                }
-                Some(ref arg) if let Some(listed) = arg.strip_prefix(ALLOW_RUN_IN_DIRS) => {
-                    dirs.run_in.extend(check_dir_flag(DirFlag::RunIn, listed)?);
-                }
-                Some(arg) if arg == ALLOW_RUN_ENV => return Err(CliError::AllowRunEnvBare),
-                Some(ref arg) if let Some(names) = arg.strip_prefix(ALLOW_RUN_ENV_NAMES) => {
-                    run_env.extend(check_run_env_flag_names(names)?);
-                }
-                Some(arg) if arg.starts_with('-') => return Err(CliError::RunOption(arg)),
-                file => break file,
+                Some(GrantFlag::List(flag, Some(listed))) => match flag {
+                    ListFlag::Env => env.extend(check_env_flag_names(listed)?),
+                    ListFlag::Read => dirs.read.extend(check_dir_flag(DirFlag::Read, listed)?),
+                    ListFlag::Write => dirs.write.extend(check_dir_flag(DirFlag::Write, listed)?),
+                    ListFlag::Run => run.extend(check_run_flag_names(listed)?),
+                    ListFlag::RunIn => {
+                        dirs.run_in.extend(check_dir_flag(DirFlag::RunIn, listed)?);
+                    }
+                    ListFlag::RunEnv => run_env.extend(check_run_env_flag_names(listed)?),
+                },
+                None if arg.starts_with('-') => return Err(CliError::RunOption(arg)),
+                None => break Some(arg),
             }
         };
         if !run_env.is_empty() && run.is_empty() && dirs.run_in.is_empty() {
@@ -1775,5 +1832,55 @@ Options:
             gro_runtime::eval::DEFAULT_TIMEOUT.as_millis()
         );
         assert!(help.contains(&default), "{help}");
+    }
+
+    #[test]
+    fn a_grant_flag_is_its_name_exactly_up_to_any_list() {
+        use super::{GrantFlag, ListFlag};
+        assert_eq!(GrantFlag::parse("-A"), Some(GrantFlag::All));
+        assert_eq!(GrantFlag::parse("--allow-temp"), Some(GrantFlag::Temp));
+        assert_eq!(
+            GrantFlag::parse("--allow-temp="),
+            Some(GrantFlag::TempWithValue)
+        );
+        assert_eq!(
+            GrantFlag::parse("--allow-run"),
+            Some(GrantFlag::List(ListFlag::Run, None))
+        );
+        assert_eq!(
+            GrantFlag::parse("--allow-run-in="),
+            Some(GrantFlag::List(ListFlag::RunIn, Some("")))
+        );
+        assert_eq!(
+            GrantFlag::parse("--allow-run-env=A=B,C"),
+            Some(GrantFlag::List(ListFlag::RunEnv, Some("A=B,C")))
+        );
+        for flag in ListFlag::ALL {
+            let listed = format!("{}=x", flag.spelled());
+            assert_eq!(
+                GrantFlag::parse(&listed),
+                Some(GrantFlag::List(flag, Some("x")))
+            );
+        }
+        for other in [
+            "-A=x",
+            "-AA",
+            "-a",
+            "--allow-",
+            "--allow-net",
+            "--allow-READ",
+            "--allowread",
+            "--allow-runx=y",
+            "-allow-read=.",
+            " --allow-read=.",
+            "--allow-read =.",
+            "--allow-read\u{a0}=.",
+            "--allow\u{2010}read=.",
+            "--allow-re\u{301}ad=.",
+            "--help",
+            "x",
+        ] {
+            assert_eq!(GrantFlag::parse(other), None, "{other}");
+        }
     }
 }
