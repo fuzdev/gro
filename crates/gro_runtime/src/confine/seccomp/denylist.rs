@@ -51,7 +51,9 @@
 //! (`EPERM`), as are the ownership and extended-attribute calls, whose `EPERM`
 //! tools report as the refusal it is.
 //!
-//! No command installs it: `fgro run` holds no box
+//! The run's box installs it after Landlock
+//! ([`RunPrepared::confine`](crate::confine::run::RunPrepared::confine)),
+//! and no command installs that box yet: `fgro run` holds none
 //! ([`Confinement::Unconfined`](crate::confine::Confinement::Unconfined)).
 //! The table is `x86_64`'s, whose numbers no other architecture shares, so
 //! the module builds only there.

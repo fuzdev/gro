@@ -317,7 +317,10 @@ fn snapshot_is_current(dir: &Path, stamp: &Path, plain: &Path) -> bool {
 /// the files of `crates/gro_cli/tests/`, so a new one fails until a run
 /// names it.
 const INTEGRATION_TESTS: [(Measurement, &[&str]); 3] = [
-    (Measurement::None, &["run", "host", "eval", "confine"]),
+    (
+        Measurement::None,
+        &["run", "host", "eval", "confine", "run_box"],
+    ),
     // the phases build's marks, eval's written from inside its box
     (Measurement::Phases, &["phases"]),
     // the priced build's switches, eval's box among them

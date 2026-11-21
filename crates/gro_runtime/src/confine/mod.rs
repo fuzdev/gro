@@ -1,9 +1,12 @@
-//! Confinement: the box a run's process is held in, and the type state that
-//! gates the engine on it.
+//! Confinement: the boxes a process is held in, and the type state that
+//! gates the engine on them.
 //!
-//! A run is either confined or explicitly unconfined before the engine starts:
+//! A process is confined or explicitly unconfined before the engine starts:
 //! [`engine::init_engine`](crate::engine::init_engine) takes a [`Confinement`],
-//! and its token ([`Engine`](crate::engine::Engine)) names which. The states:
+//! and its token ([`Engine`](crate::engine::Engine)) names which. A process
+//! is held in one of two boxes: eval's, read-only, whose states are here, and
+//! the run's, which spawns and writes, whose states are [`run`]'s. Eval's
+//! states:
 //!
 //! - [`Prepared`]: the box's roots, computed before anything is confined
 //!   ([`Prepared::for_project`]): the project's real directory, and the link
@@ -12,11 +15,15 @@
 //! - [`Confined`]: the process passed through [`Prepared::confine`], made only
 //!   there, on the process's one thread, for an engine with the JIT on or
 //!   off ([`Jit`]), which the box records and the engine is checked against.
-//! - [`Confinement::Unconfined`]: named by the caller, for a run that holds
-//!   no box (`fgro run`, the snapshot builder, and tests).
 //!
-//! The box must hold every thread the process has, so it is installed while
-//! the process has one: what resolves the run's roots runs on a thread joined
+//! The run's ends in [`run::RunConfined`], made only by
+//! [`run::RunPrepared::confine`]. [`Confinement`] names one of the two, or
+//! [`Confinement::Unconfined`]: named by the caller, for a process that
+//! holds no box (`fgro run`, the snapshot builder, and tests).
+//!
+//! The rest of this doc is eval's box; [`run`]'s module doc has the run's.
+//! A box must hold every thread the process has, so it is installed while
+//! the process has one: what resolves eval's roots runs on a thread joined
 //! before [`Prepared::confine`], which checks the count first and refuses
 //! otherwise, and every thread the engine starts comes after it, spawned from
 //! the thread that installed it.
@@ -103,6 +110,7 @@ use std::path::{Path, PathBuf};
 mod closure;
 mod landlock;
 pub mod rules;
+pub mod run;
 pub mod seccomp;
 #[cfg(test)]
 mod tests;
@@ -256,16 +264,20 @@ pub enum NetForm {
     InetRefused,
 }
 
-/// Whether a run's process is confined, which the engine takes to start.
+/// Whether a process is confined, and in which box, which the engine
+/// takes to start.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Confinement {
-    /// Held in its box.
-    Confined(Confined),
+    /// Held in eval's box.
+    Eval(Confined),
+    /// Held in the run's box.
+    Run(run::RunConfined),
     /// Held in no box, by the caller's choice.
     Unconfined,
 }
 
-/// Why [`Prepared::confine`] refused.
+/// Why a box couldn't go up: eval's ([`Prepared::confine`]) or the run's
+/// ([`run::RunPrepared::confine`]).
 #[derive(Debug, thiserror::Error)]
 pub enum ConfineError {
     /// The process has more than one thread, so a box installed now would
@@ -281,10 +293,51 @@ pub enum ConfineError {
     /// The process's thread count couldn't be read.
     #[error(transparent)]
     ThreadsUnread(io::Error),
+    /// The process holds a socket above stderr, which the run's box would
+    /// leave on the network it was made in: its walls gate only sockets made
+    /// after them.
+    #[error(
+        "the process holds {}, which the box's network walls wouldn't reach: the run's box goes \
+         up holding no socket above stderr",
+        held("a socket", "sockets", .fds)
+    )]
+    SocketHeld {
+        /// The sockets' descriptors, in ascending order.
+        fds: Vec<i32>,
+    },
+    /// A socket on stdin, stdout, or stderr isn't a connected unix stream:
+    /// an internet socket can be disconnected and reconnected or listen, an
+    /// unconnected or listening socket reaches the network it was made in,
+    /// and a datagram one any address, a unix one any socket file by its
+    /// path, past the run's box.
+    #[error(
+        "{}, which reaches past the box's walls: the run's box takes only a connected unix \
+         stream on stdio, which reaches its peer alone",
+        stdio(.fds)
+    )]
+    StdioSocket {
+        /// The descriptors, of 0, 1, and 2, in ascending order.
+        fds: Vec<i32>,
+    },
+    /// The process holds a descriptor that holds other files out of the
+    /// box's sight and acts on them with the credentials it was made with:
+    /// an `io_uring` instance.
+    #[error(
+        "the process holds {}, which acts on files it registered with the credentials it was \
+         made with, past the box: the run's box goes up holding none",
+        held("an io_uring", "io_urings", .fds)
+    )]
+    HidingHeld {
+        /// The descriptors, in ascending order.
+        fds: Vec<i32>,
+    },
+    /// The process's descriptors couldn't be listed and read.
+    #[error("failed to read the process's descriptors before the box")]
+    DescriptorsUnread(#[source] io::Error),
     /// The kernel has no Landlock, or has it switched off.
     #[error(
         "the kernel {}, and the box's filesystem, network, and scope walls are Landlock's: \
-         confined eval needs Landlock ABI {REQUIRED_LANDLOCK_ABI} (Linux 6.12) or later",
+         the box needs Landlock ABI {REQUIRED_LANDLOCK_ABI} (Linux 6.12) or later",
         if *.built { "has Landlock but it isn't enabled (it is missing from the boot's \
          `lsm=` list)" } else { "has no Landlock" }
     )]
@@ -308,11 +361,9 @@ pub enum ConfineError {
     /// The kernel installed only part of the Landlock rules.
     #[error("the kernel enforced the box's Landlock rules only in part, so none can be relied on")]
     LandlockPartial,
-    /// The seccomp filters can't be built for this architecture.
-    #[error(
-        "the box's seccomp filters can't be built for the {arch} architecture: they are built \
-         for x86_64 and aarch64"
-    )]
+    /// The seccomp filters can't be built for this architecture: eval's are
+    /// written for `x86_64` and `aarch64`, the run's denylist for `x86_64`.
+    #[error("the box's seccomp filters can't be built for the {arch} architecture")]
     SeccompArch {
         /// The architecture, as Rust names it.
         arch: &'static str,
@@ -320,6 +371,9 @@ pub enum ConfineError {
     /// The seccomp filters couldn't be compiled.
     #[error("failed to compile the box's seccomp filters: {0}")]
     SeccompFilter(#[source] seccompiler::BackendError),
+    /// The run's seccomp denylist couldn't be assembled from its table.
+    #[error("failed to assemble the run's seccomp denylist: {0}")]
+    Denylist(#[source] seccomp::tree::TreeError),
     /// The kernel refused the seccomp filters.
     #[error("failed to install the box's seccomp filters: {0}")]
     Seccomp(#[source] seccompiler::Error),
@@ -338,10 +392,55 @@ impl ConfineError {
             | Self::Seccomp(_) => true,
             Self::Landlock(_)
             | Self::SeccompFilter(_)
+            | Self::Denylist(_)
             | Self::Threads { .. }
             | Self::ThreadsUnread(_)
+            | Self::SocketHeld { .. }
+            | Self::StdioSocket { .. }
+            | Self::HidingHeld { .. }
+            | Self::DescriptorsUnread(_)
             | Self::LandlockPartial => false,
         }
+    }
+}
+
+/// `one` or `many` with the descriptors `fds` named, for a message:
+/// `a socket (descriptor 5)`, `sockets (descriptors 5 and 7)`.
+fn held(one: &str, many: &str, fds: &[i32]) -> String {
+    match fds {
+        [fd] => format!("{one} (descriptor {fd})"),
+        _ => format!(
+            "{many} (descriptors {})",
+            listed(fds.iter().map(ToString::to_string))
+        ),
+    }
+}
+
+/// The standard streams `fds` name, each a socket that isn't a connected
+/// stream, for a message.
+fn stdio(fds: &[i32]) -> String {
+    let names = fds.iter().map(|fd| match fd {
+        0 => "stdin".to_owned(),
+        1 => "stdout".to_owned(),
+        2 => "stderr".to_owned(),
+        fd => format!("descriptor {fd}"),
+    });
+    let what = if fds.len() == 1 {
+        "is a socket that isn't a connected unix stream"
+    } else {
+        "are sockets that aren't connected unix streams"
+    };
+    format!("{} {what}", listed(names))
+}
+
+/// `items` joined for prose: `a`, `a and b`, `a, b, and c`.
+fn listed(items: impl IntoIterator<Item = String>) -> String {
+    let items: Vec<String> = items.into_iter().collect();
+    match items.as_slice() {
+        [] => String::new(),
+        [one] => one.clone(),
+        [first, second] => format!("{first} and {second}"),
+        [rest @ .., last] => format!("{}, and {last}", rest.join(", ")),
     }
 }
 
@@ -363,7 +462,7 @@ fn install(prepared: &Prepared, jit: Jit) -> Result<(), ConfineError> {
         Some(seccomp::seccomp_filters(jit)?)
     };
     if !prices::off(EvalDefault::Landlock) {
-        landlock::landlock(&prepared.rules)?;
+        landlock::landlock(&prepared.rules, landlock::TcpWall::Refused)?;
     }
     // the killing filter is installed first, so the allowlist's own
     // `seccomp` call passes it; the allowlist doesn't allow `seccomp`, so it

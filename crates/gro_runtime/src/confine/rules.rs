@@ -222,6 +222,35 @@ impl Rule {
     }
 }
 
+/// A rule as the box installed it: what it named and granted, its handle
+/// closed once the box took it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InstalledRule {
+    /// Its absolute path when it opened, for messages.
+    path: PathBuf,
+    /// What it named.
+    kind: Kind,
+    /// What it grants.
+    rights: Rights,
+}
+
+impl InstalledRule {
+    /// Its absolute path when it opened.
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    /// What it named.
+    pub const fn kind(&self) -> Kind {
+        self.kind
+    }
+
+    /// What it grants.
+    pub const fn rights(&self) -> Rights {
+        self.rights
+    }
+}
+
 /// The box's rules, in the order they were added, and the optional ones
 /// that had nothing to name.
 #[derive(Debug, Default)]
@@ -326,6 +355,22 @@ impl BoxRules {
     /// order they were added.
     pub fn absent(&self) -> &[PathBuf] {
         &self.absent
+    }
+
+    /// The rules as installed, their handles closed, in the order they
+    /// were added, and the paths of the optional ones that had nothing to
+    /// name: what a box that took them keeps.
+    pub(super) fn into_installed(self) -> (Vec<InstalledRule>, Vec<PathBuf>) {
+        let rules = self
+            .rules
+            .into_iter()
+            .map(|rule| InstalledRule {
+                path: rule.path,
+                kind: rule.kind,
+                rights: rule.rights,
+            })
+            .collect();
+        (rules, self.absent)
     }
 
     /// Adds the rule at `path` that `opened` made, or records its absence

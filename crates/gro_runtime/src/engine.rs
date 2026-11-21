@@ -14,16 +14,17 @@
 //! named unconfined, since V8's worker threads start with it and a box
 //! installed after them would leave them outside. [`init_confined_engine`]
 //! returns a [`ConfinedEngine`], the token [`crate::eval::eval`] takes, which
-//! only a confined process's engine has, so no caller can evaluate a module
-//! outside the box. A confined engine's JIT must be the one its box was
+//! only an engine in eval's box has, so no caller can evaluate a module
+//! outside the box. An engine in eval's box must run the JIT its box was
 //! installed for ([`Confined::jit`]), since a jitless box refuses the
 //! executable mappings the JIT makes: [`init_engine`] refuses a disagreement
-//! before V8 starts.
+//! before V8 starts. The run's box polices no executable mapping, so it
+//! takes either.
 //!
 //! Whatever the options, the engine draws V8's entropy from the operating
 //! system's random source (`getrandom`), not from V8's own: left alone, V8
 //! opens `/dev/urandom` itself and falls back to the clock, without a word,
-//! when it can't. In a confined process, where the box denies
+//! when it can't. In a confined process, whose box may deny
 //! `/dev/urandom`, a failed draw stops the process with a message instead
 //! of letting V8 fall back to the clock; unconfined, V8's fallback stands,
 //! its `/dev/urandom` read first.
@@ -105,8 +106,8 @@ pub enum EngineError {
         /// How it was set up.
         set_up: SetUpConfinement,
     },
-    /// The process's box was installed for one JIT choice and the options
-    /// make the other: a jitless box would fail the JIT's executable
+    /// The process's box, eval's, was installed for one JIT choice and the
+    /// options make the other: a jitless box would fail the JIT's executable
     /// mappings, and a box for the JIT would allow them to a jitless engine.
     #[error(
         "the box was installed for an engine with the JIT {}, and the engine's options turn it {}",
@@ -134,7 +135,7 @@ impl SetUpConfinement {
     /// How `confinement` confines an engine.
     const fn of(confinement: &Confinement) -> Self {
         match confinement {
-            Confinement::Confined(_) => Self::Confined,
+            Confinement::Eval(_) | Confinement::Run(_) => Self::Confined,
             Confinement::Unconfined => Self::Unconfined,
         }
     }
@@ -213,12 +214,12 @@ pub fn init_confined_engine(
     confined: Confined,
     options: &EngineOptions,
 ) -> Result<ConfinedEngine, EngineError> {
-    let engine = init_engine(Confinement::Confined(confined), options)?;
+    let engine = init_engine(Confinement::Eval(confined), options)?;
     match engine.confinement() {
-        Confinement::Confined(confined) => Ok(ConfinedEngine { engine, confined }),
+        Confinement::Eval(confined) => Ok(ConfinedEngine { engine, confined }),
         // `init_engine` returns only an engine confined as asked
-        Confinement::Unconfined => Err(EngineError::ConfinementConflict {
-            set_up: SetUpConfinement::Unconfined,
+        confinement => Err(EngineError::ConfinementConflict {
+            set_up: SetUpConfinement::of(confinement),
         }),
     }
 }
@@ -233,7 +234,8 @@ pub fn init_confined_engine(
 /// # Errors
 ///
 /// Returns [`EngineError::JitConflict`], before anything is set up, when
-/// `confinement` is a box installed for another JIT than `options` make;
+/// `confinement` is eval's box installed for another JIT than `options`
+/// make;
 /// [`EngineError::OptionsConflict`] when the engine was set up already with
 /// options other than `options`; and [`EngineError::ConfinementConflict`]
 /// when it was set up confined otherwise.
@@ -245,7 +247,7 @@ pub fn init_engine(
     confinement: Confinement,
     options: &EngineOptions,
 ) -> Result<Engine, EngineError> {
-    if let Confinement::Confined(confined) = &confinement
+    if let Confinement::Eval(confined) = &confinement
         && confined.jit() != options.jit
     {
         return Err(EngineError::JitConflict {
@@ -288,7 +290,9 @@ pub fn init_engine(
 fn apply(options: &EngineOptions, confinement: &Confinement) {
     // each a function item, which V8's binding requires: it stores no pointer
     match confinement {
-        Confinement::Confined(_) => v8::V8::set_entropy_source(fill_entropy_or_abort),
+        Confinement::Eval(_) | Confinement::Run(_) => {
+            v8::V8::set_entropy_source(fill_entropy_or_abort);
+        }
         Confinement::Unconfined => v8::V8::set_entropy_source(fill_entropy),
     }
     let flags = options.v8_flags();
@@ -385,7 +389,7 @@ mod tests {
                 jit,
                 ..EngineOptions::default()
             };
-            let error = init_engine(Confinement::Confined(confined), &options).unwrap_err();
+            let error = init_engine(Confinement::Eval(confined), &options).unwrap_err();
             assert!(
                 matches!(error, EngineError::JitConflict { box_jit: found } if found == box_jit),
                 "{error:?}"

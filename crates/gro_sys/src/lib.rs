@@ -151,8 +151,9 @@ const FIRST_INHERITED: libc::c_uint = 3;
 /// refused and something has asked for randomness (a `HashMap`'s keys).
 ///
 /// The function is safe, not `unsafe`, with the precondition documented
-/// rather than typed: its one caller, the first step of `fgro eval`, is in a
-/// crate that forbids `unsafe`. Before closing anything it reads the
+/// rather than typed: its callers, the first step of `fgro eval` and the
+/// first step of the run's box (`gro_runtime::confine::run`'s
+/// `RunClosed::close_inherited`), are in crates that forbid `unsafe`. Before closing anything it reads the
 /// process's thread count from `/proc/self/status` and refuses unless it's
 /// 1, which turns the misuse most likely to matter, a call from a process
 /// that has started threads holding handles of their own (a test harness
@@ -901,6 +902,203 @@ fn close_listed() -> io::Result<()> {
     Ok(())
 }
 
+/// The descriptors a process holds that a box going up would leave past its
+/// walls, found by [`unboxed_descriptors`], each list in ascending order.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct UnboxedDescriptors {
+    /// Sockets above stderr, which keep the network they were made in.
+    pub sockets: Vec<libc::c_int>,
+    /// Sockets on stdin, stdout, or stderr that aren't a connected unix
+    /// stream ([`socket_is_connected_unix_stream`]): an internet socket,
+    /// which code holding it can disconnect and reconnect or listen on, past
+    /// a box's network walls; an unconnected or listening unix socket; or a
+    /// unix datagram one, which reaches any socket file by its path.
+    pub stdio_sockets: Vec<libc::c_int>,
+    /// Descriptors that hold other files out of a scan's sight, and act on
+    /// them with the credentials they were made with: an `io_uring`
+    /// instance, whose registered files need no descriptor of their own.
+    pub hiding: Vec<libc::c_int>,
+}
+
+impl UnboxedDescriptors {
+    /// Whether the process holds none.
+    pub const fn is_empty(&self) -> bool {
+        self.sockets.is_empty() && self.stdio_sockets.is_empty() && self.hiding.is_empty()
+    }
+}
+
+/// The descriptors the process holds that a box going up would leave past
+/// its walls ([`UnboxedDescriptors`]).
+///
+/// It lists `/proc/self/fd` and reads each descriptor named there: its
+/// link, for an `io_uring`, its `fstat`, for a socket, and for a socket on
+/// stdin, stdout, or stderr, its domain, its type, its peer, and whether it
+/// listens.
+///
+/// For a box that must go up holding none: its walls gate only what's made
+/// after them. A connected unix stream on stdio is allowed, since it
+/// reaches only its peer, which the launcher chose, as a pipe does, and
+/// can't be disconnected. It lists,
+/// rather than trying every number up to the open-files limit, which a
+/// process raises as far as its hard limit (often half a million or more):
+/// a few calls per descriptor held. Read before the box goes up, `/proc` is
+/// open to it, and a process marked not dumpable still lists and reads its
+/// own descriptors. A descriptor closed between the listing and its reads
+/// (the listing's own, by then) is skipped; one opened between is missed,
+/// so it's sound only while the caller is the process's one thread.
+///
+/// # Errors
+///
+/// Returns an error when `/proc/self/fd` can't be listed or names something
+/// other than a descriptor, or a read of a descriptor fails other than for
+/// one closed by then.
+pub fn unboxed_descriptors() -> io::Result<UnboxedDescriptors> {
+    let names = std::fs::read_dir("/proc/self/fd")
+        .and_then(|listing| {
+            listing
+                .map(|entry| entry.map(|entry| entry.file_name()))
+                .collect::<io::Result<Vec<_>>>()
+        })
+        .map_err(|error| context("failed to list /proc/self/fd", &error))?;
+    let mut fds = listed(names)?;
+    fds.sort_unstable();
+    let mut unboxed = UnboxedDescriptors::default();
+    let gone = |error: &io::Error| matches!(error.raw_os_error(), Some(libc::EBADF | libc::ENOENT));
+    for fd in fds {
+        match std::fs::read_link(format!("/proc/self/fd/{fd}")) {
+            Ok(link) if link.as_os_str() == "anon_inode:[io_uring]" => {
+                unboxed.hiding.push(fd);
+                continue;
+            }
+            Ok(_) => {}
+            Err(error) if gone(&error) => continue,
+            Err(error) => {
+                return Err(context(
+                    &format!("failed to read descriptor {fd}'s link"),
+                    &error,
+                ));
+            }
+        }
+        let socket = match is_socket(fd) {
+            Ok(socket) => socket,
+            Err(error) if gone(&error) => continue,
+            Err(error) => return Err(context(&format!("failed to fstat descriptor {fd}"), &error)),
+        };
+        if !socket {
+            continue;
+        }
+        if fd > libc::STDERR_FILENO {
+            unboxed.sockets.push(fd);
+        } else if !socket_is_connected_unix_stream(fd)
+            .map_err(|error| context(&format!("failed to read socket {fd}"), &error))?
+        {
+            unboxed.stdio_sockets.push(fd);
+        }
+    }
+    Ok(unboxed)
+}
+
+/// Whether the socket `fd` reaches only its peer, whatever code holding it
+/// does.
+///
+/// That's a unix (`SO_DOMAIN` is `AF_UNIX`) stream or sequenced-packet
+/// socket, connected (`getpeername` succeeds), and not listening
+/// (`SO_ACCEPTCONN` is 0).
+///
+/// A connected internet stream doesn't, since `connect` with `AF_UNSPEC`
+/// disconnects it, and it can then connect elsewhere or `listen`, binding
+/// itself to every interface; a connected unix stream can't be
+/// disconnected.
+///
+/// # Errors
+///
+/// Returns an error when `fd` isn't a socket, or a read of it fails other
+/// than with `ENOTCONN`, which answers `false`.
+#[expect(
+    unsafe_code,
+    reason = "std reads no socket's type or peer by a descriptor's number, and a libc call is \
+              `unsafe`"
+)]
+pub fn socket_is_connected_unix_stream(fd: libc::c_int) -> io::Result<bool> {
+    if socket_option(fd, libc::SO_DOMAIN)? != libc::AF_UNIX {
+        return Ok(false);
+    }
+    let kind = socket_option(fd, libc::SO_TYPE)?;
+    if kind != libc::SOCK_STREAM && kind != libc::SOCK_SEQPACKET {
+        return Ok(false);
+    }
+    if socket_option(fd, libc::SO_ACCEPTCONN)? != 0 {
+        return Ok(false);
+    }
+    // SAFETY: an all-zero `sockaddr_storage` is a valid value, a struct of
+    // integers and bytes
+    let mut peer: libc::sockaddr_storage = unsafe { std::mem::zeroed() };
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "a `sockaddr_storage` is 128 bytes"
+    )]
+    let mut len = size_of::<libc::sockaddr_storage>() as libc::socklen_t;
+    // SAFETY: `getpeername` writes at most `len` bytes to the address the
+    // pointer names, a live, writable `sockaddr_storage` of that size, and
+    // the length to `len`, a live local
+    let result =
+        unsafe { libc::getpeername(fd, (&raw mut peer).cast::<libc::sockaddr>(), &raw mut len) };
+    if result == 0 {
+        return Ok(true);
+    }
+    let error = io::Error::last_os_error();
+    if error.raw_os_error() == Some(libc::ENOTCONN) {
+        Ok(false)
+    } else {
+        Err(error)
+    }
+}
+
+/// The `SOL_SOCKET` option `name` of the socket `fd`, an integer.
+#[expect(
+    unsafe_code,
+    reason = "std reads no socket option by a descriptor's number, and a libc call is `unsafe`"
+)]
+fn socket_option(fd: libc::c_int, name: libc::c_int) -> io::Result<libc::c_int> {
+    let mut value: libc::c_int = 0;
+    #[expect(clippy::cast_possible_truncation, reason = "an int is 4 bytes")]
+    let mut len = size_of::<libc::c_int>() as libc::socklen_t;
+    // SAFETY: `getsockopt` writes at most `len` bytes to the pointer, a
+    // live, writable int of that size, and the length to `len`, a live
+    // local
+    let result = unsafe {
+        libc::getsockopt(
+            fd,
+            libc::SOL_SOCKET,
+            name,
+            (&raw mut value).cast::<libc::c_void>(),
+            &raw mut len,
+        )
+    };
+    if result == 0 {
+        Ok(value)
+    } else {
+        Err(io::Error::last_os_error())
+    }
+}
+
+/// Whether the descriptor `fd` is a socket, by `fstat`.
+#[expect(
+    unsafe_code,
+    reason = "std has no `fstat` by a descriptor's number, and a libc call is `unsafe`"
+)]
+fn is_socket(fd: libc::c_int) -> io::Result<bool> {
+    // SAFETY: an all-zero `stat` is a valid value, a struct of integers
+    let mut stat: libc::stat = unsafe { std::mem::zeroed() };
+    // SAFETY: `fstat` writes only the `stat` the pointer names, a live,
+    // writable local of the type it expects, and reads only the number,
+    // which needn't be open (it fails with `EBADF`)
+    if unsafe { libc::fstat(fd, &raw mut stat) } != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(stat.st_mode & libc::S_IFMT == libc::S_IFSOCK)
+}
+
 /// The descriptors above stderr among `names`, the names of `/proc/self/fd`'s
 /// entries, each a descriptor's number.
 ///
@@ -909,6 +1107,20 @@ fn close_listed() -> io::Result<()> {
 /// Returns an error of kind [`io::ErrorKind::InvalidData`] when a name isn't
 /// a descriptor's number.
 fn above_stderr(names: impl IntoIterator<Item = OsString>) -> io::Result<Vec<libc::c_int>> {
+    Ok(listed(names)?
+        .into_iter()
+        .filter(|&fd| fd > libc::STDERR_FILENO)
+        .collect())
+}
+
+/// The descriptors among `names`, the names of `/proc/self/fd`'s entries,
+/// each a descriptor's number.
+///
+/// # Errors
+///
+/// Returns an error of kind [`io::ErrorKind::InvalidData`] when a name isn't
+/// a descriptor's number.
+fn listed(names: impl IntoIterator<Item = OsString>) -> io::Result<Vec<libc::c_int>> {
     let mut fds = Vec::new();
     for name in names {
         // a number a descriptor can be: not negative, and within an int
@@ -922,9 +1134,7 @@ fn above_stderr(names: impl IntoIterator<Item = OsString>) -> io::Result<Vec<lib
                     format!("/proc/self/fd lists {}, not a descriptor", name.display()),
                 )
             })?;
-        if fd > libc::STDERR_FILENO {
-            fds.push(fd);
-        }
+        fds.push(fd);
     }
     Ok(fds)
 }
@@ -1786,6 +1996,51 @@ fn context(what: &str, error: &io::Error) -> io::Error {
 #[cfg(test)]
 mod tests {
     use std::ffi::OsString;
+
+    /// A socket above stderr and a socket pair's ends are listed among the
+    /// sockets held, and a file isn't; none is on stdio or hides others.
+    #[test]
+    fn unboxed_descriptors_lists_sockets_and_no_file() {
+        use std::os::fd::AsRawFd as _;
+
+        let (left, right) = std::os::unix::net::UnixStream::pair().unwrap();
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let file = std::fs::File::open("/proc/self/status").unwrap();
+        let unboxed = super::unboxed_descriptors().unwrap();
+        for socket in [left.as_raw_fd(), right.as_raw_fd(), listener.as_raw_fd()] {
+            assert!(unboxed.sockets.contains(&socket), "{socket}: {unboxed:?}");
+        }
+        assert!(!unboxed.sockets.contains(&file.as_raw_fd()), "{unboxed:?}");
+    }
+
+    /// Only a connected unix stream reaches only its peer: not a listener,
+    /// a datagram socket connected or not, an unconnected stream, or a
+    /// connected TCP stream, which code holding it disconnects with
+    /// `connect(AF_UNSPEC)`, then connects elsewhere or listens, binding
+    /// itself to every interface.
+    #[test]
+    fn only_a_connected_stream_reaches_only_its_peer() {
+        use std::os::fd::AsRawFd as _;
+
+        use super::socket_is_connected_unix_stream as only_peer;
+
+        let (left, _right) = std::os::unix::net::UnixStream::pair().unwrap();
+        assert!(only_peer(left.as_raw_fd()).unwrap());
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let stream = std::net::TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        assert!(!only_peer(stream.as_raw_fd()).unwrap());
+        assert!(!only_peer(listener.as_raw_fd()).unwrap());
+        let udp = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        assert!(!only_peer(udp.as_raw_fd()).unwrap());
+        udp.connect(listener.local_addr().unwrap()).unwrap();
+        assert!(!only_peer(udp.as_raw_fd()).unwrap());
+        let (datagram, _other) = std::os::unix::net::UnixDatagram::pair().unwrap();
+        assert!(!only_peer(datagram.as_raw_fd()).unwrap());
+        let unbound = std::os::unix::net::UnixDatagram::unbound().unwrap();
+        assert!(!only_peer(unbound.as_raw_fd()).unwrap());
+        let file = std::fs::File::open("/proc/self/status").unwrap();
+        assert!(only_peer(file.as_raw_fd()).is_err());
+    }
 
     /// A count above 1 is read again until it's 1, or until
     /// `THREAD_COUNT_READS` reads have all been above it; a read's error

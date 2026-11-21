@@ -68,9 +68,9 @@
 //!   once per process by [`engine::init_engine`] before the first runtime,
 //!   whose token ([`engine::Engine`]) every runtime start takes, apart from
 //!   each runtime's [`RuntimeOptions`]
-//! - [`confine`]: the box a run's process is held in, and the type state
-//!   ([`confine::Confinement`]) the engine takes, confined or named
-//!   unconfined
+//! - [`confine`]: the boxes a process is held in, eval's and the run's, and
+//!   the type state ([`confine::Confinement`]) the engine takes, confined in
+//!   one or named unconfined
 //! - [`snapshot`]: the startup snapshot, built in a process of its own and
 //!   embedded by the binary that starts from it
 //! - [`embed`]: Gro's own library as the binary carries it, the modules of

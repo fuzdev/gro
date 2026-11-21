@@ -35,6 +35,12 @@ url.workspace = true
 name = "confine"
 harness = false
 
+# the run's box from inside a process holding it, whose one thread libtest's
+# harness would break
+[[test]]
+name = "run_box"
+harness = false
+
 [features]
 # start from a snapshot embedded at compile time and embed Gro's own library,
 # both read from `GRO_SNAPSHOT_DIR`, and name the version `GRO_VERSION` gives,

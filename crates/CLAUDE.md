@@ -176,14 +176,18 @@ and the contracts no one module doc owns.
     (`ResolveErrorKind::PackageImportsProject`); the loader's refusals of a
     string-compiled `import()` and of attributes, and their order, are
     `loader/mod.rs`'s.
-- Type state: `confine::Prepared` → `Prepared::confine` → `Confined`, or
+- Type state: eval's box, `confine::Prepared` → `Prepared::confine` →
+  `Confined`, named `Confinement::Eval`; the run's, `confine::run`'s tokens
+  in its order (`RunClosed` → `RunNetworked` → `RunHardened` →
+  `RunPrepared` → `RunPrepared::confine` → `RunConfined`), named
+  `Confinement::Run`, which no command installs yet; or
   `Confinement::Unconfined` named by `fgro run`, `make-snapshot`, and unit
-  tests; `engine::init_engine` takes a `Confinement` and returns an `Engine`,
+  tests. `engine::init_engine` takes a `Confinement` and returns an `Engine`,
   which `run_main` and `make_snapshot` require, and `init_confined_engine`
   takes a `Confined` and returns the `ConfinedEngine` `eval::eval` requires.
-  No runtime starts before the process is confined or named unconfined; a
-  confined engine whose JIT disagrees with the box's is
-  `EngineError::JitConflict`.
+  No runtime starts before the process is confined or named unconfined; an
+  engine in eval's box whose JIT disagrees with the box's is
+  `EngineError::JitConflict`; the run's box takes either.
 - The box's Landlock rules are `confine/rules.rs`'s `BoxRules`, each a
   handle opened before the box goes up and the rights it grants beneath it.
   A rule opens by real path (reading and executing only) or beneath a
@@ -192,8 +196,11 @@ and the contracts no one module doc owns.
   alone allowed, never dropped.
 - One thread until the box: `fgro eval` keeps its process single-threaded
   until it's confined, in the step order written once, in `confine_eval`'s
-  doc in `crates/gro_cli/src/eval.rs`. Every other command runs its runtime on
-  a thread of its own, not the main one, sized `gro_runtime::STACK_SIZE`.
+  doc in `crates/gro_cli/src/eval.rs`; the run's box takes its steps on one
+  thread too, in the order `confine/run.rs`'s module doc writes and its
+  tokens hold, and each step that needs one thread reads the count settled.
+  Every other command runs its runtime on a thread of its own, not the main
+  one, sized `gro_runtime::STACK_SIZE`.
 - `bootstrap::extensions` drops every lazy ES module and every other
   extension's synthetic ones, since `deno_core` would load either past the
   loader's refusal (its doc has how), so a synthetic module's name must be
@@ -267,6 +274,11 @@ Confined eval runs only from a snapshot build, so
 `cargo test` and run from `cargo xtask build --verify`, beside
 `tests/confine.rs` (no libtest harness, whose threads would refuse the box).
 They need Landlock ABI 6 and fail below it, naming the kernel's ABI.
+`tests/run_box.rs`, harness off too, takes the run's box's steps in a
+child and reads it from inside and from outside: its cases run in any
+build, but the one that starts V8 under the box, which needs a snapshot.
+They need Landlock ABI 6, and expect the network form the host's settings
+give (the run's own namespace unless user namespaces are restricted).
 `--verify` names each of `gro_cli`'s integration tests with the features it
 runs under (`INTEGRATION_TESTS` in `crates/xtask/src/snapshot.rs`), and an
 xtask unit test fails on a file of `crates/gro_cli/tests/` no run names.

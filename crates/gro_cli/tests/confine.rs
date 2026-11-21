@@ -312,7 +312,7 @@ mod confined {
         match prepared.confine(jit) {
             Ok(confined) => {
                 println!("confined");
-                Confinement::Confined(confined)
+                Confinement::Eval(confined)
             }
             Err(error) => {
                 println!("refused: {error}");

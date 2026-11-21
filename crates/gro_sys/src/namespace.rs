@@ -160,6 +160,14 @@ impl NamespaceRefused {
     pub const fn cause(&self) -> Refusal {
         self.cause
     }
+
+    /// The error number the refusal carries: the refused `unshare`'s, or
+    /// for [`Refusal::NoProc`] the failed read of `/proc/self`'s; none for
+    /// a refusal found before any call (`AppArmor`'s, told from the
+    /// settings).
+    pub fn errno(&self) -> Option<i32> {
+        self.source.as_ref().and_then(io::Error::raw_os_error)
+    }
 }
 
 /// Why [`enter_user_net_namespace`] failed.
