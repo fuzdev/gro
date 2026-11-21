@@ -48,7 +48,7 @@ export type Args = s.Infer<typeof Args>;
 const grants = {
 	// reads `package.json` and what tells a library or an app
 	fs: { read: ['.'] },
-	invokes: ['publish', 'deploy']
+	invokes: { publish: {}, deploy: {} }
 } as const satisfies BuiltinTaskGrants;
 
 /** @nodocs */

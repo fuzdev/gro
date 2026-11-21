@@ -394,7 +394,7 @@ test("a task's `invoke_task` passes `implicit_rest_args` only when given them", 
 		invoke_task,
 		implicit_rest_args: ['--watch']
 	};
-	for (const grants of [null, { invokes: ['test'] as const }]) {
+	for (const grants of [null, { invokes: { test: {} } }]) {
 		invoke_task.mockClear();
 		const result = await run_task(
 			{
@@ -466,7 +466,7 @@ test('run_task refuses a builtin invoking a task its grants do not name', async 
 			}
 		},
 		{},
-		{ ...(await create_mock_run_task_options()), invoke_task, grants: { invokes: ['gen'] } }
+		{ ...(await create_mock_run_task_options()), invoke_task, grants: { invokes: { gen: {} } } }
 	);
 	assert(!result.ok);
 	assert.instanceOf(result.error, TaskError);
@@ -475,6 +475,99 @@ test('run_task refuses a builtin invoking a task its grants do not name', async 
 		invoke_task.mock.calls.map((c) => c[0]),
 		['gen']
 	);
+});
+
+test('run_task refuses an invoke its grants mark `when` an arg the task was run without', async () => {
+	const invoke_task = vi.fn((..._args: Array<unknown>) => Promise.resolve());
+	const options = await create_mock_run_task_options();
+	const run_with = (build: boolean) =>
+		run_task(
+			{
+				name: 'greet',
+				id: '/p/src/lib/greet.task.ts',
+				mod: {
+					task: {
+						Args: s.object({ build: s.with_default(s.boolean, false) }),
+						run: async (ctx) => {
+							await ctx.invoke_task('gen');
+							await ctx.invoke_task('build');
+						}
+					}
+				}
+			},
+			{ build },
+			{
+				...options,
+				invoke_task,
+				grants: { invokes: { gen: {}, build: { when: 'build' } } }
+			}
+		);
+	const refused = await run_with(false);
+	assert(!refused.ok);
+	assert.instanceOf(refused.error, TaskError);
+	assert.include(
+		refused.reason,
+		"invokes `build` with its `build` arg unset, and its grants invoke `build` only when it's set"
+	);
+	assert.deepEqual(
+		invoke_task.mock.calls.map((c) => c[0]),
+		['gen']
+	);
+	invoke_task.mockClear();
+	const ran = await run_with(true);
+	assert(ran.ok);
+	assert.deepEqual(
+		invoke_task.mock.calls.map((c) => c[0]),
+		['gen', 'build']
+	);
+});
+
+test("run_task reads a `when` arg as the task's own, never one added to `Object.prototype`", async () => {
+	const invoke_task = vi.fn((..._args: Array<unknown>) => Promise.resolve());
+	const polluted = Object.prototype as unknown as Record<string, unknown>;
+	polluted.build = true;
+	try {
+		const result = await run_task(
+			{
+				name: 'greet',
+				id: '/p/src/lib/greet.task.ts',
+				mod: { task: { run: (ctx) => ctx.invoke_task('build') } }
+			},
+			{},
+			{
+				...(await create_mock_run_task_options()),
+				invoke_task,
+				grants: { invokes: { build: { when: 'build' } } }
+			}
+		);
+		assert(!result.ok);
+		assert.include(result.reason, 'with its `build` arg unset');
+	} finally {
+		delete polluted.build;
+	}
+	assert.strictEqual(invoke_task.mock.calls.length, 0);
+});
+
+test('run_task grants no invoke by a name added to `Object.prototype`', async () => {
+	const invoke_task = vi.fn((..._args: Array<unknown>) => Promise.resolve());
+	const polluted = Object.prototype as unknown as Record<string, unknown>;
+	polluted.lint = {};
+	try {
+		const result = await run_task(
+			{
+				name: 'greet',
+				id: '/p/src/lib/greet.task.ts',
+				mod: { task: { run: (ctx) => ctx.invoke_task('lint') } }
+			},
+			{},
+			{ ...(await create_mock_run_task_options()), invoke_task, grants: { invokes: {} } }
+		);
+		assert(!result.ok);
+		assert.include(result.reason, "invokes `lint`, which its grants don't name");
+	} finally {
+		delete polluted.lint;
+	}
+	assert.strictEqual(invoke_task.mock.calls.length, 0);
 });
 
 test('run_task refuses every invoke of a builtin whose grants name no `invokes`', async () => {
@@ -525,7 +618,7 @@ test('run_task refuses a builtin invoking a builtin its `invokes` leaves out', a
 				mod: { task: { run: (ctx) => ctx.invoke_task(name) } }
 			},
 			{},
-			{ ...(await create_mock_run_task_options()), invoke_task, grants: { invokes: ['gen'] } }
+			{ ...(await create_mock_run_task_options()), invoke_task, grants: { invokes: { gen: {} } } }
 		);
 	assert((await run_invoking('gen')).ok);
 	for (const name of ['publish', 'deploy', 'check']) {

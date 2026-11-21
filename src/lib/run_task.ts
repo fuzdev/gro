@@ -14,6 +14,7 @@ import { is_reported_error, is_task_error, TaskError } from './task_error.ts';
 import {
 	create_builtin_host,
 	type BuiltinHostRoot,
+	type BuiltinInvokeGrant,
 	type BuiltinTaskContext,
 	type BuiltinTaskGrants
 } from './builtin_host.ts';
@@ -188,9 +189,24 @@ export const run_task = async (
 		gro: platform.gro,
 		invoke_task: grants
 			? async (invoked_task_name, invoked_args, invoked_options) => {
-					if (!is_invoke_granted(grants, invoked_task_name)) {
+					const invoke = to_invoke_grant(grants, invoked_task_name);
+					if (!invoke) {
 						throw new TaskError(
 							`Task ${st('cyan', task_meta.name)} invokes \`${invoked_task_name}\`, which its grants don't name.`
+						);
+					}
+					// the closure holds the invoked builtin only when the arg is set: where the run is held
+					// to its closure, an invoke without it fails on a grant the closure lacks, and this names
+					// the cause first, a guardrail against Gro's own drift, not a bound on project code;
+					// the arg is read as an own property, so one added to `Object.prototype` sets nothing
+					const { when } = invoke;
+					if (
+						when !== undefined &&
+						!(hasOwn(args, when) && (args as Record<string, unknown>)[when] === true)
+					) {
+						throw new TaskError(
+							`Task ${st('cyan', task_meta.name)} invokes \`${invoked_task_name}\` with its \`${when}\` arg unset, ` +
+								`and its grants invoke \`${invoked_task_name}\` only when it's set.`
 						);
 					}
 					await invoke_any_task(invoked_task_name, invoked_args, invoked_options);
@@ -238,15 +254,16 @@ const is_host_module_error = (error: unknown): boolean =>
 	is_stdio_error(error);
 
 /**
- * Whether `grants` names `task_name` among the builtins it `invokes`.
+ * How `grants` invokes `task_name`, `undefined` when its `invokes` doesn't name it,
+ * read as an own property, so a name added to `Object.prototype` grants no invoke.
  */
-const is_invoke_granted = (grants: BuiltinTaskGrants, task_name: string): boolean => {
+const to_invoke_grant = (
+	grants: BuiltinTaskGrants,
+	task_name: string
+): BuiltinInvokeGrant | undefined => {
 	const { invokes } = grants;
-	if (!invokes) return false;
-	for (let i = 0; i < invokes.length; i++) {
-		if (invokes[i] === task_name) return true;
-	}
-	return false;
+	if (!invokes || !hasOwn(invokes, task_name)) return undefined;
+	return invokes[task_name as keyof typeof invokes];
 };
 
 /**

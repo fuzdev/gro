@@ -130,7 +130,7 @@ export const create_mock_builtin_context = async <
 		),
 		raw_rest_args: Object.freeze(raw_rest_args),
 		host
-	} as unknown as BuiltinTaskContext<TArgs, TGrants>;
+	};
 };
 
 /**

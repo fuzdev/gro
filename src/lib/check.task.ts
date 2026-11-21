@@ -78,7 +78,16 @@ const grants = {
 	env: ['CI'],
 	// `--workspace` reads the local repo's status
 	programs: { git_cli: { name: 'git', pass_env: GIT_LOCAL_PASS_ENV } },
-	invokes: ['sync', 'build', 'typecheck', 'test', 'gen', 'format', 'lint']
+	invokes: {
+		sync: {},
+		// a plain `check` holds no build in its closure
+		build: { when: 'build' },
+		typecheck: {},
+		test: {},
+		gen: {},
+		format: {},
+		lint: {}
+	}
 } as const satisfies BuiltinTaskGrants;
 
 /** @nodocs */

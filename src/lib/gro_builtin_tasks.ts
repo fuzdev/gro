@@ -96,7 +96,15 @@ export const GRO_BUILTIN_TASK_GRANTS: Record<keyof GroBuiltinTasks, BuiltinTaskG
 			fs: { read: ['.'] },
 			env: ['CI'],
 			programs: { git_cli: { name: 'git', pass_env: ['GIT_*', 'XDG_CONFIG_HOME', 'SUDO_UID'] } },
-			invokes: ['sync', 'build', 'typecheck', 'test', 'gen', 'format', 'lint']
+			invokes: {
+				sync: {},
+				build: { when: 'build' },
+				typecheck: {},
+				test: {},
+				gen: {},
+				format: {},
+				lint: {}
+			}
 		},
 		clean: {
 			fs: { read: ['.'], write: ['.'] },
@@ -113,7 +121,7 @@ export const GRO_BUILTIN_TASK_GRANTS: Record<keyof GroBuiltinTasks, BuiltinTaskG
 		},
 		publish: null,
 		reinstall: null,
-		release: { fs: { read: ['.'] }, invokes: ['publish', 'deploy'] },
+		release: { fs: { read: ['.'] }, invokes: { publish: {}, deploy: {} } },
 		run: null,
 		sync: {
 			fs: { read: ['.'], write: ['.'] },
@@ -126,7 +134,7 @@ export const GRO_BUILTIN_TASK_GRANTS: Record<keyof GroBuiltinTasks, BuiltinTaskG
 				sveltekit_cli: { name: 'svelte-kit', local: true, pass_env: 'all' }
 			},
 			stderr: true,
-			invokes: ['gen']
+			invokes: { gen: {} }
 		},
 		test: {
 			fs: { read: ['.'] },

@@ -66,7 +66,7 @@ describe('create_builtin_host', () => {
 			['programs']
 		);
 		assert.deepEqual(
-			Object.keys(create_builtin_host(root, { invokes: ['gen'] }, to_invocation({ fs_paths }))),
+			Object.keys(create_builtin_host(root, { invokes: { gen: {} } }, to_invocation({ fs_paths }))),
 			[]
 		);
 	});

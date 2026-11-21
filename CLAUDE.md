@@ -91,7 +91,9 @@ errors and exit codes. Where it lives:
   `BuiltinHostRoot` (`env`, `spawn`, `stdout`, `stderr`) rides `InvokeTaskOptions` as `host_root`,
   and `run_task` cuts it by the table (`create_builtin_host`) into the `host`
   of a `BuiltinTaskContext`, only for a builtin, refusing an invoke its grants
-  don't name (a `project_modules` builtin's loaded modules get no `invoke_task`),
+  don't name, or one marked `when` an arg the task's args leave unset (`invokes` is a
+  record of `BuiltinInvokeGrant`s, `check`'s `build` marked `{when: 'build'}`, so a plain
+  `check`'s closure holds no `build`; a `project_modules` builtin's loaded modules get no `invoke_task`),
   and refusing a task with `grants` run by path or re-exported,
   as a builtin runs only by its name; the body is a function over the task's own `*Deps`
   ([docs](src/docs/task.md#a-builtins-host-and-grants)). On Node the cut is a

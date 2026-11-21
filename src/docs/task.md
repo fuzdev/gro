@@ -231,7 +231,10 @@ so a module re-exporting the `task` carries them:
 - `stdout`, `stderr` - that it writes to them
 - `project_modules` - that it loads the project's modules, like `gen`'s genfiles,
   which run as the project's code
-- `invokes` - the builtins it invokes
+- `invokes` - the builtins it invokes, by name, each a `BuiltinInvokeGrant`, `{}` or marked:
+  `when` names a boolean arg of the invoking task that the invoke runs only under,
+  so a command's closure holds the invoked builtin only when its args set it,
+  like `check`'s `build: {when: 'build'}`, a plain `gro check` holding no `build`
 
 The genfile that writes the builtin summaries also writes them as `GRO_BUILTIN_TASK_GRANTS`
 (`gro_builtin_tasks.ts`), data a runtime reads without importing the task,
@@ -245,6 +248,7 @@ each program's environment fixed by its grant, `stdout` and `stderr` when grante
 and with `project_modules` the root's project loader as `import_module`, the one every task loads through.
 A builtin invoking a task its `invokes` doesn't name fails with a `TaskError`,
 and its `invoke_task` is typed so that doesn't compile.
+One invoking a builtin marked `when` with that arg unset in its own parsed args fails the same way when it runs.
 Each builtin it invokes gets a `host` cut from the root's by that builtin's own grants,
 so what a builtin can reach is its grants and those of every builtin it `invokes`, transitively.
 The project modules a builtin granted `project_modules` loads, like `gen`'s genfiles,
@@ -274,7 +278,15 @@ const grants = {
 	fs: {read: ['.']},
 	env: ['CI'],
 	programs: {git_cli: {name: 'git', pass_env: GIT_LOCAL_PASS_ENV}},
-	invokes: ['sync', 'build', 'typecheck', 'test', 'gen', 'format', 'lint'],
+	invokes: {
+		sync: {},
+		build: {when: 'build'},
+		typecheck: {},
+		test: {},
+		gen: {},
+		format: {},
+		lint: {},
+	},
 } as const satisfies BuiltinTaskGrants;
 
 export const task: BuiltinTask<Args, typeof grants> = {

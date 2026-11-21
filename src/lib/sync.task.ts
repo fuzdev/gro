@@ -49,7 +49,7 @@ const grants = {
 	},
 	// the install's output
 	stderr: true,
-	invokes: ['gen']
+	invokes: { gen: {} }
 } as const satisfies BuiltinTaskGrants;
 
 /** @nodocs */

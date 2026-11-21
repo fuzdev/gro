@@ -101,10 +101,26 @@ export interface BuiltinTaskGrants {
 	 */
 	readonly stderr?: true;
 	/**
-	 * The builtins the task invokes, each run with its own grants;
+	 * The builtins the task invokes, by name, each run with its own grants,
+	 * marked with what narrows the invoke;
 	 * invoking any other task through its own `invoke_task` is an error.
 	 */
-	readonly invokes?: ReadonlyArray<keyof GroBuiltinTasks>;
+	readonly invokes?: Readonly<Partial<Record<keyof GroBuiltinTasks, BuiltinInvokeGrant>>>;
+}
+
+/**
+ * How a builtin invokes another, data a runtime reads to know which builtins
+ * a command's closure holds, and with what grants, from its command line.
+ * `{}` marks nothing: the invoke may run whatever the invoking task's args are.
+ */
+export interface BuiltinInvokeGrant {
+	/**
+	 * A boolean arg of the invoking task that defaults to `false`, the invoke running only
+	 * when it's `true`, so the closure holds the invoked builtin only when the command's args set it,
+	 * like `check`'s `build` under `--build`;
+	 * an invoke when it's not is an error.
+	 */
+	readonly when?: string;
 }
 
 /**
@@ -171,9 +187,9 @@ export type BuiltinHost<TGrants extends BuiltinTaskGrants = BuiltinTaskGrants> =
  * The builtins a builtin's grants let it invoke, `never` when they name none.
  */
 export type BuiltinInvokes<TGrants extends BuiltinTaskGrants> = TGrants extends {
-	invokes: ReadonlyArray<infer TName extends keyof GroBuiltinTasks>;
+	invokes: infer TInvokes;
 }
-	? TName
+	? Extract<keyof TInvokes, keyof GroBuiltinTasks>
 	: never;
 
 /**
