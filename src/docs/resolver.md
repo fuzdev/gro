@@ -154,6 +154,12 @@ a host module's file there (`./fs.ts`) being that builtin module, so the Node im
 and a bare specifier to a builtin module, to Gro's library, or to a package in the project root's `node_modules`,
 with no self-reference, as Gro installed there would find it,
 so Gro and the project's own modules share one copy of `@fuzdev/fuz_util` and the rest.
+That package must be one of Gro's peer dependencies, at a version in the range Gro's `package.json` declares,
+which the binary carries with the library, read as npm reads it, for the forms Gro declares
+(comparators like `>=0.83.0`, carets like `^6`, joined by `||`), a prerelease only where its range names one of its release:
+one the project doesn't install is refused naming the fix (`npm i -D @fuzdev/fuz_util`),
+one outside the range naming the range to install, and one Gro doesn't declare naming that.
+The check holds against version skew, not against a project that sets out to defeat it, since its `package.json` names any version it likes.
 A package that resolves to the project's own modules, linked by name, is refused, as for a package's import.
 Any other specifier (absolute, a URL, a `#` specifier) is refused.
 

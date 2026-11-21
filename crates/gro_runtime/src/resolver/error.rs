@@ -103,6 +103,16 @@ pub enum ResolveErrorKind {
         /// The project root's real directory.
         project: PathBuf,
     },
+    /// A package Gro's library imports that the project doesn't hold as Gro
+    /// needs it: one of Gro's peer dependencies, missing or at a version
+    /// outside its range, or one Gro doesn't declare.
+    GroPeer {
+        /// The package's name.
+        name: Box<str>,
+        /// What's wrong, boxed: a failure is the rare path, and it would
+        /// size every resolution's error.
+        fault: Box<PeerFault>,
+    },
     /// The empty string.
     Empty,
     /// A specifier, its resolved URL, or its importer that isn't a valid
@@ -362,6 +372,35 @@ pub enum ResolveErrorKind {
     ReadOutsideBox(PathBuf),
 }
 
+/// Why a package Gro's library imports isn't one it may load.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PeerFault {
+    /// Gro's `package.json` declares no peer dependency of the name, so
+    /// no range says which versions Gro's library works with.
+    Undeclared,
+    /// The project root's `node_modules` holds no package of the name.
+    Missing {
+        /// The range Gro declares for it.
+        range: Box<str>,
+        /// The `node_modules` searched.
+        node_modules: PathBuf,
+    },
+    /// The package's version is outside the range Gro declares, or isn't
+    /// one a range can be checked against.
+    OutOfRange {
+        /// The range Gro declares for it.
+        range: Box<str>,
+        /// Its `package.json`'s `"version"`, unset when that isn't a
+        /// string.
+        version: Option<Box<str>>,
+        /// The package's real root.
+        dir: PathBuf,
+    },
+    /// The range Gro declares isn't one the resolver reads, which a copy
+    /// the build made never holds.
+    UnreadRange(Box<str>),
+}
+
 /// Why a module of Gro's library isn't served.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GroModuleFault {
@@ -486,7 +525,8 @@ impl ResolveErrorKind {
     /// module of Gro's library reaching outside it or importing the project
     /// by name, a module whose origin is unclear, or a read outside the box.
     /// Nothing there is a missing file or package, a module of Gro's the run
-    /// doesn't serve, a malformed specifier or package,
+    /// doesn't serve, a peer of Gro's missing or out of its range, a
+    /// malformed specifier or package,
     /// a format or feature `fgro` doesn't load (a `.cts` file or a `.js` one
     /// outside `"type": "module"`, JSX, an unsupported extension, `node:`, a
     /// registry, a `#` specifier mapped to a package), or a failed read: the
@@ -521,6 +561,7 @@ impl ResolveErrorKind {
             | Self::ImportNotDefined { .. }
             | Self::ImportsPackage { .. }
             | Self::GroModule { .. }
+            | Self::GroPeer { .. }
             | Self::NoGroLibrary(_)
             | Self::Empty
             | Self::InvalidUrl(
@@ -727,6 +768,49 @@ impl fmt::Display for ResolveErrorKind {
                          Gro's never resolves to a package. Fix: import '{GRO_PACKAGE}/{ts}.ts'"
                     )
                 }
+            },
+            Self::GroPeer { name, fault } => match fault.as_ref() {
+                PeerFault::Undeclared => write!(
+                    f,
+                    "Gro's library imports the package '{name}', which Gro's package.json \
+                     doesn't declare as a peer dependency, so no range says which of its \
+                     versions Gro works with. Fix: run this under Node with gro"
+                ),
+                PeerFault::Missing {
+                    range,
+                    node_modules,
+                } => write!(
+                    f,
+                    "Gro's library imports the package '{name}', a peer dependency of Gro's at \
+                     {range}, which the project doesn't install: no {}. Fix: npm i -D {name}",
+                    node_modules.join(name.as_ref()).display()
+                ),
+                PeerFault::OutOfRange {
+                    range,
+                    version,
+                    dir,
+                } => {
+                    write!(
+                        f,
+                        "Gro's library imports the package '{name}', a peer dependency of \
+                         Gro's at {range}, and the project installs "
+                    )?;
+                    match version {
+                        Some(version) => write!(f, "version {version}")?,
+                        None => f.write_str("it with no version")?,
+                    }
+                    write!(
+                        f,
+                        " at {}. Fix: npm i -D '{name}@{range}'",
+                        dir.display()
+                    )
+                }
+                PeerFault::UnreadRange(range) => write!(
+                    f,
+                    "Gro's library imports the package '{name}', a peer dependency of Gro's at \
+                     {range}, a range {BINARY_NAME} doesn't read, so its version can't be \
+                     checked. Fix: run this under Node with gro"
+                ),
             },
             Self::NoGroLibrary(None) => write!(
                 f,

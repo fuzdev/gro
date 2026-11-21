@@ -13,8 +13,8 @@ use super::builtins::{Watched, shadowed};
 use super::{TEST_EMBED_MODULES, resolve_any, resolve_gro, roots, test_library};
 use crate::resolver::test_tree::MemoryTree;
 use crate::resolver::{
-    BUILTINS, GroModuleFault, Origin, Reserved, ResolveError, ResolveErrorKind, Resolved, Root,
-    Roots, find_builtin, needs_gro_library, resolve_from_embedded,
+    BUILTINS, GroModuleFault, Origin, PeerFault, Reserved, ResolveError, ResolveErrorKind,
+    Resolved, Root, Roots, find_builtin, needs_gro_library, resolve_from_embedded,
 };
 
 /// The project of [`shadowed`], named `@fuzdev/gro` and exporting every
@@ -543,10 +543,141 @@ fn an_embedded_module_s_package_is_the_project_root_s() {
         "Gro's library imports it by name, and it resolves to /p/x.js, a module of the project \
          at /p"
     ));
-    assert!(matches!(
-        from_embedded(&tree, &roots, "index.ts", "nope")
+}
+
+/// A project at `/p` with `name` installed at `version`, or with no
+/// `"version"` when it's unset.
+fn project_with(name: &str, version: Option<&str>) -> (MemoryTree, Roots) {
+    let leak = |text: String| -> &'static str { Box::leak(text.into()) };
+    let version = version.map_or_else(String::new, |version| {
+        format!(r#""version": "{version}", "#)
+    });
+    let tree = MemoryTree {
+        files: BTreeMap::from([
+            ("/p/package.json", r#"{"name": "app", "type": "module"}"#),
+            ("/p/main.js", ""),
+            (
+                leak(format!("/p/node_modules/{name}/package.json")),
+                leak(format!(
+                    r#"{{"name": "{name}", {version}"type": "module", "exports": {{"./x.js": "./x.js"}}}}"#
+                )),
+            ),
+            (leak(format!("/p/node_modules/{name}/x.js")), ""),
+        ]),
+        ..MemoryTree::default()
+    };
+    let roots = roots(&tree, &Url::parse("file:///p/main.js").unwrap());
+    (tree, roots)
+}
+
+/// A package Gro's library imports is one of Gro's peers at a version in
+/// the range it declares: one in the range loads; one Gro doesn't declare
+/// is refused before anything is read; one the project doesn't install,
+/// one outside the range, a prerelease the range doesn't name, one with a
+/// version no range reads, and one with none are each refused, naming the
+/// package, the range, and the install that fixes it.
+#[test]
+fn an_embedded_module_s_package_is_a_peer_in_its_range() {
+    for version in ["1.0.0", "1.2.0", "1.99.0"] {
+        let (tree, roots) = project_with("dep", Some(version));
+        let resolved = from_embedded(&tree, &roots, "index.ts", "dep/x.js");
+        assert!(
+            matches!(
+                &resolved,
+                Ok(Resolved::Module(resolution))
+                    if resolution.url.as_str() == "file:///p/node_modules/dep/x.js"
+            ),
+            "{version}: {resolved:?}"
+        );
+    }
+    let (tree, roots) = project_with("other", Some("1.0.0"));
+    let watched = Watched {
+        tree,
+        calls: RefCell::default(),
+    };
+    let error = resolve_from_embedded(
+        &watched,
+        test_library(),
+        "other/x.js",
+        &Url::parse("gro:lib/index.ts").unwrap(),
+        "index.ts",
+        &roots,
+    )
+    .unwrap_err();
+    assert_eq!(*watched.calls.borrow(), Vec::<PathBuf>::new());
+    assert_eq!(
+        error.kind,
+        ResolveErrorKind::GroPeer {
+            name: Box::from("other"),
+            fault: Box::new(PeerFault::Undeclared),
+        }
+    );
+    assert!(error.to_string().contains(
+        "Gro's library imports the package 'other', which Gro's package.json doesn't declare as \
+         a peer dependency"
+    ));
+    let error =
+        from_embedded(&watched.tree, &roots, "index.ts", "@fuzdev/fuz_util/log.ts").unwrap_err();
+    assert_eq!(
+        error.kind,
+        ResolveErrorKind::GroPeer {
+            name: Box::from("@fuzdev/fuz_util"),
+            fault: Box::new(PeerFault::Missing {
+                range: Box::from(">=0.83.0"),
+                node_modules: PathBuf::from("/p/node_modules"),
+            }),
+        }
+    );
+    assert_eq!(
+        error.to_string(),
+        "cannot resolve '@fuzdev/fuz_util/log.ts' from gro:lib/index.ts: Gro's library imports \
+         the package '@fuzdev/fuz_util', a peer dependency of Gro's at >=0.83.0, which the \
+         project doesn't install: no /p/node_modules/@fuzdev/fuz_util. Fix: npm i -D \
+         @fuzdev/fuz_util"
+    );
+    for version in [
+        Some("2.0.0"),
+        Some("0.9.9"),
+        Some("1.3.0-rc.1"),
+        Some("v1.2.0"),
+        None,
+    ] {
+        let (tree, roots) = project_with("dep", version);
+        let error = from_embedded(&tree, &roots, "dir/a.ts", "dep/x.js").unwrap_err();
+        assert_eq!(
+            error.kind,
+            ResolveErrorKind::GroPeer {
+                name: Box::from("dep"),
+                fault: Box::new(PeerFault::OutOfRange {
+                    range: Box::from("^1"),
+                    version: version.map(Box::from),
+                    dir: PathBuf::from("/p/node_modules/dep"),
+                }),
+            },
+            "{version:?}"
+        );
+        assert!(!error.kind.guards_a_boundary());
+        let installs = version.map_or_else(
+            || "it with no version".to_owned(),
+            |version| format!("version {version}"),
+        );
+        assert!(
+            error.to_string().ends_with(&format!(
+                "Gro's library imports the package 'dep', a peer dependency of Gro's at ^1, and \
+                 the project installs {installs} at /p/node_modules/dep. Fix: npm i -D 'dep@^1'"
+            )),
+            "{error}"
+        );
+    }
+    // a range the build would have refused, in a copy made by hand
+    let (tree, roots) = project_with("odd", Some("1.2.3"));
+    assert_eq!(
+        from_embedded(&tree, &roots, "index.ts", "odd/x.js")
             .unwrap_err()
             .kind,
-        ResolveErrorKind::PackageNotFound { .. }
-    ));
+        ResolveErrorKind::GroPeer {
+            name: Box::from("odd"),
+            fault: Box::new(PeerFault::UnreadRange(Box::from("~1.2.3"))),
+        }
+    );
 }

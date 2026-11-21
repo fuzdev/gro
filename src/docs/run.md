@@ -191,7 +191,8 @@ The binary embeds the commit, so a dirty tree (a changed file, or an untracked o
   never loaded from the npm package's Node implementation.
 - Any other specifier of `@fuzdev/gro`, like `@fuzdev/gro/task_args.ts`, a module of Gro's library, which the binary carries:
   it loads from the binary's own copy, never from a package, at its `gro:` URL, granted no builtin module that needs a grant by its own imports, whatever the run grants,
-  its own imports of packages resolving from the project root's `node_modules`;
+  its own imports of packages resolving from the project root's `node_modules`, each one of Gro's peer dependencies
+  at a version in the range Gro declares, or refused naming the install that fixes it;
   one under `internal/`, one of Gro's modules that run only on Node, and a path naming no module of Gro's are refused, naming it
   ([resolver](resolver.md#gros-library)).
 - A `./x.js` specifier whose file is missing while `./x.ts` exists is refused with a hint naming the sibling,

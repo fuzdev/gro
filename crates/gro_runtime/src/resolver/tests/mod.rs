@@ -78,8 +78,12 @@ pub(super) const TEST_EMBED_MODULES: [(&str, &str); 6] = [
 pub(super) const TEST_EMBED_LEFT_OUT: [&str; 3] = ["build.task.ts", "invoke.ts", "library_load.ts"];
 
 /// The peers of [`test_library`], `(name, range)`.
-pub(super) const TEST_EMBED_PEERS: [(&str, &str); 2] =
-    [("@fuzdev/fuz_util", ">=0.83.0"), ("dep", "^1")];
+pub(super) const TEST_EMBED_PEERS: [(&str, &str); 4] = [
+    ("@fuzdev/fuz_util", ">=0.83.0"),
+    ("app", "^1"),
+    ("dep", "^1"),
+    ("odd", "~1.2.3"),
+];
 
 /// The blob of [`test_library`], made once.
 fn test_blob() -> Embed<'static> {

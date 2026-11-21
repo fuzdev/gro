@@ -99,8 +99,8 @@ pub(crate) use embedded::{
 };
 pub use entry::{EntryBound, normalize, resolve_entry, resolve_entry_with_bound};
 pub use error::{
-    GroModuleFault, MapField, PackageSearchBound, ResolveError, ResolveErrorKind, TargetFault,
-    UrlFault,
+    GroModuleFault, MapField, PackageSearchBound, PeerFault, ResolveError, ResolveErrorKind,
+    TargetFault, UrlFault,
 };
 pub use format::{ModuleFormat, module_format};
 pub use roots::{Origin, Root, Roots};

@@ -89,6 +89,11 @@ for Linux x86_64 only, built from source ([install](../src/docs/runtime.md#insta
     then hints at the flag that would grant what was refused: `--allow-env=` with the names the project's grant lacked,
     `--allow-run=` and `--allow-run-env=` with the programs and variables, each a plain name, and for `fs` the flag alone (`--allow-read`, `--allow-write`, or `--allow-temp`) or the handle to open, never a path.
     An `import()` refused because nothing is there, like a missing optional dependency, or because a feature isn't supported, doesn't fail the run.
+  - Gro's library loads from the binary's own copy: any other `@fuzdev/gro` specifier (`@fuzdev/gro/task_args.ts`, `@fuzdev/gro` alone its `index.ts`)
+    resolves to it at its `gro:lib/` URL, never to `node_modules` or a self-reference, holding no grant by its own imports, `-A` or not,
+    and takes its packages from the project root's `node_modules` at the ranges of Gro's peer dependencies, refusing one missing or out of range naming the install that fixes it.
+    `internal/` modules, the ones that run only on Node, and a path Gro has no module at are refused, naming the module;
+    `fgro eval` holds no copy, so it refuses every one but the builtin modules.
   - The host modules not on `fgro` yet are refused, never loaded from the npm package:
     `@fuzdev/gro/net.ts`, `watch.ts`, and `stdin.ts`.
     So is a builtin module's `.js` spelling (`@fuzdev/gro/args.js`), and a respelling of any of these or of a builtin module's specifier (`@fuzdev/gro/arg%73.ts`).

@@ -24,18 +24,26 @@
 //! package as from any importer, or else a package resolved from the
 //! project root's `node_modules`, with no self-reference, as Gro installed
 //! there would find it, so one package serves Gro's library and the
-//! project's modules alike. Any other specifier is refused: an embedded
-//! module reaches nothing outside `src/lib` but by a package's name.
+//! project's modules alike. That package must be one of Gro's peer
+//! dependencies, at a version in the range Gro's `package.json` declares,
+//! which the copy carries ([`super::semver`]): one Gro doesn't declare, one
+//! the project doesn't install, and one at another version are each
+//! refused, naming the package, the range, and the install that fixes it.
+//! The check holds against version skew, not against a project that means
+//! to defeat it, whose `package.json` names any version it likes. Any other
+//! specifier is refused: an embedded module reaches nothing outside
+//! `src/lib` but by a package's name.
 
 use url::Url;
 
 use super::builtin::{
-    Builtin, GRO_PACKAGE, HostModule, Reserved, find_builtin, find_host_module_file,
-    find_reserved, gro_module_path,
+    Builtin, GRO_PACKAGE, HostModule, Reserved, find_builtin, find_host_module_file, find_reserved,
+    gro_module_path,
 };
-use super::error::{GroModuleFault, ResolveError, ResolveErrorKind};
-use super::package::resolve_package;
+use super::error::{GroModuleFault, PeerFault, ResolveError, ResolveErrorKind};
+use super::package::{parse_package_name, resolve_package};
 use super::roots::{Origin, Roots};
+use super::semver::{Version, VersionRange};
 use super::tree::SourceTree;
 use super::walk::Consulted;
 use super::{Resolved, find_target};
@@ -207,26 +215,61 @@ pub fn resolve_from_embedded(
     if let Some(resolved) = resolve_gro_package(library, specifier) {
         return resolved.map_err(error);
     }
-    resolve_peer(tree, specifier, roots).map_err(error)
+    let embed =
+        library.map_err(|reason| error(ResolveErrorKind::NoGroLibrary(reason.map(Box::from))))?;
+    resolve_peer(tree, embed, specifier, roots).map_err(error)
 }
 
 /// Resolves the bare `specifier` of a package, imported by Gro's library,
-/// from the project root's `node_modules`.
+/// from the project root's `node_modules`, once its version is checked
+/// against the range of Gro's peer dependency of its name in `embed`.
 fn resolve_peer(
     tree: &impl SourceTree,
+    embed: Embed<'static>,
     specifier: &str,
     roots: &Roots,
 ) -> Result<Resolved, ResolveErrorKind> {
+    let (name, _) = parse_package_name(specifier)?;
+    let peer = |fault| ResolveErrorKind::GroPeer {
+        name: Box::from(name),
+        fault: Box::new(fault),
+    };
+    // before anything is read: Gro imports only what it declares
+    let range = embed
+        .peer_range(name)
+        .ok_or_else(|| peer(PeerFault::Undeclared))?;
     let mut consulted = Consulted::default();
     let project = roots.project();
-    let package = resolve_package(tree, specifier, &project.dir, None, roots, &mut consulted)?;
+    let package = resolve_package(tree, specifier, &project.dir, None, roots, &mut consulted)
+        .map_err(|kind| match kind {
+            ResolveErrorKind::PackageNotFound { .. } => peer(PeerFault::Missing {
+                range: Box::from(range),
+                node_modules: project.dir.join("node_modules"),
+            }),
+            kind => kind,
+        })?;
     let path = super::specifier::url_to_path(&package.url)?;
     // before the target is read: only the project's root has its origin
-    if package.root.origin == Origin::Project {
-        return Err(ResolveErrorKind::GroImportsProject {
-            path,
-            project: package.root.dir,
-        });
+    let version = match &package.root.origin {
+        Origin::Package { version, .. } => version.as_deref(),
+        Origin::Project | Origin::Embedded => {
+            return Err(ResolveErrorKind::GroImportsProject {
+                path,
+                project: package.root.dir,
+            });
+        }
+    };
+    let parsed =
+        VersionRange::parse(range).map_err(|_| peer(PeerFault::UnreadRange(Box::from(range))))?;
+    if !version
+        .and_then(Version::parse)
+        .is_some_and(|version| parsed.contains(&version))
+    {
+        return Err(peer(PeerFault::OutOfRange {
+            range: Box::from(range),
+            version: version.map(Box::from),
+            dir: package.root.dir,
+        }));
     }
     find_target(
         tree,

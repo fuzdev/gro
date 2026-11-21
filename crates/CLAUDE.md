@@ -82,7 +82,9 @@ and the contracts no one module doc owns.
   library itself), decoded the first time a specifier of `@fuzdev/gro`
   needs it, and serves its modules unstripped at `gro:lib/<path>`, their
   origin `Origin::Embedded`, which holds no grant by its own imports under
-  any authority (under `-A` a package it imports holds every row)
+  any authority (under `-A` a package it imports holds every row),
+  its package imports from the project root's `node_modules`, each held to
+  the range of Gro's peer dependency (`resolver/semver.rs`)
   (`resolver/embedded.rs`'s module doc has the resolution).
 - The resolver (`resolver/`) is a pure module: no deno_core types, reading
   only through the `SourceTree` trait. The loader owns the admitted roots
