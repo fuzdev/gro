@@ -15,7 +15,8 @@ import {
 import { create_gen_context } from '#lib/gen.ts';
 import { gen_inputs_match } from '#lib/gen_helpers.ts';
 import { create_empty_gro_config } from '#lib/gro_config.ts';
-import { to_builtin_task_id, type InvokeTask } from '#lib/task.ts';
+import type { InvokeTask } from '#lib/task.ts';
+import { GRO_BUILTIN_TASK_IMPORTS } from '#lib/gro_builtin_task_imports.ts';
 import { GRO_BUILTIN_TASK_GRANTS, GRO_BUILTIN_TASK_SUMMARIES } from '#lib/gro_builtin_tasks.ts';
 import { fs } from '#lib/fs.ts';
 import { LIB_PATH } from '#lib/constants.ts';
@@ -154,8 +155,20 @@ describe('task_registry_find_builtins', () => {
 		);
 		assert.deepEqual(
 			entries.map((e) => e.id),
-			entries.map((e) => to_builtin_task_id(e.name as keyof typeof GRO_BUILTIN_TASK_SUMMARIES))
+			entries.map((e) => join(paths.lib, e.name + '.task.ts'))
 		);
+		// the literal imports load the same modules the genfile found by listing
+		assert.deepEqual(
+			Object.keys(GRO_BUILTIN_TASK_IMPORTS),
+			entries.map((e) => e.name)
+		);
+		for (const entry of entries) {
+			const name = entry.name as keyof typeof GRO_BUILTIN_TASK_IMPORTS;
+			assert.ok(
+				Object.is(await GRO_BUILTIN_TASK_IMPORTS[name](), await import_module_node(entry.id)),
+				name
+			);
+		}
 	});
 });
 

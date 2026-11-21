@@ -8,7 +8,6 @@ import { invoke_cli, invoke_task, resolve_task, type InvokeTaskOptions } from '#
 import { run_task } from '#lib/run_task.ts';
 import { log_builtin_tasks, log_error_reasons, log_tasks } from '#lib/task_logging.ts';
 import { create_empty_gro_config, type GroConfig } from '#lib/gro_config.ts';
-import { to_builtin_task_id } from '#lib/task.ts';
 import { ReportedError } from '#lib/task_error.ts';
 import { GRO_BUILTIN_TASK_GRANTS, GRO_BUILTIN_TASK_SUMMARIES } from '#lib/gro_builtin_tasks.ts';
 import { to_task_args, type CliTaskArgs } from '#lib/task_args.ts';
@@ -101,14 +100,14 @@ describe('resolve_task', () => {
 
 	test('a bare name is a builtin', async () => {
 		const resolved = await resolve('check');
-		assert.deepEqual(resolved, { ok: true, id: to_builtin_task_id('check'), name: 'check' });
+		assert.deepEqual(resolved, { ok: true, id: null, name: 'check' });
 	});
 
 	test('a bare name is never a project task, even when one exists by that name', async () => {
 		write_tasks(['src/lib/check.task.ts', 'src/lib/greet.task.ts', 'greet.task.ts']);
 		const resolved = await resolve('check');
 		assert.ok(resolved.ok);
-		assert.strictEqual(resolved.id, to_builtin_task_id('check'));
+		assert.strictEqual(resolved.id, null);
 		assert.ok(!(await resolve('greet')).ok);
 	});
 

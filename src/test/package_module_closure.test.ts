@@ -5,6 +5,7 @@ import { dirname, join, relative, resolve } from 'node:path';
 
 import { parse_imports } from '#lib/internal/parse_imports.ts';
 import { to_lib_url, use_fixture_runner } from './host_fixture_helpers.ts';
+import { GRO_BUILTIN_TASK_GRANTS } from '#lib/gro_builtin_tasks.ts';
 import { paths } from './test_helpers.ts';
 
 /*
@@ -15,6 +16,10 @@ Each one's static import closure, `import type` erased, must hold no `node:` bui
 and no host module's Node file, beside the grant-free error modules,
 and loading it must read nothing of the process.
 A module freed for the runtime joins `PACKAGE_MODULES`.
+
+Each builtin is an entry of its own, imported by name from `GRO_BUILTIN_TASK_IMPORTS`,
+so no closure here follows that table into the builtins it imports:
+a builtin with grants is in `BUILTIN_TASKS`, and one with none in `NODE_BUILTIN_TASKS`.
 
 A builtin task takes what it reaches from its `host`, so the root's handles are all it holds:
 each one in `BUILTIN_TASKS` imports no `node:` builtin itself, and its closure reaches no granted
@@ -43,6 +48,7 @@ const PACKAGE_MODULES = [
 	'gen.ts',
 	'git.ts',
 	'github.ts',
+	'gro_builtin_task_imports.ts',
 	'gro_builtin_tasks.ts',
 	'input_path.ts',
 	'internal/code_points.ts',
@@ -74,6 +80,22 @@ const BUILTIN_TASKS = [
 	'test.task.ts',
 	'typecheck.task.ts'
 ];
+
+// the builtin tasks with no grants, which import their host modules, so they run only on Node
+const NODE_BUILTIN_TASKS = [
+	'build.task.ts',
+	'changeset.task.ts',
+	'commit.task.ts',
+	'deploy.task.ts',
+	'dev.task.ts',
+	'publish.task.ts',
+	'reinstall.task.ts',
+	'run.task.ts',
+	'upgrade.task.ts'
+];
+
+// the table of the builtins' literal imports, whose imports no closure here follows
+const BUILTIN_TASK_IMPORTS_ID = join(paths.lib, 'gro_builtin_task_imports.ts');
 
 // the package modules the CLI's entry doesn't reach, loaded by tasks and genfiles
 const PACKAGE_MODULES_BEYOND_THE_CLI = ['git.ts'];
@@ -227,6 +249,7 @@ const to_closure_violations = (entry: string): Array<string> => {
 		return chain.join(' <- ');
 	};
 	for (let id = queue.shift(); id !== undefined; id = queue.shift()) {
+		if (id === BUILTIN_TASK_IMPORTS_ID) continue;
 		for (const specifier of to_specifiers(id)) {
 			if (specifier.startsWith('node:') || isBuiltin(specifier)) {
 				violations.push(`${specifier} <- ${to_chain(id)}`);
@@ -275,6 +298,7 @@ const to_builtin_task_violations = (entry: string): Array<string> => {
 		return chain.join(' <- ');
 	};
 	for (let id = queue.shift(); id !== undefined; id = queue.shift()) {
+		if (id === BUILTIN_TASK_IMPORTS_ID) continue;
 		for (const specifier of to_specifiers(id)) {
 			if (specifier.startsWith('node:') || isBuiltin(specifier)) {
 				const name = specifier.replace(/^node:/, '');
@@ -381,6 +405,7 @@ const to_lib_closure = (entry: string): Array<string> => {
 	const reached: Set<string> = new Set([entry]);
 	const queue = [entry];
 	for (let id = queue.shift(); id !== undefined; id = queue.shift()) {
+		if (id === BUILTIN_TASK_IMPORTS_ID) continue;
 		for (const specifier of to_specifiers(id)) {
 			if (!specifier.startsWith('.')) continue;
 			const target = resolve(dirname(id), specifier);
@@ -392,6 +417,24 @@ const to_lib_closure = (entry: string): Array<string> => {
 	}
 	return [...reached].map((id) => relative(paths.lib, id)).sort();
 };
+
+test('every builtin is in `BUILTIN_TASKS` or `NODE_BUILTIN_TASKS`, by whether it has grants', () => {
+	const granted = Object.entries(GRO_BUILTIN_TASK_GRANTS)
+		.filter(([, grants]) => grants !== null)
+		.map(([name]) => name + '.task.ts');
+	const ungranted = Object.entries(GRO_BUILTIN_TASK_GRANTS)
+		.filter(([, grants]) => grants === null)
+		.map(([name]) => name + '.task.ts');
+	assert.deepEqual([...BUILTIN_TASKS].sort(), granted.sort());
+	assert.deepEqual([...NODE_BUILTIN_TASKS].sort(), ungranted.sort());
+});
+
+test('the table imports each builtin by a literal import of its module, and nothing else', () => {
+	assert.deepEqual(
+		to_specifiers(BUILTIN_TASK_IMPORTS_ID),
+		Object.keys(GRO_BUILTIN_TASK_GRANTS).map((name) => `./${name}.task.ts`)
+	);
+});
 
 describe("the CLI entry's closure", () => {
 	const host_modules = [...HOST_MODULES].map((id) => relative(paths.lib, id));

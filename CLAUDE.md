@@ -88,6 +88,9 @@ errors and exit codes. Where it lives:
   ([docs](src/docs/task.md#a-builtins-host-and-grants)). On Node the cut is a
   review signal, not an enforced boundary. A builtin with no `grants` (`null`
   in the table) imports its host modules and gets no `host`
+- Builtin loading - by name: `invoke_task` imports the generated `GRO_BUILTIN_TASK_IMPORTS`
+  (`gro_builtin_task_imports.ts`, from the summaries genfile), a literal import per builtin,
+  never a path built from `import.meta.url`
 - Project loader - every project file Gro loads (tasks, genfiles, `gro.config.ts`) goes
   through an `ImportModule` (`modules.ts`) taken as a parameter: `invoke_task` takes the
   root's as `import_module` in `InvokeTaskOptions`, passed down as `fs_paths` is, and the

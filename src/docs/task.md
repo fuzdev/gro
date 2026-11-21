@@ -277,6 +277,11 @@ export const task: BuiltinTask<Args, typeof grants> = {
 A builtin that declares no grants imports the host modules it uses, its entry `null` in the table,
 and gets no `host`.
 
+A builtin loads by name, not by path: `invoke_task` imports the generated
+`GRO_BUILTIN_TASK_IMPORTS` (`gro_builtin_task_imports.ts`), a literal import of each builtin's
+module, so a builtin loads by a specifier relative to Gro's own module wherever Gro is loaded from.
+A project task loads through the root's project loader.
+
 ### run a task inside another task with `invoke_task`
 
 Because Gro tasks are just functions,

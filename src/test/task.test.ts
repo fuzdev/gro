@@ -8,14 +8,15 @@ import {
 	is_builtin_task_name,
 	is_task_path,
 	is_task_path_input,
+	load_builtin_task,
 	load_task,
-	to_builtin_task_id,
 	to_task_command,
 	to_task_path,
 	validate_task_module
 } from '#lib/task.ts';
 import * as actual_test_task_module from '#lib/test.task.ts';
 import { import_module_node } from '#lib/internal/node_import_module.ts';
+import { GRO_BUILTIN_TASK_IMPORTS } from '#lib/gro_builtin_task_imports.ts';
 import { paths } from './test_helpers.ts';
 
 describe('task', () => {
@@ -87,8 +88,28 @@ describe('task', () => {
 		}
 	});
 
-	test('to_builtin_task_id is beside the task module, in source here', () => {
-		expect(to_builtin_task_id('check')).toBe(join(paths.lib, 'check.task.ts'));
+	test('load_builtin_task imports the builtin by name from the table, with no path', async () => {
+		const result = await load_builtin_task('test', GRO_BUILTIN_TASK_IMPORTS);
+		assert.ok(result.ok);
+		assert.strictEqual(result.value.id, null);
+		assert.strictEqual(result.value.name, 'test');
+		assert.ok(Object.is(result.value.mod, actual_test_task_module));
+	});
+
+	test('load_builtin_task fails naming the builtin when its import fails or has no task', async () => {
+		const failed = await load_builtin_task('test', {
+			...GRO_BUILTIN_TASK_IMPORTS,
+			test: () => Promise.reject(Error('no such module'))
+		});
+		assert.ok(!failed.ok);
+		assert.include(failed.reason, 'Builtin task `test` failed to import');
+		assert.include(failed.reason, 'no such module');
+		const invalid = await load_builtin_task('test', {
+			...GRO_BUILTIN_TASK_IMPORTS,
+			test: () => Promise.resolve({}) as never
+		});
+		assert.ok(!invalid.ok);
+		assert.include(invalid.reason, 'Builtin task `test` has no `task` export');
 	});
 
 	test('validate_task_module basic behavior', async () => {
@@ -107,7 +128,7 @@ describe('task', () => {
 	});
 
 	test('load_task imports the module with the name it displays', async () => {
-		const id = to_builtin_task_id('test');
+		const id = join(paths.lib, 'test.task.ts');
 		const result = await load_task(id, 'test', paths.root, import_module_node);
 		assert.ok(result.ok);
 		assert.strictEqual(result.value.id, id);

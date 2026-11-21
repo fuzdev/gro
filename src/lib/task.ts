@@ -1,13 +1,13 @@
 import type { Args } from '@fuzdev/fuz_util/args.ts';
 import type { Logger } from '@fuzdev/fuz_util/log.ts';
-import { to_file_path, type PathId } from '@fuzdev/fuz_util/path.ts';
+import type { PathId } from '@fuzdev/fuz_util/path.ts';
 import type { Result } from '@fuzdev/fuz_util/result.ts';
 import type { Timings } from '@fuzdev/fuz_util/timings.ts';
 import type { Schema } from '@fuzdev/fuz_schema/schema.ts';
 import type { GroConfig } from './gro_config.ts';
 import type { ParsedSvelteConfig } from './svelte_config.ts';
 import { print_path } from './paths.ts';
-import { load_module, type ImportModule, type ModuleMeta } from './modules.ts';
+import { load_module, type ImportModule } from './modules.ts';
 import type { ModuleGraph } from './module_graph.ts';
 import { GRO_BUILTIN_TASK_SUMMARIES, type GroBuiltinTasks } from './gro_builtin_tasks.ts';
 import type { TaskArgsInput, TaskName } from './task_registry.ts';
@@ -183,16 +183,15 @@ export const to_task_command = (name: string): string =>
 export const is_builtin_task_name = (name: string): name is keyof GroBuiltinTasks =>
 	hasOwn(GRO_BUILTIN_TASK_SUMMARIES, name);
 
-// builtins sit beside this module, `.ts` in Gro's source and `.js` in its dist
-const BUILTIN_TASK_FILE_SUFFIX = import.meta.url.endsWith('.ts')
-	? TASK_FILE_SUFFIX_TS
-	: TASK_FILE_SUFFIX_JS;
-
 /**
- * The module id of the builtin task `name`.
+ * Imports each of Gro's builtin tasks by name, a literal import of its module,
+ * so a builtin loads by a specifier relative to Gro's own module wherever Gro is loaded from,
+ * never by a path built from a module's URL.
+ * Gro's is the generated `GRO_BUILTIN_TASK_IMPORTS`, which `invoke_task` imports.
  */
-export const to_builtin_task_id = (name: keyof GroBuiltinTasks): PathId =>
-	to_file_path(new URL('./' + name + BUILTIN_TASK_FILE_SUFFIX, import.meta.url));
+export type BuiltinTaskImports = {
+	readonly [TName in keyof GroBuiltinTasks]: () => Promise<GroBuiltinTasks[TName]>;
+};
 
 /**
  * A task file's module, which exports the `task`.
@@ -204,11 +203,16 @@ export interface TaskModule {
 /**
  * A loaded task module with its id and display name.
  */
-export interface TaskModuleMeta extends ModuleMeta<TaskModule> {
+export interface TaskModuleMeta {
+	/**
+	 * The task file's path, `null` for a builtin, which loads by name from `BuiltinTaskImports`.
+	 */
+	id: PathId | null;
 	/**
 	 * The builtin name or normalized root-relative path the task is displayed and keyed by.
 	 */
 	name: string;
+	mod: TaskModule;
 }
 
 /**
@@ -236,6 +240,32 @@ export const load_task = async (
 				? `Task module ${print_path(id, root)} failed to import: ${print_error_with_causes(loaded.error)}`
 				: `Task module ${print_path(id, root)} has no \`task\` export with a \`run\` function.`
 	};
+};
+
+/**
+ * Imports the builtin task `name` from `builtin_tasks`.
+ * @param builtin_tasks - imports each builtin by name
+ */
+export const load_builtin_task = async (
+	name: keyof GroBuiltinTasks,
+	builtin_tasks: BuiltinTaskImports
+): Promise<LoadTaskResult> => {
+	let mod: Record<string, any>;
+	try {
+		mod = await builtin_tasks[name]();
+	} catch (error) {
+		return {
+			ok: false,
+			reason: `Builtin task \`${name}\` failed to import: ${print_error_with_causes(error)}`
+		};
+	}
+	if (!validate_task_module(mod)) {
+		return {
+			ok: false,
+			reason: `Builtin task \`${name}\` has no \`task\` export with a \`run\` function.`
+		};
+	}
+	return { ok: true, value: { id: null, name, mod } };
 };
 
 /**

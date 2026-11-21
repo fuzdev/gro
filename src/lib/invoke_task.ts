@@ -1,5 +1,6 @@
 import type { Args } from '@fuzdev/fuz_util/args.ts';
 import { Logger } from '@fuzdev/fuz_util/log.ts';
+import type { PathId } from '@fuzdev/fuz_util/path.ts';
 import { print_ms, print_timings, st } from '@fuzdev/fuz_util/print.ts';
 import { create_stopwatch, Timings } from '@fuzdev/fuz_util/timings.ts';
 
@@ -15,12 +16,13 @@ import {
 	is_builtin_task_name,
 	is_task_path,
 	is_task_path_input,
+	load_builtin_task,
 	load_task,
-	to_builtin_task_id,
 	to_task_command,
 	to_task_path,
 	TASK_FILE_SUFFIX_TS,
 	TASK_VERB,
+	type BuiltinTaskImports,
 	type TaskModuleMeta
 } from './task.ts';
 import { is_reported_error, is_task_error, ReportedError } from './task_error.ts';
@@ -40,6 +42,7 @@ import { create_node_module_graph } from './module_graph_node.ts';
 import type { ModuleGraph } from './module_graph.ts';
 import { task_registry_find, type TaskRegistryEntry } from './task_registry.ts';
 import { GRO_BUILTIN_TASK_GRANTS, GRO_BUILTIN_TASK_SUMMARIES } from './gro_builtin_tasks.ts';
+import { GRO_BUILTIN_TASK_IMPORTS } from './gro_builtin_task_imports.ts';
 import type { BuiltinHostRoot } from './builtin_host.ts';
 import { LIB_DIR, SOURCE_DIR } from './constants.ts';
 import { print_path } from './paths.ts';
@@ -149,7 +152,10 @@ export const invoke_task = async (
 		log_error_reasons(log, resolved.reasons);
 		throw new ReportedError();
 	}
-	const loaded = await load_task(resolved.id, resolved.name, root, import_module);
+	const loaded =
+		resolved.id === null
+			? await load_builtin_task(resolved.name as keyof BuiltinTaskImports, GRO_BUILTIN_TASK_IMPORTS)
+			: await load_task(resolved.id, resolved.name, root, import_module);
 	if (!loaded.ok) {
 		log_error_reasons(log, [loaded.reason]);
 		throw new ReportedError();
@@ -233,9 +239,10 @@ export const invoke_task = async (
 
 /**
  * A resolved task's module id and display name, or why it didn't resolve.
+ * A builtin's `id` is `null`, as it loads by name from `GRO_BUILTIN_TASK_IMPORTS`.
  */
 export type ResolveTaskResult =
-	{ ok: true; id: string; name: string } | { ok: false; reasons: Array<string> };
+	{ ok: true; id: PathId | null; name: string } | { ok: false; reasons: Array<string> };
 
 /**
  * Resolves a builtin name or a task path to the task module's id and display name,
@@ -260,7 +267,7 @@ export const resolve_task = async (
 			};
 		}
 		if (is_builtin_task_name(task_name)) {
-			return { ok: true, id: to_builtin_task_id(task_name), name: task_name };
+			return { ok: true, id: null, name: task_name };
 		}
 		return { ok: false, reasons: await to_no_builtin_reasons(fs_paths, task_name, root) };
 	}
