@@ -36,8 +36,8 @@ Key responsibilities:
 `Args`, `TaskContext`, `invoke_task` and its types, args forwarding, `gro run`,
 errors and exit codes. Where it lives:
 
-- The CLI's body - `gro_main` (`gro_main.ts`), a package module every root of the CLI
-  calls with what it opened (`GroMainDeps`: the args, the `FsPaths`, the `BuiltinHostRoot`, the
+- The CLI's body - `gro_main` (`gro_main.ts`), a package module a root of the CLI calls
+  (`invoke.ts`, the Node root) with what it opened (`GroMainDeps`: the args, the `FsPaths`, the `BuiltinHostRoot`, the
   project loader, the `GroPlatform`): it parses the args, loads the config through its own
   host cut by `GRO_CLI_GRANTS` (declared in the summaries genfile, emitted beside the builtins'
   grants, held by every command's closure), and calls `invoke_cli`; the root reports what it throws with

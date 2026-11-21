@@ -726,6 +726,30 @@ describe('to_grant_flags', () => {
 		).toEqual(['--allow-run=git', '--allow-run-in=bin', '--allow-run-env=X']);
 	});
 
+	test('steps past a `--help` in the run, keeping it for the command, as `fgro run` does', () => {
+		expect(to_grant_flags('run --help --allow-read=. x.ts --a'.split(' '))).toEqual({
+			grant_flags: ['--allow-read=.'],
+			cli_args: ['run', '--help', 'x.ts', '--a']
+		});
+		expect(to_grant_flags('task --help --allow-read=.'.split(' '))).toEqual({
+			grant_flags: ['--allow-read=.'],
+			cli_args: ['task', '--help']
+		});
+		expect(to_grant_flags('check --allow-read=. --help -A --watch'.split(' '))).toEqual({
+			grant_flags: ['--allow-read=.', '-A'],
+			cli_args: ['check', '--help', '--watch']
+		});
+		// so `run`'s help is asked for, and no grant flag reaches the script
+		const run = to_grant_flags('run --help --allow-read=. x.ts'.split(' '));
+		const task_args = to_task_args(run.cli_args, run.grant_flags);
+		expect(task_args.task_name).toBe('run');
+		expect(task_args.args.help).toBe(true);
+		expect(task_args.args._).toEqual(['x.ts']);
+		// a `--help` with no grant flag after it leaves the args as written
+		const cli_args = 'run --help x.ts'.split(' ');
+		expect(to_grant_flags(cli_args)).toEqual({ grant_flags: [], cli_args });
+	});
+
 	test('leaves everything after the run as written, a later `--allow-*` the command arg', () => {
 		for (const argv of [
 			'check --watch --allow-read=.',

@@ -51,7 +51,14 @@ export const glob_to_matcher = (pattern: string, options: GlobOptions = {}): Glo
 	// the shell keeps `${…}` as written, as `matchesGlob` does, which the expansion doesn't follow
 	if (normalized.includes('${')) throw unsupported(written, 'a `${` brace');
 	const brace_fault = to_brace_fault(normalized);
-	if (brace_fault !== null) throw unsupported(written, brace_fault);
+	if (brace_fault !== null) {
+		throw unsupported(
+			written,
+			brace_fault.indexes.some((index) => is_in_class(normalized, index))
+				? IN_CLASS_FAULT
+				: brace_fault.what
+		);
+	}
 	const expanded = expand_braces(normalized, written);
 	// a `..` left after the backslashes become separators or the braces expand,
 	// as `{,a}` does after one, which `matchesGlob` cancels
@@ -59,7 +66,14 @@ export const glob_to_matcher = (pattern: string, options: GlobOptions = {}): Glo
 		throw unsupported(written, 'a `..` segment');
 	}
 	// checked after the expansion, which can make one, as `{,a}(` does
-	if (expanded.some((p) => EXTGLOB_MATCHER.test(p))) throw unsupported(written, 'an extended glob');
+	for (const p of expanded) {
+		const extglob = EXTGLOB_MATCHER.exec(p);
+		if (extglob === null) continue;
+		throw unsupported(
+			written,
+			is_in_class(p, extglob.index + 1) ? IN_CLASS_FAULT : 'an extended glob'
+		);
+	}
 	const compiled = expanded.map((p) => to_segments(p, written));
 	return (path) => {
 		const segments = path.split('/');
@@ -69,6 +83,21 @@ export const glob_to_matcher = (pattern: string, options: GlobOptions = {}): Glo
 
 const unsupported = (pattern: string, what: string): TaskError =>
 	new TaskError(`the glob \`${pattern}\` uses ${what}, which Gro's globs don't support`);
+
+// what a refusal names when the brace or `(` it refuses is a character class's,
+// like `[{]a` or `[!(]a`, which Node's `matchesGlob` matches as a class
+const IN_CLASS_FAULT = 'a brace or `(` inside a character class';
+
+/**
+ * Whether the character at `index` is inside one of the pattern's character classes,
+ * a `[` to the next `]` in its segment, a `]` right after the `[` or its `!` or `^` a member.
+ */
+const is_in_class = (pattern: string, index: number): boolean => {
+	for (const match of pattern.matchAll(/\[[!^]?\]?[^\]/]*\]/g)) {
+		if (index > match.index && index < match.index + match[0].length - 1) return true;
+	}
+	return false;
+};
 
 /**
  * The patterns the first brace group's `{a,b}` alternatives expand to, each expanded in turn,
@@ -92,22 +121,29 @@ const expand_braces = (pattern: string, written: string): Array<string> => {
 };
 
 /**
- * What's wrong with a pattern's braces for a flat expansion, or `null` when nothing is:
+ * What's wrong with a pattern's braces for a flat expansion, and the indexes of the braces at
+ * fault, the one that broke the pairing and the one that opened or last closed a group before it,
+ * so a refusal can tell a class's brace from a group's, or `null` when nothing is:
  * a group inside another, whose expansion `matchesGlob` reads in ways a flat one never does,
  * or braces that don't pair, a `}` before its `{` or a `{` never closed.
  */
-const to_brace_fault = (pattern: string): string | null => {
-	let open = false;
-	for (const char of pattern) {
+const to_brace_fault = (pattern: string): { what: string; indexes: Array<number> } | null => {
+	let open = -1;
+	let closed = -1;
+	for (let i = 0; i < pattern.length; i++) {
+		const char = pattern[i];
 		if (char === '{') {
-			if (open) return 'a brace group inside another';
-			open = true;
+			if (open !== -1) return { what: 'a brace group inside another', indexes: [open, i] };
+			open = i;
 		} else if (char === '}') {
-			if (!open) return 'unbalanced braces';
-			open = false;
+			if (open === -1) {
+				return { what: 'unbalanced braces', indexes: closed === -1 ? [i] : [closed, i] };
+			}
+			open = -1;
+			closed = i;
 		}
 	}
-	return open ? 'unbalanced braces' : null;
+	return open === -1 ? null : { what: 'unbalanced braces', indexes: [open] };
 };
 
 /**

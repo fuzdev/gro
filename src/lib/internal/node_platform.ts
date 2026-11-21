@@ -2,7 +2,7 @@
  * The Node Gro's `GroPlatform`, what its composition roots hand every task's run.
  *
  * Node-only: it finds Gro's package directory from this module's own URL.
- * The binary's entry hands Gro its own.
+ * Another root hands Gro its own.
  *
  * @module
  */

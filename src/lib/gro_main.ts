@@ -1,6 +1,6 @@
 /**
- * The Gro CLI's body, which every root of the CLI calls with what it opened:
- * the Node Gro's entry, `invoke.ts`, and the binary's.
+ * The Gro CLI's body, which a root of the CLI calls with what it opened,
+ * today only the Node Gro's entry, `invoke.ts`.
  *
  * It splits off the grant flags, warning that they confine nothing here, parses the CLI args,
  * loads the project's config, and invokes what the args name, the CLI's primary concept,
@@ -30,7 +30,7 @@ import { print_error_with_causes } from './internal/error_report.ts';
 /**
  * What a root of the CLI hands `gro_main`, everything it reaches.
  * It mixes data, `args`, with capabilities on purpose: both are what one root opened for one
- * run, the args being that run's input rather than a handle, and every root builds the whole
+ * run, the args being that run's input rather than a handle, and a root builds the whole
  * set together, so splitting them would add a parameter and separate nothing.
  */
 export interface GroMainDeps {
@@ -68,8 +68,8 @@ export const gro_main = async (deps: GroMainDeps): Promise<void> => {
 	const { fs_paths, host_root, import_module, platform } = deps;
 	const host = create_builtin_host(host_root, GRO_CLI_GRANTS, { fs_paths, import_module });
 
-	// a root that enforces grant flags, the binary, takes them before it calls this,
-	// so any left in the args reach a run that confines nothing
+	// a root that enforces grant flags would strip them before calling this,
+	// so any left here reach a run that confines nothing
 	let args: Array<string>;
 	let grant_flags: Array<string>;
 	try {
@@ -110,8 +110,8 @@ export const gro_main = async (deps: GroMainDeps): Promise<void> => {
  * @param grant_flags - the flags, as written
  */
 export const to_grant_flags_unenforced_message = (grant_flags: ReadonlyArray<string>): string =>
-	`grant flags have no effect on the Node gro, which confines nothing; ` +
-	`only the gro binary enforces them: ${grant_flags.map((flag) => `\`${flag}\``).join(', ')}`;
+	`grant flags have no effect on the Node gro, which confines nothing: ` +
+	grant_flags.map((flag) => `\`${flag}\``).join(', ');
 
 /**
  * Logs an error `gro_main` threw, or another the root caught, the way the CLI reports it:

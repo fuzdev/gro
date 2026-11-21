@@ -121,9 +121,9 @@ test('grant flags warn once on stderr that they confine nothing, and the command
 		to_grant_flags_unenforced_message(['--allow-read=.', '-A']) + '\n'
 	]);
 	assert.strictEqual(warn.mock.calls.length, 0);
-	assert.include(
+	assert.strictEqual(
 		to_grant_flags_unenforced_message(['--allow-read=.', '-A']),
-		'`--allow-read=.`, `-A`'
+		'grant flags have no effect on the Node gro, which confines nothing: `--allow-read=.`, `-A`'
 	);
 	// `gro task` with no path, listing the empty `src/`
 	assert.ok(info.mock.calls.some((call) => String(call[0]).includes('No tasks found')));

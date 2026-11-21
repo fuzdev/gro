@@ -98,6 +98,8 @@ Grant flags, the binary's (`-A`, `--allow-temp`, and `--allow-env`, `--allow-rea
 `--allow-write`, `--allow-run`, `--allow-run-in`, and `--allow-run-env` with `=` and a list),
 go in a run right after the command word, before the task's own args or path:
 `gro check --allow-run-env=X --watch`, `gro task --allow-read=. src/lib/foo.task.ts`.
+A `--help` may sit among them, as `fgro run` takes it, and stays the command's:
+`gro run --help --allow-read=. x.ts` asks for `run`'s help and hands the script no grant flag.
 The Node gro takes the same grammar and confines nothing,
 so it runs the command without them and warns once, on stderr, that they have no effect.
 A grant flag before the command word, one in the run spelled `--allow-*` that's no grant flag,

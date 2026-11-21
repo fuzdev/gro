@@ -171,6 +171,44 @@ test('glob_to_matcher refuses braces and a `..` that `matchesGlob` reads otherwi
 	assert.ok(glob_to_matcher('/p/{a,b}{,c}.ts')('/p/bc.ts'));
 });
 
+test('a brace or `(` a character class holds is refused naming the class, which Node matches', () => {
+	for (const [pattern, path] of [
+		['/p/[{]a', '/p/{a'],
+		['/p/[}]a', '/p/}a'],
+		['/p/[!(]a', '/p/xa'],
+		['/p/[?(]a', '/p/(a'],
+		['/p/a[*(]', '/p/a(']
+	] as const) {
+		assert.ok(matchesGlob(path, pattern), pattern);
+		assert.throws(
+			() => glob_to_matcher(pattern),
+			TaskError,
+			'uses a brace or `(` inside a character class',
+			pattern
+		);
+	}
+	// a group beside or around a class's brace, which the class's brace opened or closed
+	for (const [pattern, path] of [
+		['/p/[{]{a,b}', '/p/{a'],
+		['/p/[{]a{b,c}', '/p/{ab'],
+		// a class closing the group, whatever Node makes of the rest
+		['/p/a{b,[}]c}', null]
+	] as const) {
+		if (path !== null) assert.ok(matchesGlob(path, pattern), pattern);
+		assert.throws(
+			() => glob_to_matcher(pattern),
+			TaskError,
+			'uses a brace or `(` inside a character class',
+			pattern
+		);
+	}
+	// outside a class, the brace and the extended glob are named as before
+	assert.throws(() => glob_to_matcher('/p/[a]{b'), TaskError, 'unbalanced braces');
+	assert.throws(() => glob_to_matcher('/p/[a]{b,c}}'), TaskError, 'unbalanced braces');
+	assert.throws(() => glob_to_matcher('/p/[a]{b,{c}}'), TaskError, 'a brace group inside another');
+	assert.throws(() => glob_to_matcher('/p/[a]!(b)'), TaskError, 'an extended glob');
+});
+
 test('a refusal names the pattern as written', () => {
 	assert.throws(
 		() => glob_to_matcher('/p/src/@(a|b).ts', { written: 'src/@(a|b).ts' }),

@@ -180,7 +180,10 @@ export interface CliGrantFlags {
 /**
  * Splits the grant flags off the CLI args: the run of them right after the command word,
  * like `gro check --allow-run-env=X --watch` or `gro task --allow-read=. src/x.task.ts`,
- * the grammar of the binary, which enforces them.
+ * the grammar of `fgro run`, which enforces them.
+ * A `--help` in the run is kept for the command, as `fgro run` takes it among its flags,
+ * so `gro run --help --allow-read=. x.ts` splits off the grant and asks for `run`'s help,
+ * never handing the grant flag to the script.
  * Anything after the run is the command's, so a flag spelled `--allow-*` there is a task arg,
  * and everything from the first `--` is forwarded as written.
  * Only the flags' spelling is checked here, not the names or directories they list.
@@ -211,8 +214,13 @@ export const to_grant_flags = (cli_args: ReadonlyArray<string>): CliGrantFlags =
 	const has_command =
 		command !== undefined && !command.startsWith('-') && !is_task_path_input(command);
 	let end = has_command ? 1 : cli_args.length;
+	const help_flags: Array<string> = [];
 	for (; end < cli_args.length; end++) {
 		const flag = cli_args[end]!;
+		if (flag === '--help') {
+			help_flags.push(flag);
+			continue;
+		}
 		if (!is_grant_flag_like(flag)) break;
 		const equals_index = flag.indexOf('=');
 		const name = equals_index === -1 ? flag : flag.slice(0, equals_index);
@@ -245,7 +253,7 @@ export const to_grant_flags = (cli_args: ReadonlyArray<string>): CliGrantFlags =
 	}
 	return {
 		grant_flags,
-		cli_args: grant_flags.length ? [command!, ...cli_args.slice(end)] : [...cli_args]
+		cli_args: grant_flags.length ? [command!, ...help_flags, ...cli_args.slice(end)] : [...cli_args]
 	};
 };
 
