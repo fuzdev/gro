@@ -1,5 +1,6 @@
 //! Tests for confinement: shared scratch directories here, then the link
-//! closure, the seccomp tables and filters, and the Landlock floor by topic.
+//! closure, the seccomp tables and filters, the Landlock floor, and the
+//! rules by topic.
 
 use std::path::{Path, PathBuf};
 
@@ -10,6 +11,7 @@ use crate::test_support::TestDir;
 
 mod closure;
 mod landlock;
+mod rules;
 mod seccomp;
 
 /// A fresh directory under the system's temporary directory (see

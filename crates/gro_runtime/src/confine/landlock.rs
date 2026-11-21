@@ -1,16 +1,14 @@
-//! The box's Landlock rules: the filesystem, network, and scope walls, and
-//! the kernel floor they need.
-
-use std::os::fd::OwnedFd;
+//! The box's Landlock ruleset as installed, with its filesystem rules
+//! (`rules.rs`), its network and scope walls, and the kernel floor they
+//! need.
 
 use super::ConfineError;
+use super::rules::BoxRules;
 
-/// Installs the Landlock rules, reading beneath each of `pins`, the roots'
-/// handles opened before, after `no_new_privs`, which the kernel requires
+/// Installs the Landlock rules `rules`, each granting its rights beneath its
+/// handle, opened before, after `no_new_privs`, which the kernel requires
 /// first and Landlock sets.
-pub(super) fn landlock(pins: &[OwnedFd]) -> Result<(), ConfineError> {
-    use std::os::fd::AsFd as _;
-
+pub(super) fn landlock(rules: &BoxRules) -> Result<(), ConfineError> {
     use landlock::{
         Access, AccessFs, AccessNet, CompatLevel, Compatible, PathBeneath, RestrictSelf, Ruleset,
         RulesetAttr, RulesetCreatedAttr, RulesetError, RulesetStatus, Scope,
@@ -22,20 +20,17 @@ pub(super) fn landlock(pins: &[OwnedFd]) -> Result<(), ConfineError> {
         .apply()
         .map_err(ConfineError::Landlock)?;
     landlock_floor(status.landlock)?;
+    let path_rules = rules
+        .rules()
+        .iter()
+        .map(|rule| Ok::<_, RulesetError>(PathBeneath::new(rule.handle(), rule.access())));
     let restricted = Ruleset::default()
         .set_compatibility(CompatLevel::HardRequirement)
         .handle_access(AccessFs::from_all(LANDLOCK_ABI))
         .and_then(|ruleset| ruleset.handle_access(AccessNet::from_all(LANDLOCK_ABI)))
         .and_then(|ruleset| ruleset.scope(Scope::from_all(LANDLOCK_ABI)))
         .and_then(Ruleset::create)
-        .and_then(|ruleset| {
-            ruleset.add_rules(pins.iter().map(|pin| {
-                Ok::<_, RulesetError>(PathBeneath::new(
-                    pin.as_fd(),
-                    AccessFs::ReadFile | AccessFs::ReadDir,
-                ))
-            }))
-        })
+        .and_then(|ruleset| ruleset.add_rules(path_rules))
         .and_then(landlock::RulesetCreated::restrict_self)
         .map_err(ConfineError::Landlock)?;
     if restricted.ruleset != RulesetStatus::FullyEnforced || !restricted.no_new_privs {

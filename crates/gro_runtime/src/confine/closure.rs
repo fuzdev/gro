@@ -1,18 +1,18 @@
 //! The link closure: the box's roots, read from the disk before anything is
 //! confined, and the handle opened on each.
 
-use std::io;
 use std::os::fd::OwnedFd;
 use std::path::{Path, PathBuf};
 
+use super::rules::open_real_dir;
 use crate::resolver::{DiskTree, SourceTree};
 
 /// The link closure of the project at `project`, opened as `pinned`: it
 /// first, then each `node_modules` entry's real path that is neither under a
 /// root so far nor holding one, is a package directory ([`is_package`]), is
 /// held by no world-writable directory ([`held_by_world_writable`]), and
-/// opens as found ([`pin`]), read in turn to a fixed point. Returns the
-/// roots and their handles, in the same order.
+/// opens as found ([`open_real_dir`]), read in turn to a fixed point.
+/// Returns the roots and their handles, in the same order.
 ///
 /// An entry the listing says isn't a symlink has its holder's real path,
 /// read once per holder, joined with its name as its own
@@ -43,7 +43,7 @@ pub(super) fn link_closure(project: PathBuf, pinned: OwnedFd) -> (Vec<PathBuf>, 
                 .any(|root| target.starts_with(root) || root.starts_with(&target))
                 && is_package(&target)
                 && !held_by_world_writable(&listing, entry, &target)
-                && let Ok(pinned) = pin(&target)
+                && let Ok(pinned) = open_real_dir(&target)
             {
                 roots.push(target);
                 pins.push(pinned);
@@ -60,40 +60,6 @@ fn is_package(target: &Path) -> bool {
     target.is_dir()
         && std::fs::symlink_metadata(target.join("package.json"))
             .is_ok_and(|metadata| metadata.file_type().is_file())
-}
-
-/// Opens the real directory `dir` as a root's handle: `O_PATH`, with
-/// `O_DIRECTORY` and `O_NOFOLLOW` (and std's `O_CLOEXEC`), so only a
-/// directory opens and a symlink in its last component doesn't, then checks
-/// that the kernel names the handle by `dir`, so a directory on its path
-/// swapped since `dir` was read is refused.
-///
-/// # Errors
-///
-/// Returns the error of the open or of reading the handle's path, or one of
-/// kind [`io::ErrorKind::Other`] when the handle names another path.
-pub(super) fn pin(dir: &Path) -> io::Result<OwnedFd> {
-    use std::os::fd::AsRawFd as _;
-    use std::os::unix::fs::OpenOptionsExt as _;
-    let file = std::fs::OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_PATH | libc::O_DIRECTORY | libc::O_NOFOLLOW)
-        .open(dir)?;
-    let opened =
-        std::fs::read_link(format!("/proc/self/fd/{}", file.as_raw_fd())).map_err(|error| {
-            io::Error::new(
-                error.kind(),
-                format!("failed to read the path of its handle from /proc/self/fd: {error}"),
-            )
-        })?;
-    if opened != dir {
-        return Err(io::Error::other(format!(
-            "opened {} as {}, another directory",
-            dir.display(),
-            opened.display()
-        )));
-    }
-    Ok(file.into())
 }
 
 /// Whether the package linked at `entry` in `listing`'s `node_modules`,

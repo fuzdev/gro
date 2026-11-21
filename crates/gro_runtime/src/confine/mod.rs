@@ -92,19 +92,23 @@
 //! Each root is opened as it is found (`O_PATH`, with
 //! `O_DIRECTORY` and `O_NOFOLLOW`), and kept only when the kernel names the
 //! handle by the root's real path, so a directory swapped in after the
-//! closure read it isn't what the box admits.
+//! closure read it isn't what the box admits. Its Landlock rule reads beneath
+//! that handle: Landlock's rules are [`rules::BoxRules`]'s, each a handle and
+//! the rights it grants, opened by real path or beneath a directory's
+//! descriptor with every symlink refused (`rules.rs`'s module doc).
 
 use std::io;
-use std::os::fd::OwnedFd;
 use std::path::{Path, PathBuf};
 
 mod closure;
 mod landlock;
+pub mod rules;
 mod seccomp;
 #[cfg(test)]
 mod tests;
 
-use closure::{link_closure, pin};
+use closure::link_closure;
+use rules::{BoxRules, open_real_dir};
 
 /// The directories a confined run may read: the project's real directory
 /// first, then each link closure root, every one a real path.
@@ -135,10 +139,10 @@ impl BoxRoots {
 pub struct Prepared {
     /// What the box admits.
     roots: BoxRoots,
-    /// Each root, opened before anything is confined, in the roots' order:
-    /// an `O_PATH` handle to its directory ([`pin`]), what Landlock's rules
-    /// name.
-    pins: Vec<OwnedFd>,
+    /// Landlock's rules: reading beneath each root, in the roots' order, on
+    /// an `O_PATH` handle to its directory opened before anything is
+    /// confined ([`open_real_dir`]).
+    rules: BoxRules,
 }
 
 impl Prepared {
@@ -154,11 +158,12 @@ impl Prepared {
     /// without following a symlink, or the handle the kernel opened isn't
     /// `project` (a directory on its path swapped since it was read).
     pub fn for_project(project: PathBuf) -> io::Result<Self> {
-        let pinned = pin(&project)?;
+        let pinned = open_real_dir(&project)?;
         let (roots, pins) = link_closure(project, pinned);
+        let rules = BoxRules::read_dirs(roots.iter().cloned().zip(pins));
         Ok(Self {
             roots: BoxRoots(roots),
-            pins,
+            rules,
         })
     }
 
@@ -343,7 +348,7 @@ fn install(prepared: &Prepared, jit: Jit) -> Result<(), ConfineError> {
         Some(seccomp::seccomp_filters(jit)?)
     };
     if !prices::off(EvalDefault::Landlock) {
-        landlock::landlock(&prepared.pins)?;
+        landlock::landlock(&prepared.rules)?;
     }
     // the killing filter is installed first, so the allowlist's own
     // `seccomp` call passes it; the allowlist doesn't allow `seccomp`, so it

@@ -153,6 +153,12 @@ and the contracts no one module doc owns.
   No runtime starts before the process is confined or named unconfined; a
   confined engine whose JIT disagrees with the box's is
   `EngineError::JitConflict`.
+- The box's Landlock rules are `confine/rules.rs`'s `BoxRules`, each a
+  handle opened before the box goes up and the rights it grants beneath it.
+  A rule opens by real path (reading and executing only) or beneath a
+  directory's descriptor with every symlink on the path refused (any right,
+  the only way to write), and each is required or optional, its absence
+  alone allowed, never dropped.
 - One thread until the box: `fgro eval` keeps its process single-threaded
   until it's confined, in the step order written once, in `confine_eval`'s
   doc in `crates/gro_cli/src/eval.rs`. Every other command runs its runtime on

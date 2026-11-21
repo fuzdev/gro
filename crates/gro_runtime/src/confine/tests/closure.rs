@@ -210,9 +210,12 @@ fn each_root_is_opened_as_the_directory_found() {
     let prepared = Prepared::for_project(project.clone()).unwrap();
     assert_eq!(prepared.roots().as_slice(), [project, lib]);
     let named: Vec<PathBuf> = prepared
-        .pins
+        .rules
+        .rules()
         .iter()
-        .map(|pin| std::fs::read_link(format!("/proc/self/fd/{}", pin.as_raw_fd())).unwrap())
+        .map(|rule| {
+            std::fs::read_link(format!("/proc/self/fd/{}", rule.handle().as_raw_fd())).unwrap()
+        })
         .collect();
     assert_eq!(named, prepared.roots().as_slice());
 }
