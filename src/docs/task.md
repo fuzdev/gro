@@ -234,7 +234,11 @@ so a module re-exporting the `task` carries them:
 - `invokes` - the builtins it invokes, by name, each a `BuiltinInvokeGrant`, `{}` or marked:
   `when` names a boolean arg of the invoking task that the invoke runs only under,
   so a command's closure holds the invoked builtin only when its args set it,
-  like `check`'s `build: {when: 'build'}`, a plain `gro check` holding no `build`
+  like `check`'s `build: {when: 'build'}`, a plain `gro check` holding no `build`;
+  `check: true` marks an invoke in check mode, writing no source, so the closure holds the invoked
+  builtin, and the builtins it invokes in turn, without their writes to the project,
+  like `check`'s `gen` and `format`, run with `check: true`; it's data for a runtime
+  that holds a command to its closure, which nothing enforces on Node
 
 The genfile that writes the builtin summaries also writes them as `GRO_BUILTIN_TASK_GRANTS`
 (`gro_builtin_tasks.ts`), data a runtime reads without importing the task,
@@ -283,8 +287,8 @@ const grants = {
 		build: {when: 'build'},
 		typecheck: {},
 		test: {},
-		gen: {},
-		format: {},
+		gen: {check: true},
+		format: {check: true},
 		lint: {},
 	},
 } as const satisfies BuiltinTaskGrants;

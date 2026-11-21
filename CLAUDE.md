@@ -93,7 +93,8 @@ errors and exit codes. Where it lives:
   of a `BuiltinTaskContext`, only for a builtin, refusing an invoke its grants
   don't name, or one marked `when` an arg the task's args leave unset (`invokes` is a
   record of `BuiltinInvokeGrant`s, `check`'s `build` marked `{when: 'build'}`, so a plain
-  `check`'s closure holds no `build`; a `project_modules` builtin's loaded modules get no `invoke_task`),
+  `check`'s closure holds no `build`, and its `gen` and `format` `{check: true}`, run writing
+  no source; a `project_modules` builtin's loaded modules get no `invoke_task`),
   and refusing a task with `grants` run by path or re-exported,
   as a builtin runs only by its name; the body is a function over the task's own `*Deps`
   ([docs](src/docs/task.md#a-builtins-host-and-grants)). On Node the cut is a

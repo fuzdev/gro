@@ -101,8 +101,8 @@ export const GRO_BUILTIN_TASK_GRANTS: Record<keyof GroBuiltinTasks, BuiltinTaskG
 				build: { when: 'build' },
 				typecheck: {},
 				test: {},
-				gen: {},
-				format: {},
+				gen: { check: true },
+				format: { check: true },
 				lint: {}
 			}
 		},

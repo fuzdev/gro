@@ -121,6 +121,15 @@ export interface BuiltinInvokeGrant {
 	 * an invoke when it's not is an error.
 	 */
 	readonly when?: string;
+	/**
+	 * The invoke runs in check mode, writing no source, so the closure holds the invoked
+	 * builtin's grants without their writes to the project, its programs' tool directories aside,
+	 * and the same for the builtins it invokes in turn:
+	 * `check`'s `gen` and `format`, invoked with `check: true`.
+	 * The mark is data for a runtime that holds a command to its closure's grants;
+	 * nothing enforces it on Node, where a forwarded arg can run the invoke in write mode.
+	 */
+	readonly check?: true;
 }
 
 /**

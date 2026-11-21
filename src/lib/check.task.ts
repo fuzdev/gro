@@ -84,8 +84,9 @@ const grants = {
 		build: { when: 'build' },
 		typecheck: {},
 		test: {},
-		gen: {},
-		format: {},
+		// `gen --check` and `format --check`, writing no source
+		gen: { check: true },
+		format: { check: true },
 		lint: {}
 	}
 } as const satisfies BuiltinTaskGrants;
