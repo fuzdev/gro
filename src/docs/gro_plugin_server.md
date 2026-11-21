@@ -57,7 +57,8 @@ A `SIGKILL` of Gro leaves the server running.
 The server gets the host's whole environment, since a server reads a set of vars Gro can't know.
 Beneath it are the env file's vars, so a var the host sets keeps the host's value,
 as a dotenv loader leaves set vars alone. Over both are `NODE_ENV=development` and then `env`,
-which can set `NODE_ENV` too. A missing env file warns and loads nothing.
+which can set `NODE_ENV` too. A missing env file warns and loads nothing,
+and one that doesn't parse (`parse_env_file` in `env_files.ts`) fails setup, naming its line.
 The environment is fixed at setup, so an edit to the env file takes a new `gro dev`.
 
 ## restarts

@@ -466,7 +466,13 @@ Key utilities:
 - Long-lived children: `spawn_restartable.ts`, restarts over one `SpawnProgram`
 - Module handling: `modules.ts`, `format_file.ts`, `package_json.ts`, `task_args.ts`
 - Env files: `env_files.ts`, the `.env` loader (`load_env`, `load_from_env`, `load_env_file`)
-  that the rendered `$app/env/*` shims, `gro publish`, and `gro_plugin_server` read through;
+  that the rendered `$app/env/*` shims, `gro publish`, and `gro_plugin_server` read through,
+  parsing with `parse_env_file`, Gro's own, which reads dotenv's grammar, expands nothing, and
+  refuses what dotenv reads silently against the author's likely intent (an unquoted `#` not
+  after whitespace, `KEY: value`, text after a closing quote), held to dotenv by a recorded corpus
+  (`src/test/fixtures/env_files/dotenv_parse.json`); Vite 8 reads an app's env files with Node's
+  `util.parseEnv` and dotenv-expand instead, so a value can read differently there, `$`
+  expansion most of all;
   `env_declarations.ts`, the declarations' shapes, which imports no fs
 - SvelteKit integration: `svelte_config.ts`, `sveltekit_shim_*.ts`
 - Build tools: `build_cache.ts`, `build_cache_dependencies.ts`

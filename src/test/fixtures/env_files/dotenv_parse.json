@@ -1,0 +1,4715 @@
+{
+	"oracle": "dotenv 17.4.2 parse",
+	"cases": [
+		{
+			"name": "empty",
+			"input": "",
+			"dotenv": {}
+		},
+		{
+			"name": "blank_lines",
+			"input": "\n\n  \n\t\n",
+			"dotenv": {}
+		},
+		{
+			"name": "basic",
+			"input": "A=1\nB=two\n",
+			"dotenv": {
+				"A": "1",
+				"B": "two"
+			}
+		},
+		{
+			"name": "no_trailing_newline",
+			"input": "A=1",
+			"dotenv": {
+				"A": "1"
+			}
+		},
+		{
+			"name": "comment_lines",
+			"input": "# a comment\n  # indented\nA=1\n#B=2\n",
+			"dotenv": {
+				"A": "1"
+			}
+		},
+		{
+			"name": "export_prefix",
+			"input": "export A=1\nexport\tB=2\nexport  C=3\n",
+			"dotenv": {
+				"A": "1",
+				"B": "2",
+				"C": "3"
+			}
+		},
+		{
+			"name": "export_as_key",
+			"input": "export=1\nexport =2\n",
+			"dotenv": {
+				"export": "2"
+			}
+		},
+		{
+			"name": "export_glued",
+			"input": "exportA=1\n",
+			"dotenv": {
+				"exportA": "1"
+			}
+		},
+		{
+			"name": "key_chars",
+			"input": "a.b=1\nx-y=2\n_k=3\nK9=4\n",
+			"dotenv": {
+				"a.b": "1",
+				"x-y": "2",
+				"_k": "3",
+				"K9": "4"
+			}
+		},
+		{
+			"name": "numeric_keys",
+			"input": "B=1\n2=two\n1=one\nA=3\n",
+			"dotenv": {
+				"1": "one",
+				"2": "two",
+				"B": "1",
+				"A": "3"
+			}
+		},
+		{
+			"name": "duplicate_keys",
+			"input": "A=1\nB=2\nA=3\n",
+			"dotenv": {
+				"A": "3",
+				"B": "2"
+			}
+		},
+		{
+			"name": "spaces_around_equals",
+			"input": "A = 1\nB\t=\t2\nC   =   three   \n",
+			"dotenv": {
+				"A": "1",
+				"B": "2",
+				"C": "three"
+			}
+		},
+		{
+			"name": "empty_values",
+			"input": "A=\nB= \nC=\"\"\nD=''\nE=``\n",
+			"dotenv": {
+				"A": "",
+				"B": "",
+				"C": "",
+				"D": "",
+				"E": ""
+			}
+		},
+		{
+			"name": "value_with_equals",
+			"input": "A=b=c\nB==x\n",
+			"dotenv": {
+				"A": "b=c",
+				"B": "=x"
+			}
+		},
+		{
+			"name": "value_with_spaces",
+			"input": "A=a b  c\n",
+			"dotenv": {
+				"A": "a b  c"
+			}
+		},
+		{
+			"name": "inline_comment",
+			"input": "A=1 # one\nB=2\t# two\nC=3 #\n",
+			"dotenv": {
+				"A": "1",
+				"B": "2",
+				"C": "3"
+			}
+		},
+		{
+			"name": "comment_after_equals",
+			"input": "A= # nothing\nB=\t#\n",
+			"dotenv": {
+				"A": "",
+				"B": ""
+			}
+		},
+		{
+			"name": "hash_in_double_quotes",
+			"input": "A=\"a#b\"\nB=\"#\"\n",
+			"dotenv": {
+				"A": "a#b",
+				"B": "#"
+			}
+		},
+		{
+			"name": "hash_in_single_quotes",
+			"input": "A='a#b'\n",
+			"dotenv": {
+				"A": "a#b"
+			}
+		},
+		{
+			"name": "hash_in_backticks",
+			"input": "A=`a#b`\n",
+			"dotenv": {
+				"A": "a#b"
+			}
+		},
+		{
+			"name": "comment_after_quotes",
+			"input": "A=\"x\" # c\nB='y'#c\nC=`z`   #   c\n",
+			"dotenv": {
+				"A": "x",
+				"B": "y",
+				"C": "z"
+			}
+		},
+		{
+			"name": "double_quotes",
+			"input": "A=\"hello world\"\nB=\"  padded  \"\n",
+			"dotenv": {
+				"A": "hello world",
+				"B": "  padded  "
+			}
+		},
+		{
+			"name": "single_quotes",
+			"input": "A='hello world'\nB='  padded  '\n",
+			"dotenv": {
+				"A": "hello world",
+				"B": "  padded  "
+			}
+		},
+		{
+			"name": "backticks",
+			"input": "A=`hello world`\n",
+			"dotenv": {
+				"A": "hello world"
+			}
+		},
+		{
+			"name": "quotes_inside_other_quotes",
+			"input": "A=\"it's\"\nB='say \"hi\"'\nC=`\"'mixed'\"`\nD=\"`x`\"\n",
+			"dotenv": {
+				"A": "it's",
+				"B": "say \"hi\"",
+				"C": "\"'mixed'\"",
+				"D": "`x`"
+			}
+		},
+		{
+			"name": "quote_in_unquoted_middle",
+			"input": "A=a\"b\nB=it's\nC=x`y\n",
+			"dotenv": {
+				"A": "a\"b",
+				"B": "it's",
+				"C": "x`y"
+			}
+		},
+		{
+			"name": "quote_at_unquoted_end",
+			"input": "A=a\"\nB=b'\n",
+			"dotenv": {
+				"A": "a\"",
+				"B": "b'"
+			}
+		},
+		{
+			"name": "newline_escapes_double",
+			"input": "A=\"a\\nb\"\nB=\"a\\rb\"\nC=\"a\\\\nb\"\n",
+			"dotenv": {
+				"A": "a\nb",
+				"B": "a\rb",
+				"C": "a\\\nb"
+			}
+		},
+		{
+			"name": "newline_escapes_single",
+			"input": "A='a\\nb'\n",
+			"dotenv": {
+				"A": "a\\nb"
+			}
+		},
+		{
+			"name": "newline_escapes_backtick",
+			"input": "A=`a\\nb`\n",
+			"dotenv": {
+				"A": "a\\nb"
+			}
+		},
+		{
+			"name": "newline_escapes_unquoted",
+			"input": "A=a\\nb\n",
+			"dotenv": {
+				"A": "a\\nb"
+			}
+		},
+		{
+			"name": "other_escapes_kept",
+			"input": "A=\"a\\tb\"\nB=\"a\\\\b\"\nC=\"\\x41\"\n",
+			"dotenv": {
+				"A": "a\\tb",
+				"B": "a\\\\b",
+				"C": "\\x41"
+			}
+		},
+		{
+			"name": "multiline_double",
+			"input": "A=\"line one\nline two\n  line three\"\nB=after\n",
+			"dotenv": {
+				"A": "line one\nline two\n  line three",
+				"B": "after"
+			}
+		},
+		{
+			"name": "multiline_single",
+			"input": "A='one\ntwo'\nB=after\n",
+			"dotenv": {
+				"A": "one\ntwo",
+				"B": "after"
+			}
+		},
+		{
+			"name": "multiline_backtick",
+			"input": "A=`one\ntwo`\nB=after\n",
+			"dotenv": {
+				"A": "one\ntwo",
+				"B": "after"
+			}
+		},
+		{
+			"name": "multiline_with_comment_and_key_lines",
+			"input": "A=\"one\n# not a comment\nC=not a key\n\"\nB=2\n",
+			"dotenv": {
+				"A": "one\n# not a comment\nC=not a key\n",
+				"B": "2"
+			}
+		},
+		{
+			"name": "multiline_then_comment",
+			"input": "A=\"one\ntwo\" # c\nB=2\n",
+			"dotenv": {
+				"A": "one\ntwo",
+				"B": "2"
+			}
+		},
+		{
+			"name": "crlf",
+			"input": "A=1\r\nB=\"x\r\ny\"\r\nC=3\r\n",
+			"dotenv": {
+				"A": "1",
+				"B": "x\ny",
+				"C": "3"
+			}
+		},
+		{
+			"name": "cr_only",
+			"input": "A=1\rB=2\r",
+			"dotenv": {
+				"A": "1",
+				"B": "2"
+			}
+		},
+		{
+			"name": "mixed_line_breaks",
+			"input": "A=1\nB=2\r\nC=3\rD=4",
+			"dotenv": {
+				"A": "1",
+				"B": "2",
+				"C": "3",
+				"D": "4"
+			}
+		},
+		{
+			"name": "leading_whitespace",
+			"input": "  A=1\n\tB=2\n",
+			"dotenv": {
+				"A": "1",
+				"B": "2"
+			}
+		},
+		{
+			"name": "unicode_whitespace",
+			"input": " A= x \nB=　y\n",
+			"dotenv": {
+				"A": "x",
+				"B": "y"
+			}
+		},
+		{
+			"name": "bom",
+			"input": "﻿A=1\n",
+			"dotenv": {
+				"A": "1"
+			}
+		},
+		{
+			"name": "unicode_values",
+			"input": "A=é漢字\nB=\"ünï\"\n",
+			"dotenv": {
+				"A": "é漢字",
+				"B": "ünï"
+			}
+		},
+		{
+			"name": "dollar_not_expanded",
+			"input": "A=1\nB=$A\nC=${A}\nD=\"${A}\"\n",
+			"dotenv": {
+				"A": "1",
+				"B": "$A",
+				"C": "${A}",
+				"D": "${A}"
+			}
+		},
+		{
+			"name": "urlish",
+			"input": "DATABASE_URL=postgres://u:p@localhost:5432/db\nURL=https://example.com/a?b=c&d=e\n",
+			"dotenv": {
+				"DATABASE_URL": "postgres://u:p@localhost:5432/db",
+				"URL": "https://example.com/a?b=c&d=e"
+			}
+		},
+		{
+			"name": "json_single_quoted",
+			"input": "A='{\"a\": 1, \"b\": [true]}'\n",
+			"dotenv": {
+				"A": "{\"a\": 1, \"b\": [true]}"
+			}
+		},
+		{
+			"name": "special_keys",
+			"input": "toString=1\nconstructor=2\nhasOwnProperty=3\n",
+			"dotenv": {
+				"toString": "1",
+				"constructor": "2",
+				"hasOwnProperty": "3"
+			}
+		},
+		{
+			"name": "colon_separator",
+			"input": "A: 1\n",
+			"dotenv": {
+				"A": "1"
+			}
+		},
+		{
+			"name": "colon_separator_tab",
+			"input": "A:\t1\n",
+			"dotenv": {
+				"A": "1"
+			}
+		},
+		{
+			"name": "colon_joins_next_line",
+			"input": "A:\nB=1\n",
+			"dotenv": {
+				"A": "B=1"
+			}
+		},
+		{
+			"name": "bare_key",
+			"input": "A\nB=1\n",
+			"dotenv": {
+				"B": "1"
+			}
+		},
+		{
+			"name": "key_then_equals_next_line",
+			"input": "A\n=1\n",
+			"dotenv": {
+				"A": "1"
+			}
+		},
+		{
+			"name": "export_alone_line",
+			"input": "export\nA=1\n",
+			"dotenv": {
+				"A": "1"
+			}
+		},
+		{
+			"name": "garbage_line",
+			"input": "not an assignment\nA=1\n",
+			"dotenv": {
+				"A": "1"
+			}
+		},
+		{
+			"name": "key_with_space",
+			"input": "A B=1\n",
+			"dotenv": {}
+		},
+		{
+			"name": "no_key",
+			"input": "=1\n",
+			"dotenv": {}
+		},
+		{
+			"name": "non_ascii_key",
+			"input": "É=1\n",
+			"dotenv": {}
+		},
+		{
+			"name": "hash_glued",
+			"input": "A=a#b\n",
+			"dotenv": {
+				"A": "a"
+			}
+		},
+		{
+			"name": "hash_right_after_equals",
+			"input": "A=#fff\n",
+			"dotenv": {
+				"A": ""
+			}
+		},
+		{
+			"name": "url_fragment",
+			"input": "URL=https://example.com/#frag\n",
+			"dotenv": {
+				"URL": "https://example.com/"
+			}
+		},
+		{
+			"name": "text_after_closing_quote",
+			"input": "A=\"a\" b\n",
+			"dotenv": {
+				"A": "\"a\" b"
+			}
+		},
+		{
+			"name": "two_quoted_strings",
+			"input": "A=\"a\" \"b\"\n",
+			"dotenv": {
+				"A": "a\" \"b"
+			}
+		},
+		{
+			"name": "unterminated_double",
+			"input": "A=\"abc\nB=1\n",
+			"dotenv": {
+				"A": "\"abc",
+				"B": "1"
+			}
+		},
+		{
+			"name": "unterminated_single",
+			"input": "A='abc\n",
+			"dotenv": {
+				"A": "'abc"
+			}
+		},
+		{
+			"name": "quote_then_unquoted_glued",
+			"input": "A='x'y'\n",
+			"dotenv": {
+				"A": "x'y"
+			}
+		},
+		{
+			"name": "escaped_quote_in_double",
+			"input": "A=\"a\\\"b\"\n",
+			"dotenv": {
+				"A": "a\\\"b"
+			}
+		},
+		{
+			"name": "escaped_quote_at_end",
+			"input": "A=\"a\\\"\n",
+			"dotenv": {
+				"A": "a\\"
+			}
+		},
+		{
+			"name": "trailing_backslash_in_single",
+			"input": "A='a\\'\n",
+			"dotenv": {
+				"A": "a\\"
+			}
+		},
+		{
+			"name": "quoted_value_on_next_line",
+			"input": "A=\n\"x\"\n",
+			"dotenv": {
+				"A": "x"
+			}
+		},
+		{
+			"name": "quoted_value_after_blank_line",
+			"input": "A=\n\n'x'\n",
+			"dotenv": {
+				"A": "x"
+			}
+		},
+		{
+			"name": "multiline_text_after_close",
+			"input": "A=\"one\ntwo\" x\n",
+			"dotenv": {
+				"A": "\"one"
+			}
+		},
+		{
+			"name": "proto_key",
+			"input": "__proto__=1\nA=2\n",
+			"dotenv": {
+				"A": "2"
+			}
+		},
+		{
+			"name": "export_proto_key",
+			"input": "export __proto__=1\n",
+			"dotenv": {}
+		},
+		{
+			"name": "line_separator_unquoted",
+			"input": "A=x B=y\n",
+			"dotenv": {
+				"A": "x B=y"
+			}
+		},
+		{
+			"name": "line_separator_in_comment",
+			"input": "# c A=1\n",
+			"dotenv": {
+				"A": "1"
+			}
+		},
+		{
+			"name": "paragraph_separator_after_value",
+			"input": "A=x # c B=y\n",
+			"dotenv": {
+				"A": "x",
+				"B": "y"
+			}
+		},
+		{
+			"name": "line_separator_in_double_quotes",
+			"input": "A=\"x y\"\n",
+			"dotenv": {
+				"A": "x y"
+			}
+		},
+		{
+			"name": "fuzz_78",
+			"input": "\u000b﻿\r\n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_79",
+			"input": "A:\t # A='é\nB=1\n\n#c\nb'\n",
+			"dotenv": {
+				"A": "é\nB=1\n\n#c\nb"
+			}
+		},
+		{
+			"name": "fuzz_80",
+			"input": "KEY: '\u000b # c\na.b﻿`${A}\nB=1\n\n``#c\n\na.b:\ta　 # 'x",
+			"dotenv": {
+				"KEY": "'",
+				"B": "1",
+				"a.b": "a"
+			}
+		},
+		{
+			"name": "fuzz_81",
+			"input": "x-y \"\n\n$X\\n\u000b\"#\r",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_82",
+			"input": "a.b﻿\"\"\n\nexport KEY:\t`:\\n'`\t # 'x\n\n",
+			"dotenv": {
+				"KEY": ":\\n'"
+			}
+		},
+		{
+			"name": "fuzz_83",
+			"input": "B= ``'` # 'x\r\na.b=\"' \nB=1\n# \" # 'x\n\nKEY\t=\"${A}\n \"#c ",
+			"dotenv": {
+				"B": "`'",
+				"a.b": "' \nB=1\n# ",
+				"KEY": "${A}\n "
+			}
+		},
+		{
+			"name": "fuzz_84",
+			"input": "#\\r\r\nx-y= `\nB=1\n` \na.b:\t   # c\n\nKEY\t=# $X  \t# \"q\" ",
+			"dotenv": {
+				"x-y": "\nB=1\n",
+				"a.b": "",
+				"KEY": ""
+			}
+		},
+		{
+			"name": "fuzz_85",
+			"input": "A b\\n # 'x\n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_86",
+			"input": "#  A= ﻿``　\n",
+			"dotenv": {
+				"A": ""
+			}
+		},
+		{
+			"name": "fuzz_87",
+			"input": "a.b:\t`\\n\"=`\t# \"q\"\n",
+			"dotenv": {
+				"a.b": "\\n\"="
+			}
+		},
+		{
+			"name": "fuzz_88",
+			"input": "A:\"\"#cexport\nB= #c \tb",
+			"dotenv": {
+				"B": ""
+			}
+		},
+		{
+			"name": "fuzz_89",
+			"input": "\u000bx-y=''\\r\t# \"q\"\n\na.b:`\r\n  `#\nA = '' ",
+			"dotenv": {
+				"x-y": "''\\r",
+				"A": ""
+			}
+		},
+		{
+			"name": "fuzz_90",
+			"input": "﻿　a.b=`\\# `\t# \"q\"\n",
+			"dotenv": {
+				"a.b": "\\# "
+			}
+		},
+		{
+			"name": "fuzz_91",
+			"input": "#﻿\\\\${A}\n\n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_92",
+			"input": "\\n\r\n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_93",
+			"input": "export KEY= `\n\n``#",
+			"dotenv": {
+				"KEY": "`"
+			}
+		},
+		{
+			"name": "fuzz_94",
+			"input": "a.b='\ra'  # c\na.b= # B= # c\n\n",
+			"dotenv": {
+				"a.b": "",
+				"B": ""
+			}
+		},
+		{
+			"name": "fuzz_95",
+			"input": "A==${A}é # c  KEY\t=``\fKEY:　\\n http://h/p\t# \"q\"\n",
+			"dotenv": {
+				"A": "=${A}é",
+				"KEY": "``\fKEY:　\\n http://h/p"
+			}
+		},
+		{
+			"name": "fuzz_96",
+			"input": "A=`\\\\xy$X`\t\r\n",
+			"dotenv": {
+				"A": "\\\\xy$X"
+			}
+		},
+		{
+			"name": "fuzz_97",
+			"input": "　 KEY=' '\t# \"q\"\f\tx-y=\t#\n\nKEY=\t'\n\n'\n' # 'x ",
+			"dotenv": {
+				"KEY": "\n\n"
+			}
+		},
+		{
+			"name": "fuzz_98",
+			"input": " export\nB\t= # c x-y==\f\r\nexport A= # 'x toString= ```z9 #\n",
+			"dotenv": {
+				"B": "",
+				"x-y": "=",
+				"A": "",
+				"toString": "```z9"
+			}
+		},
+		{
+			"name": "fuzz_99",
+			"input": "a.b\t=`\n`\t # 'x\n",
+			"dotenv": {
+				"a.b": "\n"
+			}
+		},
+		{
+			"name": "fuzz_100",
+			"input": "export a.b=\"\\\"\t# \"q\"\r\na.b: #\n",
+			"dotenv": {
+				"a.b": ""
+			}
+		},
+		{
+			"name": "fuzz_101",
+			"input": "KEY= \"$X\\xy \"",
+			"dotenv": {
+				"KEY": "$X\\xy "
+			}
+		},
+		{
+			"name": "fuzz_102",
+			"input": "a.b\t='z9' # c\n",
+			"dotenv": {
+				"a.b": "z9"
+			}
+		},
+		{
+			"name": "fuzz_103",
+			"input": " x-y = \"http://h/p\"  # c\n \ra.b=' # 'x\r\n",
+			"dotenv": {
+				"x-y": "http://h/p",
+				"a.b": "'"
+			}
+		},
+		{
+			"name": "fuzz_104",
+			"input": "a.b=KEY:``'#c a.b﻿\t# \"q\" A= \\\\﻿#c\n",
+			"dotenv": {
+				"a.b": "KEY:``'",
+				"A": "\\\\"
+			}
+		},
+		{
+			"name": "fuzz_105",
+			"input": "a.b=﻿\\r\\n﻿ # 'x\n",
+			"dotenv": {
+				"a.b": "\\r\\n"
+			}
+		},
+		{
+			"name": "fuzz_106",
+			"input": "x-y é\nA` #\n'`﻿#\nA=\" \\r\"\t# \"q\"\nx-y:'#\n",
+			"dotenv": {
+				"A": " \r"
+			}
+		},
+		{
+			"name": "fuzz_107",
+			"input": "export a.b= \" :\"\f#\n KEY ``　b\nB=1\n\\n\nA= # 'x ",
+			"dotenv": {
+				"a.b": " :",
+				"B": "1",
+				"A": ""
+			}
+		},
+		{
+			"name": "fuzz_108",
+			"input": "export B='${A} \n'\n\nx-y:\t`\t`\rx-y:\" \nB=1\n \"\u000b#c",
+			"dotenv": {
+				"B": "1",
+				"x-y": "\t"
+			}
+		},
+		{
+			"name": "fuzz_109",
+			"input": " #${A}",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_110",
+			"input": "B= ''\n\"`a\\n\r\nKEY\t==b #",
+			"dotenv": {
+				"B": "",
+				"KEY": "=b"
+			}
+		},
+		{
+			"name": "fuzz_111",
+			"input": "\r\n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_112",
+			"input": "A=\u000b``\f#c\r\n",
+			"dotenv": {
+				"A": ""
+			}
+		},
+		{
+			"name": "fuzz_113",
+			"input": "# #\n\nA=\"\t﻿ \"\t# \"q\"\nKEY:  'a\r\n'\n",
+			"dotenv": {
+				"A": "\t﻿ ",
+				"KEY": "a\n"
+			}
+		},
+		{
+			"name": "fuzz_114",
+			"input": "KEY = 'a:'#c\n B",
+			"dotenv": {
+				"KEY": "a:"
+			}
+		},
+		{
+			"name": "fuzz_115",
+			"input": "export  A: `#\r\n",
+			"dotenv": {
+				"A": "`"
+			}
+		},
+		{
+			"name": "fuzz_116",
+			"input": "_k```#\n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_117",
+			"input": "\f export\na.b='a a'#c\r\n",
+			"dotenv": {
+				"a.b": "a a"
+			}
+		},
+		{
+			"name": "fuzz_118",
+			"input": "x-y=﻿ \u000bA=`:\"` #\n",
+			"dotenv": {
+				"x-y": "A=`:\"`"
+			}
+		},
+		{
+			"name": "fuzz_119",
+			"input": "x-y\t=﻿  \n",
+			"dotenv": {
+				"x-y": ""
+			}
+		},
+		{
+			"name": "fuzz_120",
+			"input": " \n#\\r\u000b\n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_121",
+			"input": "A: # ",
+			"dotenv": {
+				"A": ""
+			}
+		},
+		{
+			"name": "fuzz_122",
+			"input": "a.b\t=\u000b#\n",
+			"dotenv": {
+				"a.b": ""
+			}
+		},
+		{
+			"name": "fuzz_123",
+			"input": "B\t=\"\"\t\"\t# \"q\"\nx-y=\n\n",
+			"dotenv": {
+				"B": "\"\t",
+				"x-y": ""
+			}
+		},
+		{
+			"name": "fuzz_124",
+			"input": "a.b=\u000b # c",
+			"dotenv": {
+				"a.b": ""
+			}
+		},
+		{
+			"name": "fuzz_125",
+			"input": "KEY = KEY = http://h/p$X\n\na.b= # c\n",
+			"dotenv": {
+				"KEY": "KEY = http://h/p$X",
+				"a.b": ""
+			}
+		},
+		{
+			"name": "fuzz_126",
+			"input": "B = ﻿'\\n# ' ",
+			"dotenv": {
+				"B": "\\n# "
+			}
+		},
+		{
+			"name": "fuzz_127",
+			"input": " export\tKEY=='é \t# \"q\" ",
+			"dotenv": {
+				"KEY": "='é"
+			}
+		},
+		{
+			"name": "fuzz_128",
+			"input": "B:\t\"\\\\http://h/p\r\"#c\n\n　B: `xya\t # 'x\nexport\nB=#\nA:\t　`` # c\n",
+			"dotenv": {
+				"B": "",
+				"A": ""
+			}
+		},
+		{
+			"name": "fuzz_129",
+			"input": "B:\t\t# \"q\"\n\rx-y=  # 'x\r\n",
+			"dotenv": {
+				"B": "",
+				"x-y": ""
+			}
+		},
+		{
+			"name": "fuzz_130",
+			"input": "A = '\t \t'b\n",
+			"dotenv": {
+				"A": "'\t \t'b"
+			}
+		},
+		{
+			"name": "fuzz_131",
+			"input": "A\t='é#'\f#\n\ntoString \\nhttp://h/p xy\n\n",
+			"dotenv": {
+				"A": "é#"
+			}
+		},
+		{
+			"name": "fuzz_132",
+			"input": " 　\n\n\\\\ \nhttp://h/p:\r",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_133",
+			"input": "KEY= \"\":　\rexporta.b:\t\" \"\rexport  A = \"a\"\" \nB: b a#c\n",
+			"dotenv": {
+				"KEY": "\"\":",
+				"exporta.b": " ",
+				"A": "a\"",
+				"B": "b a"
+			}
+		},
+		{
+			"name": "fuzz_134",
+			"input": "\rexport\tB 'http://h/pa \u000b'\n\n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_135",
+			"input": "#     export  KEY\t=　`` #\nexportB\t=`'http://h/p` \n",
+			"dotenv": {
+				"KEY": "",
+				"exportB": "'http://h/p"
+			}
+		},
+		{
+			"name": "fuzz_136",
+			"input": " A = ``` # c export  A = \"\" # 'x\n",
+			"dotenv": {
+				"A": ""
+			}
+		},
+		{
+			"name": "fuzz_137",
+			"input": "KEY=# =http://h/p# KEY \\rz9\n  #$Xz9﻿",
+			"dotenv": {
+				"KEY": ""
+			}
+		},
+		{
+			"name": "fuzz_138",
+			"input": "a.b:#c\rA\t= # c ",
+			"dotenv": {
+				"A": ""
+			}
+		},
+		{
+			"name": "fuzz_139",
+			"input": "KEY =  ﻿\nexport  B: '`\\n\\r'#export\tx-y: 　\t# \"q\"a.b== #﻿\u000b ﻿#c\r\n",
+			"dotenv": {
+				"KEY": "",
+				"B": "`\\n\\r"
+			}
+		},
+		{
+			"name": "fuzz_140",
+			"input": "http://h/p \n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_141",
+			"input": "x-y:",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_142",
+			"input": "﻿x-y:\t\t #\\r\nexport  KEY = \t'`\nB=1\n' # 'x\nB = '\n\n﻿ # cexporta.b=http://h/p${A} # c\n",
+			"dotenv": {
+				"x-y": "",
+				"KEY": "`\nB=1\n",
+				"B": "'"
+			}
+		},
+		{
+			"name": "fuzz_143",
+			"input": "KEY=\f`$X`\nB=1\n`\n",
+			"dotenv": {
+				"KEY": "$X",
+				"B": "1"
+			}
+		},
+		{
+			"name": "fuzz_144",
+			"input": "a.b  \"  xy\u000b\"﻿#A=``# A== 'xy`'\r\n' # c\r\nx-y:  \t# \"q\"\n",
+			"dotenv": {
+				"A": "= 'xy`'",
+				"x-y": ""
+			}
+		},
+		{
+			"name": "fuzz_145",
+			"input": "  ",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_146",
+			"input": "x-y=\"\"\n\t export\nB= \u000b`xy` #\n\n",
+			"dotenv": {
+				"x-y": "",
+				"B": "xy"
+			}
+		},
+		{
+			"name": "fuzz_147",
+			"input": "\u000b#\"'\n\nA=  '''\n",
+			"dotenv": {
+				"A": "'"
+			}
+		},
+		{
+			"name": "fuzz_148",
+			"input": "　﻿B\"\n#c\n\"a.b= \t# \"q\"\r\u000bexport KEY\t= b#\n\f export\nB=\"=",
+			"dotenv": {
+				"KEY": "b",
+				"B": "\"="
+			}
+		},
+		{
+			"name": "fuzz_149",
+			"input": "B \u000b\r##b\r",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_150",
+			"input": "A B: #\n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_151",
+			"input": "\n\nKEY=\u000b=xyb#\r\n",
+			"dotenv": {
+				"KEY": "=xyb"
+			}
+		},
+		{
+			"name": "fuzz_152",
+			"input": "KEY  \t# \"q\"\nhttp://h/p$X\\r\r\nKEY  \\n\r\n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_153",
+			"input": "KEY = ' \nB=1\n\"'#c\n",
+			"dotenv": {
+				"KEY": " \nB=1\n\""
+			}
+		},
+		{
+			"name": "fuzz_154",
+			"input": "KEY=\\r\r\n﻿\r",
+			"dotenv": {
+				"KEY": "\\r"
+			}
+		},
+		{
+			"name": "fuzz_155",
+			"input": "a.b\t=\f'\\r\\r",
+			"dotenv": {
+				"a.b": "'\\r\\r"
+			}
+		},
+		{
+			"name": "fuzz_156",
+			"input": "A= ' '\rB:``# A=\" #\n\"#c\r\f\fKEY=﻿ \\ # 'x\r\n",
+			"dotenv": {
+				"A": " ",
+				"KEY": "\\"
+			}
+		},
+		{
+			"name": "fuzz_157",
+			"input": "KEY= $X# \t# \"q\"\r",
+			"dotenv": {
+				"KEY": "$X"
+			}
+		},
+		{
+			"name": "fuzz_158",
+			"input": "  \n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_159",
+			"input": "B　' #'\n﻿　A=`\r\n`\t# \"q\"\n",
+			"dotenv": {
+				"A": "\n"
+			}
+		},
+		{
+			"name": "fuzz_160",
+			"input": "a.b=`\r`\n\n\ra.b=\t# \"q\"\r\n",
+			"dotenv": {
+				"a.b": ""
+			}
+		},
+		{
+			"name": "fuzz_161",
+			"input": "KEY: `${A}`\\\\` # exportKEY:\"﻿http://h/pb\"\tB==\"\"a #KEY = \n",
+			"dotenv": {
+				"KEY": "${A}`\\\\"
+			}
+		},
+		{
+			"name": "fuzz_162",
+			"input": "B = '' # 'x\n\nB==`' \"`\t# \"q\"B= \n",
+			"dotenv": {
+				"B": "=`' \"`"
+			}
+		},
+		{
+			"name": "fuzz_163",
+			"input": "KEY= '\r' # 'x ",
+			"dotenv": {
+				"KEY": "\n"
+			}
+		},
+		{
+			"name": "fuzz_164",
+			"input": "export\nB\t= # ca.b=\n",
+			"dotenv": {
+				"B": ""
+			}
+		},
+		{
+			"name": "fuzz_165",
+			"input": "A='`' # c\r\nA= ``\t# \"q\"\r",
+			"dotenv": {
+				"A": ""
+			}
+		},
+		{
+			"name": "fuzz_166",
+			"input": "\fx-y=﻿ # 'x\r\nA=﻿`http://h/p\n#c\n`#c\n",
+			"dotenv": {
+				"x-y": "",
+				"A": "http://h/p\n#c\n"
+			}
+		},
+		{
+			"name": "fuzz_167",
+			"input": " a.b=''a﻿ # 'x\nB: `\n\n #`\t # 'x\n",
+			"dotenv": {
+				"a.b": "''a",
+				"B": "\n\n #"
+			}
+		},
+		{
+			"name": "fuzz_168",
+			"input": "http://h/phttp://h/p\\$X\nexporta.b\t=  \t# \"q\"\u000b \r\n",
+			"dotenv": {
+				"exporta.b": ""
+			}
+		},
+		{
+			"name": "fuzz_169",
+			"input": "A:\t\"\"\n",
+			"dotenv": {
+				"A": ""
+			}
+		},
+		{
+			"name": "fuzz_170",
+			"input": " #${A}'\n\nKEY \n\nx-y``a ﻿`\\\\ #KEY==\n\n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_171",
+			"input": "export A=\"`\\n\nB:http://h/p #\u000b#cB:\nexportB=''#c\n",
+			"dotenv": {
+				"A": "\"`\n",
+				"exportB": ""
+			}
+		},
+		{
+			"name": "fuzz_172",
+			"input": "x-y=$Xé\\\\  # c A#c\n\\ré é",
+			"dotenv": {
+				"x-y": "$Xé\\\\"
+			}
+		},
+		{
+			"name": "fuzz_173",
+			"input": "x-y=''#c\r\n\fexport A \"#\" #\r\nA=\\\\#c \f\n",
+			"dotenv": {
+				"x-y": "",
+				"A": "\\\\"
+			}
+		},
+		{
+			"name": "fuzz_174",
+			"input": "a.b \t# \"q\"\na.b: ''\nexport  a.b= #\n",
+			"dotenv": {
+				"a.b": ""
+			}
+		},
+		{
+			"name": "fuzz_175",
+			"input": "x-y=#\"http://h/p##c\n\nexporta.b:\"\" \r  A:`\"#'`#c\n",
+			"dotenv": {
+				"x-y": ""
+			}
+		},
+		{
+			"name": "fuzz_176",
+			"input": " \n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_177",
+			"input": "exportB= `# `é #\nB==\n",
+			"dotenv": {
+				"exportB": "`",
+				"B": "="
+			}
+		},
+		{
+			"name": "fuzz_178",
+			"input": "#`\na.b = #\na.b:\t``#",
+			"dotenv": {
+				"a.b": ""
+			}
+		},
+		{
+			"name": "fuzz_179",
+			"input": "B=' \n\n\n#c\n'\u000b#\n\u000b　\nA:`\\n\té  #\r\n",
+			"dotenv": {
+				"B": " \n\n\n#c\n"
+			}
+		},
+		{
+			"name": "fuzz_180",
+			"input": "﻿\u000bB=　#c ",
+			"dotenv": {
+				"B": ""
+			}
+		},
+		{
+			"name": "fuzz_181",
+			"input": "﻿KEY==\"z9 ﻿`\"  # 'x\na.b==\"\\\\\"\rA: #\n",
+			"dotenv": {
+				"KEY": "=\"z9 ﻿`\"",
+				"a.b": "=\"\\\\\"",
+				"A": ""
+			}
+		},
+		{
+			"name": "fuzz_182",
+			"input": "KEY=\u000b # 'xx-y='${A}# # ' # c a.b  $X\t\t# \"q\"",
+			"dotenv": {
+				"KEY": ""
+			}
+		},
+		{
+			"name": "fuzz_183",
+			"input": "a.b\t=\\$Xhttp://h/pb\r\n﻿a.b =  `\thttp://h/p$X\n`\n",
+			"dotenv": {
+				"a.b": "\thttp://h/p$X\n"
+			}
+		},
+		{
+			"name": "fuzz_184",
+			"input": " \tB= # 'x",
+			"dotenv": {
+				"B": ""
+			}
+		},
+		{
+			"name": "fuzz_185",
+			"input": "exportB = \"\"${A}#",
+			"dotenv": {
+				"exportB": "\"\"${A}"
+			}
+		},
+		{
+			"name": "fuzz_186",
+			"input": "export\tKEY= `=``\nKEY= \\r'\\\\\\r A=　\r\nx-y: a=#\\ #",
+			"dotenv": {
+				"KEY": "\\r'\\\\\\r A=",
+				"x-y": "a="
+			}
+		},
+		{
+			"name": "fuzz_187",
+			"input": "A== #\r\n",
+			"dotenv": {
+				"A": "="
+			}
+		},
+		{
+			"name": "fuzz_188",
+			"input": "KEY== `xy\"`  # c\r\n",
+			"dotenv": {
+				"KEY": "= `xy\"`"
+			}
+		},
+		{
+			"name": "fuzz_189",
+			"input": "A=#$X\t# \"q\"\nA='aa\r' #c\n \rB:`:\\nb#`##\r",
+			"dotenv": {
+				"A": "aa\n"
+			}
+		},
+		{
+			"name": "fuzz_190",
+			"input": "export KEY\t=''http://h/pz9'\t # 'x\rKEY:  # c\n",
+			"dotenv": {
+				"KEY": ""
+			}
+		},
+		{
+			"name": "fuzz_191",
+			"input": "export\tx-y= # $X\t # c",
+			"dotenv": {
+				"x-y": ""
+			}
+		},
+		{
+			"name": "fuzz_192",
+			"input": "\f#=\\r\nB = 'é'﻿ 　export  x-y:`:z9` # c\r\na.b = \t# \"q\"\r\n",
+			"dotenv": {
+				"B": "é",
+				"a.b": ""
+			}
+		},
+		{
+			"name": "fuzz_193",
+			"input": "B'\n\\r\n#c\n$X'\u000b # c\n\nKEY:$Xxya \t# \"q\"\n#\na.b\n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_194",
+			"input": "KEY=\" b\n#c\n\"\"\t\r\n#\tb\\r\n﻿\n",
+			"dotenv": {
+				"KEY": "\" b"
+			}
+		},
+		{
+			"name": "fuzz_195",
+			"input": " ",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_196",
+			"input": "A:\u000b",
+			"dotenv": {
+				"A": ""
+			}
+		},
+		{
+			"name": "fuzz_197",
+			"input": "KEY\t=\t\"\n \u000b#\n",
+			"dotenv": {
+				"KEY": "\""
+			}
+		},
+		{
+			"name": "fuzz_198",
+			"input": "﻿\fKEY==\"\"#\n\n",
+			"dotenv": {
+				"KEY": "=\"\""
+			}
+		},
+		{
+			"name": "fuzz_199",
+			"input": "A:  # c\n\n 1:\t' xy${A}' #\n\n",
+			"dotenv": {
+				"1": " xy${A}",
+				"A": ""
+			}
+		},
+		{
+			"name": "fuzz_200",
+			"input": "x-y'\n#c\n='#\rB\t=\u000b\n\r\n",
+			"dotenv": {
+				"B": ""
+			}
+		},
+		{
+			"name": "fuzz_201",
+			"input": "B==\"\\r  # 'x\rB = #\rexport  A = \\r` #xy\t# \"q\"\r",
+			"dotenv": {
+				"B": "",
+				"A": "\\r`"
+			}
+		},
+		{
+			"name": "fuzz_202",
+			"input": "KEY: xy\\r # 'x\nA:\t  #\r",
+			"dotenv": {
+				"KEY": "xy\\r",
+				"A": ""
+			}
+		},
+		{
+			"name": "fuzz_203",
+			"input": "\f\f B:\t　``${A}\n b\n",
+			"dotenv": {
+				"B": "``${A}"
+			}
+		},
+		{
+			"name": "fuzz_204",
+			"input": "KEY==`# B==\" ﻿\" # 'x\n",
+			"dotenv": {
+				"KEY": "=`",
+				"B": "=\" ﻿\""
+			}
+		},
+		{
+			"name": "fuzz_205",
+			"input": "a.b= ﻿```﻿#c A =  \t# \"q\"\n",
+			"dotenv": {
+				"a.b": "`",
+				"A": ""
+			}
+		},
+		{
+			"name": "fuzz_206",
+			"input": "KEY=　\"$X: \" # 'x\r",
+			"dotenv": {
+				"KEY": "$X: "
+			}
+		},
+		{
+			"name": "fuzz_207",
+			"input": "\u000b \r\t#\r\nA\t=''\n'${A}'#c ",
+			"dotenv": {
+				"A": ""
+			}
+		},
+		{
+			"name": "fuzz_208",
+			"input": "x-y\t=z9#\r",
+			"dotenv": {
+				"x-y": "z9"
+			}
+		},
+		{
+			"name": "fuzz_209",
+			"input": "x-y=\"\\\": # 'x\n",
+			"dotenv": {
+				"x-y": "\"\\\":"
+			}
+		},
+		{
+			"name": "fuzz_210",
+			"input": "a.b= ﻿=\t #B =  #\\n#\nx-y\t= # 'x\n",
+			"dotenv": {
+				"a.b": "=",
+				"x-y": ""
+			}
+		},
+		{
+			"name": "fuzz_211",
+			"input": "A '\\\\\\\\# ' # 'xA= \t``\t# \"q\"\r\n#﻿=\nA\t='xy\n",
+			"dotenv": {
+				"A": "'xy"
+			}
+		},
+		{
+			"name": "fuzz_212",
+			"input": "B= \"z9\r\n\n\n\\\"\t\r\nA:\nx-y\t=\t # 'x\r\n",
+			"dotenv": {
+				"B": "z9\n\n\n\\",
+				"A": "x-y\t="
+			}
+		},
+		{
+			"name": "fuzz_213",
+			"input": "x-y==``#c\r\n",
+			"dotenv": {
+				"x-y": "=``"
+			}
+		},
+		{
+			"name": "fuzz_214",
+			"input": "A: \"\"`#c\r",
+			"dotenv": {
+				"A": "\"\"`"
+			}
+		},
+		{
+			"name": "fuzz_215",
+			"input": "a.b=  # c\r\n",
+			"dotenv": {
+				"a.b": ""
+			}
+		},
+		{
+			"name": "fuzz_216",
+			"input": "export a.b \u000b\f\nKEY=",
+			"dotenv": {
+				"KEY": ""
+			}
+		},
+		{
+			"name": "fuzz_217",
+			"input": "_k \"# \\n` exportB=`#=\"`\u000b #﻿# \r\nA: \"\u000b\"'#c\n\n",
+			"dotenv": {
+				"exportB": "#=\"",
+				"A": "\"\u000b\"'"
+			}
+		},
+		{
+			"name": "fuzz_218",
+			"input": "a.b: '\\n' \na.b=` ` # 'x\nx-y: ''\u000b#\n",
+			"dotenv": {
+				"a.b": " ",
+				"x-y": ""
+			}
+		},
+		{
+			"name": "fuzz_219",
+			"input": "A=\\\\\\bxy #\n",
+			"dotenv": {
+				"A": "\\\\\\bxy"
+			}
+		},
+		{
+			"name": "fuzz_220",
+			"input": "xy\r\nx-y\t=\"﻿\"a\rB=`\\z9xyhttp://h/p`﻿#",
+			"dotenv": {
+				"x-y": "\"﻿\"a",
+				"B": "\\z9xyhttp://h/p"
+			}
+		},
+		{
+			"name": "fuzz_221",
+			"input": "A \"#:z9\"#c\r\nA:\"\"\n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_222",
+			"input": "x-y:\t:\\\\\"z9",
+			"dotenv": {
+				"x-y": ":\\\\\"z9"
+			}
+		},
+		{
+			"name": "fuzz_223",
+			"input": "A:\\\\# \\é#c\n\n\u000b",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_224",
+			"input": "0==xy \r`\r\nB=1\n\\r\r\u000b#\\r﻿\n",
+			"dotenv": {
+				"0": "=xy",
+				"B": "1"
+			}
+		},
+		{
+			"name": "fuzz_225",
+			"input": "#béxy\n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_226",
+			"input": "a.b::$X﻿  \t# \"q\"\r\n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_227",
+			"input": "A==　\t# \"q\"\n ﻿\rx-y:\t # c ",
+			"dotenv": {
+				"A": "=",
+				"x-y": ""
+			}
+		},
+		{
+			"name": "fuzz_228",
+			"input": "﻿﻿\n\nexport\n: `\n\n` \t# \"q\"",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_229",
+			"input": "a.b:  #\r\nx-y\t=\\\t#\r\n",
+			"dotenv": {
+				"a.b": "",
+				"x-y": "\\"
+			}
+		},
+		{
+			"name": "fuzz_230",
+			"input": "KEY:\nA\t=\"$X﻿\"z9\"\nKEY:\t\"xy$X  #\" #\n\n　\t\r\n",
+			"dotenv": {
+				"KEY": "xy$X  #"
+			}
+		},
+		{
+			"name": "fuzz_231",
+			"input": "export a.b = \\n' # export A'='= '\t #\na.b   # 'x",
+			"dotenv": {
+				"a.b": "\\n'"
+			}
+		},
+		{
+			"name": "fuzz_232",
+			"input": "toString=\t# \"q\"\n\n export\nx-y: '# '\n\n' # 'x\rKEY = `` # 'xKEY #",
+			"dotenv": {
+				"toString": "",
+				"x-y": "# ",
+				"KEY": ""
+			}
+		},
+		{
+			"name": "fuzz_233",
+			"input": "KEY'# # a' # c\rexport x-y = ``\r",
+			"dotenv": {
+				"x-y": ""
+			}
+		},
+		{
+			"name": "fuzz_234",
+			"input": "x-y=\"\"\r\n\" # #\n",
+			"dotenv": {
+				"x-y": ""
+			}
+		},
+		{
+			"name": "fuzz_235",
+			"input": "　B=b` # 'x\n",
+			"dotenv": {
+				"B": "b`"
+			}
+		},
+		{
+			"name": "fuzz_236",
+			"input": "A\t=#c\nB:' \nB=1\n '\t# \"q\"",
+			"dotenv": {
+				"A": "",
+				"B": "1"
+			}
+		},
+		{
+			"name": "fuzz_237",
+			"input": "\t\rB:\\ ",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_238",
+			"input": "x-y:  # c\ra.b= '`'\r\n",
+			"dotenv": {
+				"x-y": "",
+				"a.b": "`"
+			}
+		},
+		{
+			"name": "fuzz_239",
+			"input": "A:\t``\f",
+			"dotenv": {
+				"A": ""
+			}
+		},
+		{
+			"name": "fuzz_240",
+			"input": "x-y`# \n#c\n=\\r` ",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_241",
+			"input": "É\t=\t# \"q\"\nx-y=\"#c\nB:xy'az9 #\n",
+			"dotenv": {
+				"x-y": "\""
+			}
+		},
+		{
+			"name": "fuzz_242",
+			"input": "export\n_k=b\\n:  # 'x\r\nB ﻿`` # 'x\nx-y=  #\r\n",
+			"dotenv": {
+				"_k": "b\\n:",
+				"x-y": ""
+			}
+		},
+		{
+			"name": "fuzz_243",
+			"input": "#\r\u000b#http://h/pexport\na.b= # c\n\n",
+			"dotenv": {
+				"a.b": ""
+			}
+		},
+		{
+			"name": "fuzz_244",
+			"input": " B==　\"﻿\" # 'x\n",
+			"dotenv": {
+				"B": "=　\"﻿\""
+			}
+		},
+		{
+			"name": "fuzz_245",
+			"input": "B=﻿\t# \"q\"\r\nKEY \"z9\n#c\n\" \" a.b  #\\\\# \t# \"q\"\n",
+			"dotenv": {
+				"B": ""
+			}
+		},
+		{
+			"name": "fuzz_246",
+			"input": " \\\r\t #\n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_247",
+			"input": "export\nB:\t'\\﻿\r' #\n\f_k= '`'a' #c\n:\nB=1\n\n",
+			"dotenv": {
+				"B": "1",
+				"_k": "`'a"
+			}
+		},
+		{
+			"name": "fuzz_248",
+			"input": "KEY=\t' \nz9'\n\n",
+			"dotenv": {
+				"KEY": " \nz9"
+			}
+		},
+		{
+			"name": "fuzz_249",
+			"input": "B=` \nB=1\n\t\u000b`  # c\nA=\"\n\n\n\n\\\\\"\" #\n﻿ ",
+			"dotenv": {
+				"B": " \nB=1\n\t\u000b",
+				"A": "\n\n\n\n\\\\\""
+			}
+		},
+		{
+			"name": "fuzz_250",
+			"input": "#\n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_251",
+			"input": "﻿\tKEY= \" # KEY=`\n#c\n\\`\\\\ #\r#\n\nB='xy''  # c",
+			"dotenv": {
+				"KEY": "`",
+				"B": "xy'"
+			}
+		},
+		{
+			"name": "fuzz_252",
+			"input": "x-y=z9#c\n",
+			"dotenv": {
+				"x-y": "z9"
+			}
+		},
+		{
+			"name": "fuzz_253",
+			"input": "a.b='﻿' # 'x\r",
+			"dotenv": {
+				"a.b": "﻿"
+			}
+		},
+		{
+			"name": "fuzz_254",
+			"input": " KEY=# xy\n",
+			"dotenv": {
+				"KEY": ""
+			}
+		},
+		{
+			"name": "fuzz_255",
+			"input": "export=A=='é' \na.b= ``\t`#\nA \t\t# \"q\"\n\n",
+			"dotenv": {
+				"export": "A=='é'",
+				"a.b": "`\t"
+			}
+		},
+		{
+			"name": "fuzz_256",
+			"input": "#  xy\r",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_257",
+			"input": "\t a.b:'\\\\ '\r",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_258",
+			"input": "export\na.b=\\n \nKEY=\"a #\"xy 　B= #c\n",
+			"dotenv": {
+				"a.b": "\\n",
+				"KEY": "\"a",
+				"B": ""
+			}
+		},
+		{
+			"name": "fuzz_259",
+			"input": "x-y = \"\"#c ",
+			"dotenv": {
+				"x-y": ""
+			}
+		},
+		{
+			"name": "fuzz_260",
+			"input": "﻿x-y\t= #\r﻿﻿ ﻿#﻿\u000b\n\n",
+			"dotenv": {
+				"x-y": ""
+			}
+		},
+		{
+			"name": "fuzz_261",
+			"input": "B=`\\n \r\n",
+			"dotenv": {
+				"B": "`\\n"
+			}
+		},
+		{
+			"name": "fuzz_262",
+			"input": "$X\tx-y:\t``a.b \u000b\t# \"q\"\n# ",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_263",
+			"input": "B  ",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_264",
+			"input": "B\\\\':　# B:\t # 'x\n",
+			"dotenv": {
+				"B": ""
+			}
+		},
+		{
+			"name": "fuzz_265",
+			"input": " x-y=\" #\n",
+			"dotenv": {
+				"x-y": "\""
+			}
+		},
+		{
+			"name": "fuzz_266",
+			"input": "export  a.b=`\u000b# é\f\n\n",
+			"dotenv": {
+				"a.b": "`"
+			}
+		},
+		{
+			"name": "fuzz_267",
+			"input": "\né#é:\n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_268",
+			"input": "__proto__'  ",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_269",
+			"input": "B:\t`\n\n xy`\t# \"q\"\nexport\ta.b=\r\n  \r",
+			"dotenv": {
+				"B": "\n\n xy",
+				"a.b": ""
+			}
+		},
+		{
+			"name": "fuzz_270",
+			"input": "B:\t\"\\n=﻿\"\u000b#\nx-y='\u000b'::'\n\n",
+			"dotenv": {
+				"B": "\n=﻿",
+				"x-y": "\u000b'::"
+			}
+		},
+		{
+			"name": "fuzz_271",
+			"input": " \f\n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_272",
+			"input": "x-y= 　``'\r\nA = '' # 'x\n\n\t KEY=\\\\\n\n",
+			"dotenv": {
+				"x-y": "``'",
+				"A": "",
+				"KEY": "\\\\"
+			}
+		},
+		{
+			"name": "fuzz_273",
+			"input": "KEY=\n\f\n\nKEY = \t\\\\xy`#\r\nx-y\t=　　\n",
+			"dotenv": {
+				"KEY": "\\\\xy`",
+				"x-y": ""
+			}
+		},
+		{
+			"name": "fuzz_274",
+			"input": "KEY=\n",
+			"dotenv": {
+				"KEY": ""
+			}
+		},
+		{
+			"name": "fuzz_275",
+			"input": "KEY=xyé\"\r",
+			"dotenv": {
+				"KEY": "xyé\""
+			}
+		},
+		{
+			"name": "fuzz_276",
+			"input": "export KEY: ﻿#\n\n",
+			"dotenv": {
+				"KEY": ""
+			}
+		},
+		{
+			"name": "fuzz_277",
+			"input": "a.b:\nKEY: $X\t\\\\\t \n\nB:'a'#${A}'\nA:\"\"\t# \"q\"\r",
+			"dotenv": {
+				"a.b": "KEY: $X\t\\\\"
+			}
+		},
+		{
+			"name": "fuzz_278",
+			"input": " # x-y=\"\\n ${A}:\"\t# \"q\"\n\n_k=\" ## \n\n",
+			"dotenv": {
+				"x-y": "\n ${A}:",
+				"_k": "\""
+			}
+		},
+		{
+			"name": "fuzz_279",
+			"input": "　\fa.b== '=\\é\\n'\t# \"q\"\nx-y= #c\nx-y \f'\n#c\n':'é\n\t\nB=1\n`# \r\n\n",
+			"dotenv": {
+				"a.b": "= '=\\é\\n'",
+				"x-y": "",
+				"B": "1"
+			}
+		},
+		{
+			"name": "fuzz_280",
+			"input": "B= \"  \"#c\nB \"`﻿\\n` # c\n\n",
+			"dotenv": {
+				"B": "  "
+			}
+		},
+		{
+			"name": "fuzz_281",
+			"input": "A:é\\r\t\r",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_282",
+			"input": " \fexport\nA=\"\"z9\u000b#c\n",
+			"dotenv": {
+				"A": "\"\"z9"
+			}
+		},
+		{
+			"name": "fuzz_283",
+			"input": "a.b== xy$X\n 　\n\nKEY: '#'\t # ",
+			"dotenv": {
+				"a.b": "= xy$X",
+				"KEY": "#"
+			}
+		},
+		{
+			"name": "fuzz_284",
+			"input": " a.b:\t﻿${A} a \n\nx-y #${A}' #\n",
+			"dotenv": {
+				"a.b": "${A} a"
+			}
+		},
+		{
+			"name": "fuzz_285",
+			"input": "\f　export  KEY=#\n\n0 =  \f#\n\néz9` #\\\\\u000b:\n\n",
+			"dotenv": {
+				"0": "",
+				"KEY": ""
+			}
+		},
+		{
+			"name": "fuzz_286",
+			"input": "KEY=﻿http://h/p # c\r\nx-y=```\u000b${A}`",
+			"dotenv": {
+				"KEY": "http://h/p",
+				"x-y": "``\u000b${A}"
+			}
+		},
+		{
+			"name": "fuzz_287",
+			"input": "a.b\"\\r  # 'x\n\n\t  A: :   ",
+			"dotenv": {
+				"A": ":"
+			}
+		},
+		{
+			"name": "fuzz_288",
+			"input": "a.b:\t  #  \n",
+			"dotenv": {
+				"a.b": ""
+			}
+		},
+		{
+			"name": "fuzz_289",
+			"input": "\n\n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_290",
+			"input": "a.b= b\u000b # \t# \"q\" \u000b\ra.b:\t# \"q\"",
+			"dotenv": {
+				"a.b": ""
+			}
+		},
+		{
+			"name": "fuzz_291",
+			"input": "A'\n\n''　\nKEY=``\nx-y:`  #\t`\n\n",
+			"dotenv": {
+				"KEY": ""
+			}
+		},
+		{
+			"name": "fuzz_292",
+			"input": "B =  #",
+			"dotenv": {
+				"B": ""
+			}
+		},
+		{
+			"name": "fuzz_293",
+			"input": "B=\t # 'x\n\n\n\n\n",
+			"dotenv": {
+				"B": ""
+			}
+		},
+		{
+			"name": "fuzz_294",
+			"input": "export  KEY`﻿`",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_295",
+			"input": "　\fa.b:` `##c\na.b= ﻿z9#\n\fB=﻿\" #\rexport\tx-y:'\r='\t# \"q\"\n",
+			"dotenv": {
+				"a.b": "z9",
+				"B": "\""
+			}
+		},
+		{
+			"name": "fuzz_296",
+			"input": "É=`\"` # 'x\r",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_297",
+			"input": "B= \nB:\t $X\\r\\\\ # 'x\r",
+			"dotenv": {
+				"B": "$X\\r\\\\"
+			}
+		},
+		{
+			"name": "fuzz_298",
+			"input": "\texport\nB=\"\\\\#\nB=1\n\"#c\n\n\n\nB= ``\n",
+			"dotenv": {
+				"B": ""
+			}
+		},
+		{
+			"name": "fuzz_299",
+			"input": "  A: `\n\n\n #`#\nx-y==\" \"\n",
+			"dotenv": {
+				"A": "\n\n\n #",
+				"x-y": "=\" \""
+			}
+		},
+		{
+			"name": "fuzz_300",
+			"input": "KEY==\"xy\" # 'x\rx-y== #c\nKEY== ",
+			"dotenv": {
+				"KEY": "=",
+				"x-y": "="
+			}
+		},
+		{
+			"name": "fuzz_301",
+			"input": " x-y=`=`﻿\nexport A  a\\\\#\t # cx-y\t=\u000b # 'x ",
+			"dotenv": {
+				"x-y": "="
+			}
+		},
+		{
+			"name": "fuzz_302",
+			"input": "B==# \n",
+			"dotenv": {
+				"B": "="
+			}
+		},
+		{
+			"name": "fuzz_303",
+			"input": "B\t=\r\n",
+			"dotenv": {
+				"B": ""
+			}
+		},
+		{
+			"name": "fuzz_304",
+			"input": "A= \\r﻿  #c\na.b=  '\\a'# \n",
+			"dotenv": {
+				"A": "\\r",
+				"a.b": "\\a"
+			}
+		},
+		{
+			"name": "fuzz_305",
+			"input": "KEY ''a\n\n'\n# \nx-y:﻿#\r\nexport KEY=`# \u000bz9\n` # 'x\r",
+			"dotenv": {
+				"x-y": "",
+				"KEY": "# \u000bz9\n"
+			}
+		},
+		{
+			"name": "fuzz_306",
+			"input": "#:$X#\r\nx-y\f\"\t:\\:\"xy\u000b\t# \"q\"\r",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_307",
+			"input": "x-y=\"\" # # c\r\nx-y\t= '':﻿\n#c\n' # 'x\na.b = '\\\\`\\\\# \r\n\t\n",
+			"dotenv": {
+				"x-y": "'':",
+				"a.b": "'\\\\`\\\\"
+			}
+		},
+		{
+			"name": "fuzz_308",
+			"input": "x-y:\t\\r#\u000b\n\na.b= # c\n",
+			"dotenv": {
+				"x-y": "\\r",
+				"a.b": ""
+			}
+		},
+		{
+			"name": "fuzz_309",
+			"input": "\n﻿B \" ``\" 1==' a''#c\n\nB=\"\"#c\n",
+			"dotenv": {
+				"1": "=' a''",
+				"B": ""
+			}
+		},
+		{
+			"name": "fuzz_310",
+			"input": "A= # 'xa.b=　`# `  # 'x\nKEY=#\n\n#\n\n",
+			"dotenv": {
+				"A": "",
+				"KEY": ""
+			}
+		},
+		{
+			"name": "fuzz_311",
+			"input": "　#\"\r\nB= '$X' \r\nx-y = \" \r\n",
+			"dotenv": {
+				"B": "$X",
+				"x-y": "\""
+			}
+		},
+		{
+			"name": "fuzz_312",
+			"input": "KEY:\" http://h/p\" \ra.b: ''#\r\n",
+			"dotenv": {
+				"a.b": ""
+			}
+		},
+		{
+			"name": "fuzz_313",
+			"input": "A=='=\n\\n:'\n\t\nKEY = \"'\n\n\"${A}\t\n",
+			"dotenv": {
+				"A": "='=",
+				"KEY": "\"'"
+			}
+		},
+		{
+			"name": "fuzz_314",
+			"input": "A==\\n\t﻿a #\n﻿\n\na.b=é${A}\f #\nA = \"${A} \\\\\"\"  # c\n",
+			"dotenv": {
+				"A": "${A} \\\\\"",
+				"a.b": "é${A}"
+			}
+		},
+		{
+			"name": "fuzz_315",
+			"input": "KEY=\u000b'\"\r\nb\\\\'#\n\n",
+			"dotenv": {
+				"KEY": "\"\nb\\\\"
+			}
+		},
+		{
+			"name": "fuzz_316",
+			"input": "A B \t# \"q\"\n\n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_317",
+			"input": "KEY\"\"#c",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_318",
+			"input": "A=  '  #",
+			"dotenv": {
+				"A": "'"
+			}
+		},
+		{
+			"name": "fuzz_319",
+			"input": "## z9 \rx-y:    #   # x-y = '`\nB=1\n\n'\r\n",
+			"dotenv": {
+				"x-y": "`\nB=1\n\n"
+			}
+		},
+		{
+			"name": "fuzz_320",
+			"input": "﻿#\t`\nKEY= \t# \"q\"KEY=${A}z9#${A}  #\n　 \r",
+			"dotenv": {
+				"KEY": ""
+			}
+		},
+		{
+			"name": "fuzz_321",
+			"input": "B:http://h/p\t# \"q\"\r\n\r\nB= \"\\\"\f\rKEY= '='#c ",
+			"dotenv": {
+				"B": "\\",
+				"KEY": "="
+			}
+		},
+		{
+			"name": "fuzz_322",
+			"input": " \t\rKEY ''\t#bb\\A=\t` # # `\u000b\t # ",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_323",
+			"input": "B: \u000b\"\nB=1\n\"\n\n #http://h/p\\nb A== #",
+			"dotenv": {
+				"B": "\nB=1\n",
+				"A": "="
+			}
+		},
+		{
+			"name": "fuzz_324",
+			"input": "a.b=\u000b#c\r",
+			"dotenv": {
+				"a.b": ""
+			}
+		},
+		{
+			"name": "fuzz_325",
+			"input": "B='''#c\rB: ''\n\nB = \\rhttp://h/p\t# \"q\"\rB='=\"\n#c\n'\n",
+			"dotenv": {
+				"B": "=\"\n#c\n"
+			}
+		},
+		{
+			"name": "fuzz_326",
+			"input": "exportKEY==\"`#\r\n",
+			"dotenv": {
+				"exportKEY": "=\"`"
+			}
+		},
+		{
+			"name": "fuzz_327",
+			"input": "toString: 'é'\r",
+			"dotenv": {
+				"toString": "é"
+			}
+		},
+		{
+			"name": "fuzz_328",
+			"input": "x-y #cA=\"z9 `\"\" # c\r\nKEY:\t  #x-y:\f #\r\n",
+			"dotenv": {
+				"KEY": ""
+			}
+		},
+		{
+			"name": "fuzz_329",
+			"input": "﻿#\n\n\\#z9#\n ",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_330",
+			"input": "﻿#\n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_331",
+			"input": "export A `` #",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_332",
+			"input": "A= '#\"a'\n\n",
+			"dotenv": {
+				"A": "#\"a"
+			}
+		},
+		{
+			"name": "fuzz_333",
+			"input": "B=\"\n#c\n\"\"z9 KEY:\t　`\\\nhttp://h/p`\nA 　\"\" #\n\r\n",
+			"dotenv": {
+				"B": "\"",
+				"KEY": "\\\nhttp://h/p"
+			}
+		},
+		{
+			"name": "fuzz_334",
+			"input": "B=`` # c\n",
+			"dotenv": {
+				"B": ""
+			}
+		},
+		{
+			"name": "fuzz_335",
+			"input": "KEY=\"\"\u000b\" #  ﻿\n\na.b=\f`\r\n\n#c\n\r\n` #\r\nB:  `# #az9`﻿\n",
+			"dotenv": {
+				"KEY": "\"\u000b",
+				"a.b": "\n\n#c\n\n",
+				"B": "# #az9"
+			}
+		},
+		{
+			"name": "fuzz_336",
+			"input": "KEY'z9# \t# \"q\"\n\n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_337",
+			"input": "a.b =   # 'x\nA:\\r#${A}xy # c ",
+			"dotenv": {
+				"a.b": ""
+			}
+		},
+		{
+			"name": "fuzz_338",
+			"input": " #\t=\r\n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_339",
+			"input": "KEY = '\n#c\n'#c\r\nx-y $X=\\\\ #\na.b\t='  '  # c\n\n#`\nB=1\n\n",
+			"dotenv": {
+				"KEY": "\n#c\n",
+				"a.b": "  ",
+				"B": "1"
+			}
+		},
+		{
+			"name": "fuzz_340",
+			"input": "  KEY==É==\u000b #\nexport\nKEY=\f`'#'#\r\n",
+			"dotenv": {
+				"KEY": "`'"
+			}
+		},
+		{
+			"name": "fuzz_341",
+			"input": "A= # c\n",
+			"dotenv": {
+				"A": ""
+			}
+		},
+		{
+			"name": "fuzz_342",
+			"input": "export\na.b= \"\" # 'x",
+			"dotenv": {
+				"a.b": ""
+			}
+		},
+		{
+			"name": "fuzz_343",
+			"input": "export\nB=\"\"'\"\"\tKEY==#",
+			"dotenv": {
+				"B": "\"\"'\"\"\tKEY=="
+			}
+		},
+		{
+			"name": "fuzz_344",
+			"input": " #\n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_345",
+			"input": "B\t=\f\f#c \nexportA= ' z9''　 # 'x\n\n",
+			"dotenv": {
+				"B": "",
+				"exportA": " z9'"
+			}
+		},
+		{
+			"name": "fuzz_346",
+			"input": "x-y=`http://h/p\n\n `\t\t# \"q\"\nexport\tKEY=# $X　\n\nx-y=`\r\n\n",
+			"dotenv": {
+				"x-y": "`",
+				"KEY": ""
+			}
+		},
+		{
+			"name": "fuzz_347",
+			"input": "export KEY==`'\n#c\n` #\n",
+			"dotenv": {
+				"KEY": "=`'"
+			}
+		},
+		{
+			"name": "fuzz_348",
+			"input": "A ﻿\t# \"q\"\rÉ=﻿#c \f\fx-y=\t #\n",
+			"dotenv": {
+				"x-y": ""
+			}
+		},
+		{
+			"name": "fuzz_349",
+			"input": "A=\\nxy#  #c\n\nexport A=\t# \"q\" ",
+			"dotenv": {
+				"A": ""
+			}
+		},
+		{
+			"name": "fuzz_350",
+			"input": "KEY:\"\u000b# \nexport: ``\t# \"q\"\n\n\n",
+			"dotenv": {
+				"export": ""
+			}
+		},
+		{
+			"name": "fuzz_351",
+			"input": "B = '`''\n\u000ba.b = '\n\\' \r\f#`é=\texport  0=\t\f #\r",
+			"dotenv": {
+				"B": "`'",
+				"a.b": "\n\\"
+			}
+		},
+		{
+			"name": "fuzz_352",
+			"input": "export\tKEY`\t`\n\n\n`\\n #\r",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_353",
+			"input": "A= '\\r\r' # 'x\rB http://h/pa﻿\n\nx-y='\n\n'\t# \"q\"",
+			"dotenv": {
+				"A": "\\r\n",
+				"x-y": "\n\n"
+			}
+		},
+		{
+			"name": "fuzz_354",
+			"input": "A = \t# \"q\" ",
+			"dotenv": {
+				"A": ""
+			}
+		},
+		{
+			"name": "fuzz_355",
+			"input": "x-y \\r#c\n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_356",
+			"input": "toString= \\\\\\\\# b﻿\r　B\t=\\r # KEY=='\n' #\n",
+			"dotenv": {
+				"toString": "\\\\\\\\",
+				"B": "\\r",
+				"KEY": "='"
+			}
+		},
+		{
+			"name": "fuzz_357",
+			"input": "A=﻿ # 'x\n\t\tKEY=\\\\`  # 'x\fA = \"\\\\\" ",
+			"dotenv": {
+				"A": "",
+				"KEY": "\\\\`"
+			}
+		},
+		{
+			"name": "fuzz_358",
+			"input": "KEY:\t　 # 'x ",
+			"dotenv": {
+				"KEY": ""
+			}
+		},
+		{
+			"name": "fuzz_359",
+			"input": "B:# ",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_360",
+			"input": "A = '\"' #\n\nx-y:\t﻿#\n",
+			"dotenv": {
+				"A": "\"",
+				"x-y": ""
+			}
+		},
+		{
+			"name": "fuzz_361",
+			"input": " ## \n 　a.b=`\t\r\n` #\n #",
+			"dotenv": {
+				"a.b": "\t\n"
+			}
+		},
+		{
+			"name": "fuzz_362",
+			"input": "\u000b## \r# $X \n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_363",
+			"input": "  a.b=\" \t${A} # 'x\n",
+			"dotenv": {
+				"a.b": "\" \t${A}"
+			}
+		},
+		{
+			"name": "fuzz_364",
+			"input": "a.b= \ta\\r  #\n",
+			"dotenv": {
+				"a.b": "a\\r"
+			}
+		},
+		{
+			"name": "fuzz_365",
+			"input": "a.b= \"　\n",
+			"dotenv": {
+				"a.b": "\""
+			}
+		},
+		{
+			"name": "fuzz_366",
+			"input": " \n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_367",
+			"input": "　\u000ba.b # #\r\n\f \r\nexport\tKEY:\f\n",
+			"dotenv": {
+				"KEY": ""
+			}
+		},
+		{
+			"name": "fuzz_368",
+			"input": "x-y= \n\n",
+			"dotenv": {
+				"x-y": ""
+			}
+		},
+		{
+			"name": "fuzz_369",
+			"input": "#\\n ",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_370",
+			"input": "　x-y=#c\nA: #c\n\n",
+			"dotenv": {
+				"x-y": "",
+				"A": ""
+			}
+		},
+		{
+			"name": "fuzz_371",
+			"input": "export\ta.b=  \"\nB=1\n${A}é\" \t# \"q\"\n",
+			"dotenv": {
+				"a.b": "\nB=1\n${A}é"
+			}
+		},
+		{
+			"name": "fuzz_372",
+			"input": "B=　'\"b# ' \r\nKEY= \\nhttp://h/p\u000b﻿ ",
+			"dotenv": {
+				"B": "\"b# ",
+				"KEY": "\\nhttp://h/p"
+			}
+		},
+		{
+			"name": "fuzz_373",
+			"input": "x-y = ':' #c\r",
+			"dotenv": {
+				"x-y": ":"
+			}
+		},
+		{
+			"name": "fuzz_374",
+			"input": "#${A}\r\u000b#`\nA B:\"\"a﻿a\" #export\nB==\n",
+			"dotenv": {
+				"B": "="
+			}
+		},
+		{
+			"name": "fuzz_375",
+			"input": "1 \t\"\" #\r",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_376",
+			"input": "A ''\n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_377",
+			"input": "B= # c\t\u000bexport  KEY=﻿\" #:\\\\ \"　#c\n\u000bx-y= # a.b:` #\n\n\n\n\n` #\r",
+			"dotenv": {
+				"B": "",
+				"x-y": ""
+			}
+		},
+		{
+			"name": "fuzz_378",
+			"input": " \ta.b =  \n\n#'\\n\"",
+			"dotenv": {
+				"a.b": ""
+			}
+		},
+		{
+			"name": "fuzz_379",
+			"input": "KEY: \"#\nB=1\nhttp://h/p\" # 'x\ra.b=#c B:\t# #",
+			"dotenv": {
+				"KEY": "#\nB=1\nhttp://h/p",
+				"a.b": ""
+			}
+		},
+		{
+			"name": "fuzz_380",
+			"input": "A=`#c ",
+			"dotenv": {
+				"A": "`"
+			}
+		},
+		{
+			"name": "fuzz_381",
+			"input": "a.b=\t'\nB=1\n\t'' ",
+			"dotenv": {
+				"a.b": "'",
+				"B": "1"
+			}
+		},
+		{
+			"name": "fuzz_382",
+			"input": "KEY=　: # \t\r\na.b=\u000b #z9#c\n\nexportB=　\t# \"q\"\n\n",
+			"dotenv": {
+				"KEY": ":",
+				"a.b": "",
+				"exportB": ""
+			}
+		},
+		{
+			"name": "fuzz_383",
+			"input": "KEY﻿\"\rhttp://h/p\"b\" # c\n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_384",
+			"input": "KEY=`\t '#\nKEY= \n\nB= `\\rz9`\t# \"q\"\r\nx-y:\t# \"q\" ",
+			"dotenv": {
+				"KEY": "",
+				"B": "\\rz9",
+				"x-y": ""
+			}
+		},
+		{
+			"name": "fuzz_385",
+			"input": "B  ''\\n#c\n　\fa.b= \"\" ﻿B \" \"\n\n",
+			"dotenv": {
+				"a.b": ""
+			}
+		},
+		{
+			"name": "fuzz_386",
+			"input": " 　B\"http://h/p\"\t# \"q\"\rA = ﻿\"z9﻿ \"\"#c\n_k: \" b\"\t # c\n",
+			"dotenv": {
+				"A": "z9﻿ \"",
+				"_k": " b"
+			}
+		},
+		{
+			"name": "fuzz_387",
+			"input": "KEY=` ` # c\r\n",
+			"dotenv": {
+				"KEY": " "
+			}
+		},
+		{
+			"name": "fuzz_388",
+			"input": "KEY = '\n # 'x x-y= \"\\n\"$X\"",
+			"dotenv": {
+				"KEY": "'",
+				"x-y": "\n\"$X"
+			}
+		},
+		{
+			"name": "fuzz_389",
+			"input": "export\tx-y ` `http://h/p #",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_390",
+			"input": "B= '''\n A=  `\r\n$X\nB=1\n` #\n\na.b:\t\"\"# \\\"\n\n",
+			"dotenv": {
+				"B": "'",
+				"A": "\n$X\nB=1\n",
+				"a.b": ""
+			}
+		},
+		{
+			"name": "fuzz_391",
+			"input": "\tx-y='\t`\n#c\n'#c\na.b=\"\"\" # 'x ",
+			"dotenv": {
+				"x-y": "\t`\n#c\n",
+				"a.b": "\""
+			}
+		},
+		{
+			"name": "fuzz_392",
+			"input": "B=\u000b'\u000ba$Xz9'#\n﻿#  B=　 # 'x\r",
+			"dotenv": {
+				"B": ""
+			}
+		},
+		{
+			"name": "fuzz_393",
+			"input": "x-y=  #\n\n",
+			"dotenv": {
+				"x-y": ""
+			}
+		},
+		{
+			"name": "fuzz_394",
+			"input": "a.b= `\\n\\ `#ca.b\t= \t\n",
+			"dotenv": {
+				"a.b": "\\n\\ "
+			}
+		},
+		{
+			"name": "fuzz_395",
+			"input": " export\tKEY='''  # 'x\n\nB= ",
+			"dotenv": {
+				"KEY": "'",
+				"B": ""
+			}
+		},
+		{
+			"name": "fuzz_396",
+			"input": " \r\f a.b=éé=\n﻿ a.b=\"\" # 'x\nexport x-y=\t\\\\﻿${A} # c ",
+			"dotenv": {
+				"a.b": "",
+				"x-y": "\\\\﻿${A}"
+			}
+		},
+		{
+			"name": "fuzz_397",
+			"input": "x-y\t=`\t`xy#0=\"\"#c\r\n",
+			"dotenv": {
+				"x-y": "`\t`xy"
+			}
+		},
+		{
+			"name": "fuzz_398",
+			"input": "B==  # c\rKEY='' \t# \"q\"\n\na.b= \":\" # c\r\n",
+			"dotenv": {
+				"B": "=",
+				"KEY": "",
+				"a.b": ":"
+			}
+		},
+		{
+			"name": "fuzz_399",
+			"input": " # ﻿\n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_400",
+			"input": "KEY=\\z9=\u000b",
+			"dotenv": {
+				"KEY": "\\z9="
+			}
+		},
+		{
+			"name": "fuzz_401",
+			"input": "\f#\r\n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_402",
+			"input": "#`\\r$X\n B=\t\r",
+			"dotenv": {
+				"B": ""
+			}
+		},
+		{
+			"name": "fuzz_403",
+			"input": "x-y:``#c\n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_404",
+			"input": "x-y=　﻿\\r\\n\r\na.b:\t﻿\t # c\r\fKEY = é'\"é\r\n",
+			"dotenv": {
+				"x-y": "\\r\\n",
+				"a.b": "",
+				"KEY": "é'\"é"
+			}
+		},
+		{
+			"name": "fuzz_405",
+			"input": "x-y: `#  \rxy`\n\t\u000b1\t=\t\n\nB=\":`# \\r\" # c\r\nx-y=#c\n\n",
+			"dotenv": {
+				"1": "",
+				"x-y": "",
+				"B": ":`# \r"
+			}
+		},
+		{
+			"name": "fuzz_406",
+			"input": "KEY=﻿\t# \"q\"\n ",
+			"dotenv": {
+				"KEY": ""
+			}
+		},
+		{
+			"name": "fuzz_407",
+			"input": "export a.b `=`a#cA=`\r\n`\r\n\na.b:\t:#\n",
+			"dotenv": {
+				"a.b": ":"
+			}
+		},
+		{
+			"name": "fuzz_408",
+			"input": "export  a.b\t=\"$Xxy\\\\é\" \rKEY\t=# `` ##c\n　#\\\\\\r`\nKEY ﻿\"\n\n\"\t# \"q\" ",
+			"dotenv": {
+				"a.b": "$Xxy\\\\é",
+				"KEY": ""
+			}
+		},
+		{
+			"name": "fuzz_409",
+			"input": " B='\\n #'  # c\r\n",
+			"dotenv": {
+				"B": "\\n #"
+			}
+		},
+		{
+			"name": "fuzz_410",
+			"input": "#\t'aa.b\t= \t# \"q\"\nexport\nA==\"z9a\\\\ \"",
+			"dotenv": {
+				"A": "=\"z9a\\\\ \""
+			}
+		},
+		{
+			"name": "fuzz_411",
+			"input": "a.b=\"\n#c\n\" B=\"b #\u000b\"\nexport\t=\f`\"\r\n` # 'x\r\n\t# b \n",
+			"dotenv": {
+				"a.b": "\n#c\n",
+				"B": "b #\u000b",
+				"export": "\"\n"
+			}
+		},
+		{
+			"name": "fuzz_412",
+			"input": "KEY= \u000b=\\r\r\u000b \n\n\n\u000b KEY=b# ` #\n  B\t$X\n",
+			"dotenv": {
+				"KEY": "b"
+			}
+		},
+		{
+			"name": "fuzz_413",
+			"input": "B:b# #\rB'\\n'\n\n '﻿\f #\n\n\t﻿KEY='' \n\n",
+			"dotenv": {
+				"KEY": ""
+			}
+		},
+		{
+			"name": "fuzz_414",
+			"input": "exporta.b:\t 'z9:\n#c\n #'# ",
+			"dotenv": {
+				"exporta.b": "z9:\n#c\n #"
+			}
+		},
+		{
+			"name": "fuzz_415",
+			"input": "\f　A\t#  #${A}　\t# \"q\"\n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_416",
+			"input": "KEY = `z9` #\rexportx-y:\t``\n\nB =  \" http://h/pxy\"\"　\n",
+			"dotenv": {
+				"KEY": "z9",
+				"exportx-y": "",
+				"B": " http://h/pxy\""
+			}
+		},
+		{
+			"name": "fuzz_417",
+			"input": "B = \u000b`'\n\n\n#c\n `z9  #\rA==\\nz9$X﻿\r\n # \u000b \n\n",
+			"dotenv": {
+				"B": "`'",
+				"A": "=\\nz9$X"
+			}
+		},
+		{
+			"name": "fuzz_418",
+			"input": "a.b=`\\nhttp://h/p   # c\na.b=='\\r''\nA: :\"\n",
+			"dotenv": {
+				"a.b": "='\\r''",
+				"A": ":\""
+			}
+		},
+		{
+			"name": "fuzz_419",
+			"input": "  B = \t# \"q\"\n\na.b=﻿\"\"a \"#c x-y =\"\n",
+			"dotenv": {
+				"B": "",
+				"a.b": "\"a ",
+				"x-y": "\""
+			}
+		},
+		{
+			"name": "fuzz_420",
+			"input": "KEY==\u000b\u000b #\n #\\\\\\r\r",
+			"dotenv": {
+				"KEY": "="
+			}
+		},
+		{
+			"name": "fuzz_421",
+			"input": "A= \\\t# \"q\"\nexport B  #\nKEY = \t",
+			"dotenv": {
+				"A": "\\",
+				"KEY": ""
+			}
+		},
+		{
+			"name": "fuzz_422",
+			"input": "　 ",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_423",
+			"input": "\u000b　A:\t '${A}'　\n\n﻿﻿\n",
+			"dotenv": {
+				"A": "${A}"
+			}
+		},
+		{
+			"name": "fuzz_424",
+			"input": "KEY\t=  # 'x\n",
+			"dotenv": {
+				"KEY": ""
+			}
+		},
+		{
+			"name": "fuzz_425",
+			"input": "exporta.b= ' '\t\nA==\"\t\u000b\" # 'x\n\n",
+			"dotenv": {
+				"exporta.b": " ",
+				"A": "=\"\t\u000b\""
+			}
+		},
+		{
+			"name": "fuzz_426",
+			"input": "export export: ' # '﻿ x-y=='\n#c\n'\n",
+			"dotenv": {
+				"export": " # ",
+				"x-y": "='"
+			}
+		},
+		{
+			"name": "fuzz_427",
+			"input": "_k = \u000b#c\r\n",
+			"dotenv": {
+				"_k": ""
+			}
+		},
+		{
+			"name": "fuzz_428",
+			"input": "A:\té\u000b #  #\r \n",
+			"dotenv": {
+				"A": "é"
+			}
+		},
+		{
+			"name": "fuzz_429",
+			"input": "KEY:\t # 'x ",
+			"dotenv": {
+				"KEY": ""
+			}
+		},
+		{
+			"name": "fuzz_430",
+			"input": "B:``\n\n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_431",
+			"input": "a.b = \\a${A}  #",
+			"dotenv": {
+				"a.b": "\\a${A}"
+			}
+		},
+		{
+			"name": "fuzz_432",
+			"input": "\u000bKEY:' #'#c\nB=\u000b'#c B\r\n",
+			"dotenv": {
+				"B": "'"
+			}
+		},
+		{
+			"name": "fuzz_433",
+			"input": "x-y\t=':﻿\nB=1\n '  \n#xyb'\n a.b: \txy\t#c",
+			"dotenv": {
+				"x-y": ":﻿\nB=1\n ",
+				"a.b": "xy"
+			}
+		},
+		{
+			"name": "fuzz_434",
+			"input": "x-y` éz9#\n\n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_435",
+			"input": "A\":'${A}:\"\t# \"q\"\n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_436",
+			"input": "KEY = \"\\r\"\" # 'x\r\nB\t= ﻿\n\n",
+			"dotenv": {
+				"KEY": "\r\"",
+				"B": ""
+			}
+		},
+		{
+			"name": "fuzz_437",
+			"input": "export\nKEY=z9\\n\t# \"q\"\r x-y\t=\"﻿a\n#c\n\"#c",
+			"dotenv": {
+				"KEY": "z9\\n",
+				"x-y": "﻿a\n#c\n"
+			}
+		},
+		{
+			"name": "fuzz_438",
+			"input": "　x-y= \tz9`﻿ # c\n\nKEY= '=\n\u000b'\\# x-y:\\n﻿=  \n\n",
+			"dotenv": {
+				"x-y": "z9`",
+				"KEY": "'="
+			}
+		},
+		{
+			"name": "fuzz_439",
+			"input": "﻿　KEY:\t﻿ \t# \"q\"\r#\nA\t=\u000b\"# \n\n=`\"${A} # 'x\r\n \fB:\tbhttp://h/p\t# \"q\"",
+			"dotenv": {
+				"KEY": "",
+				"A": "\"",
+				"B": "bhttp://h/p"
+			}
+		},
+		{
+			"name": "fuzz_440",
+			"input": "A== \"\\\\\u000b\\r\" \n\n",
+			"dotenv": {
+				"A": "= \"\\\\\u000b\\r\""
+			}
+		},
+		{
+			"name": "fuzz_441",
+			"input": "KEY= 　'\\n\\n`'",
+			"dotenv": {
+				"KEY": "\\n\\n`"
+			}
+		},
+		{
+			"name": "fuzz_442",
+			"input": "B=é \t# \"q\"",
+			"dotenv": {
+				"B": "é"
+			}
+		},
+		{
+			"name": "fuzz_443",
+			"input": "#\nB=='xy\n'# ",
+			"dotenv": {
+				"B": "='xy"
+			}
+		},
+		{
+			"name": "fuzz_444",
+			"input": "KEY=﻿\t# \"q\"\nA== # ca.b=`\n\\ `\nexport  A:  # c\n",
+			"dotenv": {
+				"KEY": "",
+				"A": ""
+			}
+		},
+		{
+			"name": "fuzz_445",
+			"input": "export export:\t# \"q\"\n",
+			"dotenv": {
+				"export": ""
+			}
+		},
+		{
+			"name": "fuzz_446",
+			"input": "a.b==\":\"http://h/p#c\n\n\u000b 0= \\http://h/p# é\t # 'x",
+			"dotenv": {
+				"0": "\\http://h/p",
+				"a.b": "=\":\"http://h/p"
+			}
+		},
+		{
+			"name": "fuzz_447",
+			"input": "A\t=xyé\r\nexport  __proto__= \t# \"q\"\r",
+			"dotenv": {
+				"A": "xyé"
+			}
+		},
+		{
+			"name": "fuzz_448",
+			"input": "KEY=\u000bé\u000b\t# \"q\"\n",
+			"dotenv": {
+				"KEY": "é"
+			}
+		},
+		{
+			"name": "fuzz_449",
+			"input": "# \" #\u000ba$X B==\t'' # 'x\nx-y= #\n",
+			"dotenv": {
+				"B": "=\t''",
+				"x-y": ""
+			}
+		},
+		{
+			"name": "fuzz_450",
+			"input": " \nKEY:\"\n#c\n\"\nx-y=b ﻿x-y:\t'`\\\\﻿a'#\r",
+			"dotenv": {
+				"x-y": "b ﻿x-y:\t'`\\\\﻿a'"
+			}
+		},
+		{
+			"name": "fuzz_451",
+			"input": "A= #  #\n\nA:\t`é`xy\n\n",
+			"dotenv": {
+				"A": "`é`xy"
+			}
+		},
+		{
+			"name": "fuzz_452",
+			"input": "A=  \\n\n\f A: '# 'a#'\u000b\t# \"q\"\n\nA\t=\u000b#cx-y=#c\r\n",
+			"dotenv": {
+				"A": ""
+			}
+		},
+		{
+			"name": "fuzz_453",
+			"input": "export  a.b\"é\"# \" # c\nA: 'xy'\n\n\t'\u000b\t# \"q\" a.b:\u000b'\u000b'x-y==http://h/p${A}\\n ##\r\n",
+			"dotenv": {
+				"A": "xy",
+				"a.b": "'\u000b'x-y==http://h/p${A}\\n"
+			}
+		},
+		{
+			"name": "fuzz_454",
+			"input": "##  ",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_455",
+			"input": "a.b=` ` #\nKEY = \u000b ",
+			"dotenv": {
+				"a.b": " ",
+				"KEY": ""
+			}
+		},
+		{
+			"name": "fuzz_456",
+			"input": "\na.b= \r\n\f\tB:\t\"\" #c\r#$X\r\n",
+			"dotenv": {
+				"a.b": "",
+				"B": ""
+			}
+		},
+		{
+			"name": "fuzz_457",
+			"input": "a.b= \"é\" # c\r\n",
+			"dotenv": {
+				"a.b": "é"
+			}
+		},
+		{
+			"name": "fuzz_458",
+			"input": "#bb\\r\n\na.b='#' ",
+			"dotenv": {
+				"a.b": "#"
+			}
+		},
+		{
+			"name": "fuzz_459",
+			"input": "A:$X #\n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_460",
+			"input": "\t#\r\n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_461",
+			"input": "a.b==`` # 'x\n\n",
+			"dotenv": {
+				"a.b": "=``"
+			}
+		},
+		{
+			"name": "fuzz_462",
+			"input": "a.b== '\\\\'é' # 'x",
+			"dotenv": {
+				"a.b": "= '\\\\'é'"
+			}
+		},
+		{
+			"name": "fuzz_463",
+			"input": "#\n\nKEY=\t# \"q\"\n\n",
+			"dotenv": {
+				"KEY": ""
+			}
+		},
+		{
+			"name": "fuzz_464",
+			"input": "x-y==''\\n\fx-y a\u000b\t# \"q\"\n",
+			"dotenv": {
+				"x-y": "=''\\n\fx-y a"
+			}
+		},
+		{
+			"name": "fuzz_465",
+			"input": "export  a.b=\n",
+			"dotenv": {
+				"a.b": ""
+			}
+		},
+		{
+			"name": "fuzz_466",
+			"input": "a.b = ''\n\nx-y = \thttp://h/p:\\n\nB= # 'x\r",
+			"dotenv": {
+				"a.b": "",
+				"x-y": "http://h/p:\\n",
+				"B": ""
+			}
+		},
+		{
+			"name": "fuzz_467",
+			"input": "　\f\n\nKEY='\nB=1\n\n`\t'　 # 'x\r\n",
+			"dotenv": {
+				"KEY": "\nB=1\n\n`\t"
+			}
+		},
+		{
+			"name": "fuzz_468",
+			"input": "B\t='#\u000b'\n",
+			"dotenv": {
+				"B": "#\u000b"
+			}
+		},
+		{
+			"name": "fuzz_469",
+			"input": "﻿#z9",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_470",
+			"input": "x-y='é\r`'\t# \"q\"\n",
+			"dotenv": {
+				"x-y": "é\n`"
+			}
+		},
+		{
+			"name": "fuzz_471",
+			"input": "\f　a.b='\\\\\u000b\\r\n\n'\u000b#\na.b==z9 #\n",
+			"dotenv": {
+				"a.b": "=z9"
+			}
+		},
+		{
+			"name": "fuzz_472",
+			"input": "B\t=\t# \"q\"\n",
+			"dotenv": {
+				"B": ""
+			}
+		},
+		{
+			"name": "fuzz_473",
+			"input": "a.b= é #",
+			"dotenv": {
+				"a.b": "é"
+			}
+		},
+		{
+			"name": "fuzz_474",
+			"input": "\fA\t=`\n#c\n`\n",
+			"dotenv": {
+				"A": "\n#c\n"
+			}
+		},
+		{
+			"name": "fuzz_475",
+			"input": " \fA\t= #xy\\\r\n",
+			"dotenv": {
+				"A": ""
+			}
+		},
+		{
+			"name": "fuzz_476",
+			"input": "  KEY= ",
+			"dotenv": {
+				"KEY": ""
+			}
+		},
+		{
+			"name": "fuzz_477",
+			"input": "#\n\n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_478",
+			"input": "#'\\né\n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_479",
+			"input": "B = $X #' # c\n",
+			"dotenv": {
+				"B": "$X"
+			}
+		},
+		{
+			"name": "fuzz_480",
+			"input": "exportx-y\t=\"\\n\\ \"",
+			"dotenv": {
+				"exportx-y": "\n\\ "
+			}
+		},
+		{
+			"name": "fuzz_481",
+			"input": "KEY= \n",
+			"dotenv": {
+				"KEY": ""
+			}
+		},
+		{
+			"name": "fuzz_482",
+			"input": "export\tKEY=\":http://h/p\"\t\r",
+			"dotenv": {
+				"KEY": ":http://h/p"
+			}
+		},
+		{
+			"name": "fuzz_483",
+			"input": "KEY=\\\\\"' # c",
+			"dotenv": {
+				"KEY": "\\\\\"'"
+			}
+		},
+		{
+			"name": "fuzz_484",
+			"input": " ",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_485",
+			"input": "\f#é\t${A}\r",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_486",
+			"input": "B=\u000b#c\r",
+			"dotenv": {
+				"B": ""
+			}
+		},
+		{
+			"name": "fuzz_487",
+			"input": "\f",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_488",
+			"input": "x-y=\"\n#c\nb\t\"",
+			"dotenv": {
+				"x-y": "\n#c\nb\t"
+			}
+		},
+		{
+			"name": "fuzz_489",
+			"input": "\n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_490",
+			"input": "KEY=\" \"\n\n",
+			"dotenv": {
+				"KEY": " "
+			}
+		},
+		{
+			"name": "fuzz_491",
+			"input": "A= ''\n #x-y=``  #\n#",
+			"dotenv": {
+				"A": ""
+			}
+		},
+		{
+			"name": "fuzz_492",
+			"input": "a.b== '' # c\n",
+			"dotenv": {
+				"a.b": "= ''"
+			}
+		},
+		{
+			"name": "fuzz_493",
+			"input": " #a.b=a﻿\nKEY\t=b #\n\n",
+			"dotenv": {
+				"KEY": "b"
+			}
+		},
+		{
+			"name": "fuzz_494",
+			"input": "KEY=",
+			"dotenv": {
+				"KEY": ""
+			}
+		},
+		{
+			"name": "fuzz_495",
+			"input": "　 B=${A}\u000b #c",
+			"dotenv": {
+				"B": "${A}"
+			}
+		},
+		{
+			"name": "fuzz_496",
+			"input": "KEY= `\r\n # \n`\n",
+			"dotenv": {
+				"KEY": "\n # \n"
+			}
+		},
+		{
+			"name": "fuzz_497",
+			"input": "B= # c\n",
+			"dotenv": {
+				"B": ""
+			}
+		},
+		{
+			"name": "fuzz_498",
+			"input": "B = 　 # ca.b \" # 'x\n",
+			"dotenv": {
+				"B": ""
+			}
+		},
+		{
+			"name": "fuzz_499",
+			"input": "　a.b\t=\" z9\"#\r",
+			"dotenv": {
+				"a.b": " z9"
+			}
+		},
+		{
+			"name": "fuzz_500",
+			"input": "A= \f\"\\\n#c\n'\r\"\t# \"q\"\r\n",
+			"dotenv": {
+				"A": "\\\n#c\n'\n"
+			}
+		},
+		{
+			"name": "fuzz_501",
+			"input": "A=\":\r:\"\n",
+			"dotenv": {
+				"A": ":\n:"
+			}
+		},
+		{
+			"name": "fuzz_502",
+			"input": " a.b= \t# \"q\"\n\nKEY= \"a\"\t#c  A=\\\\r #\r",
+			"dotenv": {
+				"a.b": "",
+				"KEY": "a"
+			}
+		},
+		{
+			"name": "fuzz_503",
+			"input": " ﻿KEY=\" \u000b\\n$X\"#c\n\n#\u000b\n",
+			"dotenv": {
+				"KEY": " \u000b\n$X"
+			}
+		},
+		{
+			"name": "fuzz_504",
+			"input": "a.b= # 'x\r",
+			"dotenv": {
+				"a.b": ""
+			}
+		},
+		{
+			"name": "fuzz_505",
+			"input": "x-y='xy\n #\u000b'\n\n",
+			"dotenv": {
+				"x-y": "xy\n #\u000b"
+			}
+		},
+		{
+			"name": "fuzz_506",
+			"input": "A=\r",
+			"dotenv": {
+				"A": ""
+			}
+		},
+		{
+			"name": "fuzz_507",
+			"input": "\n\n\t#'\n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_508",
+			"input": "exportx-y=''#\r\n",
+			"dotenv": {
+				"exportx-y": ""
+			}
+		},
+		{
+			"name": "fuzz_509",
+			"input": "A\t=`#http://h/p`\f # c\r\n",
+			"dotenv": {
+				"A": "#http://h/p"
+			}
+		},
+		{
+			"name": "fuzz_510",
+			"input": "KEY=\" \"\t#\nexport\tB\t= \t# \"q\"\r",
+			"dotenv": {
+				"KEY": " ",
+				"B": ""
+			}
+		},
+		{
+			"name": "fuzz_511",
+			"input": "B=='\\''  # 'x\n",
+			"dotenv": {
+				"B": "='\\''"
+			}
+		},
+		{
+			"name": "fuzz_512",
+			"input": "A\t=\t\n",
+			"dotenv": {
+				"A": ""
+			}
+		},
+		{
+			"name": "fuzz_513",
+			"input": "KEY= \"` `${A}\" # 'x\r",
+			"dotenv": {
+				"KEY": "` `${A}"
+			}
+		},
+		{
+			"name": "fuzz_514",
+			"input": "#b${A}=\n\n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_515",
+			"input": "a.b\t=''\t\n\na.b=`=\\r\r` # 'x\rx-y=\"'$X\n\n\"",
+			"dotenv": {
+				"a.b": "=\\r\n",
+				"x-y": "'$X\n\n"
+			}
+		},
+		{
+			"name": "fuzz_516",
+			"input": "A=`\n`\n",
+			"dotenv": {
+				"A": "\n"
+			}
+		},
+		{
+			"name": "fuzz_517",
+			"input": "export B=  z9\"http://h/p",
+			"dotenv": {
+				"B": "z9\"http://h/p"
+			}
+		},
+		{
+			"name": "fuzz_518",
+			"input": "A = \"\" #\n",
+			"dotenv": {
+				"A": ""
+			}
+		},
+		{
+			"name": "fuzz_519",
+			"input": "A= ` #\"` #\r",
+			"dotenv": {
+				"A": " #\""
+			}
+		},
+		{
+			"name": "fuzz_520",
+			"input": "#b\n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_521",
+			"input": "﻿",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_522",
+			"input": "export  x-y==\u000b\r",
+			"dotenv": {
+				"x-y": "="
+			}
+		},
+		{
+			"name": "fuzz_523",
+			"input": "\t#\u000b\n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_524",
+			"input": "a.b=  \t\\n \n",
+			"dotenv": {
+				"a.b": "\\n"
+			}
+		},
+		{
+			"name": "fuzz_525",
+			"input": "x-y\t=\"\"#c\rx-y=`\r\n\r\n`\r",
+			"dotenv": {
+				"x-y": "\n\n"
+			}
+		},
+		{
+			"name": "fuzz_526",
+			"input": "B='\\ '  # 'x",
+			"dotenv": {
+				"B": "\\ "
+			}
+		},
+		{
+			"name": "fuzz_527",
+			"input": "\t#\n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_528",
+			"input": "\f#z9\r",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_529",
+			"input": "a.b==:  # cB= # 'x",
+			"dotenv": {
+				"a.b": "=:"
+			}
+		},
+		{
+			"name": "fuzz_530",
+			"input": "KEY=\"'\n\na\"\t # 'x\n\nx-y= `'`  #\n",
+			"dotenv": {
+				"KEY": "'\n\na",
+				"x-y": "'"
+			}
+		},
+		{
+			"name": "fuzz_531",
+			"input": "A=`\n#c\na` # 'x\na.b= ':'\u000b#\n\u000bA= 'b'\r",
+			"dotenv": {
+				"A": "b",
+				"a.b": ":"
+			}
+		},
+		{
+			"name": "fuzz_532",
+			"input": "a.b= #\\\\ #\n",
+			"dotenv": {
+				"a.b": ""
+			}
+		},
+		{
+			"name": "fuzz_533",
+			"input": "a.b\t=",
+			"dotenv": {
+				"a.b": ""
+			}
+		},
+		{
+			"name": "fuzz_534",
+			"input": "export x-y= `\"\n` \r",
+			"dotenv": {
+				"x-y": "\"\n"
+			}
+		},
+		{
+			"name": "fuzz_535",
+			"input": "A=\t\"\nxy# \"\n\n",
+			"dotenv": {
+				"A": "\nxy# "
+			}
+		},
+		{
+			"name": "fuzz_536",
+			"input": "\u000b#=\t$X\n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_537",
+			"input": "　 \n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_538",
+			"input": "\texport export=\t #\r",
+			"dotenv": {
+				"export": ""
+			}
+		},
+		{
+			"name": "fuzz_539",
+			"input": "x-y=\t#c\n",
+			"dotenv": {
+				"x-y": ""
+			}
+		},
+		{
+			"name": "fuzz_540",
+			"input": "A =  #﻿﻿\n",
+			"dotenv": {
+				"A": ""
+			}
+		},
+		{
+			"name": "fuzz_541",
+			"input": " ## \n\n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_542",
+			"input": " x-y= #c\n",
+			"dotenv": {
+				"x-y": ""
+			}
+		},
+		{
+			"name": "fuzz_543",
+			"input": "KEY =  #\n",
+			"dotenv": {
+				"KEY": ""
+			}
+		},
+		{
+			"name": "fuzz_544",
+			"input": "　\n\n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_545",
+			"input": "\f##xy\n\n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_546",
+			"input": " ﻿\n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_547",
+			"input": "B = #=\\r﻿ # 'x\r\n",
+			"dotenv": {
+				"B": ""
+			}
+		},
+		{
+			"name": "fuzz_548",
+			"input": "\t#a\n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_549",
+			"input": "#\n#$X${A}\\r\n\n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_550",
+			"input": " ﻿x-y= http://h/pxy\\  #\n\n",
+			"dotenv": {
+				"x-y": "http://h/pxy\\"
+			}
+		},
+		{
+			"name": "fuzz_551",
+			"input": "A = \\\\\rx-y = ``\r\n",
+			"dotenv": {
+				"A": "\\\\",
+				"x-y": ""
+			}
+		},
+		{
+			"name": "fuzz_552",
+			"input": "a.b='=\n\né' # cB:=:\f\r\n﻿\f\n",
+			"dotenv": {
+				"a.b": "=\n\né"
+			}
+		},
+		{
+			"name": "fuzz_553",
+			"input": "B=`\nB=1\n  z9` #\t# \"q\"\n",
+			"dotenv": {
+				"B": "\nB=1\n  z9"
+			}
+		},
+		{
+			"name": "fuzz_554",
+			"input": "a.b=``\na.b\t=\t # c\n",
+			"dotenv": {
+				"a.b": ""
+			}
+		},
+		{
+			"name": "fuzz_555",
+			"input": "_k=` z9 #` # 'x\n\n",
+			"dotenv": {
+				"_k": " z9 #"
+			}
+		},
+		{
+			"name": "fuzz_556",
+			"input": " #\n\n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_557",
+			"input": " #xy`\u000b\n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_558",
+			"input": "B\t=\"=#\n\n\" #\r \ta.b==\"$X$X\\n:\"﻿#\r",
+			"dotenv": {
+				"B": "=#\n\n",
+				"a.b": "=\"$X$X\\n:\""
+			}
+		},
+		{
+			"name": "fuzz_559",
+			"input": "B==\u000b''\n",
+			"dotenv": {
+				"B": "=\u000b''"
+			}
+		},
+		{
+			"name": "fuzz_560",
+			"input": "A = #c\n",
+			"dotenv": {
+				"A": ""
+			}
+		},
+		{
+			"name": "fuzz_561",
+			"input": "\f\t\n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_562",
+			"input": "export  a.b=\" \"#\r",
+			"dotenv": {
+				"a.b": " "
+			}
+		},
+		{
+			"name": "fuzz_563",
+			"input": "export KEY= ﻿ # 'x\n\n",
+			"dotenv": {
+				"KEY": ""
+			}
+		},
+		{
+			"name": "fuzz_564",
+			"input": "  \n\nB\t=\u000b # 'x\n",
+			"dotenv": {
+				"B": ""
+			}
+		},
+		{
+			"name": "fuzz_565",
+			"input": "export B= b\t # c\n",
+			"dotenv": {
+				"B": "b"
+			}
+		},
+		{
+			"name": "fuzz_566",
+			"input": "\f#éb\n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_567",
+			"input": "a.b=\"\"\nKEY= #\r\n\n## #\n",
+			"dotenv": {
+				"a.b": "",
+				"KEY": ""
+			}
+		},
+		{
+			"name": "fuzz_568",
+			"input": "A==\u000b#\n#\\n\r",
+			"dotenv": {
+				"A": "="
+			}
+		},
+		{
+			"name": "fuzz_569",
+			"input": "_k = \r\n",
+			"dotenv": {
+				"_k": ""
+			}
+		},
+		{
+			"name": "fuzz_570",
+			"input": "export  x-y\t=\t\"'\"\n\n",
+			"dotenv": {
+				"x-y": "'"
+			}
+		},
+		{
+			"name": "fuzz_571",
+			"input": "A=\t# \"q\"\n\n",
+			"dotenv": {
+				"A": ""
+			}
+		},
+		{
+			"name": "fuzz_572",
+			"input": "\fa.b\t='`\\﻿:'\t# \"q\"\r",
+			"dotenv": {
+				"a.b": "`\\﻿:"
+			}
+		},
+		{
+			"name": "fuzz_573",
+			"input": "\r  export\tKEY==\t﻿'z9 # 'x\r",
+			"dotenv": {
+				"KEY": "=\t﻿'z9"
+			}
+		},
+		{
+			"name": "fuzz_574",
+			"input": "﻿ x-y = \f\t# \"q\"\r\n",
+			"dotenv": {
+				"x-y": ""
+			}
+		},
+		{
+			"name": "fuzz_575",
+			"input": "B = ﻿#c\r",
+			"dotenv": {
+				"B": ""
+			}
+		},
+		{
+			"name": "fuzz_576",
+			"input": "x-y==\t\t# \"q\"\n",
+			"dotenv": {
+				"x-y": "="
+			}
+		},
+		{
+			"name": "fuzz_577",
+			"input": "KEY=`b# \\n`\u000b\u000b #",
+			"dotenv": {
+				"KEY": "b# \\n"
+			}
+		},
+		{
+			"name": "fuzz_578",
+			"input": "exportB=''\t # 'x\n",
+			"dotenv": {
+				"exportB": ""
+			}
+		},
+		{
+			"name": "fuzz_579",
+			"input": "export B= ﻿\n",
+			"dotenv": {
+				"B": ""
+			}
+		},
+		{
+			"name": "fuzz_580",
+			"input": "x-y== #\nx-y== #\n",
+			"dotenv": {
+				"x-y": "="
+			}
+		},
+		{
+			"name": "fuzz_581",
+			"input": " x-y=$X\t# \"q\"\nA=http://h/p$X #B==\"\n \n",
+			"dotenv": {
+				"x-y": "$X",
+				"A": "http://h/p$X"
+			}
+		},
+		{
+			"name": "fuzz_582",
+			"input": " export x-y==\t\\﻿﻿\t# \"q\"\r\n",
+			"dotenv": {
+				"x-y": "=\t\\"
+			}
+		},
+		{
+			"name": "fuzz_583",
+			"input": "#z9a\n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_584",
+			"input": "\fA=   #a\n",
+			"dotenv": {
+				"A": ""
+			}
+		},
+		{
+			"name": "fuzz_585",
+			"input": "KEY=  \\xy # 'x\r\n",
+			"dotenv": {
+				"KEY": "\\xy"
+			}
+		},
+		{
+			"name": "fuzz_586",
+			"input": "﻿#${A}\\n\n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_587",
+			"input": "a.b=\f\"\né=\t\"\t# \"q\"\r\n",
+			"dotenv": {
+				"a.b": "\né=\t"
+			}
+		},
+		{
+			"name": "fuzz_588",
+			"input": "#﻿é\u000b\r\n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_589",
+			"input": " \n﻿\fA=='xy  # ca.b ``",
+			"dotenv": {
+				"A": "='xy"
+			}
+		},
+		{
+			"name": "fuzz_590",
+			"input": "export\ta.b\t=`'`#\rexport\ta.b\t=``\n",
+			"dotenv": {
+				"a.b": ""
+			}
+		},
+		{
+			"name": "fuzz_591",
+			"input": "﻿## #\n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_592",
+			"input": " \u000b\n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_593",
+			"input": "export  KEY\t=`\nB=1\n`#export\tx-y= 　`bxy` # c\n",
+			"dotenv": {
+				"KEY": "\nB=1\n"
+			}
+		},
+		{
+			"name": "fuzz_594",
+			"input": "a.b=\f\n",
+			"dotenv": {
+				"a.b": ""
+			}
+		},
+		{
+			"name": "fuzz_595",
+			"input": "#b\t\n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_596",
+			"input": "KEY=\u000b﻿ #",
+			"dotenv": {
+				"KEY": ""
+			}
+		},
+		{
+			"name": "fuzz_597",
+			"input": "\u000b\t\n\n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_598",
+			"input": "export KEY\t=\u000b`é`#c\r\n",
+			"dotenv": {
+				"KEY": "é"
+			}
+		},
+		{
+			"name": "fuzz_599",
+			"input": "#\\rb\\n\r",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_600",
+			"input": "A=`${A}# `\r\n",
+			"dotenv": {
+				"A": "${A}# "
+			}
+		},
+		{
+			"name": "fuzz_601",
+			"input": "a.b=\u000b #\n",
+			"dotenv": {
+				"a.b": ""
+			}
+		},
+		{
+			"name": "fuzz_602",
+			"input": " export  x-y\t=' \n\n\r\nhttp://h/p'#",
+			"dotenv": {
+				"x-y": " \n\n\nhttp://h/p"
+			}
+		},
+		{
+			"name": "fuzz_603",
+			"input": "\t\t\r\n  \n　　\n\n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_604",
+			"input": "B=\f\n\n",
+			"dotenv": {
+				"B": ""
+			}
+		},
+		{
+			"name": "fuzz_605",
+			"input": "a.b=`` #\n",
+			"dotenv": {
+				"a.b": ""
+			}
+		},
+		{
+			"name": "fuzz_606",
+			"input": "﻿\f\r",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_607",
+			"input": "x-y=${A}\t\"\t# \"q\"\n",
+			"dotenv": {
+				"x-y": "${A}\t\""
+			}
+		},
+		{
+			"name": "fuzz_608",
+			"input": "A= #\r",
+			"dotenv": {
+				"A": ""
+			}
+		},
+		{
+			"name": "fuzz_609",
+			"input": "A=\"\" # 'x\r \t\r",
+			"dotenv": {
+				"A": ""
+			}
+		},
+		{
+			"name": "fuzz_610",
+			"input": "\t# #\n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_611",
+			"input": " KEY= http://h/p # \\n # 'x\n\n",
+			"dotenv": {
+				"KEY": "http://h/p"
+			}
+		},
+		{
+			"name": "fuzz_612",
+			"input": "#\t`\\\\\n\n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_613",
+			"input": "#=http://h/p\n\n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_614",
+			"input": " #:\n\n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_615",
+			"input": "﻿#\"`\r\n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_616",
+			"input": "\rx-y=　\"$X\"\t#c\n\r\n\f#",
+			"dotenv": {
+				"x-y": "$X"
+			}
+		},
+		{
+			"name": "fuzz_617",
+			"input": "KEY==`b # 'x",
+			"dotenv": {
+				"KEY": "=`b"
+			}
+		},
+		{
+			"name": "fuzz_618",
+			"input": "\f \n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_619",
+			"input": "\r",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_620",
+			"input": "\u000b\u000b##",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_621",
+			"input": " \n\nB= \"b\r\"##\n",
+			"dotenv": {
+				"B": "b\n"
+			}
+		},
+		{
+			"name": "fuzz_622",
+			"input": "\t B=　\r\nB\t=\t`${A}=`\t# \"q\"\r\n",
+			"dotenv": {
+				"B": "${A}="
+			}
+		},
+		{
+			"name": "fuzz_623",
+			"input": "\r\nx-y=\f # 'x\rKEY= `\"\nB=1\né`\n",
+			"dotenv": {
+				"x-y": "",
+				"KEY": "\"\nB=1\né"
+			}
+		},
+		{
+			"name": "fuzz_624",
+			"input": "x-y=z9\u000b\t\t#cexport a.b== #\nx-y='${A}`' #\n",
+			"dotenv": {
+				"x-y": "${A}`"
+			}
+		},
+		{
+			"name": "fuzz_625",
+			"input": "\t",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_626",
+			"input": "a.b=　#\n",
+			"dotenv": {
+				"a.b": ""
+			}
+		},
+		{
+			"name": "fuzz_627",
+			"input": "A = #c",
+			"dotenv": {
+				"A": ""
+			}
+		},
+		{
+			"name": "fuzz_628",
+			"input": "\f## \n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_629",
+			"input": "exportA==''  #\n\nB==é\r\n",
+			"dotenv": {
+				"exportA": "=''",
+				"B": "=é"
+			}
+		},
+		{
+			"name": "fuzz_630",
+			"input": "B=='$Xhttp://h/p `\f#cKEY:`\t`:　#c\r\n",
+			"dotenv": {
+				"B": "='$Xhttp://h/p `"
+			}
+		},
+		{
+			"name": "fuzz_631",
+			"input": "KEY\t=\"bxy\"\t# \"q\"\n",
+			"dotenv": {
+				"KEY": "bxy"
+			}
+		},
+		{
+			"name": "fuzz_632",
+			"input": "_k=b'\t\n\n",
+			"dotenv": {
+				"_k": "b'"
+			}
+		},
+		{
+			"name": "fuzz_633",
+			"input": "KEY=a'=' #\n\n",
+			"dotenv": {
+				"KEY": "a'='"
+			}
+		},
+		{
+			"name": "fuzz_634",
+			"input": "KEY= \"\" # c\n",
+			"dotenv": {
+				"KEY": ""
+			}
+		},
+		{
+			"name": "fuzz_635",
+			"input": "export\tKEY='\\r\n#c\n' #\n",
+			"dotenv": {
+				"KEY": "\\r\n#c\n"
+			}
+		},
+		{
+			"name": "fuzz_636",
+			"input": "x-y=\\\\\\\\\n",
+			"dotenv": {
+				"x-y": "\\\\\\\\"
+			}
+		},
+		{
+			"name": "fuzz_637",
+			"input": "KEY\t=`='\n#c\n`\t# \"q\"_k  \"\\r\" #\nA=\n",
+			"dotenv": {
+				"KEY": "='\n#c\n",
+				"A": ""
+			}
+		},
+		{
+			"name": "fuzz_638",
+			"input": "x-y=﻿\t# \"q\"\r\n",
+			"dotenv": {
+				"x-y": ""
+			}
+		},
+		{
+			"name": "fuzz_639",
+			"input": "a.b\t=　 \n",
+			"dotenv": {
+				"a.b": ""
+			}
+		},
+		{
+			"name": "fuzz_640",
+			"input": "B= #\n",
+			"dotenv": {
+				"B": ""
+			}
+		},
+		{
+			"name": "fuzz_641",
+			"input": "a.b\t=:﻿ # 'xx-y \"`\\r\"#c\t:\r\n",
+			"dotenv": {
+				"a.b": ":"
+			}
+		},
+		{
+			"name": "fuzz_642",
+			"input": "KEY = =\u000b# z9 \t# \"q\"\r",
+			"dotenv": {
+				"KEY": "="
+			}
+		},
+		{
+			"name": "fuzz_643",
+			"input": "x-y= \t# \"q\"",
+			"dotenv": {
+				"x-y": ""
+			}
+		},
+		{
+			"name": "fuzz_644",
+			"input": "KEY=\"=\"#Axy\t:\n",
+			"dotenv": {
+				"KEY": "="
+			}
+		},
+		{
+			"name": "fuzz_645",
+			"input": "x-y=\"\" # c\r",
+			"dotenv": {
+				"x-y": ""
+			}
+		},
+		{
+			"name": "fuzz_646",
+			"input": "A=''　\r\n",
+			"dotenv": {
+				"A": ""
+			}
+		},
+		{
+			"name": "fuzz_647",
+			"input": "\t﻿\n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_648",
+			"input": "KEY='\n\n'\n",
+			"dotenv": {
+				"KEY": "\n\n"
+			}
+		},
+		{
+			"name": "fuzz_649",
+			"input": "\nB=1\n",
+			"dotenv": {
+				"B": "1"
+			}
+		},
+		{
+			"name": "fuzz_650",
+			"input": "x-y=x-y=",
+			"dotenv": {
+				"x-y": "x-y="
+			}
+		},
+		{
+			"name": "fuzz_651",
+			"input": " #$X\"\r\nB\t=ab \nB=\n",
+			"dotenv": {
+				"B": ""
+			}
+		},
+		{
+			"name": "fuzz_652",
+			"input": "A=\n",
+			"dotenv": {
+				"A": ""
+			}
+		},
+		{
+			"name": "fuzz_653",
+			"input": "B=﻿ #a.b:\t\\r #\u000b\n",
+			"dotenv": {
+				"B": ""
+			}
+		},
+		{
+			"name": "fuzz_654",
+			"input": "　exportA=''\t# \"q\"\r\n",
+			"dotenv": {
+				"exportA": ""
+			}
+		},
+		{
+			"name": "fuzz_655",
+			"input": "B\t= '' #\n",
+			"dotenv": {
+				"B": ""
+			}
+		},
+		{
+			"name": "fuzz_656",
+			"input": "KEY=  #﻿  # c\n",
+			"dotenv": {
+				"KEY": ""
+			}
+		},
+		{
+			"name": "fuzz_657",
+			"input": "KEY = =: #\n",
+			"dotenv": {
+				"KEY": "=:"
+			}
+		},
+		{
+			"name": "fuzz_658",
+			"input": "B= # 'x",
+			"dotenv": {
+				"B": ""
+			}
+		},
+		{
+			"name": "fuzz_659",
+			"input": "x-y\t=\t#\n",
+			"dotenv": {
+				"x-y": ""
+			}
+		},
+		{
+			"name": "fuzz_660",
+			"input": "a.b=\"xy ##\t\"#\na.b=`http://h/pé${A}﻿`\n\n",
+			"dotenv": {
+				"a.b": "http://h/pé${A}﻿"
+			}
+		},
+		{
+			"name": "fuzz_661",
+			"input": "KEY= #\n\t\n",
+			"dotenv": {
+				"KEY": ""
+			}
+		},
+		{
+			"name": "fuzz_662",
+			"input": "x-y=﻿\t# \"q\"\nexportKEY= ``\n\u000b #$X",
+			"dotenv": {
+				"x-y": "",
+				"exportKEY": ""
+			}
+		},
+		{
+			"name": "fuzz_663",
+			"input": "　　KEY='http://h/p é' ",
+			"dotenv": {
+				"KEY": "http://h/p é"
+			}
+		},
+		{
+			"name": "fuzz_664",
+			"input": "\f　A=`::\u000bhttp://h/p` #\n",
+			"dotenv": {
+				"A": "::\u000bhttp://h/p"
+			}
+		},
+		{
+			"name": "fuzz_665",
+			"input": "0== # c\r",
+			"dotenv": {
+				"0": "="
+			}
+		},
+		{
+			"name": "fuzz_666",
+			"input": "# #﻿\n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_667",
+			"input": "A\t=a #\n",
+			"dotenv": {
+				"A": "a"
+			}
+		},
+		{
+			"name": "fuzz_668",
+			"input": "B=﻿\"\n \" # c\n\n",
+			"dotenv": {
+				"B": "\n "
+			}
+		},
+		{
+			"name": "fuzz_669",
+			"input": "x-y\t=$X$X\\\\z9\r\n",
+			"dotenv": {
+				"x-y": "$X$X\\\\z9"
+			}
+		},
+		{
+			"name": "fuzz_670",
+			"input": "  a.b==``\u000b # c\rexportA=B= #\r",
+			"dotenv": {
+				"a.b": "=``",
+				"exportA": "B="
+			}
+		},
+		{
+			"name": "fuzz_671",
+			"input": "　\n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_672",
+			"input": "a.b==`a`${A}\n\n",
+			"dotenv": {
+				"a.b": "=`a`${A}"
+			}
+		},
+		{
+			"name": "fuzz_673",
+			"input": "\u000b# z9\n",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_674",
+			"input": "0=\t''#c\n\nx-y=\u000b #\r",
+			"dotenv": {
+				"0": "",
+				"x-y": ""
+			}
+		},
+		{
+			"name": "fuzz_675",
+			"input": " \r",
+			"dotenv": {}
+		},
+		{
+			"name": "fuzz_676",
+			"input": "B==\"\"\r",
+			"dotenv": {
+				"B": "=\"\""
+			}
+		},
+		{
+			"name": "fuzz_677",
+			"input": "\r\n﻿## \n\n",
+			"dotenv": {}
+		}
+	]
+}

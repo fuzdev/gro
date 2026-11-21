@@ -20,8 +20,8 @@ export interface GroPluginServerOptions {
 	/**
 	 * The env file whose vars the server gets, absolute or relative to the project root,
 	 * beneath the host's environment,
-	 * so a var the host sets keeps the host's value. A missing file warns and loads nothing.
-	 * `null` loads none.
+	 * so a var the host sets keeps the host's value. A missing file warns and loads nothing,
+	 * and one that doesn't parse (`parse_env_file`) fails setup. `null` loads none.
 	 * @default '.env.development'
 	 */
 	env_file?: string | null;
