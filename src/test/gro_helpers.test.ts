@@ -64,4 +64,13 @@ describe('spawn_with_loader_args', () => {
 		assert.strictEqual(result.status, 0, result.stderr);
 		assert.strictEqual(result.stdout.trim(), 'loaded by the loader');
 	});
+
+	// a relative path would be read against whatever directory `node` starts in
+	test('refuses a relative loader path', () => {
+		assert.throws(
+			() => spawn_with_loader_args('dist/loader.js', 'main.ts', [], undefined),
+			TypeError,
+			'to_file_url takes an absolute path: dist/loader.js'
+		);
+	});
 });

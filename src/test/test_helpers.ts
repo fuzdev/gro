@@ -299,7 +299,13 @@ export const create_mock_plugin_context = (options: MockPluginContextOptions): P
 			fs_paths: host.fs_paths ?? create_stub('fs_paths'),
 			env: host.env ?? create_stub('env'),
 			spawn: host.spawn ?? create_stub('spawn'),
-			import_module: host.import_module ?? create_stub('import_module')
+			import_module: host.import_module ?? create_stub('import_module'),
+			get loader_path(): string {
+				if (host.loader_path === undefined) {
+					throw Error("the mock plugin host's `loader_path` was used");
+				}
+				return host.loader_path;
+			}
 		}
 	};
 };

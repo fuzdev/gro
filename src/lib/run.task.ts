@@ -3,7 +3,8 @@ import { styleText as st } from 'node:util';
 import * as s from '@fuzdev/fuz_schema/schema.ts';
 import { meta } from '@fuzdev/fuz_schema/meta.ts';
 
-import { resolve_gro_module_path, spawn_with_loader } from './gro_helpers.ts';
+import { spawn_with_loader } from './gro_helpers.ts';
+import { resolve_gro_module_path } from './internal/node_gro_module_path.ts';
 import { env } from './env.ts';
 import type { Task } from './task.ts';
 import { TaskError } from './task_error.ts';

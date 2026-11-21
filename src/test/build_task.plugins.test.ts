@@ -39,6 +39,10 @@ vi.mock('#lib/build_cache.ts', async (import_original) => {
 	};
 });
 
+vi.mock('#lib/internal/node_gro_module_path.ts', () => ({
+	resolve_gro_module_path: vi.fn((path: string) => `/resolved_gro/${path}`)
+}));
+
 vi.mock('@fuzdev/fuz_util/hash_blake3.js', () => ({
 	hash_blake3: vi.fn()
 }));
@@ -101,6 +105,21 @@ describe('build_task plugin lifecycle', () => {
 				config: ctx.config,
 				log: ctx.log
 			})
+		);
+	});
+
+	test('hands its plugins the loader of the Gro it runs, as `host.loader_path`', async () => {
+		const { git_check_clean_workspace } = git_ops;
+		const { is_build_cache_valid } = vi.mocked(await import('#lib/build_cache.ts'));
+		const { Plugins } = vi.mocked(await import('#lib/plugin.ts'));
+
+		vi.mocked(git_check_clean_workspace).mockResolvedValue(null);
+		vi.mocked(is_build_cache_valid).mockResolvedValue(false);
+
+		await build_task.run(create_mock_build_task_context());
+
+		expect(vi.mocked(Plugins.create).mock.calls[0]![0].host.loader_path).toBe(
+			'/resolved_gro/loader.js'
 		);
 	});
 

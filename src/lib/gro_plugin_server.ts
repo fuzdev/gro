@@ -1,7 +1,7 @@
 import type { Plugin } from './plugin.ts';
 import { is_spawn_error } from './spawn_error.ts';
 import { load_env_file } from './env_files.ts';
-import { resolve_gro_module_path, spawn_with_loader_args } from './gro_helpers.ts';
+import { spawn_with_loader_args } from './gro_helpers.ts';
 import { TaskError } from './task_error.ts';
 import { start_watched_server, type WatchedServer } from './internal/server_restarts.ts';
 import { format_error_detail } from './error_detail.ts';
@@ -63,7 +63,7 @@ export const gro_plugin_server = (options: GroPluginServerOptions): Plugin => {
 				return;
 			}
 
-			const { fs_paths, env, spawn } = host;
+			const { fs_paths, env, spawn, loader_path } = host;
 			const root = fs_paths.project.path;
 			const entry_file = await fs_paths.open_path(entry);
 			if (!(await entry_file.dir.exists(entry_file.path))) {
@@ -99,12 +99,7 @@ export const gro_plugin_server = (options: GroPluginServerOptions): Plugin => {
 			try {
 				// pinned here, so every restart runs this `node` with this environment
 				const node = spawn.program('node', { pass_env: 'all', env: child_env });
-				const args = spawn_with_loader_args(
-					resolve_gro_module_path('loader.js'),
-					entry,
-					[],
-					child_env.NODE_ENV
-				);
+				const args = spawn_with_loader_args(loader_path, entry, [], child_env.NODE_ENV);
 				server = await start_watched_server({
 					program: node,
 					args,

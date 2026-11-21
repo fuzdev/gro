@@ -14,10 +14,6 @@ import { create_fs_paths } from '#lib/fs_paths.ts';
 import { create_mock_logger, paths } from './test_helpers.ts';
 import { create_mock_child, create_mock_spawn } from './spawn_mocks.ts';
 import { create_project_fs_paths } from './fs_test_helpers.ts';
-vi.mock('#lib/gro_helpers.ts', async (import_original) => ({
-	...(await import_original<typeof import('#lib/gro_helpers.ts')>()),
-	resolve_gro_module_path: vi.fn(() => '/gro/loader.js')
-}));
 
 // a file that exists under `src/`, standing in for a server entry
 const ENTRY = 'src/lib/gro_plugin_server.ts';
@@ -48,7 +44,13 @@ const to_ctx = (overrides: Partial<PluginContext> = {}): PluginContext =>
 		log: create_mock_logger(),
 		config: { watch: { dir: paths.source.slice(0, -1), filter: null } },
 		graph: create_graph(),
-		host: { fs_paths, env, spawn, import_module: () => Promise.reject(Error('unused')) },
+		host: {
+			fs_paths,
+			env,
+			spawn,
+			import_module: () => Promise.reject(Error('unused')),
+			loader_path: '/gro/loader.js'
+		},
 		...overrides
 	}) as unknown as PluginContext;
 
@@ -229,7 +231,8 @@ test("the entry resolves against the host's project, not the process's working d
 				fs_paths: await create_project_fs_paths(dir),
 				env,
 				spawn,
-				import_module: () => Promise.reject(Error('unused'))
+				import_module: () => Promise.reject(Error('unused')),
+				loader_path: '/gro/loader.js'
 			}
 		})
 	);

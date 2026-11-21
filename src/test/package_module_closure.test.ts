@@ -41,6 +41,7 @@ const PACKAGE_MODULES = [
 	'builtin_host.ts',
 	'cli.ts',
 	'constants.ts',
+	'env_files.ts',
 	'error_detail.ts',
 	'fs_paths.ts',
 	'fs_search.ts',
@@ -49,6 +50,7 @@ const PACKAGE_MODULES = [
 	'github.ts',
 	'gro_builtin_task_imports.ts',
 	'gro_builtin_tasks.ts',
+	'gro_plugin_server.ts',
 	'gro_plugin_sveltekit_app.ts',
 	'input_path.ts',
 	'internal/code_points.ts',
@@ -114,7 +116,7 @@ const NODE_BUILTIN_TASKS = [
 const BUILTIN_TASK_IMPORTS_ID = join(paths.lib, 'gro_builtin_task_imports.ts');
 
 // the package modules the CLI's entry doesn't reach, loaded by tasks and genfiles
-const PACKAGE_MODULES_BEYOND_THE_CLI = ['git.ts'];
+const PACKAGE_MODULES_BEYOND_THE_CLI = ['env_files.ts', 'git.ts', 'gro_plugin_server.ts'];
 
 // the composition roots, which import the host modules and pass what they open down
 const ROOTS = ['invoke.ts'];
@@ -213,6 +215,13 @@ const BUILTIN_TASK_PACKAGES: ReadonlyMap<string, string> = new Map([
 	]
 ]);
 
+// the packages a package module's closure may reach: a CommonJS package's `require`s
+// aren't parsed, so a package is admitted by name, never by what the walk sees of it
+const PACKAGE_MODULE_PACKAGES: ReadonlyMap<string, string> = new Map([
+	...BUILTIN_TASK_PACKAGES,
+	['esm-env', 'ES modules, every import parsed: `@fuzdev/fuz_util/log.ts` reads it']
+]);
+
 /**
  * The package name of a file under `node_modules`, or `null` for any other file.
  */
@@ -269,6 +278,11 @@ const to_closure_violations = (entry: string): Array<string> => {
 				continue;
 			}
 			if (!parents.has(target)) {
+				const package_name = to_package_name(target);
+				if (package_name !== null && !PACKAGE_MODULE_PACKAGES.has(package_name)) {
+					violations.push(`package ${package_name} <- ${to_chain(id)}`);
+					continue;
+				}
 				parents.set(target, id);
 				queue.push(target);
 			}
@@ -445,6 +459,11 @@ describe('the default config and the plugins Gro ships', () => {
 	for (const name of CONFIG_AND_PLUGINS) {
 		test(`${name} imports no granted host module, project loader, or module graph when it loads`, () => {
 			assert.deepEqual(to_forbidden_reaches(join(paths.lib, name)), []);
+		});
+
+		// as a builtin's, so a project's config that composes it links where `node:` doesn't
+		test(`${name} reaches no \`node:\` builtin or package beyond a builtin's when it loads`, () => {
+			assert.deepEqual(to_builtin_task_violations(join(paths.lib, name)), []);
 		});
 	}
 });

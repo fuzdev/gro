@@ -4,7 +4,8 @@
 
 import { join } from 'node:path';
 
-import { resolve_gro_module_path, spawn_with_loader } from './gro_helpers.ts';
+import { spawn_with_loader } from './gro_helpers.ts';
+import { resolve_gro_module_path } from './internal/node_gro_module_path.ts';
 import { args } from './args.ts';
 import { env } from './env.ts';
 import { set_exit_code } from './exit.ts';

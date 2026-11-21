@@ -64,16 +64,19 @@ export interface PluginHost {
 	readonly env: Env;
 	readonly spawn: Spawn;
 	readonly import_module: ImportModule;
+	readonly loader_path: string;
 }
 ```
 
 `PluginContext` extends the task context, so plugins get the same `task_args`, config, `graph`,
 logger, `raw_rest_args`, and `invoke_task` as tasks; see [`TaskContext` in the task docs](task.md#type-taskcontext).
 Its `host` holds the handles `gro dev` or `gro build` opens for its plugins:
-the fs boundary, the environment, spawn, and the project loader.
+the fs boundary, the environment, spawn, and the project loader,
+and the path of the Node loader of the Gro the task runs files with, for a plugin that runs one
+as `gro run` does, like `gro_plugin_server`.
 Gro's own plugins take what they reach from there at `setup`, `adapt`, or `teardown`
 rather than by importing a host module, so they and the default config import none when they load,
-and loading the config, which every command does, reaches none through them.
+nor a `node:` builtin, and loading the config, which every command does, reaches none through them.
 That's a convention, which a test of Gro's import closures checks, not a rule a runtime enforces:
 on Node a project's plugin or config can still import a host module itself.
 The handles are the task's own, not cut per plugin.

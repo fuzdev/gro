@@ -44,7 +44,8 @@ const host: PluginHost = {
 	fs_paths: create_fs_paths(fs, { cwd: process.cwd(), home: process.env.HOME }),
 	env: {} as never,
 	spawn,
-	import_module: import_module_node
+	import_module: import_module_node,
+	loader_path: '/gro/loader.js'
 };
 
 afterEach(() => {

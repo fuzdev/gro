@@ -1,4 +1,3 @@
-import { relative } from 'node:path';
 import type { Logger } from '@fuzdev/fuz_util/log.ts';
 import type { PathId } from '@fuzdev/fuz_util/path.ts';
 
@@ -6,6 +5,7 @@ import type { FileChange, ModuleGraph } from '../module_graph.ts';
 import type { SpawnChild, SpawnProgram, SpawnResult } from '../spawn.ts';
 import { spawn_restartable, type SpawnRestartable } from '../spawn_restartable.ts';
 import { to_spawn_result_message } from '../cli.ts';
+import { posix_relative } from './posix_path.ts';
 
 /**
  * How long a restart waits after the last change that calls for it,
@@ -154,7 +154,7 @@ export const start_watched_server = async (
 
 	const schedule_restart = (change: FileChange): void => {
 		if (stopping) return;
-		restart_reason ??= `${change.type} ${relative(cwd, change.id)}`;
+		restart_reason ??= `${change.type} ${posix_relative(cwd, change.id)}`;
 		if (timer !== null) clearTimeout(timer);
 		timer = setTimeout(() => void restart(), restart_delay);
 	};

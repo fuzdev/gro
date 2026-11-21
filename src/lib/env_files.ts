@@ -1,6 +1,5 @@
 import type { EnvVarConfig } from '@sveltejs/kit/env';
 import type { Result } from '@fuzdev/fuz_util/result.ts';
-import { isAbsolute, join } from 'node:path';
 
 import {
 	env_var_has_visibility,
@@ -10,6 +9,7 @@ import {
 } from './env_declarations.ts';
 import type { FsPaths } from './fs_paths.ts';
 import { TaskError } from './task_error.ts';
+import { posix_join } from './internal/posix_path.ts';
 
 /**
  * Loads every env var from the env files plus the ambient env, later sources winning,
@@ -29,7 +29,7 @@ export const load_env = async (
 		env_files.map((path) =>
 			load_env_file(
 				fs_paths,
-				env_dir === undefined || isAbsolute(path) ? path : join(env_dir, path)
+				env_dir === undefined || path.startsWith('/') ? path : posix_join(env_dir, path)
 			)
 		)
 	);

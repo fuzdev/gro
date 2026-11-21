@@ -28,6 +28,7 @@ import {
 import { spawn } from './spawn.ts';
 import { runtime_version } from './runtime_version.ts';
 import { import_module_node } from './internal/node_import_module.ts';
+import { resolve_gro_module_path } from './internal/node_gro_module_path.ts';
 
 /** @nodocs */
 export const Args = s.object({
@@ -140,7 +141,13 @@ export const task: Task<Args> = {
 
 		// a builtin with no grants, so a root: its plugins get the handles it opens,
 		// and the Node project loader
-		const host: PluginHost = { fs_paths, env, spawn, import_module: import_module_node };
+		const host: PluginHost = {
+			fs_paths,
+			env,
+			spawn,
+			import_module: import_module_node,
+			loader_path: resolve_gro_module_path('loader.js')
+		};
 		const plugins = await Plugins.create(to_plugin_context(ctx, host, false, false));
 		await plugins.setup();
 		await plugins.adapt();

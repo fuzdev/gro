@@ -1079,7 +1079,7 @@ Its results are the Node module's, held to them by the differential cases on Gro
   for the ambient env and the `FsPaths`' protected directories, when they run, so a module importing `$app/env/*` shows those reads in its import graph,
   while the loader that renders them never loads the host module on its hooks thread.
   Nothing imports Gro's `package.json`, and beside the Node-only bootstrap and loader
-  (`gro_helpers.ts`, `loader.ts`, `register.ts`), only `internal/node_platform.ts` reads its own
+  (`internal/node_gro_module_path.ts`, `loader.ts`, `register.ts`), only `internal/node_platform.ts` reads its own
   module's URL, to find the running Gro: the root passes it down in its `GroPlatform`,
   a task's context holding it as `gro`, a `GroPackage` with its version and package directory.
   A function that reads files outside the directory it's named for takes an `FsPaths` rather than a handle,
@@ -1096,7 +1096,7 @@ Its results are the Node module's, held to them by the differential cases on Gro
   (`resolve_specifier.ts`, `svelte_config.ts`, `sveltekit_shim_app_env_vars.ts`), the Filer family and the Node module graph,
   `spawn.ts`'s `PATH` walk and pin,
   the check of the working directory that `fs.project` and `paths` load from (`internal/cwd.ts`),
-  and the bootstrapping that finds the Gro install to spawn `node` with (`gro_helpers.ts`).
+  and the bootstrapping that finds the Gro install to spawn `node` with (`internal/node_gro_module_path.ts`).
   The task-path hints stat through the `FsPaths` the root passes down, so the forwarded args'
   parse that names them (`to_forwarded_args_by_command`) is async.
   `spawn.ts` is the one module on `node:child_process`.

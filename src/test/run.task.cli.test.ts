@@ -15,8 +15,10 @@ import { create_mock_fs_paths } from './fs_mocks.ts';
 
 vi.mock('#lib/gro_helpers.ts', async (import_original) => ({
 	...(await import_original<typeof import('#lib/gro_helpers.ts')>()),
-	resolve_gro_module_path: vi.fn(() => '/loader.js'),
 	spawn_with_loader: vi.fn(async () => ({ kind: 'exited', code: 0 }))
+}));
+vi.mock('#lib/internal/node_gro_module_path.ts', () => ({
+	resolve_gro_module_path: vi.fn(() => '/loader.js')
 }));
 
 afterEach(() => {

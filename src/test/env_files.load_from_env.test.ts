@@ -111,6 +111,20 @@ describe('load_env', () => {
 		assert.strictEqual(env[KEY], 'nested');
 	});
 
+	test('reads an absolute env file as named, not beneath `env_dir`', async () => {
+		await temp.mkdir('envs');
+		await temp.mkdir('other');
+		await temp.write('envs/.env.abs', `${KEY}=beneath`);
+		await temp.write('other/.env.abs', `${KEY}=absolute`);
+		const env = await load_env(fs_paths, {
+			dev: true,
+			env_dir: 'envs',
+			env_files: [join(temp.path, 'other/.env.abs')],
+			ambient_env: {}
+		});
+		assert.strictEqual(env[KEY], 'absolute');
+	});
+
 	test('skips the missing files', async () => {
 		const env = await load_env(fs_paths, { dev: false, env_dir: temp.path, ambient_env: {} });
 		assert.deepEqual(env, {});

@@ -1,51 +1,12 @@
-// on `node:fs`: finds the Gro install that the CLI spawns `node` with, bootstrapping only Node
-import { realpathSync, existsSync } from 'node:fs';
-import { join, resolve } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
-
-import { NODE_MODULES_DIRNAME, SVELTEKIT_DIST_DIRNAME } from './constants.ts';
 import type { SpawnProgram, SpawnResult } from './spawn.ts';
+import { to_file_url } from './internal/posix_path.ts';
 
 /*
 
-This module is intended to have minimal dependencies to avoid over-imports in the CLI.
+This module is intended to have minimal dependencies to avoid over-imports in the CLI,
+and imports no `node:` builtin, so the plugins that run a file with the loader load without Node.
 
 */
-
-/**
- * Resolves a path to an internal Gro file, preferring a local installation of Gro
- * and falling back to the running CLI's. Used by the CLI, `gro run`, and the server plugin.
- *
- * Paths resolve against the cwd, and the first case that applies wins:
- *
- * 1. a local install at `node_modules/.bin/gro`, followed through its symlink,
- *    so a project runs its own Gro rather than the global one
- * 2. a `dist/gro.js` with `dist/` holding `path`, as in Gro's own repo once built,
- *    so Gro runs its own build; an unbuilt repo falls through
- * 3. the Gro of the running CLI, which for the global CLI is the global installation
- */
-export const resolve_gro_module_path = (path = ''): string => {
-	const gro_bin_path = resolve(NODE_MODULES_DIRNAME, '.bin/gro');
-	// case 1
-	// Prefer any locally installed version of Gro.
-	// This is really confusing if Gro is installed inside Gro itself,
-	// so avoid that when developing Gro.
-	if (existsSync(gro_bin_path)) {
-		return join(realpathSync(gro_bin_path), '..', path);
-	}
-	// case 2
-	// a built `dist/` in the cwd, as in Gro's own repo; without one, the running CLI's
-	if (
-		existsSync(join(SVELTEKIT_DIST_DIRNAME, 'gro.js')) &&
-		existsSync(join(SVELTEKIT_DIST_DIRNAME, path))
-	) {
-		return resolve(SVELTEKIT_DIST_DIRNAME, path);
-	}
-	// case 3
-	// Fall back to the version associated with the running CLI.
-	const file_path = fileURLToPath(import.meta.url);
-	return join(file_path, '..', path);
-};
 
 /**
  * Runs a file using the Gro loader.
@@ -54,10 +15,11 @@ export const resolve_gro_module_path = (path = ''): string => {
  * so if you want production set `NODE_ENV=production`.
  *
  * @param node - the `node` program, whose environment the root decides
- * @param loader_path - path to loader
+ * @param loader_path - absolute path to the loader
  * @param invoke_path - path to file to spawn with `node`
  * @param argv - the args after `invoke_path`
  * @param node_env - the host's `NODE_ENV`, read by the root
+ * @throws `TypeError` - when `loader_path` isn't absolute
  * @see https://nodejs.org/api/packages.html#conditional-exports
  */
 export const spawn_with_loader = (
@@ -71,7 +33,9 @@ export const spawn_with_loader = (
 
 /**
  * The Node args that run `invoke_path` with Gro's loader registered.
+ * @param loader_path - absolute path to the loader
  * @param node_env - the host's `NODE_ENV`, read by the root
+ * @throws `TypeError` - when `loader_path` isn't absolute
  */
 export const spawn_with_loader_args = (
 	loader_path: string,
@@ -100,5 +64,5 @@ export const spawn_with_loader_args = (
 const to_register_loader_url = (loader_path: string): string =>
 	'data:text/javascript,' +
 	encodeURIComponent(
-		`import {register} from "node:module"; register(${JSON.stringify(pathToFileURL(loader_path).href)});`
+		`import {register} from "node:module"; register(${JSON.stringify(to_file_url(loader_path))});`
 	);

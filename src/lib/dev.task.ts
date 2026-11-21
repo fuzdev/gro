@@ -9,6 +9,7 @@ import { cwd } from './cwd.ts';
 import { env } from './env.ts';
 import { spawn } from './spawn.ts';
 import { import_module_node } from './internal/node_import_module.ts';
+import { resolve_gro_module_path } from './internal/node_gro_module_path.ts';
 
 /** @nodocs */
 export const Args = s.object({
@@ -40,12 +41,13 @@ export const task: Task<Args> = {
 		}
 
 		// a builtin with no grants, so a root: its plugins get the handles it opens,
-		// and the Node project loader
+		// the Node project loader, and the loader of the Gro it runs files with
 		const host: PluginHost = {
 			fs_paths: create_fs_paths(fs, { cwd: cwd(), home: env.get('HOME') }),
 			env,
 			spawn,
-			import_module: import_module_node
+			import_module: import_module_node,
+			loader_path: resolve_gro_module_path('loader.js')
 		};
 		const plugins = await Plugins.create(to_plugin_context(ctx, host, true, watch));
 		await plugins.setup();

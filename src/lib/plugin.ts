@@ -21,7 +21,7 @@ export type PluginsCreateConfig<TPluginContext extends PluginContext = PluginCon
 
 /**
  * The handles a plugin reaches, opened by the task that sets the plugins up, `gro dev` or
- * `gro build`, and handed over at setup, so a plugin module needn't import a host module:
+ * `gro build`, and handed over at setup, so a plugin module needn't import a host module or `node:`:
  * Gro's plugins and its default config import none when they load, so loading the config,
  * which every command does, reaches none unless the project's own config imports one.
  * The handles are the task's own, uncut: a plugin holds what the task holds.
@@ -37,6 +37,11 @@ export interface PluginHost {
 	 * Loads the project's modules, like the genfiles `gro_plugin_gen` checks.
 	 */
 	readonly import_module: ImportModule;
+	/**
+	 * The absolute path of the Node loader of the Gro the task runs a file with,
+	 * which a plugin running a file as `gro run` does registers with `spawn_with_loader_args`.
+	 */
+	readonly loader_path: string;
 }
 
 export interface PluginContext<TArgs = object> extends TaskContext<TArgs> {

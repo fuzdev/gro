@@ -109,9 +109,10 @@ errors and exit codes. Where it lives:
   (`invoke_task.ts`) the root passes as `invoke_task`'s `platform`, carried to every task it runs
 - The running Gro - the root finds it and passes it in the platform's `gro`, a `GroPackage`
   (`package_json.ts`: its version and package directory, `null` off disk), every task's
-  context's `gro`; beside the Node-only bootstrap and loader (`gro_helpers.ts`, `loader.ts`,
-  `register.ts`), only `internal/node_platform.ts` reads its own module's URL, to find the
-  running Gro, and nothing imports Gro's `package.json`
+  context's `gro`; beside the Node-only bootstrap and loader
+  (`internal/node_gro_module_path.ts`, `loader.ts`, `register.ts`), only
+  `internal/node_platform.ts` reads its own module's URL, to find the running Gro, and nothing
+  imports Gro's `package.json`
 - Project loader - every project file Gro loads (tasks, genfiles, `gro.config.ts`) goes
   through an `ImportModule` (`modules.ts`) taken as a parameter: `invoke_task` takes the
   root's as `import_module` in `InvokeTaskOptions`, passed down as `fs_paths` is, and the
@@ -194,8 +195,9 @@ global Gro in a project that doesn't install it.
 [src/docs/plugin.md](src/docs/plugin.md) owns the lifecycle
 (`setup` → `adapt` → `teardown`), the `Plugin` and `PluginContext` interfaces,
 and error handling; `plugin.ts` implements them. A plugin takes its handles from the
-context's `host` (`PluginHost`, opened by `gro dev` and `gro build`), so the default config
-and the builtin plugins import no host module when the config loads. Builtin plugins:
+context's `host` (`PluginHost`, opened by `gro dev` and `gro build`, with the path of Gro's
+Node loader as `loader_path`), so the default config and the builtin plugins import no host
+module and no `node:` builtin when the config loads. Builtin plugins:
 
 - `gro_plugin_gen` - reruns genfiles when they, their imports, or their inputs
   change
