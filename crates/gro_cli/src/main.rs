@@ -59,6 +59,13 @@ mod print;
 mod run;
 mod snapshot;
 mod thread;
+// the verb's pre-pass, which no command runs until the verb routes to it;
+// its tests hold it to Gro's TS
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "no command runs the verb's pre-pass yet")
+)]
+mod verb;
 mod version;
 
 use std::ffi::OsString;
