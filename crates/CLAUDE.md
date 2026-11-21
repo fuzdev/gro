@@ -24,14 +24,14 @@ arm (a `cfg` on the architecture or the C library is fine).
   build when the `[[bin]]` name differs from it; paths naming the built
   file (xtask, `gro_bench`, `CARGO_BIN_EXE_fgro`) name the file instead
 - `gro_sys` - the raw system calls the safe std API lacks (descriptors, the
-  environment, `RLIMIT_DATA` and `RLIMIT_NOFILE`, the thread count once
-  settled, the default thread stack, a thread's stack start, `wait4`, a
-  child held by its pidfd and waited on by tokio's reactor, in `child`,
-  behind the `child` feature `gro_runtime` enables, so `gro_bench` builds
-  no tokio, process groups and the signal handler that guards them,
-  `_exit`, `access`, and the filesystem calls confined beneath a directory
-  descriptor by `openat2`, in `beneath`, and an unbuffered write to a
-  descriptor), each behind a safe API
+  environment, `RLIMIT_DATA` and `RLIMIT_NOFILE`, a hard limit lowered, the
+  thread count once settled, the default thread stack, a thread's stack
+  start, `wait4`, a child held by its pidfd and waited on by tokio's
+  reactor, in `child`, behind the `child` feature `gro_runtime` enables, so
+  `gro_bench` builds no tokio, process groups and the signal handler that
+  guards them, `_exit`, `access`, and the filesystem calls confined beneath
+  a directory descriptor by `openat2`, in `beneath`, and an unbuffered
+  write to a descriptor), each behind a safe API
 - `gro_v8` - the V8 boundary: the calls rusty_v8 exposes only as `unsafe`,
   behind a safe API (eval's recording `ArrayBuffer` allocator,
   `record_array_buffers`, and `PendingArrayBuffer`, an `ArrayBuffer`'s bytes
@@ -241,9 +241,9 @@ They need Landlock ABI 6 and fail below it, naming the kernel's ABI.
 runs under (`INTEGRATION_TESTS` in `crates/xtask/src/snapshot.rs`), and an
 xtask unit test fails on a file of `crates/gro_cli/tests/` no run names.
 `gro_sys`'s tests that close descriptors, clear the environment, cap memory,
-or signal run in a child process, harness off, as does `gro_runtime`'s
-`tests/denylist.rs`, which installs the run's denylist and runs `python3`
-under it for the socket cases std can't make.
+lower a limit, or signal run in a child process, harness off, as does
+`gro_runtime`'s `tests/denylist.rs`, which installs the run's denylist and
+runs `python3` under it for the socket cases std can't make.
 
 ## Reproducible builds
 

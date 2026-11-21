@@ -40,7 +40,7 @@ pub fn limit_memory() -> std::io::Result<u64> {
 
 /// The process's data limit as it stands, its soft value in bytes
 /// (`u64::MAX` for none), for a priced build that doesn't cap it:
-/// `gro_sys::data_limit`.
+/// `gro_sys::resource_limit`.
 pub fn data_limit() -> std::io::Result<u64> {
-    gro_sys::data_limit().map(|(soft, _hard)| soft)
+    gro_sys::resource_limit(gro_sys::Resource::Data).map(|limit| limit.soft)
 }

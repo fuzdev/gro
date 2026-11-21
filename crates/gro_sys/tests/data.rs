@@ -1,8 +1,8 @@
-//! `limit_data`, `set_default_thread_stack`, and `raise_open_files_limit`
-//! from inside a child process: each case runs this binary again, the
-//! child, which caps its own data segment, lowers its default thread stack,
-//! or raises its soft limit on open descriptors, and reports what it then
-//! has.
+//! `limit_data`, `set_default_thread_stack`, `raise_open_files_limit`, and
+//! `lower_hard_limit` from inside a child process: each case runs this
+//! binary again, the child, which caps its own data segment, lowers its
+//! default thread stack, raises its soft limit on open descriptors, or
+//! lowers a hard limit, and reports what it then has.
 //! The stack's cases run on glibc only, whose default the call sets and reads;
 //! elsewhere it does nothing. A cap is the whole process's and can't be raised
 //! again, so it's never set in this process, nor under libtest's harness, whose
@@ -24,6 +24,12 @@ const OPEN_FILES_SOFT: u64 = 1024;
 /// The hard limit on open descriptors the open-files cases start their
 /// child under, which an unprivileged `prlimit` may lower it to.
 const OPEN_FILES_HARD: u64 = 4096;
+
+/// The soft limit on core dumps the lowering case starts its child under.
+const CORE_SOFT: u64 = 1024;
+
+/// The hard limit on core dumps the lowering case starts its child under.
+const CORE_HARD: u64 = 4096;
 
 /// The stack limit the stack's cases start their child under, which
 /// glibc sizes its default thread stack by: 8 MiB.
@@ -66,6 +72,15 @@ fn parent() {
                 "before: {OPEN_FILES_SOFT} {OPEN_FILES_HARD}\nraised: {OPEN_FILES_HARD}\nafter: \
                  {OPEN_FILES_HARD} {OPEN_FILES_HARD}\n"
             ),
+        ),
+        // a hard limit lowered, the soft one with it once it's higher,
+        // never raised, and a raise then refused to the process's child
+        (
+            "lower_hard",
+            Some(format!("--core={CORE_SOFT}:{CORE_HARD}")),
+            "lowered: 1024 2048\nclamped: 512 512\nnever raised: 512 512\nlimit: 512 \
+             512\na raise: refused\n"
+                .to_owned(),
         ),
         // one at the hard limit stays
         (
@@ -125,7 +140,8 @@ fn child(case: &str) {
         // and one well within it made
         "caps" => {
             println!("set: {}", gro_sys::limit_data(CAP).unwrap());
-            let (soft, hard) = gro_sys::data_limit().unwrap();
+            let gro_sys::ResourceLimit { soft, hard } =
+                gro_sys::resource_limit(gro_sys::Resource::Data).unwrap();
             println!("limit: {soft} {hard}");
             let mut past: Vec<u8> = Vec::new();
             let past_len = usize::try_from(CAP).unwrap();
@@ -145,13 +161,15 @@ fn child(case: &str) {
         "lower" => {
             println!("set: {}", gro_sys::limit_data(CAP / 2).unwrap());
             println!("set: {}", gro_sys::limit_data(CAP).unwrap());
-            let (soft, hard) = gro_sys::data_limit().unwrap();
+            let gro_sys::ResourceLimit { soft, hard } =
+                gro_sys::resource_limit(gro_sys::Resource::Data).unwrap();
             println!("limit: {soft} {hard}");
         }
         // a lower soft limit stands, though the hard one is higher
         "soft" => {
             println!("set: {}", gro_sys::limit_data(CAP).unwrap());
-            let (soft, hard) = gro_sys::data_limit().unwrap();
+            let gro_sys::ResourceLimit { soft, hard } =
+                gro_sys::resource_limit(gro_sys::Resource::Data).unwrap();
             println!("limit: {soft} {hard}");
         }
         // the default a thread started without a size gets, before and
@@ -182,6 +200,29 @@ fn child(case: &str) {
             println!("raised: {}", gro_sys::raise_open_files_limit().unwrap());
             let (soft, hard) = open_files_limit();
             println!("after: {soft} {hard}");
+        }
+        "lower_hard" => {
+            let shown = |limit: gro_sys::ResourceLimit| format!("{} {}", limit.soft, limit.hard);
+            let lower = |hard| gro_sys::lower_hard_limit(gro_sys::Resource::Core, hard).unwrap();
+            println!("lowered: {}", shown(lower(CORE_HARD / 2)));
+            println!("clamped: {}", shown(lower(CORE_SOFT / 2)));
+            println!("never raised: {}", shown(lower(CORE_HARD)));
+            let limit = gro_sys::resource_limit(gro_sys::Resource::Core).unwrap();
+            println!("limit: {}", shown(limit));
+            // util-linux's `prlimit` sets its own limit, then runs `true`
+            let raised = Command::new("prlimit")
+                .arg(format!("--core={}:{CORE_HARD}", CORE_SOFT / 2))
+                .arg("true")
+                .output()
+                .unwrap();
+            println!(
+                "a raise: {}",
+                if raised.status.success() {
+                    "made"
+                } else {
+                    "refused"
+                }
+            );
         }
         _ => unreachable!("no case {case}"),
     }

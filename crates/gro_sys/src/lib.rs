@@ -13,8 +13,7 @@
 //! - [`clear_env_except`] clears the process's environment but the
 //!   variables it names, so no library the process runs later reads one.
 //! - [`limit_data`] caps the process's data segment (`RLIMIT_DATA`), its
-//!   soft and hard limits alike, so it can't be raised again;
-//!   [`data_limit`] reads them.
+//!   soft and hard limits alike, so it can't be raised again.
 //! - [`set_default_thread_stack`] lowers the stack size of a thread started
 //!   without one, which glibc otherwise takes from `RLIMIT_STACK`, never
 //!   raising it; `default_thread_stack` reads it.
@@ -49,6 +48,9 @@
 //!   descriptor, each path resolved by one `openat2` with `RESOLVE_BENEATH`:
 //!   opening, `stat`, listing a directory, and making, removing, and
 //!   renaming an entry.
+//! - [`lower_hard_limit`] lowers a resource's hard limit, the soft one with
+//!   it where it's higher, never raising either; [`resource_limit`] reads
+//!   a resource's limits.
 //!
 //! With the `child` feature, which `gro_runtime` enables, so a crate without
 //! it builds no tokio, it also has `child`, which holds a child process by
@@ -408,7 +410,93 @@ pub fn limit_data(bytes: u64) -> io::Result<u64> {
     Ok(cap)
 }
 
-/// The process's `RLIMIT_DATA`, soft and hard, from `getrlimit`.
+/// A resource whose use the kernel limits per process (`RLIMIT_*`): the
+/// ones the process reads or lowers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Resource {
+    /// The largest core dump written, in bytes (`RLIMIT_CORE`).
+    Core,
+    /// The data segment, in bytes (`RLIMIT_DATA`), which [`limit_data`]
+    /// caps.
+    Data,
+}
+
+/// The type `getrlimit` and `setrlimit` take a resource as, by C library.
+#[cfg(target_env = "gnu")]
+type RawResource = libc::__rlimit_resource_t;
+/// The type `getrlimit` and `setrlimit` take a resource as, by C library.
+#[cfg(not(target_env = "gnu"))]
+type RawResource = libc::c_int;
+
+impl Resource {
+    /// The kernel's number for it.
+    const fn raw(self) -> RawResource {
+        match self {
+            Self::Core => libc::RLIMIT_CORE,
+            Self::Data => libc::RLIMIT_DATA,
+        }
+    }
+}
+
+/// A resource's soft and hard limits, `u64::MAX` for unlimited
+/// (`RLIM_INFINITY`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ResourceLimit {
+    /// The limit the kernel holds the process to, which the process may
+    /// raise as far as the hard one.
+    pub soft: u64,
+    /// The ceiling of the soft limit, which only a process holding
+    /// `CAP_SYS_RESOURCE` in the initial user namespace may raise.
+    pub hard: u64,
+}
+
+/// Lowers the process's hard limit on `resource` to `hard`, and the soft
+/// limit with it where it's higher, and returns the limits set.
+///
+/// It never raises either: a hard limit already lower stands, as does a
+/// soft one. Once lowered, nothing in the process can raise the hard limit
+/// again without `CAP_SYS_RESOURCE` in the initial user namespace (holding
+/// every capability in a user namespace of its own doesn't do), and every
+/// process it starts after
+/// inherits it. It sets the process's own limits (`setrlimit`), never
+/// another's.
+///
+/// It touches no memory of the process's and holds no lock, so it's safe on
+/// any thread; it governs every thread.
+///
+/// # Errors
+///
+/// Returns the error of `getrlimit` or `setrlimit`, the limits unchanged.
+#[expect(
+    unsafe_code,
+    reason = "std has no `setrlimit`, and a libc call is `unsafe`"
+)]
+pub fn lower_hard_limit(resource: Resource, hard: u64) -> io::Result<ResourceLimit> {
+    let current = resource_limit(resource)?;
+    let hard = hard.min(current.hard);
+    let lowered = ResourceLimit {
+        soft: current.soft.min(hard),
+        hard,
+    };
+    if lowered == current {
+        return Ok(current);
+    }
+    let limit = libc::rlimit {
+        rlim_cur: lowered.soft,
+        rlim_max: lowered.hard,
+    };
+    // SAFETY: `setrlimit` reads only the pointer, to a live local of the
+    // type it expects, and changes no memory of the process's
+    if unsafe { libc::setrlimit(resource.raw(), &raw const limit) } != 0 {
+        return Err(context(
+            &format!("setrlimit({resource:?}) failed"),
+            &io::Error::last_os_error(),
+        ));
+    }
+    Ok(lowered)
+}
+
+/// The process's soft and hard limits on `resource`, from `getrlimit`.
 ///
 /// # Errors
 ///
@@ -417,17 +505,20 @@ pub fn limit_data(bytes: u64) -> io::Result<u64> {
     unsafe_code,
     reason = "std has no `getrlimit`, and a libc call is `unsafe`"
 )]
-pub fn data_limit() -> io::Result<(u64, u64)> {
+pub fn resource_limit(resource: Resource) -> io::Result<ResourceLimit> {
     let mut current = libc::rlimit {
         rlim_cur: 0,
         rlim_max: 0,
     };
     // SAFETY: `getrlimit` writes only to the pointer, to a live local of the
     // type it expects
-    if unsafe { libc::getrlimit(libc::RLIMIT_DATA, &raw mut current) } != 0 {
+    if unsafe { libc::getrlimit(resource.raw(), &raw mut current) } != 0 {
         return Err(io::Error::last_os_error());
     }
-    Ok((current.rlim_cur, current.rlim_max))
+    Ok(ResourceLimit {
+        soft: current.rlim_cur,
+        hard: current.rlim_max,
+    })
 }
 
 /// Raises the soft limit on the process's open descriptors,

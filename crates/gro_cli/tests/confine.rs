@@ -640,7 +640,10 @@ mod confined {
                 // allowlist refuses `getrlimit`, `setrlimit`, and
                 // `prlimit64`, so the memory cap `fgro eval` sets before the
                 // box is never raised (`limit_data` reads before it sets)
-                println!("read data limit: {}", outcome(gro_sys::data_limit()));
+                println!(
+                    "read data limit: {}",
+                    outcome(gro_sys::resource_limit(gro_sys::Resource::Data))
+                );
                 let set = gro_sys::limit_data(u64::MAX);
                 println!(
                     "set data limit: {}",
