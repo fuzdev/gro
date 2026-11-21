@@ -86,6 +86,8 @@
 //!   an optional driver module, the clock and randomness denied and the heap
 //!   and time limited, written by a strict host serializer into one
 //!   envelope that reports success or the kind of failure
+//! - [`verb`]: the verb's pre-pass, read before any JS runs: the grants
+//!   table the binary carries, `src/builtin_grants.json`
 //!
 //! `deno_core`'s types stay out of this crate's public API, and the crate
 //! reads no environment variable (but the `phases` feature's file,
@@ -137,6 +139,7 @@ pub mod snapshot;
 mod stack;
 #[cfg(test)]
 mod test_support;
+pub mod verb;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;

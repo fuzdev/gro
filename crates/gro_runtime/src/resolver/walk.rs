@@ -117,8 +117,8 @@ pub(super) struct PackageJson {
     fields: Map<String, Value>,
 }
 
-// each field is read through the method that records it, so the record is
-// what decided the resolution
+// each field a resolution reads is read through the method that records it,
+// so the record is what decided the resolution
 impl PackageJson {
     /// Its `"name"`, unless absent.
     pub(super) fn name(&self, consulted: &mut Consulted) -> Option<&str> {
@@ -148,6 +148,13 @@ impl PackageJson {
     pub(super) fn imports(&self, consulted: &mut Consulted) -> Option<&Map<String, Value>> {
         consulted.add(&self.path, PackageField::Imports);
         self.fields.get("imports").and_then(Value::as_object)
+    }
+
+    /// The field `key`, unless absent or not an object. No resolution reads
+    /// one, so it records nothing: a command's reads before it starts call it
+    /// ([`super::project`]).
+    pub(super) fn object(&self, key: &str) -> Option<&Map<String, Value>> {
+        self.fields.get(key).and_then(Value::as_object)
     }
 
     /// Whether it only marks its directory's module type: every key is

@@ -23,6 +23,11 @@
 //! Gro's embedded module ([`Resolved::Embedded`]), from the run's copy alone,
 //! never a package, whose own imports resolve inside it.
 //!
+//! What a command reads of the project before it starts, the packages its
+//! `package.json` declares and the version of one it installed
+//! ([`read_project_package`], [`read_installed_package`]), goes through the
+//! same reads and the same package search, recording nothing.
+//!
 //! Details the published doc leaves to the code:
 //!
 //! - **A relative or absolute specifier's query and fragment survive
@@ -77,6 +82,7 @@ mod exports;
 mod find;
 mod format;
 mod package;
+mod project;
 mod roots;
 pub(crate) mod semver;
 mod specifier;
@@ -103,6 +109,7 @@ pub use error::{
     TargetFault, UrlFault,
 };
 pub use format::{ModuleFormat, module_format};
+pub use project::{InstalledPackage, ProjectPackage, read_installed_package, read_project_package};
 pub use roots::{Origin, Root, Roots};
 pub(crate) use tree::read_checked;
 pub use tree::{DiskTree, Entry, MAX_MODULE_SIZE, MAX_PACKAGE_JSON_SIZE, ReadRefusal, SourceTree};

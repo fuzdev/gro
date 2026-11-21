@@ -15,8 +15,10 @@ arm (a `cfg` on the architecture or the C library is fine).
 - `gro_runtime` - the JS host: a deno_core `JsRuntime` (deno_core patched,
   in `vendor/`) with `deno_webidl`, `deno_web`, and Gro's bootstrap
   extension; the resolver, the loader, the builtin modules, the host ops
-  behind them (`host/`), the engine, the box (`confine/`), and `fgro eval`'s
-  protocol (`eval/`). Start at its `lib.rs`
+  behind them (`host/`), the engine, the box (`confine/`), `fgro eval`'s
+  protocol (`eval/`), and the verb's pre-pass (`verb/`: the grants table
+  `src/builtin_grants.json`, carried by `include_str!`). Start at its
+  `lib.rs`
 - `gro_cli` - the `fgro` binary (`run`, `eval`, `--version`); its `main.rs`
   maps the commands to their docs. The name it prints, in help, hints,
   errors, the version line, and `runtime_version`, is

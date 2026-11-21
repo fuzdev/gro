@@ -174,6 +174,32 @@ pub(super) fn resolve_package(
     })
 }
 
+/// Finds the package `name` installed in the `node_modules` of the project
+/// root `project_dir`, a real path holding a `package.json`, as
+/// [`resolve_package`] finds a package imported from that directory, refused
+/// when a directory holding it is world-writable ([`check_holders`]): the
+/// directory it was found at and its real root, or `None` when it isn't there.
+pub(super) fn find_installed(
+    tree: &impl SourceTree,
+    name: &str,
+    project_dir: &Path,
+) -> Result<Option<(PathBuf, PathBuf)>, ResolveErrorKind> {
+    let found = find_in_node_modules(
+        tree,
+        name,
+        project_dir,
+        project_dir,
+        project_dir.join("package.json"),
+    );
+    let (node_modules, package_dir, root) = match found {
+        Ok(found) => found,
+        Err(ResolveErrorKind::PackageNotFound { .. }) => return Ok(None),
+        Err(kind) => return Err(kind),
+    };
+    check_holders(tree, name, project_dir, project_dir, &node_modules, &root)?;
+    Ok(Some((package_dir, root)))
+}
+
 /// Finds the package `name` in the `node_modules` of each directory from
 /// `importer_dir` up to the project root `bound_dir`, whose `package.json` is
 /// `bound_package_json`, the first that is a directory winning: its

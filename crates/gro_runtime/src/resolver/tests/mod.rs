@@ -8,6 +8,7 @@ mod identity;
 mod imports;
 mod node_differential;
 mod packages;
+mod project;
 mod project_by_name;
 mod specifier;
 mod tree;
