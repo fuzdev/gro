@@ -22,6 +22,8 @@
 //!   the address V8's limit on JS's stack is measured from.
 //! - [`thread_count`] reads the process's thread count, which a box or a
 //!   process-wide change installed from one thread needs to be 1.
+//! - [`settled_thread_count`] reads it until it's 1, a while, so a thread
+//!   just joined, still counted, doesn't count.
 //! - [`wait_child`] reaps a child process by `wait4`, returning its exit
 //!   status with its peak resident set size ([`Reaped`]), which std's `wait`
 //!   drops.
@@ -678,7 +680,7 @@ unsafe extern "C" {
 ///
 /// A thread whose join has returned can stay counted for a moment longer,
 /// while the kernel finishes its exit, so a caller that needs the count to
-/// reach 1 after a join reads it again.
+/// reach 1 after a join reads it again ([`settled_thread_count`]).
 ///
 /// # Errors
 ///
@@ -700,6 +702,37 @@ pub fn thread_count() -> io::Result<u64> {
                 "/proc/self/status has no thread count",
             )
         })
+}
+
+/// How many times [`settled_thread_count`] reads the thread count before
+/// it returns one above 1.
+///
+/// A thread whose join has returned can stay counted for a moment longer,
+/// while the kernel finishes its exit (the joiner wakes when the thread's
+/// id is cleared, before the thread is removed from its group).
+pub const THREAD_COUNT_READS: usize = 1000;
+
+/// The process's thread count once it has settled: read until it's 1,
+/// yielding between reads, at most [`THREAD_COUNT_READS`] times, then the
+/// last count read.
+///
+/// For a caller that needs the process to have one thread, its own, just
+/// after joining another: the joined thread, still counted for a moment,
+/// isn't another. A count above 1 it returns is a thread that's running.
+///
+/// # Errors
+///
+/// As [`thread_count`]'s.
+pub fn settled_thread_count() -> io::Result<u64> {
+    let mut count = thread_count()?;
+    for _ in 1..THREAD_COUNT_READS {
+        if count == 1 {
+            break;
+        }
+        std::thread::yield_now();
+        count = thread_count()?;
+    }
+    Ok(count)
 }
 
 /// Closes the descriptors from [`FIRST_INHERITED`] up with one `close_range`

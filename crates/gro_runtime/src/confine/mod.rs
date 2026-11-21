@@ -374,21 +374,13 @@ fn install(prepared: &Prepared, jit: Jit) -> Result<(), ConfineError> {
     Ok(())
 }
 
-/// How many times [`alone`] reads the thread count before it refuses: a
-/// thread whose join has returned can stay counted for a moment longer, while
-/// the kernel finishes its exit (the joiner wakes when the thread's id is
-/// cleared, before the thread is removed from its group).
-const THREAD_COUNT_READS: usize = 1000;
-
-/// Checks that the process has one thread, the caller.
+/// Checks that the process has one thread, the caller, once a thread just
+/// joined has left the count (`gro_sys::settled_thread_count`).
 fn alone() -> Result<(), ConfineError> {
-    let mut count = 0;
-    for _ in 0..THREAD_COUNT_READS {
-        count = gro_sys::thread_count().map_err(ConfineError::ThreadsUnread)?;
-        if count == 1 {
-            return Ok(());
-        }
-        std::thread::yield_now();
+    let count = gro_sys::settled_thread_count().map_err(ConfineError::ThreadsUnread)?;
+    if count == 1 {
+        Ok(())
+    } else {
+        Err(ConfineError::Threads { count })
     }
-    Err(ConfineError::Threads { count })
 }
