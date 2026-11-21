@@ -26,7 +26,7 @@ arm (a `cfg` on the architecture or the C library is fine).
   build when the `[[bin]]` name differs from it; paths naming the built
   file (xtask, `gro_bench`, `CARGO_BIN_EXE_fgro`) name the file instead;
   its `verb/` holds the verb's grant flags, split as `fgro run` spells
-  them
+  them, and why a command runs on the Node Gro
 - `gro_sys` - the raw system calls the safe std API lacks (descriptors, the
   environment, `RLIMIT_DATA` and `RLIMIT_NOFILE`, a hard limit lowered, the
   thread count once settled, the default thread stack, a thread's stack
