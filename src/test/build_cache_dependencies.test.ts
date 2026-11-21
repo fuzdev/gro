@@ -4,10 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { hash_blake3 } from '@fuzdev/fuz_util/hash_blake3.ts';
 
-import {
-	load_build_cache_dependencies,
-	NPM_HIDDEN_LOCKFILE_PATH
-} from '#lib/build_cache_dependencies.ts';
+import { load_build_cache_dependencies } from '#lib/build_cache_dependencies.ts';
+import { NPM_HIDDEN_LOCKFILE_PATH } from '#lib/constants.ts';
 
 import { create_project_fs_paths } from './fs_test_helpers.ts';
 

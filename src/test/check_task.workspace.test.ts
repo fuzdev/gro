@@ -16,7 +16,7 @@ const ARGS = {
 	package_json: false,
 	lint: false,
 	build: false,
-	sync: false,
+	lockfile: false,
 	install: false,
 	workspace: true
 } as unknown as Args;

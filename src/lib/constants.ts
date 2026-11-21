@@ -44,6 +44,10 @@ export const VITE_CONFIG_FILENAMES = [
 export const NODE_MODULES_DIRNAME = 'node_modules';
 export const PACKAGE_JSON_FILENAME = 'package.json';
 export const LOCKFILE_FILENAME = 'package-lock.json';
+/**
+ * npm's hidden lockfile, which records the packages installed in `node_modules`.
+ */
+export const NPM_HIDDEN_LOCKFILE_PATH = NODE_MODULES_DIRNAME + '/.package-lock.json';
 export const SVELTEKIT_DEV_DIRNAME = '.svelte-kit'; // TODO use Svelte config value `outDir`
 /**
  * The tsconfig SvelteKit generates for projects to extend as `$app/tsconfig`.

@@ -145,7 +145,8 @@ When the `map_package_json` config value is truthy,
 `gro sync` writes to the root `package.json` on the filesystem with a mapped version.
 To opt out, configure `map_package_json` to `null` or return `null` from it.
 
-> The `gro check` task integrates with `map_package_json` to ensure everything is synced.
+> `gro check` fails when the mapped `package.json` differs from the one on disk,
+> naming `gro sync` to update it, and doesn't write it.
 
 The main purpose of `map_package_json` is to automate
 the `"exports"` property of your root `package.json`.

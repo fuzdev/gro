@@ -234,7 +234,8 @@ so a module re-exporting the `task` carries them:
 - `invokes` - the builtins it invokes, by name, each a `BuiltinInvokeGrant`, `{}` or marked:
   `when` names a boolean arg of the invoking task that the invoke runs only under,
   so a command's closure holds the invoked builtin only when its args set it,
-  like `check`'s `build: {when: 'build'}`, a plain `gro check` holding no `build`;
+  like `check`'s `build: {when: 'build'}` and `sync: {when: 'install'}`,
+  a plain `gro check` holding neither;
   `check: true` marks an invoke in check mode, writing no source, so the closure holds the invoked
   builtin, and the builtins it invokes in turn, without their writes to the project,
   like `check`'s `gen` and `format`, run with `check: true`; it's data for a runtime
@@ -292,7 +293,7 @@ const grants = {
 		sveltekit_cli: {name: SVELTEKIT_CLI, local: true, pass_env: 'all'},
 	},
 	invokes: {
-		sync: {},
+		sync: {when: 'install'},
 		build: {when: 'build'},
 		typecheck: {},
 		test: {},
@@ -459,6 +460,23 @@ When `svelte-kit` isn't in `node_modules/.bin` it skips the sync and warns that 
 weren't synced, except on a fresh clone with no `node_modules`, where `gro sync --install` installs first.
 Vitest's rule is in [test](./test.md#when-vitest-isnt-declared), and ESLint's follows it:
 `gro lint` fails when ESLint isn't declared, and when it's declared but not installed in the project.
+Unless `--install`, `gro check` writes no source and no install: it checks them.
+It fails when `package.json`'s exports, as `map_package_json` maps them, differ from the file's,
+naming `gro sync`, and when the npm install doesn't match `package.json` and `package-lock.json`,
+naming `npm i`: `package.json`'s dependency specs against the lockfile's root entry,
+the lockfile against npm's hidden lockfile `node_modules/.package-lock.json`
+(each package's version, `resolved`, `integrity`, and `link`, and packages installed but not locked),
+and each installed package's own `package.json` version against the lockfile,
+a locked package that's optional or limited to some platforms by `os` or `cpu` allowed to be absent.
+It reads only those files, through its read grant, and runs no program;
+with no `package-lock.json`, like another package manager's project, it says at info level
+that the install wasn't checked, and a package installed as a symlink, like an `npm link`,
+or beneath a scope directory linked from outside the project, is skipped with an info note, and so is a `node_modules` that's itself a symlink, which isn't followed,
+like a worktree sharing a checkout's. `--no-lockfile` skips the install check.
+That check is a review signal against mistakes like pulling without installing,
+not a boundary: anything that can write `node_modules` can make it pass.
+`gro check --install` installs first, through `gro sync --install`, and still writes no `package.json`;
+`--workspace`, for CI, which installs in its own setup, skips `--install`.
 `gro check` runs its lint step only when ESLint is declared or args are forwarded to the linter,
 a `-- gro lint` section or a nonempty `-- eslint` one.
 Without either, the step is skipped with a log line, unless the project's root has an ESLint config

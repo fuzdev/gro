@@ -32,7 +32,7 @@ const to_args = (dir: string): Record<keyof typeof SYNCING, object> => ({
 		package_json: false,
 		lint: false,
 		build: true,
-		sync: false,
+		lockfile: false,
 		install: false,
 		workspace: false
 	}

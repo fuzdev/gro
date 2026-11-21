@@ -7,8 +7,9 @@ import type { Logger } from '@fuzdev/fuz_util/log.ts';
 import { to_task_command } from './task.ts';
 import { TaskError } from './task_error.ts';
 import { to_forwarded_args_by_command, to_forwarded_argv } from './task_args.ts';
-import { ESLINT_CLI, SVELTEKIT_CLI, VITEST_CLI } from './constants.ts';
+import { ESLINT_CLI, LOCKFILE_FILENAME, SVELTEKIT_CLI, VITEST_CLI } from './constants.ts';
 import { sveltekit_sync_if_obviously_needed } from './sveltekit_helpers.ts';
+import { npm_install_check, type NpmInstallMismatch } from './npm_install_check.ts';
 import { find_eslint_config } from './eslint_helpers.ts';
 import { is_fs_error } from './fs_error.ts';
 import { package_json_sync, project_has_dependency } from './package_json.ts';
@@ -61,12 +62,18 @@ export const Args = s.object({
 		meta(s.boolean, { description: 'force a fresh build, ignoring the cache' }),
 		false
 	),
-	sync: s.with_default(meta(s.boolean, { description: 'dual of no-sync' }), true),
-	'no-sync': s.with_default(meta(s.boolean, { description: 'opt out of syncing' }), false),
-	install: s.with_default(meta(s.boolean, { description: 'opt into installing packages' }), false),
+	lockfile: s.with_default(meta(s.boolean, { description: 'dual of no-lockfile' }), true),
+	'no-lockfile': s.with_default(
+		meta(s.boolean, { description: 'opt out of checking the install against package-lock.json' }),
+		false
+	),
+	install: s.with_default(
+		meta(s.boolean, { description: 'opt into installing packages first, with gro sync' }),
+		false
+	),
 	workspace: s.with_default(
 		meta(s.boolean, {
-			description: 'ensure a clean git workspace, useful for CI, also implies --no-sync'
+			description: 'ensure a clean git workspace, useful for CI, also skipping --install'
 		}),
 		false
 	)
@@ -74,7 +81,8 @@ export const Args = s.object({
 export type Args = s.Infer<typeof Args>;
 
 const grants = {
-	// reads `package.json`, `src/` for test files, and the root's listing for `TODO*.md`
+	// reads `package.json`, the lockfiles and installed packages, `src/` for test files,
+	// and the root's listing for `TODO*.md`, writing none of them
 	fs: { read: ['.'] },
 	env: ['CI'],
 	programs: {
@@ -85,7 +93,8 @@ const grants = {
 		sveltekit_cli: { name: SVELTEKIT_CLI, local: true, pass_env: 'all' }
 	},
 	invokes: {
-		sync: {},
+		// `--install` installs, which nothing else in `check` does
+		sync: { when: 'install' },
 		// a plain `check` holds no build in its closure
 		build: { when: 'build' },
 		typecheck: {},
@@ -155,25 +164,41 @@ export const run_check = async (
 		lint,
 		build,
 		force_build,
-		sync,
+		lockfile,
 		install,
 		workspace
 	} = args;
 	const paths = create_paths(fs_paths.project.path);
 
-	// When checking the workspace, which was added for CI, never sync.
-	// Setup like installing packages and `sveltekit-sync` should be done in the CI setup.
-	if (!workspace) {
-		if (sync || install) {
-			if (!sync) log.warn('sync is false but install is true, so ignoring the sync option');
-			await invoke_task('sync', { install, gen: false }); // never generate because `gro gen --check` runs below
+	// `check` writes neither the install nor `package.json`, verifying both below,
+	// but for `--install`, which installs first, as CI's setup does instead under `--workspace`;
+	// `gro gen --check` and the `package.json` check run below, so the sync runs neither
+	if (install && !workspace) {
+		await invoke_task('sync', { install, gen: false, package_json: false });
+	}
+
+	if (lockfile) {
+		const checked = await npm_install_check(fs_paths);
+		if (!checked.checked) {
+			log.info(`the install wasn't checked: ${checked.reason}`);
+		} else {
+			if (checked.linked.length) {
+				log.info(
+					`the install check skipped the linked packages, which follow their source: ` +
+						checked.linked.join(', ')
+				);
+			}
+			if (checked.mismatches.length) {
+				throw new TaskError(to_install_mismatch_message(checked.mismatches));
+			}
+			log.info('check passed for the install');
 		}
 	}
 
 	// Build before typechecking and tests so there can be a dependency
 	if (build) {
-		// `build`'s `svelte-package` reads SvelteKit's files, which nothing has synced
-		// on a fresh install under `--workspace`, and `build` is told not to sync
+		// `build`'s `svelte-package` reads SvelteKit's files, which nothing in `check`
+		// has synced by then, and `build` is told not to sync
 		await sveltekit_sync_if_obviously_needed(
 			fs_paths,
 			{ find: () => programs.find('sveltekit_cli') },
@@ -312,6 +337,20 @@ const find_eslint_config_or_throw = async (fs_paths: FsPaths): Promise<string | 
 			{ cause: error }
 		);
 	}
+};
+
+const INSTALL_MISMATCHES_PRINTED_MAX = 10;
+
+const to_install_mismatch_message = (mismatches: Array<NpmInstallMismatch>): string => {
+	const count = mismatches.length;
+	const printed = mismatches.slice(0, INSTALL_MISMATCHES_PRINTED_MAX).map((m) => m.message);
+	const unprinted = count - printed.length;
+	return (
+		`the install doesn't match package.json and ${LOCKFILE_FILENAME}: run \`npm i\`, ` +
+		`or pass \`--no-lockfile\` to skip this check: ` +
+		printed.join('; ') +
+		(unprinted > 0 ? `; and ${unprinted} more` : '')
+	);
 };
 
 const to_undeclared_eslint_message = (eslint_config: string): string =>

@@ -100,7 +100,7 @@ export const GRO_BUILTIN_TASK_GRANTS: Record<keyof GroBuiltinTasks, BuiltinTaskG
 				sveltekit_cli: { name: 'svelte-kit', local: true, pass_env: 'all' }
 			},
 			invokes: {
-				sync: {},
+				sync: { when: 'install' },
 				build: { when: 'build' },
 				typecheck: {},
 				test: {},

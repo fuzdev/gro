@@ -148,7 +148,7 @@ export const task: Task<Args> = {
 
 		// Check before proceeding, defaults to true.
 		if (check) {
-			await invoke_task('check', { workspace: true, sync: false });
+			await invoke_task('check', { workspace: true });
 		}
 
 		let version!: string;

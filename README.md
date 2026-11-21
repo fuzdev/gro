@@ -190,7 +190,9 @@ gro test -- --forwarded_args 'to vitest' # verbatim, also `-- vitest --forwarded
 Check all the things:
 
 ```bash
-gro check # does all of the following:
+gro check # does all of the following, writing no source:
+# the install matches package.json and package-lock.json, else run `npm i`
+# package.json's exports are current, else run `gro sync`
 gro typecheck # svelte-check with tsc fallback
 gro test # run tests
 gro gen --check # ensure generated files are current

@@ -337,17 +337,17 @@ describe('InvokeTask', () => {
 		// enforced by `gro typecheck` through the `@ts-expect-error` directives, never called
 		const invoke_task_types = async (invoke_task: InvokeTask): Promise<void> => {
 			await invoke_task('check');
-			await invoke_task('check', { sync: false, workspace: true });
-			await invoke_task('check', { 'no-sync': true });
+			await invoke_task('check', { lockfile: false, workspace: true });
+			await invoke_task('check', { 'no-lockfile': true });
 			// @ts-expect-error the `gro/` prefix is removed
-			await invoke_task('gro/check', { sync: false });
+			await invoke_task('gro/check', { lockfile: false });
 			await invoke_task('gen', { _: ['src/lib'], check: true });
 			// @ts-expect-error unknown task name
 			await invoke_task('chekc');
 			// @ts-expect-error unknown arg
 			await invoke_task('check', { synk: true });
 			// @ts-expect-error wrong arg type
-			await invoke_task('check', { sync: 'no' });
+			await invoke_task('check', { lockfile: 'no' });
 			await invoke_task('reinstall');
 			await invoke_task('reinstall', {});
 			// @ts-expect-error an arg for a task whose `Args` has no keys

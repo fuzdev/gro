@@ -1,12 +1,7 @@
 import { hash_blake3 } from '@fuzdev/fuz_util/hash_blake3.ts';
 
-import { NODE_MODULES_DIRNAME } from './constants.ts';
 import type { FsPaths } from './fs_paths.ts';
-
-/**
- * npm's hidden lockfile, which records the packages installed in `node_modules`.
- */
-export const NPM_HIDDEN_LOCKFILE_PATH = NODE_MODULES_DIRNAME + '/.package-lock.json';
+import { NPM_HIDDEN_LOCKFILE_PATH } from './constants.ts';
 
 /**
  * The build inputs outside git that the build cache key folds in:

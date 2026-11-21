@@ -49,7 +49,7 @@ const DEFAULT_ARGS = {
 	package_json: false,
 	lint: false,
 	build: false,
-	sync: false,
+	lockfile: false,
 	install: false,
 	workspace: false
 } as unknown as Args;
