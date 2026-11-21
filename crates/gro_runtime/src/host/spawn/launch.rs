@@ -73,6 +73,7 @@ use super::{
     Failure, MODULE, NOT_AN_FS_HANDLE, SpawnErrorKind, SpawnRun, array, checked_text, element,
     own_option, read_handle, run_state, throw,
 };
+use crate::BINARY_NAME;
 use crate::host::error_class::DeclaredFamily;
 use crate::host::fs::{HandleDirFault, open_handle_dir};
 use crate::host::handle::{FS_READ_DIR, SPAWN_PROGRAM};
@@ -315,7 +316,7 @@ pub(super) fn read_call_options(
     }
     if given("signal")?.is_some() {
         return Err(Failure::Plain(format!(
-            "the `signal` option of {MODULE} isn't built on fgro yet"
+            "the `signal` option of {MODULE} isn't built on {BINARY_NAME} yet"
         )));
     }
     match reads {

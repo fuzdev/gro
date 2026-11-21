@@ -1,7 +1,7 @@
 //! Threads with a stated stack: `fgro`'s work runs on one sized by
 //! [`STACK_SIZE`], never the platform's main thread.
 
-use gro_runtime::STACK_SIZE;
+use gro_runtime::{BINARY_NAME, STACK_SIZE};
 
 use crate::cli::Task;
 use crate::print::stderr_line;
@@ -19,10 +19,10 @@ pub enum Joined<T> {
 
 /// Runs `work` on a thread named `name` with [`STACK_SIZE`] reserved, and
 /// joins it.
-pub fn on_sized_thread<T: Send>(name: &str, work: impl FnOnce() -> T + Send) -> Joined<T> {
+pub fn on_sized_thread<T: Send>(name: String, work: impl FnOnce() -> T + Send) -> Joined<T> {
     std::thread::scope(|scope| {
         let spawned = std::thread::Builder::new()
-            .name(name.to_owned())
+            .name(name)
             .stack_size(STACK_SIZE)
             .spawn_scoped(scope, work);
         match spawned {
@@ -32,11 +32,11 @@ pub fn on_sized_thread<T: Send>(name: &str, work: impl FnOnce() -> T + Send) -> 
     })
 }
 
-/// Runs `task` by [`fn@crate::run`] on a thread named `fgro` with [`STACK_SIZE`]
-/// reserved, so the runtime, the module loads, and the strip all share the
-/// one stated stack, sized against tsv's contract ([`STACK_SIZE`] says how),
-/// and the main thread's platform stack never decides whether a module
-/// within tsv's depth limits strips.
+/// Runs `task` by [`fn@crate::run`] on a thread named [`BINARY_NAME`] with
+/// [`STACK_SIZE`] reserved, so the runtime, the module loads, and the strip
+/// all share the one stated stack, sized against tsv's contract
+/// ([`STACK_SIZE`] says how), and the main thread's platform stack never
+/// decides whether a module within tsv's depth limits strips.
 ///
 /// Not `tsv_ts::run_with_stack`: that names its thread `tsv`, and resumes a
 /// panic rather than mapping it to [`EXIT_PANIC`], and drops its work when the
@@ -50,14 +50,14 @@ pub fn on_sized_thread<T: Send>(name: &str, work: impl FnOnce() -> T + Send) -> 
 /// either.
 pub fn run_on_sized_stack(task: &Task) -> u8 {
     // `task` is only borrowed, so a refused spawn leaves it to run here
-    match on_sized_thread("fgro", || run(task)) {
+    match on_sized_thread(BINARY_NAME.to_owned(), || run(task)) {
         // a panic has printed by the time it's joined
         Joined::Returned(code) => code,
         Joined::Panicked => EXIT_PANIC,
         Joined::Unstarted(error) => {
             stderr_line(format_args!(
-                "warning: failed to start the fgro thread ({error}); running on the \
-                 inherited stack"
+                "warning: failed to start the {BINARY_NAME} thread ({error}); running on \
+                 the inherited stack"
             ));
             run(task)
         }

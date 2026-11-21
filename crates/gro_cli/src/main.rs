@@ -43,7 +43,7 @@
 //! crate fails to compile.
 
 #[cfg(not(target_os = "linux"))]
-compile_error!("fgro is Linux-only, as the gro_runtime it embeds is");
+compile_error!("gro_cli is Linux-only, as the gro_runtime it embeds is");
 
 mod cli;
 mod color;
@@ -58,14 +58,36 @@ mod version;
 
 use std::ffi::OsString;
 
-use gro_runtime::phases;
-use gro_runtime::prices;
+use gro_runtime::{BINARY_NAME, phases, prices};
 
 use crate::cli::{Invocation, Task};
 use crate::error::CliError;
 use crate::print::stdout_line;
 use crate::snapshot::make_snapshot;
 use crate::thread::run_on_sized_stack;
+
+// the file cargo builds is the binary every message names, so neither is
+// renamed without the other
+const _: () = assert!(
+    same_str(env!("CARGO_BIN_NAME"), BINARY_NAME),
+    "the binary's `[[bin]]` name is `gro_runtime::BINARY_NAME`"
+);
+
+/// Whether `a` and `b` are the same string, at compile time.
+const fn same_str(a: &str, b: &str) -> bool {
+    let (a, b) = (a.as_bytes(), b.as_bytes());
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut i = 0;
+    while i < a.len() {
+        if a[i] != b[i] {
+            return false;
+        }
+        i += 1;
+    }
+    true
+}
 
 /// The caller must change the arguments before re-running.
 const EXIT_USAGE: u8 = 2;
@@ -237,21 +259,25 @@ mod tests {
         };
         assert_eq!(
             message(&["make-snapshot"]),
-            ("usage: fgro make-snapshot <dir>".to_owned(), EXIT_USAGE)
+            (
+                format!("usage: {BINARY_NAME} make-snapshot <dir>"),
+                EXIT_USAGE
+            )
         );
         assert_eq!(
             message(&["make-snapshot", "-x"]),
             (
-                "usage: fgro make-snapshot <dir> (it takes no flags)".to_owned(),
+                format!("usage: {BINARY_NAME} make-snapshot <dir> (it takes no flags)"),
                 EXIT_USAGE
             )
         );
         assert_eq!(
             message(&["run", "--allow-net=.", "a.js"]),
             (
-                "unknown option \"--allow-net=…\" before the file: the script's arguments go \
-                 after it\nRun fgro run --help for more information."
-                    .to_owned(),
+                format!(
+                    "unknown option \"--allow-net=…\" before the file: the script's arguments \
+                     go after it\nRun {BINARY_NAME} run --help for more information."
+                ),
                 EXIT_USAGE
             )
         );
@@ -278,32 +304,38 @@ mod tests {
         }
         assert_eq!(
             message(&["run", "-\u{1b}[2J", "a.js"]).0,
-            "unknown option \"-\\u{1b}[2J\" before the file: the script's arguments go after \
-             it\nRun fgro run --help for more information."
+            format!(
+                "unknown option \"-\\u{{1b}}[2J\" before the file: the script's arguments go \
+                 after it\nRun {BINARY_NAME} run --help for more information."
+            )
         );
         assert_eq!(
             message(&["run", "--allow-env", "a.js"]),
             (
-                "--allow-env takes the names it grants, as --allow-env=A,B\nRun fgro run --help \
-                 for more information."
-                    .to_owned(),
+                format!(
+                    "--allow-env takes the names it grants, as --allow-env=A,B\nRun \
+                     {BINARY_NAME} run --help for more information."
+                ),
                 EXIT_USAGE
             )
         );
         assert_eq!(
             message(&["run", "--allow-temp=secret", "a.js"]),
             (
-                "--allow-temp takes no value: it grants fresh directories under the OS's \
-                 temporary directory, as --allow-temp\nRun fgro run --help for more \
-                 information."
-                    .to_owned(),
+                format!(
+                    "--allow-temp takes no value: it grants fresh directories under the OS's \
+                     temporary directory, as --allow-temp\nRun {BINARY_NAME} run --help for \
+                     more information."
+                ),
                 EXIT_USAGE
             )
         );
         assert_eq!(
             message(&["run"]),
             (
-                "a file to run is required\nRun fgro run --help for more information.".to_owned(),
+                format!(
+                    "a file to run is required\nRun {BINARY_NAME} run --help for more information."
+                ),
                 EXIT_USAGE
             )
         );
@@ -314,7 +346,7 @@ mod tests {
         assert_eq!(
             message(&[]),
             (
-                "a subcommand is required\nRun fgro --help for more information.".to_owned(),
+                format!("a subcommand is required\nRun {BINARY_NAME} --help for more information."),
                 EXIT_USAGE
             )
         );

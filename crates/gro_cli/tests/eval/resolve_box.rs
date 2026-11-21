@@ -8,6 +8,8 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::process::Stdio;
 
+#[cfg(not(feature = "snapshot"))]
+use gro_runtime::BINARY_NAME;
 use serde_json::json;
 
 use crate::command;
@@ -112,7 +114,7 @@ fn a_build_with_no_snapshot_refuses_to_evaluate() {
     );
     assert_eq!(
         run.envelope["error"]["hint"],
-        "build fgro with its snapshot: cargo xtask build"
+        format!("build {BINARY_NAME} with its snapshot: cargo xtask build")
     );
 }
 

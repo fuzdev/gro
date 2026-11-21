@@ -18,7 +18,11 @@ arm (a `cfg` on the architecture or the C library is fine).
   behind them (`host/`), the engine, the box (`confine/`), and `fgro eval`'s
   protocol (`eval/`). Start at its `lib.rs`
 - `gro_cli` - the `fgro` binary (`run`, `eval`, `--version`); its `main.rs`
-  maps the commands to their docs
+  maps the commands to their docs. The name it prints, in help, hints,
+  errors, the version line, and `runtime_version`, is
+  `gro_runtime::BINARY_NAME`, never a literal, and `main.rs` fails the
+  build when the `[[bin]]` name differs from it; paths naming the built
+  file (xtask, `gro_bench`, `CARGO_BIN_EXE_fgro`) name the file instead
 - `gro_sys` - the raw system calls the safe std API lacks (descriptors, the
   environment, `RLIMIT_DATA` and `RLIMIT_NOFILE`, the default thread stack,
   a thread's stack start, `wait4`, a child held by its pidfd and waited on

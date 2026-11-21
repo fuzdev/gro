@@ -7,6 +7,7 @@ use std::os::fd::AsFd as _;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use gro_runtime::BINARY_NAME;
 use gro_runtime::confine::{BoxRoots, Confined};
 use gro_runtime::engine::init_confined_engine;
 use gro_runtime::eval::{
@@ -36,7 +37,7 @@ pub fn eval(args: EvalInvocation) -> u8 {
         "failed to start the thread that evaluates",
     ));
     // every thread the engine starts comes after the box, spawned from here
-    let evaluated = on_sized_thread("fgro", move || {
+    let evaluated = on_sized_thread(BINARY_NAME.to_owned(), move || {
         // the JIT the box was installed for, as the engine must have it
         let options = gro_runtime::eval::engine_options(confined.jit());
         match init_confined_engine(confined, &options) {
@@ -174,7 +175,8 @@ fn confine_eval(args: EvalInvocation) -> Result<(Prepass<BoxRoots>, Confined), u
             "failed to start the thread that resolves the eval",
         ),
     );
-    let prepass = match on_sized_thread("fgro-prepass", || gro_runtime::eval::prepass(options)) {
+    let name = format!("{BINARY_NAME}-prepass");
+    let prepass = match on_sized_thread(name, || gro_runtime::eval::prepass(options)) {
         Joined::Returned(Ok(prepass)) => {
             phases::mark(Phase::Prepass);
             prepass

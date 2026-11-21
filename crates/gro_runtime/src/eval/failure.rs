@@ -8,6 +8,7 @@ use deno_core::error::{CoreError, CoreErrorKind, JsError};
 use super::dump::{DumpError, GraphDump};
 use super::limits::{Stop, format_size, heap_room};
 use super::{ErrorKind, EvalError, EvalOptions, GraphField, HEAP_LIMIT, MEMORY_LIMIT};
+use crate::BINARY_NAME;
 use crate::confine::Jit;
 use crate::loader::graph::{
     Failure, FailureReason, FailureSite, Graph, LoadFailure, Reach, Reached,
@@ -28,7 +29,7 @@ pub(super) fn dumped(dump: Result<GraphDump, DumpError>) -> (GraphField, Option<
             GraphField::Unavailable,
             Some(EvalError::new(
                 ErrorKind::Internal,
-                format!("{error}, a bug in fgro, so no graph is written"),
+                format!("{error}, a bug in {BINARY_NAME}, so no graph is written"),
             )),
         ),
         Err(DumpError::NotUtf8(_) | DumpError::NotAPath(_)) => (GraphField::Unavailable, None),
@@ -132,12 +133,11 @@ pub fn no_snapshot_error() -> EvalError {
          build has none: started from source, the runtime reads its extensions' JS from the \
          build tree, outside the box",
     );
-    error.hint = Some(NO_SNAPSHOT_HINT.to_owned());
+    error.hint = Some(format!(
+        "build {BINARY_NAME} with its snapshot: cargo xtask build"
+    ));
     error
 }
-
-/// The hint for a confined eval with no startup snapshot.
-const NO_SNAPSHOT_HINT: &str = "build fgro with its snapshot: cargo xtask build";
 
 /// The hint for a `WebAssembly` that isn't defined in a jitless eval.
 const WASM_HINT: &str = "eval runs jitless unless asked, and WebAssembly comes only with V8's \
@@ -562,13 +562,17 @@ mod tests {
         let cases = [
             (
                 DumpError::Unread(PathBuf::from("/p/package.json")),
-                "the graph names /p/package.json as consulted with no read of it recorded, a bug \
-                 in fgro, so no graph is written",
+                format!(
+                    "the graph names /p/package.json as consulted with no read of it recorded, a \
+                     bug in {BINARY_NAME}, so no graph is written"
+                ),
             ),
             (
                 DumpError::Builtin(Url::parse("builtin:@fuzdev/gro/args.ts").unwrap()),
-                "the graph records the builtin module builtin:@fuzdev/gro/args.ts, which eval \
-                 never imports, a bug in fgro, so no graph is written",
+                format!(
+                    "the graph records the builtin module builtin:@fuzdev/gro/args.ts, which eval \
+                     never imports, a bug in {BINARY_NAME}, so no graph is written"
+                ),
             ),
         ];
         for (dump_error, message) in cases {

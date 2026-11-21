@@ -4,10 +4,10 @@
 use std::ffi::OsString;
 use std::path::PathBuf;
 
-use gro_runtime::RunError;
 use gro_runtime::engine::EngineError;
 use gro_runtime::prices::PricesError;
 use gro_runtime::snapshot::SnapshotError;
+use gro_runtime::{BINARY_NAME, RunError};
 use thiserror::Error;
 
 use crate::cli::{
@@ -34,8 +34,8 @@ pub enum CliError {
         "invalid arguments to {command}: {arguments}\nRun {command} --help for more information."
     )]
     InvalidArguments {
-        /// The command, `fgro` or `fgro eval`.
-        command: &'static str,
+        /// The command, the binary's name, followed by ` eval` for eval's.
+        command: String,
         /// The arguments, as printed.
         arguments: String,
     },
@@ -43,33 +43,42 @@ pub enum CliError {
     #[error("--version takes no subcommand")]
     VersionWithCommand,
     /// Neither `--version` nor a subcommand was given.
-    #[error("a subcommand is required\nRun fgro --help for more information.")]
+    #[error(
+        "a subcommand is required\nRun {bin} --help for more information.",
+        bin = BINARY_NAME
+    )]
     NoCommand,
     /// `run` with an option before the file that it doesn't take, named up
     /// to its first `=`, escaped ([`echo_argument`]).
     #[error(
         "unknown option \"{}\" before the file: the script's arguments go after it\n\
-         Run fgro run --help for more information.",
-        echo_argument(.0)
+         Run {bin} run --help for more information.",
+        echo_argument(.0),
+        bin = BINARY_NAME
     )]
     RunOption(String),
     /// `run` without a file.
-    #[error("a file to run is required\nRun fgro run --help for more information.")]
+    #[error(
+        "a file to run is required\nRun {bin} run --help for more information.",
+        bin = BINARY_NAME
+    )]
     RunNoFile,
     /// `run --allow-env` with no names, which grants none.
     #[error(
         "--allow-env takes the names it grants, as --allow-env=A,B\n\
-         Run fgro run --help for more information."
+         Run {bin} run --help for more information.",
+        bin = BINARY_NAME
     )]
     AllowEnvBare,
     /// `run --allow-env=` listing a name no variable can have.
-    #[error("{0}\nRun fgro run --help for more information.")]
+    #[error("{0}\nRun {bin} run --help for more information.", bin = BINARY_NAME)]
     AllowEnvName(EnvFlagFault),
     /// `run --allow-read`, `--allow-write`, or `--allow-run-in` with no
     /// directories, which grants none.
     #[error(
         "{0} takes the directories it grants, as {0}=a,/b\n\
-         Run fgro run --help for more information."
+         Run {bin} run --help for more information.",
+        bin = BINARY_NAME
     )]
     AllowDirsBare(DirFlag),
     /// `run --allow-temp=` with a value, which it takes none of; the value
@@ -77,41 +86,45 @@ pub enum CliError {
     #[error(
         "--allow-temp takes no value: it grants fresh directories under the OS's temporary \
          directory, as --allow-temp\n\
-         Run fgro run --help for more information."
+         Run {bin} run --help for more information.",
+        bin = BINARY_NAME
     )]
     AllowTempValue,
     /// `run --allow-run` with no names, which grants none.
     #[error(
         "--allow-run takes the programs it grants, as --allow-run=git,cargo\n\
-         Run fgro run --help for more information."
+         Run {bin} run --help for more information.",
+        bin = BINARY_NAME
     )]
     AllowRunBare,
     /// `run --allow-run=` listing a name it can't grant.
-    #[error("{0}\nRun fgro run --help for more information.")]
+    #[error("{0}\nRun {bin} run --help for more information.", bin = BINARY_NAME)]
     AllowRunName(RunFlagFault),
     /// `run --allow-run-env` with no names, which passes none.
     #[error(
         "--allow-run-env takes the variables it lets programs be passed, as \
          --allow-run-env=A,B_*\n\
-         Run fgro run --help for more information."
+         Run {bin} run --help for more information.",
+        bin = BINARY_NAME
     )]
     AllowRunEnvBare,
     /// `run --allow-run-env=` listing a name that names no variable or
     /// glob.
-    #[error("{0}\nRun fgro run --help for more information.")]
+    #[error("{0}\nRun {bin} run --help for more information.", bin = BINARY_NAME)]
     AllowRunEnvName(RunEnvFlagFault),
     /// `run --allow-run-env=` without `--allow-run=` or `--allow-run-in=`,
     /// which grant no program to pass a variable to.
     #[error(
         "--allow-run-env lets the programs --allow-run and --allow-run-in grant be passed \
          variables, and neither grants one\n\
-         Run fgro run --help for more information."
+         Run {bin} run --help for more information.",
+        bin = BINARY_NAME
     )]
     AllowRunEnvAlone,
     /// `run --allow-read=`, `--allow-write=`, or `--allow-run-in=` listing
     /// a path that names nothing.
     #[error(
-        "{}\nRun fgro run --help for more information.",
+        "{}\nRun {bin} run --help for more information.",
         match .1 {
             DirFlagFault::Empty => format!(
                 "a {0} directory is empty: {0}=a,/b lists directories separated by single \
@@ -119,7 +132,8 @@ pub enum CliError {
                 .0
             ),
             DirFlagFault::Nul => format!("a {} directory holds a NUL byte", .0),
-        }
+        },
+        bin = BINARY_NAME
     )]
     AllowDir(DirFlag, DirFlagFault),
     /// A directory `--allow-read=`, `--allow-write=`, or `--allow-run-in=`
@@ -127,7 +141,7 @@ pub enum CliError {
     /// unreadable. Its path is named as resolved against the working
     /// directory, escaped.
     #[error(
-        "a {flag} directory {}: {}{}\nRun fgro run --help for more information.",
+        "a {flag} directory {}: {}{}\nRun {bin} run --help for more information.",
         match fault {
             DirFault::Missing => "doesn't exist",
             DirFault::NotADirectory => "isn't a directory",
@@ -137,7 +151,8 @@ pub enum CliError {
         match fault {
             DirFault::Unreadable(error) => format!(" ({error})"),
             DirFault::Missing | DirFault::NotADirectory => String::new(),
-        }
+        },
+        bin = BINARY_NAME
     )]
     NoDir {
         /// The flag that listed it.
@@ -160,11 +175,11 @@ pub enum CliError {
     )]
     DriverPath(String),
     /// `make-snapshot` without exactly one argument.
-    #[error("usage: fgro {} <dir>", MAKE_SNAPSHOT)]
+    #[error("usage: {} {} <dir>", BINARY_NAME, MAKE_SNAPSHOT)]
     SnapshotUsage,
     /// `make-snapshot` with a flag, so `--help` can't become a directory's
     /// name.
-    #[error("usage: fgro {} <dir> (it takes no flags)", MAKE_SNAPSHOT)]
+    #[error("usage: {} {} <dir> (it takes no flags)", BINARY_NAME, MAKE_SNAPSHOT)]
     SnapshotFlag,
     /// The snapshot's directory couldn't be created.
     #[error("failed to create the snapshot directory {}: {source}", path.display())]

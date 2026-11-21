@@ -3,6 +3,8 @@
 
 use std::process::Stdio;
 
+use gro_runtime::BINARY_NAME;
+
 use crate::support::{fgro_command, spawn};
 use crate::{commit, fgro, fixtures, run};
 
@@ -29,7 +31,7 @@ fn version_names_the_commit_v8_and_the_snapshot() {
     let commit = commit().unwrap_or("unknown");
     assert!(
         line.starts_with(&format!(
-            "fgro {} (commit {commit}, V8 ",
+            "{BINARY_NAME} {} (commit {commit}, V8 ",
             env!("CARGO_PKG_VERSION")
         )),
         "{line}"
@@ -118,8 +120,10 @@ fn usage_errors_exit_2() {
     let output = fgro(&["run", "--allow-env", "console.js"]);
     assert_eq!(
         String::from_utf8(output.stderr).unwrap(),
-        "error: --allow-env takes the names it grants, as --allow-env=A,B\n\
-         Run fgro run --help for more information.\n"
+        format!(
+            "error: --allow-env takes the names it grants, as --allow-env=A,B\n\
+             Run {BINARY_NAME} run --help for more information.\n"
+        )
     );
 }
 

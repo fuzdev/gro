@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use url::Url;
 
 use super::{kind, resolve, resolve_any, roots};
+use crate::BINARY_NAME;
 use crate::file_id::FileId;
 use crate::resolver::test_tree::MemoryTree;
 use crate::resolver::{
@@ -476,23 +477,23 @@ fn a_reserved_specifier_is_refused_reading_nothing() {
             (
                 "@fuzdev/gro/net.ts",
                 Reserved::Unbuilt("@fuzdev/gro/net"),
-                "it names Gro's host module '@fuzdev/gro/net.ts', which isn't on fgro yet, and a \
-                 host module's specifier never resolves to a package. Fix: run this under Node \
-                 with gro",
+                "it names Gro's host module '@fuzdev/gro/net.ts', which isn't on {BINARY_NAME} \
+                 yet, and a host module's specifier never resolves to a package. Fix: run this \
+                 under Node with gro",
             ),
             (
                 "@fuzdev/gro/net.js",
                 Reserved::Unbuilt("@fuzdev/gro/net"),
-                "it names Gro's host module '@fuzdev/gro/net.ts', which isn't on fgro yet, and a \
-                 host module's specifier never resolves to a package. Fix: run this under Node \
-                 with gro",
+                "it names Gro's host module '@fuzdev/gro/net.ts', which isn't on {BINARY_NAME} \
+                 yet, and a host module's specifier never resolves to a package. Fix: run this \
+                 under Node with gro",
             ),
             (
                 "@fuzdev/gro/net_error.ts",
                 Reserved::Unbuilt("@fuzdev/gro/net_error"),
-                "it names Gro's host module '@fuzdev/gro/net_error.ts', which isn't on fgro yet, \
-                 and a host module's specifier never resolves to a package. Fix: run this under \
-                 Node with gro",
+                "it names Gro's host module '@fuzdev/gro/net_error.ts', which isn't on \
+                 {BINARY_NAME} yet, and a host module's specifier never resolves to a package. \
+                 Fix: run this under Node with gro",
             ),
             (
                 "@fuzdev/gro/process.ts",
@@ -504,8 +505,8 @@ fn a_reserved_specifier_is_refused_reading_nothing() {
                  '@fuzdev/gro/stderr.ts', '@fuzdev/gro/cwd.ts', '@fuzdev/gro/pid.ts', or \
                  '@fuzdev/gro/runtime_version.ts'; of these, only '@fuzdev/gro/env.ts', \
                  '@fuzdev/gro/args.ts', '@fuzdev/gro/exit.ts', '@fuzdev/gro/cwd.ts', \
-                 '@fuzdev/gro/pid.ts', and '@fuzdev/gro/runtime_version.ts' are on fgro yet, so \
-                 run code that uses the others under Node with gro",
+                 '@fuzdev/gro/pid.ts', and '@fuzdev/gro/runtime_version.ts' are on {BINARY_NAME} \
+                 yet, so run code that uses the others under Node with gro",
             ),
             (
                 "@fuzdev/gro/process_error.js",
@@ -514,7 +515,7 @@ fn a_reserved_specifier_is_refused_reading_nothing() {
                  members are modules of their own, and its specifier never resolves to a \
                  package. Fix: import what you use from '@fuzdev/gro/env_error.ts' or \
                  '@fuzdev/gro/stdio_error.ts'; of these, only '@fuzdev/gro/env_error.ts' is on \
-                 fgro yet, so run code that uses the others under Node with gro",
+                 {BINARY_NAME} yet, so run code that uses the others under Node with gro",
             ),
         ] {
             let error = resolve_any(&watched, specifier, &importer, &roots).unwrap_err();
@@ -526,7 +527,10 @@ fn a_reserved_specifier_is_refused_reading_nothing() {
             assert!(error.kind.is_refusal());
             assert_eq!(
                 error.to_string(),
-                format!("cannot resolve '{specifier}' from {importer}: {message}")
+                format!(
+                    "cannot resolve '{specifier}' from {importer}: {}",
+                    message.replace("{BINARY_NAME}", BINARY_NAME)
+                )
             );
         }
     }

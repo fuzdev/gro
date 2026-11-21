@@ -56,6 +56,7 @@ use deno_core::{JsRuntime, v8};
 use gro_v8::ArrayBufferRecord;
 
 use super::EvalOptions;
+use crate::BINARY_NAME;
 use crate::confine::Jit;
 
 /// The heap's cap, in bytes: 512 MiB.
@@ -485,7 +486,7 @@ impl Watchdog {
         let handle = runtime.v8_isolate().thread_safe_handle();
         let (cancel, cancelled) = mpsc::channel::<()>();
         let thread = std::thread::Builder::new()
-            .name("fgro-watchdog".to_owned())
+            .name(format!("{BINARY_NAME}-watchdog"))
             .stack_size(WATCHDOG_STACK_SIZE)
             .spawn(move || {
                 if cancelled.recv_timeout(timeout) == Err(RecvTimeoutError::Timeout) {

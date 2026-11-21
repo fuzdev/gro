@@ -13,7 +13,7 @@ use crate::loader::graph::{FailureReason, Graph, LoadFailure, Reach, Reached, Re
 use crate::resolver::{BUILTINS, Origin, ResolveErrorKind};
 use crate::test_support::TestDir;
 use crate::test_support::{never_exits, run_authority};
-use crate::{Authority, RuntimeOptions, STACK_SIZE};
+use crate::{Authority, BINARY_NAME, RuntimeOptions, STACK_SIZE};
 
 pub(super) const ARGS: &str = "@fuzdev/gro/args.ts";
 
@@ -829,8 +829,8 @@ fn a_reserved_specifier_is_refused_ahead_of_the_package() {
     let main = "import { load, where } from 'dep/reach.js';
 const cases = [
 \t['@fuzdev/gro/args.js', \"Fix: import '@fuzdev/gro/args.ts'\"],
-\t['@fuzdev/gro/net.ts', \"Gro's host module '@fuzdev/gro/net.ts', which isn't on fgro yet\"],
-\t['@fuzdev/gro/net.js', \"Gro's host module '@fuzdev/gro/net.ts', which isn't on fgro yet\"],
+\t['@fuzdev/gro/net.ts', \"Gro's host module '@fuzdev/gro/net.ts', which isn't on {BINARY_NAME} yet\"],
+\t['@fuzdev/gro/net.js', \"Gro's host module '@fuzdev/gro/net.ts', which isn't on {BINARY_NAME} yet\"],
 \t['@fuzdev/gro/env.js', \"Fix: import '@fuzdev/gro/env.ts'\"],
 \t['@fuzdev/gro/process.ts', \"'@fuzdev/gro/process.ts', which isn't one of Gro's modules\"],
 \t['@fuzdev/gro/process.js', \"Fix: import what you use from '@fuzdev/gro/env.ts', '@fuzdev/gro/args.ts',\"],
@@ -852,9 +852,10 @@ for (const [specifier, words] of cases) {
 \t\t}
 \t}
 }
-";
+"
+    .replace("{BINARY_NAME}", BINARY_NAME);
     let mut files = SHADOW.to_vec();
-    files.push(("main.mjs", main));
+    files.push(("main.mjs", &main));
     for (case, authority) in [("granted", granted()), ("ungranted", Authority::default())] {
         let options = RuntimeOptions {
             authority,
@@ -930,7 +931,7 @@ for (const [specifier, words] of cases) {
              '@fuzdev/gro/cwd.ts', '@fuzdev/gro/pid.ts', or '@fuzdev/gro/runtime_version.ts'; of \
              these, only '@fuzdev/gro/env.ts', '@fuzdev/gro/args.ts', '@fuzdev/gro/exit.ts', \
              '@fuzdev/gro/cwd.ts', '@fuzdev/gro/pid.ts', and '@fuzdev/gro/runtime_version.ts' are \
-             on fgro yet, so run code that uses the others under Node with gro",
+             on {BINARY_NAME} yet, so run code that uses the others under Node with gro",
             graph.roots().project().dir.display()
         )),
         "{report}"
@@ -948,7 +949,7 @@ fn a_respelled_specifier_is_refused_ahead_of_the_package() {
 const respells = \"respells the builtin module '@fuzdev/gro/args.ts', reserved so no spelling \
 of it resolves to a package. Fix: import '@fuzdev/gro/args.ts'\";
 const split = \"'@fuzdev/gro/process.ts', which isn't one of Gro's modules\";
-const net = \"Gro's host module '@fuzdev/gro/net.ts', which isn't on fgro yet\";
+const net = \"Gro's host module '@fuzdev/gro/net.ts', which isn't on {BINARY_NAME} yet\";
 const cases = [
 \t['@fuzdev/gro/arg%73.ts', respells],
 \t['@fuzdev/gro/args.ts?x', respells],
@@ -977,13 +978,14 @@ for (const [specifier, words] of cases) {
 for (const neighbor of [await import('@fuzdev/gro/fs_paths.ts'), await load('@fuzdev/gro/fs_paths.ts')]) {
 \tif (neighbor.fs_paths !== 'PATHS') throw new Error('no neighbor');
 }
-";
+"
+    .replace("{BINARY_NAME}", BINARY_NAME);
     let mut files = SHADOW.to_vec();
     files.push((
         "node_modules/@fuzdev/gro/fs_paths.js",
         "export const fs_paths = 'PATHS';\n",
     ));
-    files.push(("main.mjs", main));
+    files.push(("main.mjs", &main));
     for (case, authority) in [("granted", granted()), ("ungranted", Authority::default())] {
         let options = RuntimeOptions {
             authority,

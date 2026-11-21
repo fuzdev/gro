@@ -3,6 +3,7 @@
 
 use std::process::Command;
 
+use gro_runtime::BINARY_NAME;
 use serde_json::json;
 
 use crate::support::Scratch;
@@ -216,8 +217,11 @@ fn a_time_zone_other_than_utc_is_refused() {
     run.assert_failed("environment", 1);
     assert_eq!(
         run.message(),
-        "eval runs only in the time zone UTC, so dates read and format the same everywhere, and \
-         this process's is America/New_York: run fgro with TZ=UTC in its environment"
+        format!(
+            "eval runs only in the time zone UTC, so dates read and format the same everywhere, \
+             and this process's is America/New_York: run {BINARY_NAME} with TZ=UTC in its \
+             environment"
+        )
     );
     assert_eq!(run.envelope["access"], json!({"dynamic": []}));
     // before the driver runs, too
@@ -244,7 +248,7 @@ fn a_utc_alias_with_another_display_name_is_refused() {
     let refused = |found: &str| {
         format!(
             "eval runs only in the time zone UTC, so dates read and format the same everywhere, \
-             and {found}: run fgro with TZ=UTC in its environment"
+             and {found}: run {BINARY_NAME} with TZ=UTC in its environment"
         )
     };
     for zone in [
@@ -300,7 +304,7 @@ fn a_zone_at_utcs_offset_or_an_unset_tz_is_refused() {
     let refused = |found: &str| {
         format!(
             "eval runs only in the time zone UTC, so dates read and format the same everywhere, \
-             and this process's is {found}: run fgro with TZ=UTC in its environment"
+             and this process's is {found}: run {BINARY_NAME} with TZ=UTC in its environment"
         )
     };
     for (zone, found) in [

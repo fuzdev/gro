@@ -19,7 +19,7 @@ use crate::loader::Loader;
 use crate::prices::{self, EvalDefault};
 use crate::report::report_js;
 use crate::runtime::{SpentRuntime, start_eval_runtime};
-use crate::{ConsoleOptions, ConsoleRouting, phases};
+use crate::{BINARY_NAME, ConsoleOptions, ConsoleRouting, phases};
 
 /// The console eval writes with: every level to stderr, uncolored.
 const CONSOLE: ConsoleOptions = ConsoleOptions {
@@ -201,7 +201,7 @@ fn check_time_zone(runtime: &mut JsRuntime) -> Result<(), Failed> {
         Step::Environment,
         format!(
             "eval runs only in the time zone {TIME_ZONE}, so dates read and format the same \
-             everywhere, and {found}: run fgro with TZ=UTC in its environment"
+             everywhere, and {found}: run {BINARY_NAME} with TZ=UTC in its environment"
         ),
     ))
 }

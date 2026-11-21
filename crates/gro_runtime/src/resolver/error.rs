@@ -8,6 +8,7 @@ use super::CONDITIONS;
 use super::builtin::{Reserved, UNBUILT_HOST_MODULES};
 use super::roots::{Origin, Root};
 use super::tree::ReadRefusal;
+use crate::BINARY_NAME;
 
 /// A specifier that didn't resolve.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -609,8 +610,9 @@ impl fmt::Display for ResolveErrorKind {
             ),
             Self::Reserved(Reserved::Unbuilt(stem)) => write!(
                 f,
-                "it names Gro's host module '{stem}.ts', which isn't on fgro yet, and a host \
-                 module's specifier never resolves to a package. Fix: run this under Node with gro"
+                "it names Gro's host module '{stem}.ts', which isn't on {BINARY_NAME} yet, and a \
+                 host module's specifier never resolves to a package. Fix: run this under Node \
+                 with gro"
             ),
             Self::Reserved(Reserved::Split(split)) => {
                 write!(
@@ -633,9 +635,10 @@ impl fmt::Display for ResolveErrorKind {
                     return Ok(());
                 }
                 if count == 0 {
-                    return f.write_str(
-                        "; none of them is on fgro yet, so run code that uses them under Node \
-                         with gro",
+                    return write!(
+                        f,
+                        "; none of them is on {BINARY_NAME} yet, so run code that uses them \
+                         under Node with gro"
                     );
                 }
                 f.write_str("; of these, only ")?;
@@ -643,7 +646,8 @@ impl fmt::Display for ResolveErrorKind {
                 let verb = if count == 1 { "is" } else { "are" };
                 write!(
                     f,
-                    " {verb} on fgro yet, so run code that uses the others under Node with gro"
+                    " {verb} on {BINARY_NAME} yet, so run code that uses the others under Node \
+                     with gro"
                 )
             }
             Self::Empty => f.write_str("the specifier is empty"),

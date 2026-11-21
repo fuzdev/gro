@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use argh::{CommandInfo, EarlyExit, FromArgs, SubCommand};
 use gro_runtime::confine::Jit;
-use gro_runtime::{EnvNameFault, EnvPattern, EnvPatternFault, env_name_fault};
+use gro_runtime::{BINARY_NAME, EnvNameFault, EnvPattern, EnvPatternFault, env_name_fault};
 
 use crate::error::CliError;
 use crate::print::{echo_argument, escape_controls};
@@ -128,7 +128,7 @@ pub const ALLOW_ALL: &str = "-A";
 fn run_help() -> String {
     [
         &format!(
-            "Usage: fgro {RUN} [{ALLOW_ENV}=<names>] [{ALLOW_READ}=<dirs>] [{ALLOW_WRITE}=<dirs>] \
+            "Usage: {BINARY_NAME} {RUN} [{ALLOW_ENV}=<names>] [{ALLOW_READ}=<dirs>] [{ALLOW_WRITE}=<dirs>] \
              [{ALLOW_TEMP}] [{ALLOW_RUN}=<names>] [{ALLOW_RUN_IN}=<dirs>] \
              [{ALLOW_RUN_ENV}=<names>] [{ALLOW_ALL}] [--] <file> [<args...>]"
         ),
@@ -773,7 +773,7 @@ pub fn parse(args: &[&str]) -> Result<Invocation, CliError> {
         }
         return Ok(Invocation::Sized(Task::MakeSnapshot(PathBuf::from(dir))));
     }
-    match Args::from_args(&["fgro"], args) {
+    match Args::from_args(&[BINARY_NAME], args) {
         Ok(Args {
             version: true,
             command: None,
@@ -816,17 +816,17 @@ pub const MAX_SHOWN_ARGUMENT: usize = 80;
 
 /// The usage error for arguments argh refused, made of `args` alone, never
 /// of argh's text, which can carry any part of an argument: the command
-/// they were given to, `fgro eval` when the first argument that isn't an
-/// option is `eval`, else `fgro`, and the first [`MAX_SHOWN_ARGUMENTS`]
+/// they were given to, the binary's name followed by ` eval` when the first
+/// argument that isn't an option is `eval`, else the name alone, and the first [`MAX_SHOWN_ARGUMENTS`]
 /// arguments as given, each as [`echo_argument`] prints it (up to its
 /// first `=`, escaped),
 /// cut past [`MAX_SHOWN_ARGUMENT`] characters, an empty one as `""`, then
 /// how many more there were.
 fn invalid_arguments(args: &[&str]) -> CliError {
     let command = if args.iter().find(|arg| !arg.starts_with('-')) == Some(&"eval") {
-        "fgro eval"
+        format!("{BINARY_NAME} eval")
     } else {
-        "fgro"
+        BINARY_NAME.to_owned()
     };
     let mut shown: Vec<String> = args
         .iter()
@@ -856,6 +856,8 @@ fn invalid_arguments(args: &[&str]) -> CliError {
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeSet;
+
+    use gro_runtime::BINARY_NAME;
 
     use super::{
         DirFlag, DirFlagFault, EnvFlagFault, FlagDirs, Invocation, RUN_DESCRIPTION,
@@ -1380,7 +1382,7 @@ mod tests {
             }
             Ok(_) => panic!("{args:?} is a usage error"),
         };
-        let help = "\nRun fgro run --help for more information.";
+        let help = format!("\nRun {BINARY_NAME} run --help for more information.");
         assert_eq!(
             message(&["--allow-env", "a.js"]),
             format!("--allow-env takes the names it grants, as --allow-env=A,B{help}")
@@ -1503,7 +1505,7 @@ mod tests {
     #[test]
     fn run_s_help_reads_as_argh_s() {
         const EXPECTED: &str = "\
-Usage: fgro run [--allow-env=<names>] [--allow-read=<dirs>] [--allow-write=<dirs>] [--allow-temp] [--allow-run=<names>] [--allow-run-in=<dirs>] [--allow-run-env=<names>] [-A] [--] <file> [<args...>]
+Usage: {BINARY_NAME} run [--allow-env=<names>] [--allow-read=<dirs>] [--allow-write=<dirs>] [--allow-temp] [--allow-run=<names>] [--allow-run-in=<dirs>] [--allow-run-env=<names>] [-A] [--] <file> [<args...>]
 
 run an ES module (.js, .mjs, .ts, or .mts) from disk
 
@@ -1559,7 +1561,7 @@ Options:
   -A                run unconfined: every grant at its widest, to every module,
                     every environment variable and every directory among them
   --help, help      display usage information";
-        assert_eq!(run_help(), EXPECTED);
+        assert_eq!(run_help(), EXPECTED.replace("{BINARY_NAME}", BINARY_NAME));
         let Ok(Invocation::Sized(Task::Help(eval))) = parse(&["eval", "--help"]) else {
             panic!("eval --help prints its help");
         };
@@ -1682,8 +1684,10 @@ Options:
         };
         assert_eq!(
             message(&["eval", "--export", ": T=", "a.js", "T=hunter2"]),
-            "invalid arguments to fgro eval: eval --export : T=\u{2026} a.js T=\u{2026}\n\
-             Run fgro eval --help for more information."
+            format!(
+                "invalid arguments to {BINARY_NAME} eval: eval --export : T=\u{2026} a.js \
+                 T=\u{2026}\nRun {BINARY_NAME} eval --help for more information."
+            )
         );
         assert_eq!(
             message(&[
@@ -1693,23 +1697,31 @@ Options:
                 "a.js",
                 "a=b\nerror: fake second line"
             ]),
-            "invalid arguments to fgro eval: eval --export argument: a=\u{2026} a.js a=\u{2026}\n\
-             Run fgro eval --help for more information."
+            format!(
+                "invalid arguments to {BINARY_NAME} eval: eval --export argument: a=\u{2026} \
+                 a.js a=\u{2026}\nRun {BINARY_NAME} eval --help for more information."
+            )
         );
         assert_eq!(
             message(&["eval", "--export", "=", "a.js", "TOKEN=hunter2"]),
-            "invalid arguments to fgro eval: eval --export =\u{2026} a.js TOKEN=\u{2026}\n\
-             Run fgro eval --help for more information."
+            format!(
+                "invalid arguments to {BINARY_NAME} eval: eval --export =\u{2026} a.js \
+                 TOKEN=\u{2026}\nRun {BINARY_NAME} eval --help for more information."
+            )
         );
         assert_eq!(
             message(&["eval", "--export", "x=", "a.js", "x=\u{1b}[2Jsecret"]),
-            "invalid arguments to fgro eval: eval --export x=\u{2026} a.js x=\u{2026}\n\
-             Run fgro eval --help for more information."
+            format!(
+                "invalid arguments to {BINARY_NAME} eval: eval --export x=\u{2026} a.js \
+                 x=\u{2026}\nRun {BINARY_NAME} eval --help for more information."
+            )
         );
         assert_eq!(
             message(&["--unknown", "-\u{1b}[2J", ""]),
-            "invalid arguments to fgro: --unknown -\\u{1b}[2J \"\"\n\
-             Run fgro --help for more information."
+            format!(
+                "invalid arguments to {BINARY_NAME}: --unknown -\\u{{1b}}[2J \"\"\nRun \
+                 {BINARY_NAME} --help for more information."
+            )
         );
         let many: Vec<String> = (0..20).map(|i| format!("--x{i}")).collect();
         let many: Vec<&str> = many.iter().map(String::as_str).collect();

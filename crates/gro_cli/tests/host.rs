@@ -52,6 +52,7 @@ use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, UNIX_EPOCH};
 
+use gro_runtime::BINARY_NAME;
 use gro_runtime::resolver::BUILTINS;
 use serde_json::Value;
 
@@ -1746,7 +1747,7 @@ fn fs_flag_directories_are_checked_as_the_run_starts() {
         ],
     );
     let p = project.0.display().to_string();
-    let help = "Run fgro run --help for more information.";
+    let help = format!("Run {BINARY_NAME} run --help for more information.");
     for (args, message) in [
         (
             &["--allow-read=missing"][..],
@@ -1856,7 +1857,7 @@ fn a_flag_directory_that_cant_be_looked_at_is_a_usage_error() {
         );
         return;
     };
-    let help = "Run fgro run --help for more information.";
+    let help = format!("Run {BINARY_NAME} run --help for more information.");
     for ((args, output), flag) in outputs.into_iter().zip(["--allow-read", "--allow-write"]) {
         assert_eq!(
             String::from_utf8(output.stderr).unwrap(),

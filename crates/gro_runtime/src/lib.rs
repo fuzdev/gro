@@ -153,6 +153,17 @@ pub use crate::runtime::SpentRuntime;
 /// run pays only for the stack it uses.
 pub const STACK_SIZE: usize = tsv_ts::STACK_SIZE;
 
+/// The name of the binary the runtime is built into, `fgro` while it's
+/// developed beside the Node `gro`.
+///
+/// It's the one source of the name every message prints, the runtime's and
+/// its embedder's (`gro_cli`'s help, hints, version line, and
+/// `runtime_version`), and the name tests put in what they expect, so
+/// renaming the binary renames them all. A constant, not the name the process
+/// was invoked as: what it prints is the same however the file is renamed,
+/// linked, or spawned, and never bytes its caller chose.
+pub const BINARY_NAME: &str = "fgro";
+
 /// The version string of the V8 the runtime embeds, as V8 reports it.
 pub fn v8_version() -> &'static str {
     deno_core::v8::V8::get_version()

@@ -1,6 +1,7 @@
 //! The failure kinds of an envelope: `link`, `module_threw`, `export_missing`,
 //! `serialize`, late work, and the hints that name a fix.
 
+use gro_runtime::BINARY_NAME;
 use serde_json::json;
 
 use crate::support::Scratch;
@@ -521,8 +522,8 @@ fn a_reserved_specifier_is_a_resolve() {
     eval(&[&scratch.path("where.js")]).assert_value(&json!({
         "message": format!(
             "cannot resolve '@fuzdev/gro/net.ts' from file://{root}/where.js: it names Gro's host \
-             module '@fuzdev/gro/net.ts', which isn't on fgro yet, and a host module's specifier \
-             never resolves to a package. Fix: run this under Node with gro"
+             module '@fuzdev/gro/net.ts', which isn't on {BINARY_NAME} yet, and a host module's \
+             specifier never resolves to a package. Fix: run this under Node with gro"
         )
     }));
     let run = eval(&[&scratch.path("respelled.js")]);
@@ -551,8 +552,9 @@ fn a_reserved_specifier_is_a_resolve() {
     eval(&[&scratch.path("where_respelled.js")]).assert_value(&json!({
         "message": format!(
             "cannot resolve '@fuzdev/gro/net.js?.ts' from file://{root}/where_respelled.js: it \
-             names Gro's host module '@fuzdev/gro/net.ts', which isn't on fgro yet, and a host \
-             module's specifier never resolves to a package. Fix: run this under Node with gro"
+             names Gro's host module '@fuzdev/gro/net.ts', which isn't on {BINARY_NAME} yet, and a \
+             host module's specifier never resolves to a package. Fix: run this under Node with \
+             gro"
         )
     }));
 }

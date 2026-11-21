@@ -24,6 +24,7 @@ mod usage;
 use std::path::PathBuf;
 use std::process::{Command, Output};
 
+use gro_runtime::BINARY_NAME;
 use support::{Scratch, fgro_command, spawn};
 
 fn fixtures() -> PathBuf {
@@ -130,11 +131,12 @@ fn commit() -> Option<&'static str> {
 }
 
 /// What a script run by the binary under test reads as `runtime_version`:
-/// `fgro/<version>`, then `+` and [`commit`] when the build has one.
+/// the binary's name, `/`, the version, then `+` and [`commit`] when the build
+/// has one.
 fn runtime_version() -> String {
     let version = env!("CARGO_PKG_VERSION");
     commit().map_or_else(
-        || format!("fgro/{version}"),
-        |commit| format!("fgro/{version}+{commit}"),
+        || format!("{BINARY_NAME}/{version}"),
+        |commit| format!("{BINARY_NAME}/{version}+{commit}"),
     )
 }
