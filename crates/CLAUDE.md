@@ -29,9 +29,12 @@ arm (a `cfg` on the architecture or the C library is fine).
   start, `wait4`, a child held by its pidfd and waited on by tokio's
   reactor, in `child`, behind the `child` feature `gro_runtime` enables, so
   `gro_bench` builds no tokio, process groups and the signal handler that
-  guards them, `_exit`, `access`, and the filesystem calls confined beneath
-  a directory descriptor by `openat2`, in `beneath`, and an unbuffered
-  write to a descriptor), each behind a safe API
+  guards them, `_exit`, `access`, the filesystem calls confined beneath a
+  directory descriptor by `openat2`, in `beneath`, a private user and
+  network namespace entered, its loopback brought up and nested ones
+  refused, in `namespace`, every capability dropped, in `capabilities`, the
+  dumpable mark, a directory private to the process, in `private_dir`, and
+  an unbuffered write to a descriptor), each behind a safe API
 - `gro_v8` - the V8 boundary: the calls rusty_v8 exposes only as `unsafe`,
   behind a safe API (eval's recording `ArrayBuffer` allocator,
   `record_array_buffers`, and `PendingArrayBuffer`, an `ArrayBuffer`'s bytes
@@ -241,9 +244,12 @@ They need Landlock ABI 6 and fail below it, naming the kernel's ABI.
 runs under (`INTEGRATION_TESTS` in `crates/xtask/src/snapshot.rs`), and an
 xtask unit test fails on a file of `crates/gro_cli/tests/` no run names.
 `gro_sys`'s tests that close descriptors, clear the environment, cap memory,
-lower a limit, or signal run in a child process, harness off, as does
-`gro_runtime`'s `tests/denylist.rs`, which installs the run's denylist and
-runs `python3` under it for the socket cases std can't make.
+lower a limit, enter namespaces, drop capabilities, mark the process not
+dumpable, set a umask, or signal run in a child process, harness off, as
+does `gro_runtime`'s `tests/denylist.rs`, which installs the run's denylist
+and runs `python3` under it for the socket cases std can't make. The
+namespace cases need unprivileged user namespaces and fail, naming the
+setting, where a kernel restricts them.
 
 ## Reproducible builds
 

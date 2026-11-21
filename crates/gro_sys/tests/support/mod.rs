@@ -121,3 +121,25 @@ fn drain(mut pipe: impl Read + Send + 'static) -> JoinHandle<Vec<u8>> {
         bytes
     })
 }
+
+/// `result`'s value, or a panic printing its error's chain of messages,
+/// each cause after a `: `, so a kernel that refuses a case prints why,
+/// the setting named, rather than a variant's name.
+pub fn or_chain<T, E: std::error::Error>(result: Result<T, E>) -> T {
+    match result {
+        Ok(value) => value,
+        Err(error) => panic!("{}", chain(&error)),
+    }
+}
+
+/// `error`'s message and each cause's, joined by `: `.
+pub fn chain(error: &dyn std::error::Error) -> String {
+    let mut text = error.to_string();
+    let mut cause = error.source();
+    while let Some(next) = cause {
+        text.push_str(": ");
+        text.push_str(&next.to_string());
+        cause = next.source();
+    }
+    text
+}

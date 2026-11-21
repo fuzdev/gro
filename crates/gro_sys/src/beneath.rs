@@ -847,7 +847,10 @@ fn to_timespec(time: std::time::Duration) -> io::Result<libc::timespec> {
 /// `call` on the `/proc/self/fd` link of `fd`, which names what `fd` holds
 /// open; a missing link is `/proc` that can't be reached, never a missing
 /// entry, since `fd` holds the entry.
-fn through_proc(fd: BorrowedFd<'_>, call: impl FnOnce(&Path) -> io::Result<()>) -> io::Result<()> {
+pub(crate) fn through_proc(
+    fd: BorrowedFd<'_>,
+    call: impl FnOnce(&Path) -> io::Result<()>,
+) -> io::Result<()> {
     let link = format!("/proc/self/fd/{}", fd.as_raw_fd());
     call(Path::new(&link)).map_err(|error| {
         if error.raw_os_error() == Some(libc::ENOENT) {

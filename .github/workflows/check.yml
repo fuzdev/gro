@@ -92,8 +92,10 @@ jobs:
       # clippy, the V8 library copy checked before the tests run V8 code, test,
       # doc, and fgro with an embedded startup snapshot, verified by remaking
       # the snapshot byte for byte, by its tests, and by a run with the build
-      # tree's sources hidden in a private user and mount namespace, which the
-      # runner's AppArmor policy forbids by default.
+      # tree's sources hidden in a private user and mount namespace. That run
+      # and gro_sys's tests that enter a private user and network namespace
+      # need unprivileged user namespaces, which the runner's AppArmor policy
+      # forbids by default.
       - name: Check
         run: |
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0

@@ -48,9 +48,19 @@
 //!   descriptor, each path resolved by one `openat2` with `RESOLVE_BENEATH`:
 //!   opening, `stat`, listing a directory, and making, removing, and
 //!   renaming an entry.
+//! - [`namespace`] enters a private user and network namespace, one
+//!   `unshare` and the maps written after it, its refusals told apart from
+//!   a failure after it, and brings its loopback interface up.
+//! - [`capabilities`] drops every capability the process holds, and reads
+//!   the sets back.
+//! - [`set_not_dumpable`] marks the process not dumpable, so no other
+//!   process of its user reads its memory or its environment through
+//!   `/proc`; [`is_dumpable`] reads it.
 //! - [`lower_hard_limit`] lowers a resource's hard limit, the soft one with
 //!   it where it's higher, never raising either; [`resource_limit`] reads
 //!   a resource's limits.
+//! - [`private_dir`] makes a directory private to the process beneath a
+//!   directory's descriptor, refusing any entry already at its name.
 //!
 //! With the `child` feature, which `gro_runtime` enables, so a crate without
 //! it builds no tokio, it also has `child`, which holds a child process by
@@ -76,8 +86,11 @@ use std::io;
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, Ordering};
 
 pub mod beneath;
+pub mod capabilities;
 #[cfg(feature = "child")]
 pub mod child;
+pub mod namespace;
+pub mod private_dir;
 
 /// Whether the process may execute the file at `path`, by `access(2)`.
 ///
@@ -457,8 +470,7 @@ pub struct ResourceLimit {
 /// soft one. Once lowered, nothing in the process can raise the hard limit
 /// again without `CAP_SYS_RESOURCE` in the initial user namespace (holding
 /// every capability in a user namespace of its own doesn't do), and every
-/// process it starts after
-/// inherits it. It sets the process's own limits (`setrlimit`), never
+/// process it starts after inherits it. It sets the process's own limits (`setrlimit`), never
 /// another's.
 ///
 /// It touches no memory of the process's and holds no lock, so it's safe on
@@ -809,7 +821,8 @@ pub const THREAD_COUNT_READS: usize = 1000;
 ///
 /// For a caller that needs the process to have one thread, its own, just
 /// after joining another: the joined thread, still counted for a moment,
-/// isn't another. A count above 1 it returns is a thread that's running.
+/// isn't another. A count above 1 it returns is most likely a thread
+/// that's running.
 ///
 /// # Errors
 ///
@@ -1657,6 +1670,63 @@ pub fn protect_anonymous(prot: libc::c_int) -> io::Result<()> {
         Err(io::Error::last_os_error())
     };
     protected.and(unmapped)
+}
+
+/// Marks the process not dumpable (`PR_SET_DUMPABLE` 0).
+///
+/// Then no process of its user may attach to it or read its memory, its
+/// environment, its mappings, or its descriptors through `/proc/<pid>/`,
+/// a program it starts inside its box among them, unless it holds
+/// `CAP_SYS_PTRACE` over it; and no core is dumped of it. A debugger or
+/// `perf` attaching from outside is refused the same way; one that starts
+/// the process, attached or counting before the mark, keeps going.
+///
+/// The mark is the whole process's, every thread's. An `exec` clears it,
+/// and a change of the process's ids or a gain of capabilities sets it to
+/// `fs.suid_dumpable` (0 by default, not dumpable). Entering a user
+/// namespace the process owns isn't a gain, and leaves the mark as it was.
+///
+/// # Order
+///
+/// Mark the process after [`namespace::enter_user_net_namespace`], never
+/// before: the mark makes the process's own `/proc/self` files root's, so
+/// the namespace's maps can't be written and the process is stranded in
+/// it ([`namespace::NamespaceError::Stranded`]). Once marked, the process
+/// can't read its own `/proc/self/environ`, `auxv`, or `mem` either; its
+/// `status`, `stat`, `maps`, and `fd` it still reads.
+///
+/// # Errors
+///
+/// Returns the call's error, which a valid argument never gets.
+#[expect(unsafe_code, reason = "`prctl` is a libc call, which is `unsafe`")]
+pub fn set_not_dumpable() -> io::Result<()> {
+    let zero: libc::c_ulong = 0;
+    // SAFETY: `PR_SET_DUMPABLE` takes integers and touches no memory of the
+    // process's
+    if unsafe { libc::prctl(libc::PR_SET_DUMPABLE, zero, zero, zero, zero) } == 0 {
+        Ok(())
+    } else {
+        Err(io::Error::last_os_error())
+    }
+}
+
+/// Whether the process is dumpable (`PR_GET_DUMPABLE`): `false` once
+/// [`set_not_dumpable`] marked it.
+///
+/// # Errors
+///
+/// Returns the call's error, which a valid argument never gets.
+#[expect(unsafe_code, reason = "`prctl` is a libc call, which is `unsafe`")]
+pub fn is_dumpable() -> io::Result<bool> {
+    let zero: libc::c_ulong = 0;
+    // SAFETY: `PR_GET_DUMPABLE` takes integers, touches no memory of the
+    // process's, and returns the mark
+    let mark = unsafe { libc::prctl(libc::PR_GET_DUMPABLE, zero, zero, zero, zero) };
+    if mark < 0 {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(mark != 0)
+    }
 }
 
 /// Ends the process now with `code`, by `_exit`.
