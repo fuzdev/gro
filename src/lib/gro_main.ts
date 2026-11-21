@@ -21,7 +21,8 @@ import { invoke_cli, type GroPlatform } from './invoke_task.ts';
 import { to_grant_flags, to_raw_rest_args, to_task_args, type CliTaskArgs } from './task_args.ts';
 import { ReportedError, is_reported_error, is_task_error } from './task_error.ts';
 import { load_gro_config } from './gro_config.ts';
-import type { BuiltinHostRoot } from './builtin_host.ts';
+import { create_builtin_host, type BuiltinHostRoot } from './builtin_host.ts';
+import { GRO_CLI_GRANTS } from './gro_builtin_tasks.ts';
 import type { FsPaths } from './fs_paths.ts';
 import type { ImportModule } from './modules.ts';
 import { print_error_with_causes } from './internal/error_report.ts';
@@ -43,11 +44,12 @@ export interface GroMainDeps {
 	readonly fs_paths: FsPaths;
 	/**
 	 * The root's env, spawn, and stream handles, cut by each builtin's grants into its `host`,
-	 * and stderr taking the warning for grant flags that confine nothing.
+	 * and by `GRO_CLI_GRANTS` into the CLI's own,
+	 * with stderr taking the warning for grant flags that confine nothing.
 	 */
 	readonly host_root: BuiltinHostRoot;
 	/**
-	 * Loads the project's modules: its config, tasks, and genfiles.
+	 * Loads the project's modules: its config, through the CLI's own host, and its tasks and genfiles.
 	 */
 	readonly import_module: ImportModule;
 	/**
@@ -64,6 +66,7 @@ export interface GroMainDeps {
  */
 export const gro_main = async (deps: GroMainDeps): Promise<void> => {
 	const { fs_paths, host_root, import_module, platform } = deps;
+	const host = create_builtin_host(host_root, GRO_CLI_GRANTS, { fs_paths, import_module });
 
 	// a root that enforces grant flags, the binary, takes them before it calls this,
 	// so any left in the args reach a run that confines nothing
@@ -92,7 +95,8 @@ export const gro_main = async (deps: GroMainDeps): Promise<void> => {
 	await invoke_cli(
 		fs_paths,
 		task_args,
-		await load_gro_config(fs_paths, import_module),
+		// the project's config is its code, loaded through the CLI's host as its row grants
+		await load_gro_config(fs_paths, host.import_module),
 		to_raw_rest_args(args),
 		import_module,
 		host_root,

@@ -38,8 +38,9 @@ errors and exit codes. Where it lives:
 
 - The CLI's body - `gro_main` (`gro_main.ts`), a package module every root of the CLI
   calls with what it opened (`GroMainDeps`: the args, the `FsPaths`, the `BuiltinHostRoot`, the
-  project loader, the `GroPlatform`): it parses the args, loads the config, and calls
-  `invoke_cli`; the root reports what it throws with
+  project loader, the `GroPlatform`): it parses the args, loads the config through its own
+  host cut by `GRO_CLI_GRANTS` (declared in the summaries genfile, emitted beside the builtins'
+  grants, held by every command's closure), and calls `invoke_cli`; the root reports what it throws with
   `log_cli_error` and exits with `to_exit_code`. `invoke.ts` is the Node root: the
   `process` listeners, Node's `styleText` for fuz_util's `st`, and the exit's flush
 - Grant flags - a run right after the command word (`gro check --allow-read=. --watch`),

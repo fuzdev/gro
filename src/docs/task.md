@@ -243,7 +243,13 @@ so a module re-exporting the `task` carries them:
 The genfile that writes the builtin summaries also writes them as `GRO_BUILTIN_TASK_GRANTS`
 (`gro_builtin_tasks.ts`), data a runtime reads without importing the task,
 held by `gro gen --check`.
-`run_task` cuts the root's handles by that table into the builtin's `host`,
+Beside them it writes `GRO_CLI_GRANTS`, the grants of the CLI's own steps before any task,
+declared in the genfile: reading the project and loading its config
+(`project_modules`, as the config is the project's code).
+`gro_main` cuts the root's handles by that row as `run_task` cuts a builtin's,
+loading the config through it, and every command's closure holds it
+beside the grants of the builtins the command runs.
+`run_task` cuts the root's handles by `GRO_BUILTIN_TASK_GRANTS` into the builtin's `host`,
 a `BuiltinTaskContext` field present only on a builtin's context:
 `fs_paths` with an `fs` grant, `env` narrowed to the names,
 `programs` with `program(role)` and `find(role)` for the granted roles,

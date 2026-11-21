@@ -191,10 +191,16 @@ export const task_registry_find_builtins = async (
 /**
  * Renders the `GroBuiltinTasks` interface for Gro's own tasks
  * and their summaries and grants, so listing them or reading what they need imports no task module,
+ * and the grants of the CLI's own steps before any task as `GRO_CLI_GRANTS`, literal-typed,
  * the grants deep-frozen with null-prototype objects when the rendered module loads.
+ * @param entries - Gro's builtin tasks
+ * @param cli_grants - the grants of the CLI's own steps before any task, declared in the genfile
+ * @param output_dir - where the rendered module is written
+ * @param origin_path - the genfile's path, named in the rendered module's header
  */
 export const task_registry_render_builtins = (
 	entries: Array<BuiltinTaskEntry>,
+	cli_grants: BuiltinTaskGrants,
 	output_dir: PathId,
 	origin_path: string
 ): string => {
@@ -245,6 +251,13 @@ const to_frozen_record = <T>(value: T): T => {
 export const GRO_BUILTIN_TASK_GRANTS: Record<keyof GroBuiltinTasks, BuiltinTaskGrants | null> =
 	to_frozen_record({
 ${grants}});
+
+/**
+ * The grants of the CLI's own steps before any task, like loading the project's config,
+ * as data a runtime reads without importing the CLI, deep-frozen with null-prototype objects:
+ * the closure of every command holds them beside its builtins' grants.
+ */
+export const GRO_CLI_GRANTS = to_frozen_record(${JSON.stringify(cli_grants)} as const);
 `;
 };
 

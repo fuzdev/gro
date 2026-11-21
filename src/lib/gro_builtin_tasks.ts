@@ -167,3 +167,13 @@ export const GRO_BUILTIN_TASK_GRANTS: Record<keyof GroBuiltinTasks, BuiltinTaskG
 		},
 		upgrade: null
 	});
+
+/**
+ * The grants of the CLI's own steps before any task, like loading the project's config,
+ * as data a runtime reads without importing the CLI, deep-frozen with null-prototype objects:
+ * the closure of every command holds them beside its builtins' grants.
+ */
+export const GRO_CLI_GRANTS = to_frozen_record({
+	fs: { read: ['.'] },
+	project_modules: true
+} as const);

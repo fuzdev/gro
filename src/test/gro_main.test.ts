@@ -10,6 +10,8 @@ import {
 	to_exit_code,
 	to_grant_flags_unenforced_message
 } from '#lib/gro_main.ts';
+import { GRO_CLI_GRANTS } from '#lib/gro_builtin_tasks.ts';
+import type { ImportModule } from '#lib/modules.ts';
 import { import_module_node } from '#lib/internal/node_import_module.ts';
 import { ReportedError, TaskError } from '#lib/task_error.ts';
 import { create_project_fs_paths } from './fs_test_helpers.ts';
@@ -26,11 +28,15 @@ let stderr_writes: Array<string> = [];
 const run = async (
 	args: Array<string>,
 	version = '0.0.0-test',
-	package_json = '{"name": "x"}'
+	package_json = '{"name": "x"}',
+	project: { gro_config?: string; import_module?: ImportModule } = {}
 ): Promise<void> => {
 	const dir = mkdtempSync(join(tmpdir(), 'gro_main_'));
 	try {
 		writeFileSync(join(dir, 'package.json'), package_json);
+		if (project.gro_config !== undefined) {
+			writeFileSync(join(dir, 'gro.config.ts'), project.gro_config);
+		}
 		mkdirSync(join(dir, 'src'));
 		await gro_main({
 			args,
@@ -44,7 +50,7 @@ const run = async (
 					}
 				} as never
 			},
-			import_module: import_module_node,
+			import_module: project.import_module ?? import_module_node,
 			platform: { ...create_test_platform(), gro: { version, dir: null } }
 		});
 	} finally {
@@ -163,4 +169,23 @@ test("an unsynced SvelteKit app's `--version` runs no program, as no sync preced
 		'{"name": "x", "devDependencies": {"@sveltejs/kit": "*"}}'
 	);
 	assert.ok(info.mock.calls.some((call) => String(call[0]).includes('1.2.3-test')));
+});
+
+test("the CLI's row reads the project and loads its config, frozen", () => {
+	assert.deepEqual(JSON.parse(JSON.stringify(GRO_CLI_GRANTS)), {
+		fs: { read: ['.'] },
+		project_modules: true
+	});
+	assert.ok(Object.isFrozen(GRO_CLI_GRANTS));
+	assert.strictEqual(Object.getPrototypeOf(GRO_CLI_GRANTS), null);
+});
+
+test("the project's config loads through the CLI's host, the row's project loader", async () => {
+	vi.spyOn(Logger.prototype, 'info').mockImplementation(() => undefined);
+	const import_module = vi.fn<ImportModule>((id) => import_module_node(id));
+	await run(['--version'], undefined, undefined, {
+		gro_config: 'export default (cfg) => cfg;\n',
+		import_module
+	});
+	assert.ok(import_module.mock.calls.some(([id]) => String(id).endsWith('/gro.config.ts')));
 });

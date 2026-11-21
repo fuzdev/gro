@@ -480,6 +480,24 @@ test('every builtin is in `BUILTIN_TASKS` or `NODE_BUILTIN_TASKS`, by whether it
 	assert.deepEqual([...NODE_BUILTIN_TASKS].sort(), ungranted.sort());
 });
 
+// the genfile that writes the table declares the CLI's row, and nothing it loads imports the row,
+// so a lost or renamed row is regenerated rather than repaired by hand
+test("the summaries genfile loads nothing that imports the CLI's row it renders", () => {
+	const closure = to_lib_closure(join(paths.lib, 'gro_builtin_tasks.gen.ts'));
+	assert.include(closure, 'task_registry.ts');
+	assert.notInclude(closure, 'gro_main.ts');
+	const importers = closure.filter((name) =>
+		/import\s*(type\s*)?\{[^}]*\bGRO_CLI_GRANTS\b[^}]*\}\s*from/.test(
+			readFileSync(join(paths.lib, name), 'utf8')
+		)
+	);
+	assert.deepEqual(importers, []);
+	assert.match(
+		readFileSync(join(paths.lib, 'gro_main.ts'), 'utf8'),
+		/import\s*\{[^}]*\bGRO_CLI_GRANTS\b[^}]*\}\s*from '\.\/gro_builtin_tasks\.ts'/
+	);
+});
+
 test('the table imports each builtin by a literal import of its module, and nothing else', () => {
 	assert.deepEqual(
 		to_specifiers(BUILTIN_TASK_IMPORTS_ID),
