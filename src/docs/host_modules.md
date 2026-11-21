@@ -1148,7 +1148,8 @@ The fs module keeps these in the Node implementation, and the runtime's builtin 
 ### The process modules' invariants
 
 - Handles come only from `env`, `Env.narrow`, `stdin`, `stdout`, and `stderr`, through a key private to their implementation,
-  and hold their state in private fields, so a method or getter called on any other object throws `TypeError`.
+  and hold their state in private fields, so a method or getter called on any other object throws `TypeError`,
+  or, for a write, rejects with it.
 - The handles, `get_all`'s records, their prototypes, and the methods on them are frozen,
   and every prototype is null-prototype, so none of them is thenable even with a polluted `Object.prototype.then`.
   `args` is the exception, a frozen real array, so its prototype is the unfrozen `Array.prototype` and awaiting it adopts a polluted `then`.

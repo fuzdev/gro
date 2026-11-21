@@ -4,7 +4,8 @@
  *
  * The handle and its prototype are frozen, null-prototype so it isn't thenable even with a
  * polluted `Object.prototype.then`, and its `constructor` refuses without a key only Gro holds.
- * A method called on any other object throws `TypeError`, private fields being the only state.
+ * Read on any other object `is_terminal` throws `TypeError`, and `write` rejects with it, private
+ * fields being the only state.
  *
  * This is the Node implementation, which runs on the Node Gro. Its gaps against
  * the runtime's builtin, which it documents rather than the API weakening to match:

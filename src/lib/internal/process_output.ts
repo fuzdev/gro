@@ -4,7 +4,8 @@
  *
  * Node-only. Handles and their prototype are frozen, null-prototype so none is thenable even with
  * a polluted `Object.prototype.then`, and constructing one takes a key only this module holds.
- * A method called on any other object throws `TypeError`, private fields being the only state.
+ * Read on any other object `is_terminal` throws `TypeError`, and `write` rejects with it, private
+ * fields being the only state.
  *
  * @module
  */
@@ -32,12 +33,23 @@ const check_handle_key = (key: symbol): void => {
 	}
 };
 
+const DETACHED = "stdio can't write a view of a detached buffer";
+
+/**
+ * `data` as the chunk a write sends, or a `TypeError`. A view with no bytes is a `TypeError` when
+ * its buffer is detached, and otherwise an empty chunk, one a resize left out of its buffer's
+ * bounds among them, as the runtime reads both.
+ */
 const to_data_chunk = (data: unknown): string | Uint8Array => {
 	if (typeof data === 'string') {
 		if (!data.isWellFormed()) throw new TypeError("stdio data isn't well-formed Unicode");
 		return data;
 	}
 	if (!isUint8Array(data)) throw new TypeError('stdio data is a string or a `Uint8Array`');
+	if (data.byteLength === 0) {
+		if ((data.buffer as ArrayBuffer).detached) throw new TypeError(DETACHED);
+		return new Uint8ArrayClass(0);
+	}
 	// a copy, as Node holds what it can't write yet and a caller may reuse the buffer
 	return new Uint8ArrayClass(data);
 };
@@ -83,8 +95,9 @@ class NodeProcessOutput implements ProcessOutput {
 	}
 
 	write(data: string | Uint8Array): Promise<boolean> {
-		const target = this.#target;
+		// everything in the executor, so a bad receiver or bad data rejects rather than throws
 		return new Promise((resolve, reject) => {
+			const target = this.#target;
 			const chunk = to_data_chunk(data);
 			const stream = this.#writable();
 			stream.write(chunk, (error) => {

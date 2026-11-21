@@ -4,7 +4,8 @@
  *
  * The handle and its prototype are frozen, null-prototype so it isn't thenable even with a
  * polluted `Object.prototype.then`, and its `constructor` refuses without a key only Gro holds.
- * A method called on any other object throws `TypeError`, private fields being the only state.
+ * Read on any other object `is_terminal` throws `TypeError`, and `write` rejects with it, private
+ * fields being the only state.
  *
  * This is the Node implementation, which runs on the Node Gro. Its gaps against
  * the runtime's builtin, which it documents rather than the API weakening to match:
@@ -36,7 +37,8 @@ export interface ProcessOutput {
 	 * any not yet accepted, so await a write before exiting.
 	 * @returns `false` when the reader has gone (`EPIPE`, a task piped to `head`), so the data
 	 * went nowhere, and every later write resolves `false` too
-	 * @throws `TypeError` - for data that's neither a well-formed string nor a `Uint8Array`
+	 * @throws `TypeError` - for data that's neither a well-formed string nor a `Uint8Array`, or a
+	 * call on anything but the handle
 	 * @throws `StdioError` - `io_error`, any other write failure, like a full disk
 	 */
 	write(data: string | Uint8Array): Promise<boolean>;

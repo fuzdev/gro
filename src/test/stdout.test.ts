@@ -37,6 +37,33 @@ describe('stdout and stderr', () => {
 		assert.strictEqual(result, 5);
 	});
 
+	test('a detached view is refused, and one out of its buffer is empty', () => {
+		const result = run_fixture_json(
+			`const view = new Uint8Array(4);
+			 view.buffer.transfer();
+			 const refused = await stdout.write(view).then(String, (e) => e.constructor.name + ': ' + e.message);
+			 const resizable = new ArrayBuffer(8, { maxByteLength: 8 });
+			 const out_of_bounds = new Uint8Array(resizable, 0, 4);
+			 resizable.resize(2);
+			 const empty = await stdout.write(out_of_bounds).then(String, (e) => e.constructor.name);
+			 console.log(JSON.stringify([refused, empty]));`
+		);
+		assert.deepEqual(result, ["TypeError: stdio can't write a view of a detached buffer", 'true']);
+	});
+
+	test('a call on anything but the handle rejects rather than throws', () => {
+		const result = run_fixture_json(
+			`const { write } = stdout;
+			 let promise;
+			 try { promise = write.call({}, 'x'); } catch (e) { promise = 'threw ' + e.constructor.name; }
+			 const settled = typeof promise === 'string'
+				? promise
+				: await promise.then(() => 'resolved', (e) => 'rejected ' + e.constructor.name);
+			 console.log(JSON.stringify(settled));`
+		);
+		assert.strictEqual(result, 'rejected TypeError');
+	});
+
 	test('an empty write resolves true', () => {
 		const result = run_fixture_json(
 			`console.log(JSON.stringify([await stdout.write(''), await stdout.write(new Uint8Array(0))]));`
