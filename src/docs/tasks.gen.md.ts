@@ -1,5 +1,3 @@
-import { dirname, join, relative } from 'node:path';
-
 import type { Gen } from '../lib/gen.ts';
 import { fs } from '../lib/fs.ts';
 import { create_fs_paths } from '../lib/fs_paths.ts';
@@ -7,6 +5,7 @@ import { cwd } from '../lib/cwd.ts';
 import { env } from '../lib/env.ts';
 import { task_registry_find_builtins } from '../lib/task_registry.ts';
 import { import_module_node } from '../lib/internal/node_import_module.ts';
+import { posix_dirname, posix_join, posix_relative } from '../lib/internal/posix_path.ts';
 import {
 	create_gen_doc_context,
 	create_root_link,
@@ -28,7 +27,7 @@ import {
 export const gen: Gen = async ({ origin_id }) => {
 	// read from the task modules, not the generated summaries, so one `gro gen` pass is enough
 	// Gro's `src/lib/`, beside this genfile's `src/docs/`
-	const src_lib_path = join(dirname(origin_id), '../lib');
+	const src_lib_path = posix_join(posix_dirname(origin_id), '../lib');
 	const opened = await create_fs_paths(fs, { cwd: cwd(), home: env.get('HOME') }).open_dir_path(
 		src_lib_path
 	);
@@ -60,7 +59,7 @@ What is a \`Task\`? See [\`task.md\`](./task.md).
 ${tasks.reduce(
 	(result, task) =>
 		result +
-		`- [${task.name}](${relative(origin_dir, task.id)})${
+		`- [${task.name}](${posix_relative(origin_dir, task.id)})${
 			task.summary ? ` - ${task.summary}` : ''
 		}\n`,
 	''

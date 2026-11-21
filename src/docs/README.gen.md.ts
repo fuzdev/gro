@@ -1,10 +1,11 @@
-import { basename, join } from 'node:path';
+import { strip_end } from '@fuzdev/fuz_util/string.ts';
 
 import type { Gen } from '../lib/gen.ts';
 import { fs } from '../lib/fs.ts';
 import { create_fs_paths } from '../lib/fs_paths.ts';
 import { cwd } from '../lib/cwd.ts';
 import { env } from '../lib/env.ts';
+import { posix_basename, posix_join } from '../lib/internal/posix_path.ts';
 import {
 	create_gen_doc_context,
 	create_root_link,
@@ -55,7 +56,7 @@ export const gen: Gen = {
 			doc_paths.push(path);
 		}
 
-		const runtime_index_file = await fs_paths.open_path(join(origin_dir, RUNTIME_INDEX_FILE));
+		const runtime_index_file = await fs_paths.open_path(posix_join(origin_dir, RUNTIME_INDEX_FILE));
 		const runtime_index = await runtime_index_file.dir.read_text_if_exists(runtime_index_file.path);
 		const runtime_paths =
 			runtime_index === null
@@ -88,4 +89,7 @@ ${create_gen_footer(origin_base)}
 };
 
 const render_doc_list = (paths: Array<string>, indent: string): string =>
-	paths.reduce((result, path) => result + `${indent}- [${basename(path, '.md')}](${path})\n`, '');
+	paths.reduce(
+		(result, path) => result + `${indent}- [${strip_end(posix_basename(path), '.md')}](${path})\n`,
+		''
+	);

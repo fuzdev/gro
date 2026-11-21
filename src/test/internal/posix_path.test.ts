@@ -1,5 +1,6 @@
 import { test, assert } from 'vitest';
 import { posix } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 import {
 	posix_basename,
@@ -8,7 +9,8 @@ import {
 	posix_join,
 	posix_normalize,
 	posix_relative,
-	posix_resolve
+	posix_resolve,
+	to_file_url
 } from '#lib/internal/posix_path.ts';
 
 /*
@@ -133,4 +135,22 @@ test('posix_relative refuses a relative path, which posix.relative reads against
 	] as const) {
 		assert.throws(() => posix_relative(from, to), TypeError, 'absolute paths');
 	}
+});
+
+test('to_file_url writes the URL of an absolute path as pathToFileURL does', () => {
+	const paths = PATHS.filter((path) => path.startsWith('/'));
+	// every character of the first two Unicode blocks beyond ASCII, and the shapes around them
+	for (let code = 0; code < 0x800; code++) {
+		const char = String.fromCharCode(code);
+		if (char !== '/') paths.push(`/a${char}b`, `/${char}/`, `/a/${char}${char}.ts`);
+	}
+	paths.push('/a\u{1f600}b', '/a\ud800b', '/a\udc00', '/a b/../c%20d#e?f/');
+	for (const path of paths) {
+		assert.strictEqual(to_file_url(path), pathToFileURL(path).href, JSON.stringify(path));
+	}
+});
+
+test('to_file_url refuses a relative path, which pathToFileURL reads against the cwd', () => {
+	assert.throws(() => to_file_url('a/b.ts'), TypeError);
+	assert.throws(() => to_file_url(''), TypeError);
 });

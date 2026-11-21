@@ -1,9 +1,14 @@
-import { dirname, relative, basename, join } from 'node:path';
 import { parse_path_parts, parse_path_segments } from '@fuzdev/fuz_util/path.ts';
 import { strip_start } from '@fuzdev/fuz_util/string.ts';
 
 import { to_output_file_name } from '../lib/gen.ts';
 import { gro_paths } from '../lib/paths.ts';
+import {
+	posix_basename,
+	posix_dirname,
+	posix_join,
+	posix_relative
+} from '../lib/internal/posix_path.ts';
 
 // TODO maybe extract some of these to `gen_helpers.ts` in `src/lib`
 
@@ -23,11 +28,11 @@ export interface GenDocContext {
  */
 export const create_gen_doc_context = (origin_id: string): GenDocContext => {
 	const root_path = parse_path_segments(gro_paths.root).at(-1);
-	const origin_dir = dirname(origin_id);
-	const origin_base = basename(origin_id);
+	const origin_dir = posix_dirname(origin_id);
+	const origin_base = posix_basename(origin_id);
 	const base_dir = gro_paths.source;
 	const relative_path = strip_start(origin_id, base_dir);
-	const relative_dir = dirname(relative_path);
+	const relative_dir = posix_dirname(relative_path);
 	const output_file_name = to_output_file_name(origin_base);
 
 	return {
@@ -62,7 +67,8 @@ export const create_breadcrumbs = (
 		if (is_index_file && relative_path_part === relative_dir) {
 			return segment;
 		}
-		const href = relative(origin_dir, join(gro_paths.source, relative_path_part)) || './';
+		const href =
+			posix_relative(origin_dir, posix_join(gro_paths.source, relative_path_part)) || './';
 		const final_href = href === '/..' ? '/../..' : href; // for GitHub, link to the right place, never `/blob`
 		return `[${segment}](${final_href})`;
 	});

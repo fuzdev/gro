@@ -27,7 +27,7 @@ export type LoadModuleFailure =
  * Imports the project module at an absolute path, resolving to its namespace:
  * how Gro loads a project's files, its tasks, genfiles, and `gro.config.ts`,
  * given by the composition root. The Node Gro's is `import_module_node`,
- * `(id) => import(pathToFileURL(id).href)`.
+ * `(id) => import(to_file_url(id))`.
  */
 export type ImportModule = (id: PathId) => Promise<Record<string, any>>;
 

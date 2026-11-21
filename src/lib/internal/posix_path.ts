@@ -130,3 +130,34 @@ export const posix_relative = (from: string, to: string): string => {
 // the segments of a resolved absolute path, none for `/`
 const to_segments = (resolved: string): Array<string> =>
 	resolved === '/' ? [] : resolved.slice(1).split('/');
+
+// what a `file:` URL's path keeps as written, as `pathToFileURL` keeps it; anything else is
+// percent-encoded as UTF-8, a lone surrogate as U+FFFD, as `TextEncoder` encodes it
+const FILE_URL_KEPT_MATCHER = /^[!$&'()*+,\-./0-9:;=@A-Z_a-z]$/;
+
+const text_encoder = new TextEncoder();
+
+/**
+ * The `file:` URL of the absolute path `path`, resolved as `posix_resolve` resolves it,
+ * a trailing slash kept, as `pathToFileURL(path).href` writes it on POSIX:
+ * a character that's URL syntax (`%`, `#`, `?`), not printable ASCII, or outside the set
+ * `pathToFileURL` keeps is percent-encoded, so the URL names exactly the path.
+ * @throws `TypeError` - when `path` isn't absolute, which `pathToFileURL` would read against
+ * the working directory
+ */
+export const to_file_url = (path: string): string => {
+	if (!path.startsWith('/')) throw new TypeError(`to_file_url takes an absolute path: ${path}`);
+	let resolved = posix_resolve('/', path);
+	if (resolved !== '/' && path.endsWith('/')) resolved += '/';
+	let url = 'file://';
+	for (const char of resolved) {
+		if (FILE_URL_KEPT_MATCHER.test(char)) {
+			url += char;
+		} else {
+			for (const byte of text_encoder.encode(char)) {
+				url += '%' + byte.toString(16).toUpperCase().padStart(2, '0');
+			}
+		}
+	}
+	return url;
+};
