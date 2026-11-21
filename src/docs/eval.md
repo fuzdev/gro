@@ -179,6 +179,7 @@ when it has none, as for `@fuzdev/gro/cwd.ts`, `pid.ts`, and `runtime_version.ts
 ([resolver](resolver.md#builtin-modules)), or, with an import attribute, a `link`.
 The host functions behind a builtin module refuse in an eval too, whatever reached them.
 A specifier the builtin table reserves (`@fuzdev/gro/args.js`, a host module not built yet, `@fuzdev/gro/process.ts`, a respelling of any of these or of a builtin module's) is a `resolve` before that, as in [run](run.md).
+Any other specifier of `@fuzdev/gro` is a `resolve` too, since an eval holds no copy of [Gro's library](resolver.md#gros-library).
 
 Each `package.json` the run's resolutions read is read once, as [resolver](resolver.md#departures-from-node) describes.
 

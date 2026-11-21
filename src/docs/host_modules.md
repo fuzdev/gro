@@ -291,7 +291,8 @@ Its results are sorted by path segment by segment, each compared by code point, 
 and a search lists in one order on every machine whatever its locale; `sort: false` leaves them in the order found:
 each directory's entries in `list`'s order, but sibling directories are searched concurrently,
 so the order across directories isn't fixed.
-It's a module of Gro's package, not a builtin, so `fgro` loads it from the npm package, granted nothing:
+It's a module of Gro's library, not a builtin, so `fgro` loads it from its own copy of Gro's library, granted nothing
+([resolver](resolver.md#gros-library)):
 it reaches only the handle it's given, through `stat` and `list`.
 Gro's own sweeps, like `gro format`'s, act on regular files only and skip a symlink, as tsv's walk does.
 

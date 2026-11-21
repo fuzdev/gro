@@ -5,7 +5,7 @@ use std::io;
 use std::path::PathBuf;
 
 use super::CONDITIONS;
-use super::builtin::{Reserved, UNBUILT_HOST_MODULES};
+use super::builtin::{GRO_PACKAGE, Reserved, UNBUILT_HOST_MODULES};
 use super::roots::{Origin, Root};
 use super::tree::ReadRefusal;
 use crate::BINARY_NAME;
@@ -73,6 +73,36 @@ pub enum ResolveErrorKind {
     /// any package lookup, so it never resolves to a package, gro's own Node
     /// implementation included.
     Reserved(Reserved),
+    /// A specifier of Gro's package, or an embedded module's relative one,
+    /// naming a module of Gro's library the run doesn't serve. Gro's
+    /// package is the binary's own, so such a specifier never resolves to a
+    /// package, Gro's Node copy included.
+    GroModule {
+        /// The module's path in Gro's `src/lib`, as the specifier names it.
+        path: Box<str>,
+        /// Why it isn't served.
+        fault: GroModuleFault,
+    },
+    /// A specifier of Gro's package that isn't a builtin, in a run that
+    /// holds no copy of Gro's library: its embedder handed none in, as
+    /// eval's doesn't, or the copy failed to load, for the reason given.
+    NoGroLibrary(Option<Box<str>>),
+    /// A specifier of an embedded module that leaves Gro's library: a
+    /// relative one above `src/lib`, or one that is neither relative nor
+    /// bare (absolute, a URL, a `#` specifier). An embedded module reaches
+    /// Gro's other modules only by relative specifiers, and packages by
+    /// name.
+    OutsideGroLibrary,
+    /// An embedded module's bare import that resolves to the project's own
+    /// modules, a package of that name linked to the project's directory.
+    /// The project's modules hold its grants, and Gro's library, which
+    /// holds none, never imports them by name.
+    GroImportsProject {
+        /// The module's path, as the project's `"exports"` name it.
+        path: PathBuf,
+        /// The project root's real directory.
+        project: PathBuf,
+    },
     /// The empty string.
     Empty,
     /// A specifier, its resolved URL, or its importer that isn't a valid
@@ -332,6 +362,21 @@ pub enum ResolveErrorKind {
     ReadOutsideBox(PathBuf),
 }
 
+/// Why a module of Gro's library isn't served.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GroModuleFault {
+    /// One of Gro's modules that run only on Node, which the binary leaves
+    /// out of its copy.
+    NodeOnly,
+    /// No module of Gro's has the path.
+    Missing,
+    /// A module under `internal/`, which Gro's package doesn't export, as
+    /// its `"exports"` null `./internal/*`.
+    Internal,
+    /// The `.js` spelling of an embedded module's `.ts` path.
+    JsSpelling,
+}
+
 /// Why a specifier, its resolved URL, or its importer isn't a valid file
 /// URL.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -438,8 +483,10 @@ impl ResolveErrorKind {
     /// name the builtin table reserves, a package found through a
     /// world-writable directory, a path or `"exports"` target that leaves its
     /// root or crosses into another's, a package's import of the project, a
-    /// module whose origin is unclear, or a read outside the box. Nothing
-    /// there is a missing file or package, a malformed specifier or package,
+    /// module of Gro's library reaching outside it or importing the project
+    /// by name, a module whose origin is unclear, or a read outside the box.
+    /// Nothing there is a missing file or package, a module of Gro's the run
+    /// doesn't serve, a malformed specifier or package,
     /// a format or feature `fgro` doesn't load (a `.cts` file or a `.js` one
     /// outside `"type": "module"`, JSX, an unsupported extension, `node:`, a
     /// registry, a `#` specifier mapped to a package), or a failed read: the
@@ -459,6 +506,8 @@ impl ResolveErrorKind {
             | Self::IntoNodeModules { .. }
             | Self::IntoPackageRoot { .. }
             | Self::PackageImportsProject { .. }
+            | Self::OutsideGroLibrary
+            | Self::GroImportsProject { .. }
             | Self::InNoPackage(_)
             | Self::RootConflict { .. }
             | Self::ReadOutsideBox(_) => true,
@@ -471,6 +520,8 @@ impl ResolveErrorKind {
             | Self::NoImportScope { .. }
             | Self::ImportNotDefined { .. }
             | Self::ImportsPackage { .. }
+            | Self::GroModule { .. }
+            | Self::NoGroLibrary(_)
             | Self::Empty
             | Self::InvalidUrl(
                 UrlFault::Join(_)
@@ -650,6 +701,56 @@ impl fmt::Display for ResolveErrorKind {
                      with gro"
                 )
             }
+            Self::GroModule { path, fault } => match fault {
+                GroModuleFault::NodeOnly => write!(
+                    f,
+                    "it names Gro's module '{path}', which runs only on Node, so {BINARY_NAME} \
+                     doesn't carry it, and a specifier of Gro's never resolves to a package. \
+                     Fix: run this under Node with gro"
+                ),
+                GroModuleFault::Missing => write!(
+                    f,
+                    "Gro has no module '{path}': {BINARY_NAME} carries Gro's library, so a \
+                     specifier of Gro's names one of its modules by its path in src/lib, and \
+                     never resolves to a package"
+                ),
+                GroModuleFault::Internal => write!(
+                    f,
+                    "it names Gro's internal module '{path}', which Gro's package doesn't \
+                     export. Fix: import what Gro exports"
+                ),
+                GroModuleFault::JsSpelling => {
+                    let ts = path.strip_suffix(".js").unwrap_or(path);
+                    write!(
+                        f,
+                        "it is the .js spelling of Gro's module '{ts}.ts', and a specifier of \
+                         Gro's never resolves to a package. Fix: import '{GRO_PACKAGE}/{ts}.ts'"
+                    )
+                }
+            },
+            Self::NoGroLibrary(None) => write!(
+                f,
+                "this run holds no copy of Gro's library, so of Gro's modules only its host \
+                 modules load, and a specifier of Gro's never resolves to a package"
+            ),
+            Self::NoGroLibrary(Some(reason)) => write!(
+                f,
+                "this run's copy of Gro's library failed to load ({reason}), and a specifier \
+                 of Gro's never resolves to a package"
+            ),
+            Self::OutsideGroLibrary => f.write_str(
+                "a module of Gro's library imports only Gro's other modules, by a relative \
+                 specifier that stays inside its src/lib, and packages by name",
+            ),
+            Self::GroImportsProject { path, project } => write!(
+                f,
+                "Gro's library imports it by name, and it resolves to {}, a module of the \
+                 project at {}: Gro's library holds no grant and never imports the project's \
+                 own modules, which hold the project's. Fix: install the package into \
+                 node_modules rather than linking the project",
+                path.display(),
+                project.display()
+            ),
             Self::Empty => f.write_str("the specifier is empty"),
             Self::InvalidUrl(fault) => write!(f, "not a valid file URL: {fault}"),
             Self::InvalidPackageName => f.write_str(
@@ -915,7 +1016,7 @@ impl fmt::Display for ResolveErrorKind {
                                 ", which only a bare specifier reaches, through its \"exports\". \
                                  Fix: import it by name ('{name}' or a subpath it exports)"
                             ),
-                            Origin::Project => {
+                            Origin::Project | Origin::Embedded => {
                                 f.write_str(", which a package's modules never reach")
                             }
                         }
@@ -1043,7 +1144,9 @@ impl fmt::Display for ResolveErrorKind {
                         ", which only a bare specifier reaches, through its \"exports\". Fix: \
                          import it by name ('{name}' or a subpath it exports)"
                     ),
-                    Origin::Project => f.write_str(", which a package's modules never reach"),
+                    Origin::Project | Origin::Embedded => {
+                        f.write_str(", which a package's modules never reach")
+                    }
                 }
             }
             Self::RootConflict {
@@ -1062,7 +1165,7 @@ impl fmt::Display for ResolveErrorKind {
                     return Ok(());
                 };
                 match &recorded.origin {
-                    Origin::Project => write!(
+                    Origin::Project | Origin::Embedded => write!(
                         f,
                         ". Fix: import it by name ('{name}' or a subpath it exports) everywhere, \
                          not by a relative path"

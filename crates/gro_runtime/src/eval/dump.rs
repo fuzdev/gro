@@ -22,7 +22,7 @@ use std::path::{Component, Path, PathBuf};
 use serde::Serialize;
 use url::Url;
 
-use crate::loader::graph::{Graph, Reach};
+use crate::loader::graph::{Graph, Reach, Record};
 use crate::resolver::{ModuleFormat, Origin, PackageField};
 
 /// The dump's version, its first field.
@@ -180,6 +180,10 @@ pub enum DumpError {
     /// which fails the eval as `internal`.
     #[error("the graph records the builtin module {0}, which eval never imports")]
     Builtin(Url),
+    /// A module of Gro's embedded library is recorded, which eval never
+    /// holds: a host bug, which fails the eval as `internal`.
+    #[error("the graph records Gro's embedded module {0}, which eval never holds")]
+    Embedded(Url),
 }
 
 /// The dump of `graph`, whose entry is `entry` and whose process was
@@ -275,11 +279,10 @@ fn dump_modules(graph: &Graph, ids: &mut Ids<'_>) -> Result<Vec<DumpModule>, Dum
     let records = graph
         .records()
         .iter()
-        .map(|(url, record)| {
-            record
-                .module()
-                .map(|record| (url, record))
-                .ok_or_else(|| DumpError::Builtin(url.clone()))
+        .map(|(url, record)| match record {
+            Record::Module(record) => Ok((url, record)),
+            Record::Builtin(_) => Err(DumpError::Builtin(url.clone())),
+            Record::Embedded(_) => Err(DumpError::Embedded(url.clone())),
         })
         .collect::<Result<Vec<_>, _>>()?;
     let mut imports: BTreeMap<&Url, Vec<DumpImport>> = BTreeMap::new();
@@ -313,6 +316,8 @@ fn dump_modules(graph: &Graph, ids: &mut Ids<'_>) -> Result<Vec<DumpModule>, Dum
                     version: version.clone(),
                     linked: *linked,
                 },
+                // no root has it: an embedded module's record isn't a root's
+                Origin::Embedded => return Err(DumpError::Embedded(url.clone())),
             },
             format: record.loaded.map(|loaded| match loaded.format {
                 ModuleFormat::JavaScript => DumpFormat::Javascript,

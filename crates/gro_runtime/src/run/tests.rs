@@ -15,6 +15,7 @@ use crate::{RuntimeOptions, STACK_SIZE, bootstrap};
 
 mod attributes;
 mod builtins;
+mod embedded;
 mod exit;
 mod graph;
 mod observations;

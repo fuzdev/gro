@@ -39,7 +39,8 @@
 //!   absolute specifiers with mandatory extensions, and packages in
 //!   `node_modules` through their `"exports"`, each module kept inside its
 //!   project's or package's root; `.mjs`, `.ts`, and `.mts` load, and `.js`
-//!   under `"type": "module"`)
+//!   under `"type": "module"`; a specifier of Gro's package is a builtin or
+//!   Gro's embedded library, never a package)
 //! - [`file_id`]: a file's identity, which the resolver takes as it finds a
 //!   file, and the loader and the fs host module hold a file they open to
 //! - `loader`: the `deno_core` module loader, an adapter over the resolver
@@ -74,8 +75,9 @@
 //!   embedded by the binary that starts from it
 //! - [`embed`]: Gro's own library as the binary carries it, the modules of
 //!   `src/lib` that `src/embed.json` lists, stripped of their types at build
-//!   time and stored as one blob of offsets and text, which no command loads
-//!   yet
+//!   time and stored as one blob of offsets and text, which the embedder
+//!   hands a run ([`RuntimeOptions::embed`]) and the loader serves as they
+//!   are, their origin Gro's, which holds no grant
 //! - [`phases`]: a timestamp at each phase boundary of a run, for the
 //!   measurement harness, recorded only under the `phases` feature
 //! - [`prices`]: switches that each turn off one of eval's defaults, for the
@@ -182,6 +184,12 @@ pub struct RuntimeOptions {
     /// The authority the runtime's code holds: confined, granting nothing,
     /// by default.
     pub authority: Authority,
+    /// How the run gets Gro's own library, the embedder's copy, which a
+    /// specifier of Gro's package that isn't a builtin resolves to, never a
+    /// package: called the first time one does, so a run that names none
+    /// decodes nothing. Without one, such a specifier is refused. The
+    /// runtime embeds no library of its own.
+    pub embed: Option<embed::LoadEmbed>,
     /// The snapshot to start from, made by [`snapshot::make_snapshot`] from
     /// this same build. Without one, the runtime evaluates its extensions'
     /// sources at startup.
@@ -283,12 +291,14 @@ pub enum ConsoleRouting {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Authority {
     /// The grants given, to the project's own modules only: a module of an
-    /// installed or linked package is refused every builtin that needs a
-    /// grant, and imports a grant-free one as the project does.
+    /// installed or linked package, or of Gro's embedded library, is refused
+    /// every builtin that needs a grant, and imports a grant-free one as the
+    /// project does.
     Confined(Grants),
     /// Every grant at its widest, to every module of the run, a package's
-    /// included: each builtin module the runtime serves, whatever it needs,
-    /// and each scoped grant whole (every environment variable). What the
+    /// included, but Gro's embedded library, which holds none: each builtin
+    /// module the runtime serves, whatever it needs, and each scoped grant
+    /// whole (every environment variable). What the
     /// resolver and the loader refuse by rule apart from a grant stays
     /// refused: a host module not built yet, a reserved specifier, a
     /// package's import of the project, an `import()` in code compiled

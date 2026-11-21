@@ -237,7 +237,7 @@ Each bullet marks what's built; anything unmarked past the omissions is designed
   A run or an eval that is over exits without tearing its runtime down (built), leaving the OS to reclaim it.
   A code cache entry is code to V8, so who writes the cache is the whole defense,
   and confined runs read none: Gro's own code is embedded in the binary, its types stripped when the binary is built,
-  and compiled from that copy as a command starts (the copy built, its loading designed),
+  and compiled from that copy when a run first imports one of its modules (built for `fgro run`; the verb's start designed),
   and `gro eval` and hermetic runs never read a cache.
   A writer outside the box, compiling from source itself, is the route if a measurement on third-party graphs shows a cache worth it,
   and a cache for unconfined runs is undecided ([backstop](backstop.md#open)).
@@ -370,7 +370,7 @@ where the host modules and grants land with their first consumer.
       with probes for a symlink and a hard link out of the roots, each killed syscall, a same-realm `then` patch,
       an escape sequence in confined output, and a child reaching a unix socket,
       with the type strip fuzzed over real packages, since it runs on `node_modules`
-- [ ] startup: Gro's own code embedded in the binary, stripped at build time (built), and loaded as a command starts,
+- [ ] startup: Gro's own code embedded in the binary, stripped at build time and loaded when a run first imports it (built for `fgro run`; the verb's start designed),
       and lazy host init (built for the builtin modules, each run on its first import), with no code cache for confined runs
 - [ ] the seal on the global object, with named exceptions, and a free `fetch`'s error naming the import
 - [ ] the host modules (fs, spawn, watch, net, and the process modules), the grants

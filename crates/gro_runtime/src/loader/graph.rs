@@ -13,7 +13,9 @@
 //!   once loaded, its [`ModuleFormat`] and the BLAKE3 hash of the bytes read
 //!   for it; a builtin's with the builtin, once an import of it is granted.
 //!   The first record stands, so a module's identity, format, and hash
-//!   describe one file, the one the load checked and V8 ran.
+//!   describe one file, the one the load checked and V8 ran. A module of
+//!   Gro's embedded library is recorded with its path and code, which it
+//!   loads from, having no file.
 //! - **Edges**: each import that resolved and was admitted, by its importer,
 //!   its specifier as written, and how it was reached ([`Reach`]), to the
 //!   URL it resolved to. `import.meta.resolve` adds none: it imports nothing.
@@ -38,11 +40,15 @@ use tsv_ts::UnsupportedConstruct;
 use url::Url;
 
 use super::reads::{Reads, RecordingTree};
+use crate::embed::{LoadEmbed, RunEmbed};
 use crate::file_id::FileId;
 use crate::resolver::{
-    self, Builtin, ConsultedFile, ModuleFormat, Origin, PackageFields, Resolution, ResolveError,
-    ResolveErrorKind, Resolved, Root, Roots, SourceTree,
+    self, Builtin, ConsultedFile, EmbeddedModule, ModuleFormat, Origin, PackageFields, Resolution,
+    ResolveError, ResolveErrorKind, Resolved, Root, Roots, SourceTree,
 };
+
+/// The origin every embedded module's record has, which no root does.
+static EMBEDDED_ORIGIN: Origin = Origin::Embedded;
 
 /// How much a graph records beyond what loading needs.
 #[derive(Debug, Clone, Copy)]
@@ -75,6 +81,9 @@ pub struct Graph {
     recording: Recording,
     /// See [`Graph::roots`].
     roots: Roots,
+    /// The run's copy of Gro's library, which a specifier of Gro's package
+    /// and an embedded module's imports resolve in.
+    embed: RunEmbed,
     /// See [`Graph::records`].
     records: HashMap<Url, Record>,
     /// See [`Graph::edges`].
@@ -101,6 +110,9 @@ pub enum Record {
     /// A builtin: no file, no root, and never an importer, since a builtin
     /// imports nothing.
     Builtin(&'static Builtin),
+    /// A module of Gro's embedded library: no file and no root, its origin
+    /// [`Origin::Embedded`], loaded from its code as it is.
+    Embedded(EmbeddedModule),
 }
 
 /// What a URL resolved to on disk.
@@ -351,11 +363,11 @@ impl Record {
         })
     }
 
-    /// Its module's record, when it is one.
+    /// Its module's record, when it is one on disk.
     pub const fn module(&self) -> Option<&ModuleRecord> {
         match self {
             Self::Module(module) => Some(module),
-            Self::Builtin(_) => None,
+            Self::Builtin(_) | Self::Embedded(_) => None,
         }
     }
 }
@@ -367,6 +379,7 @@ impl Graph {
         let mut graph = Self {
             recording,
             roots,
+            embed: RunEmbed::default(),
             records: HashMap::new(),
             edges: BTreeMap::new(),
             consulted: BTreeMap::new(),
@@ -388,6 +401,17 @@ impl Graph {
             Self { reads, ..self }
         } else {
             self
+        }
+    }
+
+    /// The graph, a specifier of Gro's package resolving to the copy of
+    /// Gro's library `load` gives, loaded the first time one does; with
+    /// none, the graph holds no copy.
+    #[must_use]
+    pub fn with_embed(self, load: Option<LoadEmbed>) -> Self {
+        Self {
+            embed: RunEmbed::new(load),
+            ..self
         }
     }
 
@@ -449,10 +473,22 @@ impl Graph {
         }
     }
 
-    /// The origin of the recorded module at `url`, if it is one.
+    /// Records the embedded module at `url`, imported, unless it is
+    /// recorded already.
+    pub fn admit_embedded(&mut self, url: &Url, module: EmbeddedModule) {
+        if !self.records.contains_key(url) {
+            self.record(url, Record::Embedded(module));
+        }
+    }
+
+    /// The origin of the recorded module at `url`, if it is one: its root's
+    /// for a module on disk, [`Origin::Embedded`] for an embedded one.
     pub fn origin(&self, url: &Url) -> Option<&Origin> {
-        let module = self.records.get(url)?.module()?;
-        Some(&module.root.origin)
+        match self.records.get(url)? {
+            Record::Module(module) => Some(&module.root.origin),
+            Record::Embedded(_) => Some(&EMBEDDED_ORIGIN),
+            Record::Builtin(_) => None,
+        }
     }
 
     /// The project's root, and every package root a bare specifier resolved
@@ -501,24 +537,76 @@ impl Graph {
     }
 
     /// Resolves `specifier`, imported by the recorded module at `importer`,
-    /// from the root it was recorded inside, reading `tree`, through the
-    /// graph's reads when recording in full. Admits and records nothing.
-    /// `None` when `importer` was never recorded as a module.
+    /// from the root it was recorded inside, or for an embedded module from
+    /// its path in Gro's library, reading `tree`, through the graph's reads
+    /// when recording in full. Admits and records nothing. `None` when
+    /// `importer` was never recorded as a module.
     pub(crate) fn resolve(
         &mut self,
         tree: &impl SourceTree,
         specifier: &str,
         importer: &Url,
     ) -> Option<Result<Resolved, ResolveError>> {
-        // the record's root is the one its path is inside: admitting a root
-        // around a recorded module is a conflict, so none moves it
-        let importer_root = &self.records.get(importer)?.module()?.root;
-        Some(if self.recording.is_full() {
-            let tree = RecordingTree::new(tree, &mut self.reads);
-            resolver::resolve_from(&tree, specifier, importer, importer_root, &self.roots)
-        } else {
-            resolver::resolve_from(tree, specifier, importer, importer_root, &self.roots)
-        })
+        match self.records.get(importer)? {
+            // the record's root is the one its path is inside: admitting a
+            // root around a recorded module is a conflict, so none moves it
+            Record::Module(module) => {
+                let importer_root = &module.root;
+                // obtained only for a specifier that reads it, so a run that
+                // names none never loads its copy; otherwise never read
+                let library = if resolver::needs_gro_library(specifier) {
+                    self.embed.get()
+                } else {
+                    Err(None)
+                };
+                Some(if self.recording.is_full() {
+                    let tree = RecordingTree::new(tree, &mut self.reads);
+                    resolver::resolve_from(
+                        &tree,
+                        library,
+                        specifier,
+                        importer,
+                        importer_root,
+                        &self.roots,
+                    )
+                } else {
+                    resolver::resolve_from(
+                        tree,
+                        library,
+                        specifier,
+                        importer,
+                        importer_root,
+                        &self.roots,
+                    )
+                })
+            }
+            Record::Embedded(module) => {
+                let path = module.path;
+                // loaded already: the importer came from it
+                let library = self.embed.get();
+                Some(if self.recording.is_full() {
+                    let tree = RecordingTree::new(tree, &mut self.reads);
+                    resolver::resolve_from_embedded(
+                        &tree,
+                        library,
+                        specifier,
+                        importer,
+                        path,
+                        &self.roots,
+                    )
+                } else {
+                    resolver::resolve_from_embedded(
+                        tree,
+                        library,
+                        specifier,
+                        importer,
+                        path,
+                        &self.roots,
+                    )
+                })
+            }
+            Record::Builtin(_) => None,
+        }
     }
 
     /// How much the graph records.

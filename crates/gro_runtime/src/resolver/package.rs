@@ -103,26 +103,31 @@ pub(super) fn resolve_import(
     })
 }
 
-/// Resolves a bare specifier, imported by the module at `importer_path`
-/// inside `importer_root`, to its package's `"exports"` target and root. A
-/// package root already in `roots` keeps the origin it was admitted with.
+/// Resolves a bare specifier, imported from the directory `importer_dir`,
+/// to its package's `"exports"` target and root. A package root already in
+/// `roots` keeps the origin it was admitted with.
+///
+/// `self_reference` is the importer's root when the importer is a module
+/// there, whose own package a specifier of its name resolves through first;
+/// unset, as for Gro's embedded library, which has no package around it,
+/// the search goes straight to `node_modules`.
 pub(super) fn resolve_package(
     tree: &impl SourceTree,
     specifier: &str,
-    importer_path: &Path,
-    importer_root: &Root,
+    importer_dir: &Path,
+    self_reference: Option<&Root>,
     roots: &Roots,
     consulted: &mut Consulted,
 ) -> Result<Package, ResolveErrorKind> {
     let (name, subpath) = parse_package_name(specifier)?;
-    let importer_dir = importer_path.parent().unwrap_or(importer_path);
 
     // a self-reference: the importer's own package, by its name, resolved from
     // the directory the package.json was found in (the importer's real one),
     // not the file's real path, which a symlinked package.json moves
     let scope = package_scope(tree, importer_dir)?;
     let scope = scope.found();
-    if let Some(scope) = scope
+    if let Some(importer_root) = self_reference
+        && let Some(scope) = scope
         && let Some(exports) = scope.exports(consulted)
         && scope.name(consulted) == Some(name)
     {

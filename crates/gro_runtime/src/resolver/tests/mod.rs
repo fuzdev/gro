@@ -2,6 +2,7 @@
 
 mod builtins;
 mod containment;
+mod embedded;
 mod exports;
 mod identity;
 mod imports;
@@ -13,15 +14,17 @@ mod tree;
 mod walk;
 
 use std::collections::BTreeMap;
+use std::sync::LazyLock;
 
 use url::Url;
 
+use crate::embed::{Embed, EmbedContents, encode};
 use crate::resolver::entry::entry_roots;
 use crate::resolver::test_tree::MemoryTree;
 use crate::resolver::walk::Consulted;
 use crate::resolver::{
-    Resolution, ResolveError, ResolveErrorKind, Resolved, Roots, SourceTree, importer_path,
-    resolve_from,
+    GroLibrary, Resolution, ResolveError, ResolveErrorKind, Resolved, Roots, SourceTree,
+    importer_path, resolve_from,
 };
 
 /// Resolves as `resolve_from` does, the importer's root found as the one
@@ -36,7 +39,79 @@ pub(super) fn resolve_any(
     let importer_root = roots
         .containing(&importer_path)
         .expect("the importer is inside one of the roots");
-    resolve_from(tree, specifier, importer, importer_root, roots)
+    resolve_from(tree, Err(None), specifier, importer, importer_root, roots)
+}
+
+/// Resolves as [`resolve_any`] does, a specifier of Gro's package resolving
+/// in [`test_library`].
+pub(super) fn resolve_gro(
+    tree: &impl SourceTree,
+    specifier: &str,
+    importer: &Url,
+    roots: &Roots,
+) -> Result<Resolved, ResolveError> {
+    let importer_path = importer_path(importer).expect("the importer names a local path");
+    let importer_root = roots
+        .containing(&importer_path)
+        .expect("the importer is inside one of the roots");
+    resolve_from(
+        tree,
+        test_library(),
+        specifier,
+        importer,
+        importer_root,
+        roots,
+    )
+}
+
+/// The modules of [`test_library`], `(path, code)`.
+pub(super) const TEST_EMBED_MODULES: [(&str, &str); 6] = [
+    ("dir/a.ts", "export const a = 'a';\n"),
+    ("fs_paths.ts", "export const fs_paths = 'PATHS';\n"),
+    ("index.ts", "export { TaskError } from './task_error.ts';\n"),
+    ("internal/posix_path.ts", "export const sep = '/';\n"),
+    ("task_args.ts", "export const task_args = 'ARGS';\n"),
+    ("task_error.ts", "export class TaskError extends Error {}\n"),
+];
+
+/// The paths [`test_library`] leaves out to run on Node.
+pub(super) const TEST_EMBED_LEFT_OUT: [&str; 3] = ["build.task.ts", "invoke.ts", "library_load.ts"];
+
+/// The peers of [`test_library`], `(name, range)`.
+pub(super) const TEST_EMBED_PEERS: [(&str, &str); 2] =
+    [("@fuzdev/fuz_util", ">=0.83.0"), ("dep", "^1")];
+
+/// The blob of [`test_library`], made once.
+fn test_blob() -> Embed<'static> {
+    static BLOB: LazyLock<Vec<u8>> = LazyLock::new(|| {
+        let owned = |pairs: &[(&str, &str)]| {
+            pairs
+                .iter()
+                .map(|(a, b)| ((*a).to_owned(), (*b).to_owned()))
+                .collect()
+        };
+        encode(&EmbedContents {
+            modules: owned(&TEST_EMBED_MODULES),
+            left_out: TEST_EMBED_LEFT_OUT
+                .iter()
+                .map(|path| (*path).to_owned())
+                .collect(),
+            peers: owned(&TEST_EMBED_PEERS),
+        })
+        .expect("the test embed encodes")
+    });
+    Embed::decode(&BLOB).expect("the test embed decodes")
+}
+
+/// A copy of Gro's library for the resolver's tests: the modules
+/// [`TEST_EMBED_MODULES`] holds, [`TEST_EMBED_LEFT_OUT`] left out, and the
+/// peers [`TEST_EMBED_PEERS`].
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "it's the library as a resolution is handed it, a `Result`"
+)]
+pub(super) fn test_library() -> GroLibrary<'static> {
+    Ok(test_blob())
 }
 
 /// Resolves as [`resolve_any`] does, to a module on disk, which it must be.
@@ -49,6 +124,7 @@ pub(super) fn resolve(
     resolve_any(tree, specifier, importer, roots).map(|resolved| match resolved {
         Resolved::Module(resolution) => resolution,
         Resolved::Builtin(builtin) => panic!("{specifier} resolved to {builtin:?}"),
+        Resolved::Embedded(module) => panic!("{specifier} resolved to {module:?}"),
     })
 }
 

@@ -32,8 +32,9 @@
 //!   makes it in two stages, the first running the internal
 //!   `fgro make-snapshot <dir>` and `fgro make-embed <src> <dir>`.
 //!   Without it, `fgro` evaluates the runtime's sources at startup, reading
-//!   the web extensions' JS from the build tree, embeds no library, and
-//!   names Cargo's version
+//!   the web extensions' JS from the build tree, embeds no library but
+//!   makes its copy from the build tree's `src/` the first time a run needs
+//!   it (`embed::load_embed`), and names Cargo's version
 //! - `phases` writes a timestamp at each phase boundary to the file
 //!   `GRO_PHASES_FILE` names (`gro_runtime::phases`), for
 //!   `cargo xtask bench --phases`

@@ -1,5 +1,6 @@
 //! The strict ESM resolver: turns an import specifier into the `file:` URL of
-//! a module on disk, or a builtin's `builtin:` URL.
+//! a module on disk, a builtin's `builtin:` URL, or the `gro:` URL of a
+//! module of Gro's embedded library (`embedded.rs`).
 //!
 //! The rules and every departure from Node are `src/docs/resolver.md`'s;
 //! this covers what a reader of the code needs beside them.
@@ -18,7 +19,9 @@
 //! builtin ([`Resolved::Builtin`]) before any package lookup, reading
 //! nothing; whether its importer may import it is the loader's to decide.
 //! One the table reserves ([`find_reserved`]) is refused there, for every
-//! importer, reading nothing.
+//! importer, reading nothing, and any other specifier of Gro's package is
+//! Gro's embedded module ([`Resolved::Embedded`]), from the run's copy alone,
+//! never a package, whose own imports resolve inside it.
 //!
 //! Details the published doc leaves to the code:
 //!
@@ -67,6 +70,7 @@
 //! empty segment with [`TargetFault::EmptySegment`].
 
 mod builtin;
+mod embedded;
 mod entry;
 mod error;
 mod exports;
@@ -89,9 +93,14 @@ pub use builtin::{
     host_modules,
 };
 pub(crate) use builtin::{builtin_rows, builtin_url};
+pub use embedded::{EMBEDDED_URL_PREFIX, EmbeddedModule};
+pub(crate) use embedded::{
+    GroLibrary, find_embedded_builtin, needs_gro_library, resolve_from_embedded,
+};
 pub use entry::{EntryBound, normalize, resolve_entry, resolve_entry_with_bound};
 pub use error::{
-    MapField, PackageSearchBound, ResolveError, ResolveErrorKind, TargetFault, UrlFault,
+    GroModuleFault, MapField, PackageSearchBound, ResolveError, ResolveErrorKind, TargetFault,
+    UrlFault,
 };
 pub use format::{ModuleFormat, module_format};
 pub use roots::{Origin, Root, Roots};
@@ -103,6 +112,7 @@ use url::Url;
 
 use crate::file_id::FileId;
 
+use embedded::resolve_gro_package;
 use find::find_module;
 use package::{Package, resolve_import, resolve_package};
 use roots::{contain, written_into_node_modules};
@@ -114,7 +124,7 @@ pub use walk::{ConsultedFile, PackageField, PackageFields};
 /// the first key in the package's order that is one of these wins.
 pub const CONDITIONS: [&str; 3] = ["gro", "import", "default"];
 
-/// A resolved module.
+/// A resolved module on disk.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Resolution {
     /// The module's `file:` URL: its real path, with the specifier's query and
@@ -135,20 +145,21 @@ pub struct Resolution {
 
 /// What a specifier resolved to.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[expect(
-    clippy::large_enum_variant,
-    reason = "a module is the common case, and boxing it would allocate for every resolution"
-)]
 pub enum Resolved {
     /// A module on disk.
     Module(Resolution),
     /// A builtin, which has no file and no root, and imports nothing.
     Builtin(&'static Builtin),
+    /// A module of Gro's embedded library, which has no file and no root:
+    /// its origin is [`Origin::Embedded`].
+    Embedded(EmbeddedModule),
 }
 
 /// Resolves `specifier`, imported by the module at `importer`, a real path's
 /// URL inside `importer_root`, one of `roots`, the roots its graph has
-/// admitted.
+/// admitted, a specifier of Gro's package resolving in `library`, the run's
+/// copy of Gro's library, which the caller obtains when
+/// [`needs_gro_library`] says the specifier reads it.
 ///
 /// A relative or absolute specifier resolves only inside the importer's
 /// root, never into a `node_modules` segment below it, by its real path or
@@ -160,7 +171,9 @@ pub enum Resolved {
 /// The result names the root it is inside, which a caller admits for a
 /// package; nothing is admitted here. A bare specifier the builtin table
 /// names is that builtin, whoever imports it, and one it reserves is
-/// refused, and nothing is read for either.
+/// refused, and nothing is read for either; any other of Gro's package is
+/// Gro's embedded module, never a package, read from `library` alone
+/// (`embedded.rs`).
 ///
 /// `importer_root` must be the root [`Roots::containing`] finds for the
 /// importer's path, since it decides containment: a caller that recorded
@@ -173,6 +186,7 @@ pub enum Resolved {
 /// inside its root; its kind says why.
 pub(crate) fn resolve_from(
     tree: &impl SourceTree,
+    library: GroLibrary<'_>,
     specifier: &str,
     importer: &Url,
     importer_root: &Root,
@@ -231,13 +245,18 @@ pub(crate) fn resolve_from(
             if let Some(reserved) = find_reserved(specifier) {
                 return Err(error(ResolveErrorKind::Reserved(reserved)));
             }
+            // ahead of the package lookup too: Gro's package is the binary's own
+            if let Some(resolved) = resolve_gro_package(library, specifier) {
+                return resolved.map_err(error);
+            }
             // only a bare specifier walks from the importer's path
             let importer_path = importer_path(importer).map_err(error)?;
+            let importer_dir = importer_path.parent().unwrap_or(&importer_path);
             let package = resolve_package(
                 tree,
                 specifier,
-                &importer_path,
-                importer_root,
+                importer_dir,
+                Some(importer_root),
                 roots,
                 &mut consulted,
             )

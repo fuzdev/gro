@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 
 use url::Url;
 
-use super::{kind, resolve, resolve_any, roots};
+use super::{kind, resolve, resolve_any, resolve_gro, roots};
 use crate::BINARY_NAME;
 use crate::file_id::FileId;
 use crate::resolver::test_tree::MemoryTree;
@@ -181,9 +181,9 @@ fn every_row_is_well_formed() {
 }
 
 /// A tree that records every call, of any kind.
-struct Watched {
-    tree: MemoryTree,
-    calls: RefCell<Vec<PathBuf>>,
+pub(super) struct Watched {
+    pub(super) tree: MemoryTree,
+    pub(super) calls: RefCell<Vec<PathBuf>>,
 }
 
 impl SourceTree for Watched {
@@ -206,7 +206,7 @@ impl SourceTree for Watched {
 /// A project named `@fuzdev/gro` exporting `./args.ts` itself, with the
 /// npm package installed too and a package `dep` beside it, so a package
 /// lookup of the builtin's specifier would succeed twice over.
-fn shadowed() -> MemoryTree {
+pub(super) fn shadowed() -> MemoryTree {
     MemoryTree {
         files: BTreeMap::from([
             (
@@ -258,18 +258,29 @@ fn a_table_hit_reads_nothing() {
     assert_eq!(*watched.calls.borrow(), Vec::<PathBuf>::new());
 }
 
-/// Only the exact specifier is the builtin: another spelling is a package
-/// specifier like any other, or one the table reserves.
+/// Only the exact specifier is the builtin: another spelling of Gro's is a
+/// module of Gro's library, never the project's self-reference or the
+/// installed package, or one the table reserves.
 #[test]
-fn near_misses_are_packages() {
+fn near_misses_are_not_the_builtin() {
     let tree = shadowed();
     let main = Url::parse("file:///p/main.js").unwrap();
     let roots = roots(&tree, &main);
-    // a self-reference, so a package lookup, refused for what the project doesn't export
-    assert!(matches!(
-        resolve_any(&tree, "@fuzdev/gro/args", &main, &roots),
-        Err(error) if matches!(error.kind, ResolveErrorKind::NotExported { .. })
-    ));
+    assert_eq!(
+        resolve_any(&tree, "@fuzdev/gro/args", &main, &roots)
+            .unwrap_err()
+            .kind,
+        ResolveErrorKind::NoGroLibrary(None)
+    );
+    assert_eq!(
+        resolve_gro(&tree, "@fuzdev/gro/args", &main, &roots)
+            .unwrap_err()
+            .kind,
+        ResolveErrorKind::GroModule {
+            path: Box::from("args"),
+            fault: crate::resolver::GroModuleFault::Missing,
+        }
+    );
     for specifier in [
         "@fuzdev/gro/args.js",
         "@fuzdev/gro/args",
@@ -527,11 +538,13 @@ fn a_reserved_specifier_is_refused_reading_nothing() {
             linked: false,
         },
     });
-    // unreserved, the self-reference resolves the project's own file
-    assert!(matches!(
-        resolve_any(&tree, "@fuzdev/gro/fs_search.ts", &main, &roots),
-        Ok(Resolved::Module(resolution)) if resolution.url.as_str() == "file:///p/fs_search.ts"
-    ));
+    // unreserved, it's Gro's library's, never the project's self-reference
+    assert_eq!(
+        resolve_any(&tree, "@fuzdev/gro/fs_search.ts", &main, &roots)
+            .unwrap_err()
+            .kind,
+        ResolveErrorKind::NoGroLibrary(None)
+    );
     let watched = Watched {
         tree,
         calls: RefCell::default(),
@@ -729,7 +742,8 @@ fn a_respelled_specifier_is_reserved() {
 
 /// A respelled specifier is refused ahead of any package, from the project
 /// and from a package alike, with no lookup or read of any file, while a
-/// neighbor that isn't one still resolves through the package.
+/// neighbor that isn't one resolves to Gro's library, reading nothing
+/// either.
 #[test]
 fn a_respelled_specifier_is_refused_reading_nothing() {
     let mut files = shadowed().files;
@@ -779,15 +793,15 @@ fn a_respelled_specifier_is_refused_reading_nothing() {
             );
         }
     }
+    for importer in ["file:///p/main.js", "file:///p/node_modules/dep/index.js"] {
+        let importer = Url::parse(importer).unwrap();
+        let resolved = resolve_gro(&watched, "@fuzdev/gro/fs_paths.ts", &importer, &roots);
+        assert!(
+            matches!(&resolved, Ok(Resolved::Embedded(module)) if module.path == "fs_paths.ts"),
+            "{importer}: {resolved:?}"
+        );
+    }
     assert_eq!(*watched.calls.borrow(), Vec::<PathBuf>::new());
-    // from the package, since the project is a self-reference of that name
-    let dep = Url::parse("file:///p/node_modules/dep/index.js").unwrap();
-    let resolution = resolve(&watched, "@fuzdev/gro/fs_paths.ts", &dep, &roots)
-        .unwrap_or_else(|error| panic!("{error}"));
-    assert_eq!(
-        resolution.url.as_str(),
-        "file:///p/node_modules/@fuzdev/gro/fs_paths.ts"
-    );
 }
 
 /// Every spelling a package's `"exports"` turns into a table module's file

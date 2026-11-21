@@ -137,6 +137,14 @@ each module and `package.json` it read, by an id relative to the [project root](
 and each path it went past finding nothing there, so a cache can tell when any changes.
 [eval](eval.md#the-graph) has its fields.
 
+## Gro's library
+
+The modules of Gro's own `src/lib` that run on `fgro`, which the binary carries, stripped of their types when it's built:
+a specifier of `@fuzdev/gro` that isn't a [builtin module](#builtin-modules)'s resolves to one, never to a package,
+at its `gro:lib/` URL, its [origin](#origin) holding no grant by its own imports,
+its packages taken from the project root's `node_modules` at the ranges of Gro's peer dependencies.
+[resolver](resolver.md#gros-library) has the rules.
+
 ## handle
 
 A capability as a value, like the `net` handle, a directory handle, or a spawn handle for one executable.
@@ -211,8 +219,9 @@ like fewer hosts, one subdirectory, or read-only access.
 
 ## origin
 
-Where the resolver says a module came from, the project or a named package:
-its [root](#root)'s, a function of the module's real path, never of who imported it.
+Where the resolver says a module came from: the project, a named package, or [Gro's library](#gros-library).
+A module on disk takes its [root](#root)'s, a function of its real path, never of who imported it;
+a module of Gro's library has no file, and its origin, Gro's, holds no grant by its own imports.
 It decides which package a reach is attributed to and which grants need acceptance.
 [resolver](resolver.md) has the rules.
 
@@ -315,7 +324,8 @@ Designed; today's probes are `fgro eval`'s acceptance tests.
 ## self-reference
 
 A bare import of the importer's own package by its name, resolved through that package's `"exports"`
-and kept inside it, as Node resolves one ([resolver](resolver.md#specifiers)).
+and kept inside it, as Node resolves one ([resolver](resolver.md#specifiers)),
+but for Gro's own package, whose specifiers resolve in [Gro's library](#gros-library) whoever imports them.
 
 ## type marker
 

@@ -1,13 +1,16 @@
 //! The embed: Gro's own library as the binary carries it.
 //!
 //! It's the modules of `src/lib` that `src/embed.json` lists as `embedded`,
-//! each stripped of its types, in one blob the binary includes, which no
-//! command loads yet. Beside them the blob names the modules `embed.json`
+//! each stripped of its types, in one blob the binary includes and hands a
+//! run ([`LoadEmbed`]), whose loader serves them as they are when a
+//! specifier of Gro's package names one (`resolver/embedded.rs`); a build
+//! that includes none makes the blob from its build tree the first time a
+//! run needs it. Beside the modules the blob names the ones `embed.json`
 //! leaves out but the host modules, the ones that run only on Node, so a
 //! specifier naming one is refused as that rather than as a module Gro
-//! doesn't have, and carries the `peerDependencies` of Gro's `package.json`,
-//! the packages the embedded modules import from the project and the
-//! versions they need.
+//! doesn't have, and carries the `peerDependencies` of Gro's
+//! `package.json`, the packages the embedded modules import from the
+//! project and the versions they need.
 //!
 //! [`make_embed`] makes the blob from a checkout's `src/` directory, which
 //! holds `embed.json` and `lib/`, with the checkout's `package.json` beside
@@ -53,6 +56,7 @@
 //! and left out. A module, a left-out path, or a peer is then found by a
 //! binary search.
 
+use std::cell::OnceCell;
 use std::collections::BTreeSet;
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -62,8 +66,8 @@ use thiserror::Error;
 use url::Url;
 
 use crate::loader::strip::strip_module;
-use crate::resolver::host_modules;
 use crate::resolver::semver::VersionRange;
+use crate::resolver::{GroLibrary, host_modules};
 
 /// The name of the blob's file, which the binary's build includes.
 pub const EMBED_FILE: &str = "embed.bin";
@@ -577,6 +581,49 @@ impl fmt::Debug for Embed<'_> {
     }
 }
 
+/// How a run gets Gro's library: a function its embedder gives
+/// ([`crate::RuntimeOptions::embed`]), called the first time the run needs
+/// the library, so a run that never names it decodes nothing.
+///
+/// # Errors
+///
+/// Returns why the embedder's copy couldn't be had or decoded.
+pub type LoadEmbed = fn() -> Result<Embed<'static>, EmbedError>;
+
+/// Gro's library as a run holds it: the embedder's [`LoadEmbed`], called
+/// at most once, when a resolution first needs the library.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct RunEmbed {
+    /// The embedder's function, none when it handed the run no library.
+    load: Option<LoadEmbed>,
+    /// What it returned, once called: the embed, or why it failed.
+    loaded: OnceCell<Result<Embed<'static>, Box<str>>>,
+}
+
+impl RunEmbed {
+    /// The library `load` gives, not loaded yet.
+    pub(crate) const fn new(load: Option<LoadEmbed>) -> Self {
+        Self {
+            load,
+            loaded: OnceCell::new(),
+        }
+    }
+
+    /// The run's library, loaded the first time it's asked for. `Err(None)`
+    /// when the run holds none, and `Err` with the reason when it failed to
+    /// load, every time it's asked for.
+    pub(crate) fn get(&self) -> GroLibrary<'_> {
+        let load = self.load.ok_or(None)?;
+        match self
+            .loaded
+            .get_or_init(|| load().map_err(|error| error.to_string().into()))
+        {
+            Ok(embed) => Ok(*embed),
+            Err(reason) => Err(Some(reason)),
+        }
+    }
+}
+
 /// The size of an offset, and of a count.
 const WORD: usize = 4;
 
@@ -682,7 +729,14 @@ impl<'a> Embed<'a> {
     /// The code of the module at `path`, relative to `lib/`, if it holds
     /// one.
     pub fn get(&self, path: &str) -> Option<&'a str> {
-        search(self.modules, |index| self.path(index), path).map(|index| self.code(index))
+        self.module(path).map(|(_, code)| code)
+    }
+
+    /// The module at `path`, relative to `lib/`, as `(path, code)`, its
+    /// path the blob's own, if it holds one.
+    pub fn module(&self, path: &str) -> Option<(&'a str, &'a str)> {
+        search(self.modules, |index| self.path(index), path)
+            .map(|index| (self.path(index), self.code(index)))
     }
 
     /// Each module, `(path, code)`, in its paths' order.
@@ -786,6 +840,38 @@ mod tests {
                 .collect(),
             ..EmbedContents::default()
         }
+    }
+
+    /// A run's copy is loaded once, the first time it's asked for, and a
+    /// load that failed is that failure every time after; a run handed none
+    /// holds none.
+    #[test]
+    fn a_run_s_copy_loads_once() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        static LOADS: AtomicUsize = AtomicUsize::new(0);
+        static FAILS: AtomicUsize = AtomicUsize::new(0);
+        static BLOB: [u8; 16] = [0; 16];
+        let embed = RunEmbed::new(Some(|| {
+            LOADS.fetch_add(1, Ordering::SeqCst);
+            Embed::decode(&BLOB)
+        }));
+        assert_eq!(LOADS.load(Ordering::SeqCst), 0);
+        for _ in 0..3 {
+            assert!(embed.get().is_ok_and(|embed| embed.is_empty()));
+        }
+        assert_eq!(LOADS.load(Ordering::SeqCst), 1);
+        let failing = RunEmbed::new(Some(|| {
+            FAILS.fetch_add(1, Ordering::SeqCst);
+            Err(EmbedError::Malformed("broken"))
+        }));
+        for _ in 0..3 {
+            assert_eq!(
+                failing.get().err(),
+                Some(Some("the embed is malformed: broken"))
+            );
+        }
+        assert_eq!(FAILS.load(Ordering::SeqCst), 1);
+        assert_eq!(RunEmbed::default().get().err(), Some(None));
     }
 
     /// A blob decodes to the modules it was made of, each found by its

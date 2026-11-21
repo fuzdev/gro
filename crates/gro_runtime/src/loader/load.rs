@@ -3,13 +3,15 @@
 use std::io;
 use std::path::Path;
 
-use deno_core::{ModuleSource, ModuleSourceCode, ModuleSpecifier, ModuleType, RequestedModuleType};
+use deno_core::{
+    FastString, ModuleSource, ModuleSourceCode, ModuleSpecifier, ModuleType, RequestedModuleType,
+};
 
 use super::Refused;
 use super::graph::{FailureReason, LoadFailure, Loaded, Recording};
 use super::strip::strip_module;
 use crate::file_id::FileId;
-use crate::resolver::{self, MAX_MODULE_SIZE, ModuleFormat, ReadRefusal};
+use crate::resolver::{self, EmbeddedModule, MAX_MODULE_SIZE, ModuleFormat, ReadRefusal};
 
 /// Reads the module at `specifier`, a URL the resolver produced for the file
 /// `file_id` names, once `check` allows its path, stripping a TypeScript
@@ -99,5 +101,27 @@ pub(super) fn load(
     Ok((
         ModuleSource::new(ModuleType::JavaScript, code, specifier, None),
         loaded,
+    ))
+}
+
+/// Serves the embedded `module` at `specifier` from its code as it is: the
+/// copy was stripped of its types when it was made, so it's never stripped
+/// again, and nothing is read. Imported with a `type`, it's refused as a
+/// file is.
+pub(super) fn load_embedded(
+    specifier: &ModuleSpecifier,
+    requested: &RequestedModuleType,
+    module: EmbeddedModule,
+) -> Result<(ModuleSource, Option<Loaded>), Refused> {
+    if *requested != RequestedModuleType::None {
+        return Err(Refused::new(
+            FailureReason::Load(LoadFailure::ModuleType),
+            format!("cannot load {specifier}: import attributes are not supported yet"),
+        ));
+    }
+    let code = ModuleSourceCode::String(FastString::from_static(module.code));
+    Ok((
+        ModuleSource::new(ModuleType::JavaScript, code, specifier, None),
+        None,
     ))
 }

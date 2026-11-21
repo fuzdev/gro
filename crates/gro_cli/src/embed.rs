@@ -1,12 +1,13 @@
 //! Gro's own library as this binary embeds it, when built with the
-//! `snapshot` feature (`gro_runtime::embed`), and `make-embed`, the internal
-//! subcommand that writes it.
+//! `snapshot` feature (`gro_runtime::embed`), the copy a run is handed
+//! ([`load_embed`]), and `make-embed`, the internal subcommand that writes
+//! it.
 
 use std::path::Path;
 
 #[cfg(test)]
 use gro_runtime::embed::EmbedContents;
-use gro_runtime::embed::{EMBED_FILE, Embed, make_embed as make_blob};
+use gro_runtime::embed::{EMBED_FILE, Embed, EmbedError, make_embed as make_blob};
 
 use crate::error::CliError;
 
@@ -26,6 +27,40 @@ pub const EMBEDDED_LIB: Option<&[u8]> = Some(&embedded::EMBED);
 
 #[cfg(not(feature = "snapshot"))]
 pub const EMBEDDED_LIB: Option<&[u8]> = None;
+
+/// The checkout's `src/` directory this binary was built from, which a
+/// build that embeds no blob makes its copy from: never in a snapshot
+/// build, so the build tree's path isn't baked into the binary that ships.
+#[cfg(not(feature = "snapshot"))]
+const BUILD_SRC: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../src");
+
+/// Gro's library for a run, the `gro_runtime::embed::LoadEmbed` `fgro`
+/// hands the runtime, which calls it the first time the run names the
+/// library: the blob this binary embeds, decoded; or, for a build that
+/// embeds none, the one the checkout's `src/` it was built from makes now,
+/// as such a build reads `deno_web`'s sources from its build tree too.
+///
+/// # Errors
+///
+/// Returns why the blob doesn't decode, or the build tree's copy couldn't
+/// be made.
+#[cfg(feature = "snapshot")]
+pub fn load_embed() -> Result<Embed<'static>, EmbedError> {
+    Embed::decode(&embedded::EMBED)
+}
+
+/// See the snapshot build's `load_embed`.
+///
+/// # Errors
+///
+/// Returns why the build tree's copy couldn't be made or decoded.
+#[cfg(not(feature = "snapshot"))]
+pub fn load_embed() -> Result<Embed<'static>, EmbedError> {
+    let blob = make_blob(Path::new(BUILD_SRC))?;
+    // held for the rest of the process, as the embedded blob is: a run
+    // loads it once
+    Embed::decode(Box::leak(blob.into_boxed_slice()))
+}
 
 /// Writes the blob of the modules `<src>/embed.json` embeds, read from
 /// `<src>/lib`, into `dir` as `embed.bin`, creating `dir` first. A file

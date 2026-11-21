@@ -5,17 +5,19 @@
 
 > **status**: built for relative, absolute, and bare specifiers through `"exports"`,
 > `#` specifiers through `"imports"` to files,
-> with every module contained in its project's or package's root, and for the builtin modules.
+> with every module contained in its project's or package's root, for the builtin modules,
+> and for Gro's own library, which the binary carries.
 
 The runtime resolves modules with its own strict algorithm, not Node's.
 Bridging on the legacy algorithm would let code work on Gro by accident of legacy resolution
 and break when the bridge is removed, and the strict subset is small enough that a bridge saves little.
 It's written once in `gro_runtime` as a pure module with no engine types:
-it reads only through a source-tree trait and returns a builtin module or a module on disk:
+it reads only through a source-tree trait and returns a builtin module, a module of [Gro's library](#gros-library), or a module on disk:
 the resolved URL, the file's identity,
-the root the module is inside and its origin (project or package), and the `package.json` files it consulted,
+the root the module is inside and its origin (project, package, or Gro's), and the `package.json` files it consulted,
 so a test can drive it without V8, and other tools could reuse it once its roots can be built outside the crate.
-The module loader owns the roots a graph has admitted and passes them in;
+The module loader owns the roots a graph has admitted and passes them in,
+and hands it the run's copy of Gro's library as data when a specifier needs it;
 the resolver admits nothing.
 `import.meta.resolve` goes through it too, so it needs the file to exist.
 
@@ -93,7 +95,8 @@ Gro has neither, since their members are modules of their own, and the refusal n
 So is a respelling of any of these or of a builtin module's specifier, one whose subpath a package's `"exports"` would turn into the same path
 (percent-encoding as in `@fuzdev/gro/arg%73.ts`, a query or fragment as in `@fuzdev/gro/fs.js?.ts`, a tab or line break):
 the resolver reads its subpath as URL parsing and the path's decoding do, whatever patterns the installed package has.
-Any other spelling, like `@fuzdev/gro/args`, is a package specifier like any other.
+Any other spelling, like `@fuzdev/gro/args`, resolves in [Gro's library](#gros-library), never to a package
+(that one is refused, since Gro has no module at that path).
 A builtin module resolves to its URL, the specifier in the `builtin:` scheme (`builtin:@fuzdev/gro/args.ts`),
 with no file, root, or origin, and it imports nothing.
 That scheme is refused like every other but `file:`, so only the table's specifier reaches a builtin module.
@@ -120,6 +123,39 @@ is refused before anything resolves, for a static import and `import()`, a file 
 An import of a builtin module with a `type` (`with {type: 'json'}`) is refused before its grant is checked,
 where a file's is refused when it loads, every `type` for now ([run](run.md#what-loads)).
 A source-phase import of a builtin module (`import source`, `import.source()`) is refused, since a builtin module has no source.
+
+## Gro's library
+
+Gro's package is the binary's own: `fgro` carries Gro's library, the modules of Gro's `src/lib` that run on it,
+stripped of their types when the binary was built (a plain `cargo build` makes its copy from its build tree when a run first needs it),
+and a specifier of `@fuzdev/gro`
+that isn't a [builtin module](#builtin-modules)'s or reserved resolves to its module there, from the project and a package alike,
+never to a package, whatever `node_modules` or the project's own `package.json` holds:
+`@fuzdev/gro/task_args.ts` is its `src/lib/task_args.ts`, and `@fuzdev/gro` alone its `index.ts`,
+so a planted or stale install of Gro never runs as Gro, and nothing is read for one.
+Refused, each naming the module and never looked up as a package:
+a module under `internal/`, which the package's `"exports"` null on Node too;
+one of Gro's modules that run only on Node (like `@fuzdev/gro/invoke.ts`, or `library_load.ts`, which reaches Node),
+which the binary doesn't carry, the fix to run it under Node with `gro`;
+the `.js` spelling of a module's `.ts` path (`@fuzdev/gro/task_args.js`), naming the one to import;
+and any other path, which names no module of Gro's (`@fuzdev/gro/task_args`).
+A run handed no copy of the library, as `fgro eval`'s isn't, refuses every one but the builtin modules'.
+
+A module of Gro's library has no file: its URL is its path in the `gro:` scheme (`gro:lib/task_args.ts`),
+which `import.meta.url` and a stack trace show and `import.meta.resolve` returns,
+and which is refused from source like every scheme but `file:`, so only a specifier of Gro's reaches one.
+Its origin is Gro's own, which holds no grant by its own imports, whatever the run grants:
+Gro's code is handed what it uses, so it imports only the builtin modules that need none,
+and an import of one that does is refused when the graph links, naming the grant, `-A` or not.
+Under `-A` a package it imports is granted every builtin module as any package is, so it reaches them through that package.
+Its imports resolve inside the library:
+a relative specifier by its text, inside `src/lib` and never above it,
+a host module's file there (`./fs.ts`) being that builtin module, so the Node implementation never loads,
+and a bare specifier to a builtin module, to Gro's library, or to a package in the project root's `node_modules`,
+with no self-reference, as Gro installed there would find it,
+so Gro and the project's own modules share one copy of `@fuzdev/fuz_util` and the rest.
+A package that resolves to the project's own modules, linked by name, is refused, as for a package's import.
+Any other specifier (absolute, a URL, a `#` specifier) is refused.
 
 ## Departures from Node
 
@@ -227,6 +263,8 @@ the condition set can pick another target than Node's, and `.ts` inside `node_mo
 - **A `.js` file with no `package.json` above it is refused,** where Node guesses its format from the code
   (`.mjs` needs none).
 - **`.ts` inside `node_modules` is stripped like any other,** where Node refuses.
+- **A specifier of Gro's package resolves to Gro's library the binary carries,** never to a package ([Gro's library](#gros-library)),
+  where Node resolves it through the installed package's `"exports"`.
 - **A `.ts` file is always an ES module,** where Node reads `"type"` and the code and may run it as CommonJS;
   `.cts` is refused.
 - **A scoped name with an empty, `.`, or `..` segment is refused,** where Node accepts it.

@@ -11,7 +11,7 @@
 //! arrives here already final, with the roots its graph starts with.
 //!
 //! The loader owns the graph's [`Roots`], the [`Root`](crate::resolver::Root)
-//! each URL resolved inside, and its [`FileId`](crate::file_id::FileId),
+//! each URL resolved inside, and its [`FileId`],
 //! and passes the roots into every resolution. A bare specifier's package
 //! root is admitted when it resolves, and one admitted around a module
 //! already recorded inside an outer one is refused
@@ -49,6 +49,15 @@
 //! turn later (`headroom.rs` has why, and the measurement behind the
 //! amount). The grant is checked as the import resolves, before
 //! `deno_core` asks, so what a rule refuses doesn't depend on the stack.
+//!
+//! A module of Gro's embedded library
+//! ([`Resolved::Embedded`](crate::resolver::Resolved::Embedded)) has no
+//! file: it's recorded with its path and code, its origin
+//! [`Origin::Embedded`](crate::resolver::Origin::Embedded), which the grant
+//! check refuses every builtin that needs a grant under any authority, and
+//! loads from its code as it is, never read or stripped, since the copy was
+//! stripped when it was made. Its imports resolve from its path in the
+//! library (`resolver::resolve_from_embedded`).
 //!
 //! An `import()` in code compiled from a string (an `eval`, a `Function`
 //! constructor, a string passed to a timer) is refused, whatever it names
@@ -130,11 +139,17 @@ use url::Url;
 
 use crate::Authority;
 use crate::confine::BoxRoots;
-use crate::resolver::{DiskTree, Resolution, Roots, SourceTree, find_builtin};
+use crate::embed::LoadEmbed;
+use crate::file_id::FileId;
+use crate::resolver::{
+    DiskTree, EmbeddedModule, Resolution, Roots, SourceTree, find_builtin, find_embedded_builtin,
+};
 use boxed::{BoxCheck, Boxed};
-use graph::{Failure, FailureReason, Graph, LoadFailure, Position, Reach, Reached, Recording};
+use graph::{
+    Failure, FailureReason, Graph, LoadFailure, Position, Reach, Reached, Record, Recording,
+};
 use headroom::Headroom;
-use load::load;
+use load::{load, load_embedded};
 use reads::Reads;
 use refused::{NotGranted, Refusals};
 use resolve::resolve_into;
@@ -166,8 +181,8 @@ impl RefusalLog {
 }
 
 /// Resolves through the strict resolver over the disk, and loads `.js` and
-/// `.mjs` files as ES modules, and `.ts` and `.mts` files as ES modules
-/// stripped of their types.
+/// `.mjs` files as ES modules, `.ts` and `.mts` files as ES modules
+/// stripped of their types, and Gro's embedded modules as they are.
 #[derive(Debug)]
 pub struct Loader {
     /// What the graph resolved and loaded, and, recording in full, the rest
@@ -218,6 +233,17 @@ const SUPPORTED_ATTRIBUTE: &str = "type";
 /// as it resolves a side module's own URL, the driver's (an internal of
 /// `deno_core`'s, not a URL).
 const ROOT_REFERRER: &str = ".";
+
+/// Where a recorded URL's module comes from, as loading reads its record.
+#[derive(Clone, Copy)]
+enum Source {
+    /// The file the resolution found.
+    File(FileId),
+    /// Gro's embedded module.
+    Embedded(EmbeddedModule),
+    /// A builtin, which `deno_core` serves without a load.
+    Builtin,
+}
 
 /// A failed resolution or load: the reason as data, which the graph records
 /// when it records failures ([`Graph::fail`]), and the message of the error
@@ -272,6 +298,17 @@ impl Loader {
     #[must_use]
     pub fn with_reads(self, reads: Reads) -> Self {
         let graph = self.graph.into_inner().with_reads(reads);
+        Self {
+            graph: RefCell::new(graph),
+            ..self
+        }
+    }
+
+    /// The loader, a specifier of Gro's package resolving to the copy of
+    /// Gro's library `load` gives ([`Graph::with_embed`]).
+    #[must_use]
+    pub fn with_embed(self, load: Option<LoadEmbed>) -> Self {
+        let graph = self.graph.into_inner().with_embed(load);
         Self {
             graph: RefCell::new(graph),
             ..self
@@ -565,14 +602,18 @@ impl Loader {
     /// and is never loaded, so the load's refusal of a file's attributes
     /// never sees it ([`LoadFailure::BuiltinAttributes`]). A builtin is the
     /// table hit of its exact specifier, which the resolver returns ahead of
-    /// anything else ([`find_builtin`]).
+    /// anything else ([`find_builtin`]), or from Gro's embedded library a
+    /// relative specifier naming a host module's file
+    /// ([`find_embedded_builtin`]).
     fn refuse_builtin_attributes(
         &self,
         specifier: &str,
         referrer: &str,
         reach: Reach,
     ) -> Result<(), ModuleLoaderError> {
-        let Some(builtin) = find_builtin(specifier) else {
+        let Some(builtin) =
+            find_builtin(specifier).or_else(|| find_embedded_builtin(referrer, specifier))
+        else {
             return Ok(());
         };
         let refused = Refused::new(
@@ -602,26 +643,29 @@ impl Loader {
         reach: Reach,
         referrer: Option<&ModuleLoadReferrer>,
     ) -> Result<ModuleSource, ModuleLoaderError> {
-        let (record, recording) = {
+        // only what loading reads of the record, copied, so nothing is cloned
+        let (source, recording) = {
             let graph = self.graph.borrow();
-            let record = graph
-                .records()
-                .get(specifier)
-                .map(|record| record.module().map(|module| module.file_id));
-            (record, graph.recording())
+            let source = graph.records().get(specifier).map(|record| match record {
+                Record::Module(module) => Source::File(module.file_id),
+                Record::Embedded(module) => Source::Embedded(*module),
+                Record::Builtin(_) => Source::Builtin,
+            });
+            (source, graph.recording())
         };
         // `deno_core` loads only what `resolve` returned, which recorded it,
         // and serves a builtin as its synthetic module, never loading it
-        let result = match record {
+        let result = match source {
             None => Err(Refused::new(
                 FailureReason::Load(LoadFailure::NeverResolved),
                 format!("cannot load {specifier}: it was never resolved"),
             )),
-            Some(None) => Err(Refused::new(
+            Some(Source::Builtin) => Err(Refused::new(
                 FailureReason::Load(LoadFailure::NoLocalPath),
                 format!("cannot load {specifier}: a builtin has no file to load"),
             )),
-            Some(Some(file_id)) => load(specifier, requested, file_id, recording, |path| {
+            Some(Source::Embedded(module)) => load_embedded(specifier, requested, module),
+            Some(Source::File(file_id)) => load(specifier, requested, file_id, recording, |path| {
                 self.box_check.check_read(path)
             }),
         };

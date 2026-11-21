@@ -317,8 +317,11 @@ fn resolve_main(
     recording: Recording,
 ) -> Result<(Url, Rc<Loader>), RunError> {
     let (entry, roots) = resolver::resolve_entry(&DiskTree, entry, cwd)?;
-    let loader =
-        Rc::new(Loader::new(&entry, roots, recording).with_authority(options.authority.clone()));
+    let loader = Rc::new(
+        Loader::new(&entry, roots, recording)
+            .with_authority(options.authority.clone())
+            .with_embed(options.embed),
+    );
     Ok((entry.url, loader))
 }
 

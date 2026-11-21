@@ -8,7 +8,7 @@ use super::Refused;
 use super::graph::{FailureReason, Graph, Reached};
 use crate::Authority;
 use crate::resolver::{
-    Builtin, Origin, ResolveError, ResolveErrorKind, Resolved, SourceTree, UrlFault,
+    Builtin, EmbeddedModule, Origin, ResolveError, ResolveErrorKind, Resolved, SourceTree, UrlFault,
 };
 
 /// Resolves `specifier`, imported by the module at `referrer`, into `graph`,
@@ -45,6 +45,9 @@ pub(super) fn resolve_into(
         Resolved::Module(resolution) => resolution,
         Resolved::Builtin(builtin) => {
             return resolve_builtin(graph, authority, builtin, specifier, &importer, reached);
+        }
+        Resolved::Embedded(module) => {
+            return resolve_embedded(graph, module, specifier, &importer, reached);
         }
     };
     // read whether or not the root is admitted
@@ -109,9 +112,38 @@ fn resolve_builtin(
     Ok(url)
 }
 
+/// The URL of the embedded `module`, which `specifier` named, imported by
+/// `importer`: for an import, recorded with the edge to it; for
+/// `import.meta.resolve`, as it is, since it imports nothing.
+fn resolve_embedded(
+    graph: &mut Graph,
+    module: EmbeddedModule,
+    specifier: &str,
+    importer: &Url,
+    reached: Reached,
+) -> Result<ModuleSpecifier, Refused> {
+    // the copy's paths parse, which its tests check
+    let url = module.url().map_err(|error| {
+        Refused::new(
+            FailureReason::Resolve(ResolveErrorKind::InvalidUrl(UrlFault::Join(error))),
+            format!(
+                "cannot resolve '{specifier}': Gro's module {} has no valid URL: {error}",
+                module.path
+            ),
+        )
+    })?;
+    let Reached::Import(reach) = reached else {
+        return Ok(url);
+    };
+    graph.admit_embedded(&url, module);
+    graph.link(importer, specifier, reach, &url);
+    Ok(url)
+}
+
 /// Whether an importer of `origin` may import `builtin` under `authority`,
 /// or why not. With no authority (eval's) nothing is imported, a grant-free
-/// builtin included, which is checked before the grant.
+/// builtin included, which is checked before the grant. Gro's embedded
+/// library imports only a grant-free one, under every authority.
 fn check_grant(
     authority: Option<&Authority>,
     builtin: &Builtin,
@@ -130,6 +162,10 @@ fn check_grant(
     };
     // the message is made only for a refusal, never for a granted import
     match (authority, origin) {
+        (_, Origin::Embedded) => Err(format!(
+            "it needs the grant '{capability}', and Gro's library holds no grant, whatever the \
+             run grants: its code is handed what it uses"
+        )),
         (Authority::Confined(_), Origin::Package { name, .. }) => Err(format!(
             "it needs the grant '{capability}', which package '{name}' isn't granted: only the \
              project's own modules are granted host modules"

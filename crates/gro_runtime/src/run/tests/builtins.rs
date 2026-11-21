@@ -943,7 +943,8 @@ for (const [specifier, words] of cases) {
 /// query or fragment the package's `"exports"` pattern would cut) never
 /// reaches the installed package either, from the project or a package, by
 /// `import()`, `import.meta.resolve`, or a static import, while a neighbor
-/// that names another of the package's modules still loads from it.
+/// that names another of Gro's modules loads from the run's copy of Gro's
+/// library, never the package.
 #[test]
 fn a_respelled_specifier_is_refused_ahead_of_the_package() {
     let main = "import { load, where } from 'dep/reach.js';
@@ -984,12 +985,14 @@ for (const neighbor of [await import('@fuzdev/gro/fs_paths.ts'), await load('@fu
     let mut files = SHADOW.to_vec();
     files.push((
         "node_modules/@fuzdev/gro/fs_paths.js",
-        "export const fs_paths = 'PATHS';\n",
+        "export const fs_paths = 'SHADOW';\n",
     ));
     files.push(("main.mjs", &main));
     for (case, authority) in [("granted", granted()), ("ungranted", Authority::default())] {
+        // the neighbor is the copy's, never the package's
         let options = RuntimeOptions {
             authority,
+            embed: super::embedded::TEST_EMBED,
             exit_step: Some(never_exits),
             ..RuntimeOptions::default()
         };

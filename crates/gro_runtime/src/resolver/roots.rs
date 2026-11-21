@@ -28,6 +28,13 @@ pub enum Origin {
         /// as with a symlinked path dependency.
         linked: bool,
     },
+    /// Gro's own library, embedded in the binary: the modules a specifier
+    /// of Gro's package names, and what they reach by relative specifiers.
+    /// Their own imports hold no grant, whatever the run grants, since Gro's
+    /// code is handed what it uses; under `-A` a package they import holds
+    /// every grant, as any package does. Its modules have no file, so no [`Root`] has
+    /// this origin: a module's is in the graph's record of it.
+    Embedded,
 }
 
 /// A directory whose modules share an origin: the project's root, or a
@@ -60,7 +67,7 @@ impl Root {
                 linked: false,
                 ..
             } => Some(name),
-            Origin::Package { linked: true, .. } | Origin::Project => None,
+            Origin::Package { linked: true, .. } | Origin::Project | Origin::Embedded => None,
         }
     }
 }
@@ -72,6 +79,7 @@ impl fmt::Display for Root {
             Origin::Package { name, .. } => {
                 write!(f, "package '{name}' at {}", self.dir.display())
             }
+            Origin::Embedded => write!(f, "Gro's library at {}", self.dir.display()),
         }
     }
 }

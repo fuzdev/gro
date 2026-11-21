@@ -77,10 +77,19 @@ and the contracts no one module doc owns.
   which refuses an `embed.json` whose `host_modules` aren't the builtin
   table's rows and its unbuilt ones, and a peer range the resolver's
   `semver` doesn't read; `--verify` holds the binary's own blob to what
-  `src/lib` and `package.json` make then.
+  `src/lib` and `package.json` make then. A run loads it through
+  `RuntimeOptions::embed`, which `fgro` hands in (`gro_runtime` embeds no
+  library itself), decoded the first time a specifier of `@fuzdev/gro`
+  needs it, and serves its modules unstripped at `gro:lib/<path>`, their
+  origin `Origin::Embedded`, which holds no grant by its own imports under
+  any authority (under `-A` a package it imports holds every row)
+  (`resolver/embedded.rs`'s module doc has the resolution).
 - The resolver (`resolver/`) is a pure module: no deno_core types, reading
   only through the `SourceTree` trait. The loader owns the admitted roots
-  (`Roots`) and passes them into `resolve_from`. Failures are enums (the
+  (`Roots`) and passes them into `resolve_from`, with Gro's library as data
+  (`GroLibrary`), which the graph loads only for a specifier that needs it
+  (`needs_gro_library`), so a plain build's copy is made outside the
+  resolver. Failures are enums (the
   resolver's `ResolveErrorKind`, the loader's `FailureReason`), never parsed
   from a message; eval's error kind comes from the step that failed and the
   graph's record.
@@ -138,15 +147,17 @@ and the contracts no one module doc owns.
     arguments, so it can move off the thread, but for a read's fill of the
     buffer V8 allocated (`gro_v8::PendingArrayBuffer`, not `Send`), which
     stays on the isolate's thread.
-  - The resolver returns a table hit ahead of any package lookup; the loader
-    checks it against the run's `Authority` at link time, for a static import
-    and `import()` alike (`loader/resolve.rs`): with none (eval's) nothing is
-    imported, a grant-free row included, checked before the grant; a
-    confined run's (`Authority::Confined`) package module is granted none,
-    and a grant-free row links for the project and a package alike; an
-    unconfined run (`Authority::Unconfined`, `fgro run -A`) grants every
-    module every row, and lifts no refusal but a grant's. A builtin keeps
-    no per-importer state.
+  - The resolver returns a table hit ahead of any package lookup, then any
+    other specifier of `@fuzdev/gro` as Gro's embedded module, never a
+    package; the loader checks a row against the run's `Authority` at link
+    time, for a static import and `import()` alike (`loader/resolve.rs`):
+    with none (eval's) nothing is imported, a grant-free row included,
+    checked before the grant; a confined run's (`Authority::Confined`)
+    package module is granted none, and a grant-free row links for the
+    project and a package alike; an unconfined run (`Authority::Unconfined`,
+    `fgro run -A`) grants every module every row, and lifts no refusal but
+    a grant's; an embedded module (`Origin::Embedded`) is granted no row by
+    its own imports under any authority. A builtin keeps no per-importer state.
   - A builtin declares no types: its types are its Node module's.
     `src/test/builtin_types.test.ts` holds the native members' table, as
     `tests/native_members.txt` pins it, to each row's Node module: names,

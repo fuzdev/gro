@@ -460,7 +460,8 @@ Key utilities:
   `invoke.ts` configures. The same test sorts every module `invoke.ts` reaches into those, the
   exceptions still reaching a host module, and the embed's excluded groups
 - The embed: `src/embed.json`, the data the binary's build reads for its copy of Gro's own `src/lib`
-  (`gro_runtime::embed`: built, loaded by no command yet), sorts every file of `src/lib` into the
+  (`gro_runtime::embed`, which a run's specifiers of `@fuzdev/gro` load, its origin holding no grant;
+  [resolver](src/docs/resolver.md#gros-library)), sorts every file of `src/lib` into the
   modules it takes and the ones it leaves out, by group, each group with its reason: the host
   modules and their error modules (the runtime's builtins), the Node roots, the Node loader and its
   `$app` shims, the Node-only machinery, the builtins with no grants, the genfiles, and the library

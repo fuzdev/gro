@@ -5,6 +5,8 @@ use std::path::Path;
 use std::process::Stdio;
 use std::sync::mpsc::RecvTimeoutError;
 
+use gro_runtime::BINARY_NAME;
+
 use crate::support;
 use crate::support::{Scratch, fgro_command};
 
@@ -36,6 +38,35 @@ fn a_package_is_not_found_past_the_project_root() {
                 .canonicalize()
                 .unwrap()
                 .display()
+        )
+    );
+}
+
+/// A specifier of Gro's package loads the binary's own copy of Gro's
+/// library, at its `gro:` URL, `@fuzdev/gro` alone its `index.ts`, though
+/// no `@fuzdev/gro` is installed: a plain build makes its copy from the
+/// checkout it was built from, a snapshot build holds its own.
+#[test]
+fn gro_s_library_loads_from_the_binary_s_copy() {
+    let run = run("import_gro.ts");
+    assert_eq!(run.code, 0, "{}", run.stderr);
+    assert_eq!(run.stdout, "gro:lib/task_error.ts\ntrue true\n");
+}
+
+/// One of Gro's modules that run only on Node is refused as that, naming
+/// the module, never looked up as a package.
+#[test]
+fn a_node_only_module_of_gro_s_is_refused_naming_it() {
+    let run = run("import_gro_node_only.js");
+    assert_eq!(run.code, 1);
+    assert_eq!(
+        run.stderr,
+        format!(
+            "error: cannot resolve '@fuzdev/gro/invoke.ts' from {}/import_gro_node_only.js: it \
+             names Gro's module 'invoke.ts', which runs only on Node, so {BINARY_NAME} doesn't \
+             carry it, and a specifier of Gro's never resolves to a package. Fix: run this \
+             under Node with gro\n",
+            fixtures_url()
         )
     );
 }

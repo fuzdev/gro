@@ -60,6 +60,7 @@ use crate::cli::{
     DirFlag, FlagDirs, RunGrant, RunInvocation,
 };
 use crate::color;
+use crate::embed::load_embed;
 use crate::error::{CliError, DirFault};
 use crate::print::{escape_controls, stderr_line};
 use crate::snapshot::STARTUP_SNAPSHOT;
@@ -512,6 +513,7 @@ fn runtime_options(
         temp_dir: temp.then(|| real_temp_dir(&cwd.join(temp_dir(environment)))),
         exit_step: Some(exit_now),
         snapshot: STARTUP_SNAPSHOT,
+        embed: Some(load_embed),
         console: color::console_options(),
         args: run.args.clone(),
         runtime_version: RUNTIME_VERSION.to_owned(),
