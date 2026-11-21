@@ -367,9 +367,9 @@ lists them).
   JS/TS under `crates/`, which `gro check` doesn't reach), then `gro check`;
   CI runs the first two as jobs of their own
 - `cargo xtask build [--release] [--verify]` - the snapshot `fgro`, at
-  `<target>/gro_snapshot/<profile>/fgro`; a plain `cargo build` makes an
-  `fgro` with no snapshot that runs only from its build tree and can't
-  `eval`
+  `<target>/gro_snapshot/<profile>/fgro`, with `package.json`'s version
+  stamped; a plain `cargo build` makes an `fgro` with no snapshot that runs
+  only from its build tree, can't `eval`, and names Cargo's `0.0.0`
 - `cargo xtask check-reproducible` - two release builds and a clone, so
   `check` leaves it to CI
 

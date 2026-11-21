@@ -37,7 +37,7 @@ fn the_default_export_is_the_value_with_no_driver() {
     );
     assert_eq!(envelope["access"], json!({"dynamic": []}));
     let runtime = &envelope["runtime"];
-    assert_eq!(runtime["fgro_version"], env!("CARGO_PKG_VERSION"));
+    assert_eq!(runtime["fgro_version"], crate::support::version());
     assert!(runtime["v8"].as_str().is_some_and(|v8| !v8.is_empty()));
     assert!(runtime["deno_core"].is_string());
     assert!(runtime["tsv_rev"].is_string());

@@ -1,11 +1,12 @@
 # Releases `fgro`, the Rust runtime binary in crates/, as a GitHub Release
-# asset. The binary has its own version line, the Cargo workspace version, and
-# its own tags, `fgro-v<version>`, apart from the npm package's `v*` tags.
+# asset. The binary names the npm package's version, `package.json`'s, which
+# `cargo xtask build` stamps (Cargo's stays `0.0.0`), and has its own tags,
+# `fgro-v<version>`, apart from the npm package's `v*` tags.
 #
 # Two jobs, so the job that runs build scripts and tests never holds a write
 # token:
 #
-# - `build` (read-only) refuses a tag that isn't `fgro-v` + the workspace
+# - `build` (read-only) refuses a tag that isn't `fgro-v` + `package.json`'s
 #   version, builds the release `fgro` with its startup snapshot from fixed
 #   neutral paths, runs the snapshot build's checks (`--verify`), checks that
 #   no builder path outside the neutral prefix is in the binary, and uploads
@@ -100,21 +101,20 @@ jobs:
           mkdir "$BUILD_ROOT/cargo"
           echo "CARGO_HOME=$BUILD_ROOT/cargo" >> "$GITHUB_ENV"
 
-      # Every crate shares the workspace version, which `fgro --version` prints.
+      # `fgro --version` prints `package.json`'s version, which the build stamps.
       # A manual run has no tag to check, and says so.
-      - name: Refuse a tag that isn't the workspace version
+      - name: Refuse a tag that isn't the package's version
         working-directory: ${{ env.BUILD_ROOT }}/gro
         run: |
-          version=$(cargo metadata --locked --no-deps --format-version 1 \
-            | jq -r '.packages[] | select(.name == "gro_cli") | .version')
+          version=$(jq -r '.version | strings' package.json)
           if [ -z "$version" ]; then
-            echo "::error::no gro_cli version in Cargo.toml"
+            echo "::error::no string version in package.json"
             exit 1
           fi
           if [ "$GITHUB_EVENT_NAME" != push ]; then
-            echo "::notice::a $GITHUB_EVENT_NAME run on $GITHUB_REF has no tag: the tag check is skipped, not passed (workspace version $version)"
+            echo "::notice::a $GITHUB_EVENT_NAME run on $GITHUB_REF has no tag: the tag check is skipped, not passed (package version $version)"
           elif [ "$GITHUB_REF_NAME" != "fgro-v$version" ]; then
-            echo "::error::the tag '$GITHUB_REF_NAME' isn't 'fgro-v' + the workspace version '$version' in Cargo.toml"
+            echo "::error::the tag '$GITHUB_REF_NAME' isn't 'fgro-v' + package.json's version '$version'"
             exit 1
           fi
           echo "VERSION=$version" >> "$GITHUB_ENV"

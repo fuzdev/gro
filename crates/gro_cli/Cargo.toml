@@ -36,8 +36,9 @@ name = "confine"
 harness = false
 
 [features]
-# start from a snapshot embedded at compile time, read from `GRO_SNAPSHOT_DIR`;
-# `cargo xtask build` sets it up
+# start from a snapshot embedded at compile time, read from `GRO_SNAPSHOT_DIR`,
+# and name the version `GRO_VERSION` gives, which it requires;
+# `cargo xtask build` sets them up
 snapshot = []
 # write a timestamp at each phase boundary to the file `GRO_PHASES_FILE` names,
 # for `cargo xtask bench --phases`; the binary that ships never enables it

@@ -19,10 +19,12 @@
 //!    naming that directory, embeds them, and the binary is hard-linked to
 //!    `<target>/gro_snapshot/<profile>/fgro`, so later plain builds, which
 //!    replace `<target>/<profile>/fgro`, leave it alone. The build also
-//!    embeds the checkout's commit through `GRO_COMMIT` ([`commit`]), read
-//!    right before it, which `fgro --version` prints and a script's
-//!    `runtime_version` carries; cargo tracks the variable, so a new commit
-//!    or a change to the tree's dirtiness rebuilds `gro_cli`.
+//!    embeds the checkout's commit through `GRO_COMMIT` ([`commit`]) and
+//!    gro's version, `package.json`'s `version`, through `GRO_VERSION`
+//!    ([`package_version`]), both read right before it, which
+//!    `fgro --version` prints and a script's `runtime_version` carries; cargo
+//!    tracks the variables, so a new commit, a change to the tree's
+//!    dirtiness, or a new version rebuilds `gro_cli`.
 //!
 //! Between the stage-one build and `make-snapshot`, the V8 library copy is
 //! checked against the pin ([`crate::v8_archive::verify_linked`]), before any
@@ -102,14 +104,43 @@ const SMOKE_FIXTURE: &str = "smoke.ts";
 /// `option_env!`.
 const COMMIT_ENV: &str = "GRO_COMMIT";
 
-/// A snapshot build of `fgro`: the binary, and the `GRO_COMMIT` it was built
-/// with, which [`verify`]'s builds repeat so they reuse it rather than
-/// rebuilding `gro_cli` without it.
+/// The variable stage two embeds the version from, which `gro_cli` reads
+/// with `env!`, requiring it in a snapshot build.
+const VERSION_ENV: &str = "GRO_VERSION";
+
+/// A snapshot build of `fgro`: the binary, and the `GRO_COMMIT` and
+/// `GRO_VERSION` it was built with, which [`verify`]'s builds repeat so they
+/// reuse it rather than rebuilding `gro_cli` without them.
 pub struct SnapshotBuild {
     /// `<target>/gro_snapshot/<profile>/fgro`.
     pub binary: PathBuf,
     /// The `GRO_COMMIT` it embeds.
     pub commit: String,
+    /// The `GRO_VERSION` it embeds.
+    pub version: String,
+}
+
+/// gro's version: the `version` of the checkout's `package.json`, which
+/// `gro_cli` validates as semver when it compiles.
+///
+/// # Errors
+///
+/// Returns why `package.json` couldn't be read or has no string `version`.
+fn package_version(root: &Path) -> Result<String, XtaskError> {
+    let path = root.join("package.json");
+    let text = fs::read_to_string(&path).map_err(|error| XtaskError::io("read", &path, error))?;
+    let package: serde_json::Value = serde_json::from_str(&text)
+        .map_err(|error| XtaskError::Failed(format!("{} isn't JSON: {error}", path.display())))?;
+    package
+        .get("version")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_owned)
+        .ok_or_else(|| {
+            XtaskError::Failed(format!(
+                "{} has no string `version` for the build to stamp",
+                path.display()
+            ))
+        })
 }
 
 /// The `GRO_COMMIT` value for the checkout at `root`: its `HEAD` SHA, with
@@ -194,11 +225,13 @@ pub fn build(
         &features,
     ];
     stage_two.extend(profile_args);
-    // read last, so it names the tree this build compiles
+    // read last, so they name the tree this build compiles
+    let version = package_version(root)?;
     let commit = commit(root);
     let mut stage_two_env = vec![
         ("GRO_SNAPSHOT_DIR", dir_arg.as_str()),
         (COMMIT_ENV, &commit),
+        (VERSION_ENV, &version),
     ];
     stage_two_env.extend(cargo_env);
     run(root, &stage_two_env, "cargo", &stage_two)?;
@@ -225,6 +258,7 @@ pub fn build(
     Ok(SnapshotBuild {
         binary: linked,
         commit,
+        version,
     })
 }
 
@@ -274,6 +308,7 @@ pub fn verify(root: &Path, release: bool, build: &SnapshotBuild) -> StepResult {
     let env = [
         ("GRO_SNAPSHOT_DIR", dir.as_str()),
         (COMMIT_ENV, build.commit.as_str()),
+        (VERSION_ENV, build.version.as_str()),
     ];
     // the workspace clippy builds without the feature, so its code goes
     // unlinted there; again with `prices`, whose code in the snapshot-only

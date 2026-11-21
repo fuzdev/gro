@@ -359,7 +359,7 @@ a module refused at resolution, or one that isn't a project's own, exits 2 with 
 	"eval_protocol": 2,
 	"ok": true,
 	"runtime": {
-		"fgro_version": "0.0.0",
+		"fgro_version": "…",
 		"commit": "…",
 		"dirty": false,
 		"v8": "…",
@@ -376,6 +376,7 @@ a module refused at resolution, or one that isn't a project's own, exits 2 with 
   and a reader refuses a protocol it doesn't know.
 - `runtime` is for display: two binaries can report the same fields,
   so a caller that pins the binary hashes the file itself.
+  `fgro_version` is the version `--version` prints ([run](run.md)).
   `commit` and `dirty` are null for a build that embedded no commit.
 - `entry.id` is the module's canonical path, or the path as given when it didn't resolve.
   `export` is null with a driver, and `driver_blake3` is the BLAKE3 of the driver's bytes, in hex, or null.

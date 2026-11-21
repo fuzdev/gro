@@ -5,7 +5,7 @@ use std::process::Stdio;
 
 use gro_runtime::BINARY_NAME;
 
-use crate::support::{fgro_command, spawn};
+use crate::support::{fgro_command, spawn, version};
 use crate::{commit, fgro, fixtures, run};
 
 #[test]
@@ -22,9 +22,10 @@ fn missing_entry_is_a_usage_error() {
 }
 
 /// The bench records this line, so it must say which build ran: the plain
-/// one with no commit, the snapshot one with [`commit`].
+/// one with Cargo's version and no commit, the snapshot one with
+/// `package.json`'s version and [`commit`].
 #[test]
-fn version_names_the_commit_v8_and_the_snapshot() {
+fn version_names_the_version_commit_v8_and_the_snapshot() {
     let output = fgro(&["--version"]);
     assert!(output.status.success(), "{output:?}");
     let line = String::from_utf8(output.stdout).unwrap();
@@ -32,7 +33,7 @@ fn version_names_the_commit_v8_and_the_snapshot() {
     assert!(
         line.starts_with(&format!(
             "{BINARY_NAME} {} (commit {commit}, V8 ",
-            env!("CARGO_PKG_VERSION")
+            version()
         )),
         "{line}"
     );

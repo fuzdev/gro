@@ -22,6 +22,8 @@ fgro --version              # the version, the git commit, the V8 version, and w
 ```
 
 `--version` prints one line, `fgro <version> (commit <sha>, V8 <version>, snapshot)`.
+The version is Gro's, the `version` of its `package.json`, which `cargo xtask build` stamps,
+and a binary from a plain `cargo build` names Cargo's `0.0.0`, which never moves.
 The commit is the full SHA the binary was built from, with `-dirty` appended when the working tree differed from it,
 untracked files included and the bench's history file excepted;
 `cargo xtask build` embeds it, and a binary from a plain `cargo build` embeds none (`commit unknown`).

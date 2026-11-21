@@ -44,6 +44,20 @@ pub const COLOR_VARS: [&str; 5] = [
     "TERM",
 ];
 
+/// The version the binary under test names: for the snapshot build, which
+/// `cargo xtask build` stamps, the `version` of gro's `package.json`, read
+/// here apart from the stamp; for the plain build, Cargo's.
+pub fn version() -> String {
+    if cfg!(feature = "snapshot") {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../package.json");
+        let package: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        package["version"].as_str().unwrap().to_owned()
+    } else {
+        env!("CARGO_PKG_VERSION").to_owned()
+    }
+}
+
 /// The fixtures directory `tests/fixtures/<kind>`.
 pub fn fixtures(kind: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))

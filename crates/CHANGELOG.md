@@ -119,5 +119,5 @@ for Linux x86_64 only, built from source ([install](../src/docs/runtime.md#insta
   one killing the process on calls like `execve` and `ptrace`,
   and an allowlist that fails every other call.
   It needs Linux 6.12 or later (Landlock ABI 6) and `TZ=UTC`, and refuses to run without them.
-- `fgro --version` prints the version, the commit it was built from, the V8 version,
+- `fgro --version` prints Gro's version, `package.json`'s, the commit it was built from, the V8 version,
   and that the startup snapshot is embedded.

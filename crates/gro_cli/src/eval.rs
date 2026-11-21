@@ -21,7 +21,7 @@ use crate::harden::{clear_env, close_inherited, data_limit, limit_memory};
 use crate::print::{stderr_line, stdout_line};
 use crate::snapshot::STARTUP_SNAPSHOT;
 use crate::thread::{Joined, on_sized_thread};
-use crate::version::COMMIT;
+use crate::version::{COMMIT, VERSION};
 use crate::{EXIT_FAILURE, EXIT_PANIC, EXIT_USAGE};
 
 /// Runs `fgro eval` on the main thread: [`confine_eval`], then evaluates on
@@ -123,7 +123,7 @@ fn confine_eval(args: EvalInvocation) -> Result<(Prepass<BoxRoots>, Confined), u
         driver: None,
         jit,
         snapshot: STARTUP_SNAPSHOT,
-        runtime: RuntimeInfo::new(env!("CARGO_PKG_VERSION"), COMMIT),
+        runtime: RuntimeInfo::new(VERSION, COMMIT),
         timeout,
         // the out-of-memory backstop writes through its own handle, never
         // through stdout's lock, which another thread may hold then; without

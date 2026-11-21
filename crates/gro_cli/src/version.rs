@@ -1,5 +1,6 @@
-//! The build's identity: the commit it was built from, validated at compile
-//! time, the runtime's version, which carries it, and the `--version` line.
+//! The build's identity: the version and the commit it was built from, each
+//! validated at compile time, the runtime's version, which carries both, and
+//! the `--version` line.
 
 use gro_runtime::{BINARY_NAME, phases, prices};
 
@@ -18,8 +19,22 @@ pub const COMMIT: Option<&str> = if cfg!(feature = "snapshot") {
     None
 };
 
-/// The package's version.
-const VERSION: &str = env!("CARGO_PKG_VERSION");
+/// The version: the `version` of gro's `package.json`, which
+/// `cargo xtask build` stamps through `GRO_VERSION` for its stage-two build,
+/// as it stamps the commit, read at compile time, never at runtime. Only
+/// that build's `snapshot` feature reads it, and it requires it, so a
+/// snapshot build can't name another version; a malformed value fails the
+/// build ([`version`]). A plain `cargo build` names Cargo's, `0.0.0`, which
+/// never moves: the crates aren't versioned apart from the package. Cargo
+/// records the variable as an input, so a changed value rebuilds the crate.
+#[cfg(feature = "snapshot")]
+pub const VERSION: &str = version(env!(
+    "GRO_VERSION",
+    "a snapshot build names package.json's version, which `cargo xtask build` sets as GRO_VERSION"
+));
+
+#[cfg(not(feature = "snapshot"))]
+pub const VERSION: &str = version(env!("CARGO_PKG_VERSION"));
 
 /// What [`RUNTIME_VERSION`] puts between the runtime's name and its version.
 const VERSION_SEPARATOR: u8 = b'/';
@@ -29,8 +44,8 @@ const VERSION_SEPARATOR: u8 = b'/';
 const COMMIT_SEPARATOR: u8 = b'+';
 
 /// The runtime's name and version, what a script reads as `runtime_version`
-/// from the `runtime_version` host module: [`BINARY_NAME`], `/`, and the
-/// package's version, as `fgro/<version>`, followed in a build with a
+/// from the `runtime_version` host module: [`BINARY_NAME`], `/`, and
+/// [`VERSION`], as `fgro/<version>`, followed in a build with a
 /// [`COMMIT`] by `+` and the whole of it, the full SHA and its `-dirty`
 /// suffix as `--version` prints them, so builds of different
 /// commits never name themselves alike, which a cache keyed by the string
@@ -51,6 +66,68 @@ pub const COMMIT_UNKNOWN: &str = "unknown";
 
 /// The suffix [`COMMIT`] carries when the working tree differed from the commit.
 const DIRTY_SUFFIX: &str = "-dirty";
+
+/// Validates a `GRO_VERSION` value: a semver version, `MAJOR.MINOR.PATCH`,
+/// each a number without a leading zero, optionally followed by `-` and a
+/// prerelease, dot-separated identifiers of ASCII letters, digits, and `-`,
+/// none empty and none of digits alone with a leading zero. Never build
+/// metadata: [`RUNTIME_VERSION`] puts the commit after a `+`. A malformed
+/// value panics, which, evaluated for [`VERSION`], fails the build rather
+/// than printing it.
+const fn version(value: &'static str) -> &'static str {
+    let bytes = value.as_bytes();
+    let mut i = 0;
+    let mut part = 0;
+    while part < 3 {
+        let start = i;
+        while i < bytes.len() && bytes[i].is_ascii_digit() {
+            i += 1;
+        }
+        assert!(
+            i > start && (i - start == 1 || bytes[start] != b'0'),
+            "GRO_VERSION must be MAJOR.MINOR.PATCH, each a number without a leading zero"
+        );
+        part += 1;
+        if part < 3 {
+            assert!(
+                i < bytes.len() && bytes[i] == b'.',
+                "GRO_VERSION must be MAJOR.MINOR.PATCH, each a number without a leading zero"
+            );
+            i += 1;
+        }
+    }
+    if i < bytes.len() {
+        assert!(
+            bytes[i] == b'-',
+            "GRO_VERSION may go on only with a prerelease after `-`, never build metadata"
+        );
+        i += 1;
+        let mut start = i;
+        let mut numeric = true;
+        while i <= bytes.len() {
+            if i == bytes.len() || bytes[i] == b'.' {
+                assert!(
+                    i > start,
+                    "GRO_VERSION's prerelease identifiers can't be empty"
+                );
+                assert!(
+                    !numeric || i - start == 1 || bytes[start] != b'0',
+                    "GRO_VERSION's numeric prerelease identifiers have no leading zero"
+                );
+                start = i + 1;
+                numeric = true;
+            } else {
+                numeric = numeric && bytes[i].is_ascii_digit();
+                assert!(
+                    bytes[i].is_ascii_alphanumeric() || bytes[i] == b'-',
+                    "GRO_VERSION's prerelease holds only ASCII letters, digits, `-`, and `.`"
+                );
+            }
+            i += 1;
+        }
+    }
+    value
+}
 
 /// Validates a `GRO_COMMIT` value: `None` when it's unset or empty, else a
 /// full SHA (40 or 64 lowercase hex digits), optionally followed by
@@ -135,9 +212,9 @@ const fn copy_into(bytes: &mut [u8], at: usize, from: &[u8]) -> usize {
 }
 
 /// The `--version` line, [`BINARY_NAME`] and the rest:
-/// `fgro <version> (commit <sha>[-dirty], V8 <version>, snapshot)`, with
-/// `commit unknown` for a build without [`COMMIT`] and `no snapshot` for a
-/// build without one, and `, phases` before the parenthesis closes in a
+/// `fgro <version> (commit <sha>[-dirty], V8 <version>, snapshot)`, the
+/// version [`VERSION`], with `commit unknown` for a build without [`COMMIT`]
+/// and `no snapshot` for a build without one, and `, phases` before the parenthesis closes in a
 /// build that records phases (`gro_runtime::phases::ENABLED`), and
 /// `, prices` in one that reads the prices switches
 /// (`gro_runtime::prices::ENABLED`).
@@ -159,6 +236,55 @@ pub fn version_line() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn version_accepts_semver_with_a_prerelease() {
+        for value in [
+            "0.0.0",
+            "0.239.0",
+            "10.20.30",
+            "1.0.0-next.1",
+            "1.0.0-rc-1.x.0",
+            "1.0.0-0",
+            "1.0.0-0a.01a",
+        ] {
+            assert_eq!(version(value), value);
+        }
+    }
+
+    #[test]
+    fn version_refuses_anything_else() {
+        for value in [
+            "",
+            "1",
+            "1.0",
+            "1.0.0.0",
+            "01.0.0",
+            "1.00.0",
+            "v1.0.0",
+            "1.0.0+build",
+            "1.0.0-",
+            "1.0.0-a..b",
+            "1.0.0-a.",
+            "1.0.0-a_b",
+            "1.0.0-01",
+            "1.0.0-a.00",
+            "1.0.0 ",
+            "1.0.x",
+        ] {
+            let result = std::panic::catch_unwind(|| version(value));
+            assert!(result.is_err(), "{value}");
+        }
+    }
+
+    /// A plain build, which `cargo test` runs, names Cargo's version, never
+    /// moved from `0.0.0`.
+    #[test]
+    #[cfg(not(feature = "snapshot"))]
+    fn a_plain_build_names_cargo_s_version() {
+        assert_eq!(VERSION, "0.0.0");
+        assert_eq!(VERSION, env!("CARGO_PKG_VERSION"));
+    }
 
     #[test]
     fn commit_accepts_a_full_sha_and_the_dirty_suffix() {
@@ -240,7 +366,7 @@ mod tests {
     /// sets.
     #[test]
     fn runtime_version_names_the_build() {
-        let version = env!("CARGO_PKG_VERSION");
+        let version = VERSION;
         let expected = option_env!("GRO_COMMIT")
             .filter(|value| cfg!(feature = "snapshot") && !value.is_empty())
             .map_or_else(
@@ -259,10 +385,7 @@ mod tests {
             .filter(|value| cfg!(feature = "snapshot") && !value.is_empty())
             .unwrap_or(COMMIT_UNKNOWN);
         assert!(
-            line.starts_with(&format!(
-                "{BINARY_NAME} {} (commit {expected}, V8 ",
-                env!("CARGO_PKG_VERSION")
-            )),
+            line.starts_with(&format!("{BINARY_NAME} {VERSION} (commit {expected}, V8 ")),
             "{line}"
         );
     }

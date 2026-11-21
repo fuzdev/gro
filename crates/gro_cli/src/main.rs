@@ -7,8 +7,8 @@
 //! - `fgro eval <module> [--driver -] [--export NAME] [--jit] [--timeout MS]
 //!   [--graph]` evaluates a module to JSON data in a kernel box and prints
 //!   one envelope on stdout; the reference is `src/docs/eval.md`
-//! - `fgro --version` prints one line naming the commit, the V8 version, and
-//!   whether a snapshot is embedded (`version`)
+//! - `fgro --version` prints one line naming the version, the commit, the
+//!   V8 version, and whether a snapshot is embedded (`version`)
 //!
 //! Every command but `eval` runs on one thread with [`gro_runtime::STACK_SIZE`]
 //! reserved, not on the main thread, so a debug build stays inside the stack
@@ -26,11 +26,12 @@
 //!
 //! Features (the binary that ships never enables `phases` or `prices`):
 //!
-//! - `snapshot` embeds a startup snapshot read from `GRO_SNAPSHOT_DIR` and
-//!   the commit from `GRO_COMMIT`; `cargo xtask build` makes it in two
-//!   stages, the first running the internal `fgro make-snapshot <dir>`.
-//!   Without it, `fgro` evaluates the runtime's sources at startup, reading
-//!   the web extensions' JS from the build tree
+//! - `snapshot` embeds a startup snapshot read from `GRO_SNAPSHOT_DIR`, the
+//!   commit from `GRO_COMMIT`, and the version from `GRO_VERSION`;
+//!   `cargo xtask build` makes it in two stages, the first running the
+//!   internal `fgro make-snapshot <dir>`. Without it, `fgro` evaluates the
+//!   runtime's sources at startup, reading the web extensions' JS from the
+//!   build tree, and names Cargo's version
 //! - `phases` writes a timestamp at each phase boundary to the file
 //!   `GRO_PHASES_FILE` names (`gro_runtime::phases`), for
 //!   `cargo xtask bench --phases`

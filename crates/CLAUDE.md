@@ -256,9 +256,11 @@ setting, where a kernel restricts them.
 A clean checkout of one commit, the same toolchain (the system's C compiler
 and library included), and the same cargo home build the same `fgro`, byte for
 byte, wherever the checkout is; `fgro` embeds its commit, so a dirty tree
-builds other bytes. `cargo xtask check-reproducible` holds it for the release
-build; `crates/xtask/src/reproducible.rs` says what it refuses and what it
-can't see.
+builds other bytes. The version it names is `package.json`'s, which xtask
+stamps (Cargo's stays `0.0.0`), committed, so nothing outside the commit
+reaches it. `cargo xtask check-reproducible` holds it for the release build;
+`crates/xtask/src/reproducible.rs` says what it refuses and what it can't
+see.
 
 ## Benchmarks
 

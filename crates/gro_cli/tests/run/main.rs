@@ -26,7 +26,7 @@ use std::path::PathBuf;
 use std::process::{Command, Output};
 
 use gro_runtime::BINARY_NAME;
-use support::{Scratch, fgro_command, spawn};
+use support::{Scratch, fgro_command, spawn, version};
 
 fn fixtures() -> PathBuf {
     support::fixtures("run")
@@ -135,7 +135,7 @@ fn commit() -> Option<&'static str> {
 /// the binary's name, `/`, the version, then `+` and [`commit`] when the build
 /// has one.
 fn runtime_version() -> String {
-    let version = env!("CARGO_PKG_VERSION");
+    let version = version();
     commit().map_or_else(
         || format!("{BINARY_NAME}/{version}"),
         |commit| format!("{BINARY_NAME}/{version}+{commit}"),
