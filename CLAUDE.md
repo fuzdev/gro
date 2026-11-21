@@ -36,6 +36,12 @@ Key responsibilities:
 `Args`, `TaskContext`, `invoke_task` and its types, args forwarding, `gro run`,
 errors and exit codes. Where it lives:
 
+- The CLI's body - `gro_main` (`gro_main.ts`), a package module every root of the CLI
+  calls with what it opened (`GroMainDeps`: the args, the `FsPaths`, the `BuiltinHostRoot`, the
+  project loader, the `GroPlatform`): it syncs SvelteKit when obviously needed, parses the
+  args, loads the config, and calls `invoke_cli`; the root reports what it throws with
+  `log_cli_error` and exits with `to_exit_code`. `invoke.ts` is the Node root: the
+  `process` listeners, Node's `styleText` for fuz_util's `st`, and the exit's flush
 - Resolution - `resolve_task` in `invoke_task.ts`; the CLI's forms in
   `invoke_cli`. A name means only a builtin, a path only a file; an input with
   `/` or a task suffix is a path (`invoke_task` takes either by the same rule)
@@ -55,7 +61,7 @@ errors and exit codes. Where it lives:
   holding a frozen copy as its `raw_rest_args`; each builtin refuses its tool's exact help and
   version flags where it reads the tool's section (`internal/forwarded_info_flags.ts`), and
   `invoke_task` a forwarded `gro` section's `--help`
-- Exit code - `to_exit_code` in `invoke.ts` reads a `TaskError`'s `exit_code`
+- Exit code - `to_exit_code` in `gro_main.ts` reads a `TaskError`'s `exit_code`
   (how `gro run` passes on its script's code) from the CLI-invoked task's
   failure
 - Errors - `task_error.ts`, grant-free: `TaskError` suppresses the stack,
@@ -372,7 +378,7 @@ recipes), and `../fuz_forge` (eval's `forge2` config).
 
 Core systems (src/lib/):
 
-- CLI and task invocation: `gro.ts`, `invoke.ts`, `task_args.ts`, `task.ts`,
+- CLI and task invocation: `gro.ts`, `invoke.ts`, `gro_main.ts`, `task_args.ts`, `task.ts`,
   `task_registry.ts`, `invoke_task.ts`, `run_task.ts`
 - Gen input paths: `input_path.ts`
 - Code generation: `gen.ts`, `gen.task.ts`, `run_gen.ts`, `gen_helpers.ts`

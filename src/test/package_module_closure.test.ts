@@ -161,7 +161,9 @@ const EXCEPTIONS = [
 	'dist_rewrite_imports.ts',
 	'gen_helpers.ts',
 	// the default config, a root, reached when loading the config
-	'gro_config.ts'
+	'gro_config.ts',
+	// the CLI's body, which loads the config through `gro_config.ts`
+	'gro_main.ts'
 ];
 
 // the host modules, whose Node files a relative import from `src/lib` loads, granted or not;
@@ -447,6 +449,23 @@ describe("the CLI entry's closure", () => {
 			listed.filter((name) => !PACKAGE_MODULES_BEYOND_THE_CLI.includes(name) && !reached.has(name)),
 			[],
 			'listed but not reached'
+		);
+	});
+
+	// what the binary's entry calls, where a relative import of a host module is its builtin:
+	// it reaches no `node:` builtin, and a granted host module only through the default config,
+	// whose plugins import theirs when it loads
+	test('the CLI body, `gro_main.ts`, reaches Node only through the default config', () => {
+		const grant_free = GRANT_FREE_HOST_MODULES.map((id) => relative(paths.root, id) + ' <- ');
+		const violations = to_closure_violations(join(paths.lib, 'gro_main.ts'));
+		assert.ok(violations.length > 0);
+		assert.deepEqual(
+			violations.filter(
+				(violation) =>
+					!violation.includes(' <- src/lib/gro.config.default.ts <- ') &&
+					!grant_free.some((prefix) => violation.startsWith(prefix))
+			),
+			[]
 		);
 	});
 

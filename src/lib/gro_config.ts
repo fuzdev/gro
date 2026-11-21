@@ -1,9 +1,11 @@
 import { identity } from '@fuzdev/fuz_util/function.ts';
 import type { PathFilter } from '@fuzdev/fuz_util/path.ts';
 import { json_stringify_deterministic } from '@fuzdev/fuz_util/json.ts';
-import { hash_blake3 } from '@fuzdev/fuz_util/hash_blake3.ts';
+import { to_bytes } from '@fuzdev/fuz_util/bytes.ts';
+import { to_hex } from '@fuzdev/fuz_util/hex.ts';
 
 import { posix_join, posix_resolve } from './internal/posix_path.ts';
+import { hash } from './blake3.ts';
 import type { FsPaths } from './fs_paths.ts';
 import type { ImportModule } from './modules.ts';
 import {
@@ -165,7 +167,8 @@ export const cook_gro_config = async (
 			typeof build_cache_config === 'function' ? await build_cache_config() : build_cache_config;
 
 		// Hash the JSON representation with deterministic key ordering
-		build_cache_config_hash = hash_blake3(json_stringify_deterministic(resolved));
+		// through the blake3 host module, the native hash on the runtime
+		build_cache_config_hash = to_hex(hash(to_bytes(json_stringify_deterministic(resolved))));
 	}
 
 	// `delete` drops the reference, it doesn't scrub memory

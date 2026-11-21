@@ -1,21 +1,11 @@
 import { configure_print_colors } from '@fuzdev/fuz_util/print.ts';
-import { Logger } from '@fuzdev/fuz_util/log.ts';
-import { styleText as st } from 'node:util';
+import { styleText } from 'node:util';
 
-import { invoke_cli } from './invoke_task.ts';
-import { to_raw_rest_args, to_task_args, type CliTaskArgs } from './task_args.ts';
-import { ReportedError, is_reported_error, is_task_error } from './task_error.ts';
-import { load_gro_config } from './gro_config.ts';
-import {
-	SVELTEKIT_PROGRAM_OPTIONS,
-	sveltekit_sync_if_obviously_needed
-} from './sveltekit_helpers.ts';
-import { to_cli_finder } from './cli.ts';
+import { gro_main, log_cli_error, to_exit_code } from './gro_main.ts';
 import { fs } from './fs.ts';
 import { spawn } from './spawn.ts';
 import { create_fs_paths } from './fs_paths.ts';
 import { cwd } from './cwd.ts';
-import { print_error_with_causes } from './internal/error_report.ts';
 import { args } from './args.ts';
 import { env } from './env.ts';
 import { exit, set_exit_code } from './exit.ts';
@@ -27,34 +17,13 @@ import { create_node_platform } from './internal/node_platform.ts';
 
 /*
 
-This module is the Gro CLI's entry, which invokes tasks, the CLI's primary concept.
-To learn more about them, see `src/docs/task.md`.
-
-`to_task_args` parses the CLI args into a `CliTaskArgs`, whose `task_name` is the first
-positional arg, a builtin name or the `task` verb, with the path after `task` as its `task_path`.
-`invoke_cli` runs what they name, taking `to_raw_rest_args`, the args from the first `--` on
-verbatim, as its `raw_rest_args`; `gro run` has none, since every arg after its path is the script's.
+This module is the Node Gro CLI's entry, its composition root:
+the fs, env, spawn, and stream host modules, the project loader, and the platform enter here,
+and `gro_main` (`gro_main.ts`) runs what the CLI args name with them.
+Only the Node-only parts stay here: the listeners on the global `process`,
+the colors of Node's `styleText`, and the exit's flush.
 
 */
-
-/**
- * The code the CLI exits with for an uncaught error:
- * a `TaskError`'s `exit_code`, like `gro run`'s script's own, when it's an integer 1–255
- * (a process exit code is a byte, so `256` would exit `0`)
- * and it's the uncaught error itself, as when thrown from `gro.config.ts` before any task runs,
- * or failed the task the CLI invoked (the `cause` of `invoke_task`'s `ReportedError`),
- * and `1` otherwise, including for a nested task's failure.
- */
-const to_exit_code = (err: unknown): number => {
-	const error = err as { exit_code?: unknown; cause?: { exit_code?: unknown } } | null | undefined;
-	const exit_code = error?.exit_code ?? error?.cause?.exit_code;
-	return typeof exit_code === 'number' &&
-		Number.isInteger(exit_code) &&
-		exit_code > 0 &&
-		exit_code < 256
-		? exit_code
-		: 1;
-};
 
 // how long an uncaught error's exit waits on a reader that isn't reading
 const FLUSH_TIMEOUT_MS = 5_000;
@@ -80,45 +49,20 @@ const flush_output = async (): Promise<void> => {
 listen_to_node_process((err, origin) => {
 	// so every exit path carries the code, even if the flush below never settles
 	set_exit_code(to_exit_code(err));
-	if (is_task_error(err)) {
-		// a known failure, so its message with no stack
-		new Logger('TaskError').error(st('red', err.message));
-	} else if (!is_reported_error(err)) {
-		// `print_error` reads properties, so a thrown `undefined` or `null` would throw here
-		new Logger(origin).error(err == null ? `Unknown error: ${err}` : print_error_with_causes(err));
-	}
+	log_cli_error(err, origin);
 	void flush_output().finally(() => exit(to_exit_code(err)));
 });
 
 if (!env.get('NO_COLOR')) {
-	configure_print_colors(st);
+	configure_print_colors(styleText);
 }
 
-// the CLI's composition root, where the fs, env, spawn, and stream host modules and the project loader enter,
-// the builtins getting what their grants name from the env, spawn, and stream roots
 const fs_paths = create_fs_paths(fs, { cwd: cwd(), home: env.get('HOME') });
 
-// once per CLI run, as only this root calls it, never a task `invoke_task` runs
-await sveltekit_sync_if_obviously_needed(
+await gro_main({
+	args,
 	fs_paths,
-	to_cli_finder(spawn, SVELTEKIT_PROGRAM_OPTIONS),
-	new Logger('gro')
-);
-
-let task_args: CliTaskArgs;
-try {
-	task_args = to_task_args(args);
-} catch (error) {
-	if (!is_task_error(error)) throw error;
-	new Logger('gro').error(st('red', error.message)); // a usage error, no stack trace
-	throw new ReportedError();
-}
-await invoke_cli(
-	fs_paths,
-	task_args,
-	await load_gro_config(fs_paths, import_module_node),
-	to_raw_rest_args(args),
-	import_module_node,
-	{ env, spawn, stdout, stderr },
-	await create_node_platform(fs_paths)
-);
+	host_root: { env, spawn, stdout, stderr },
+	import_module: import_module_node,
+	platform: await create_node_platform(fs_paths)
+});
