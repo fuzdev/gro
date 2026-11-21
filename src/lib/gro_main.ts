@@ -2,7 +2,8 @@
  * The Gro CLI's body, which every root of the CLI calls with what it opened:
  * the Node Gro's entry, `invoke.ts`, and the binary's.
  *
- * It parses the CLI args, syncs SvelteKit when that's obviously needed,
+ * It splits off the grant flags, warning that they confine nothing here,
+ * syncs SvelteKit when that's obviously needed, parses the CLI args,
  * loads the project's config, and invokes what the args name, the CLI's primary concept,
  * a task; to learn more about them, see `src/docs/task.md`.
  * It imports no host module itself, reads nothing of the process itself,
@@ -18,7 +19,7 @@ import { Logger } from '@fuzdev/fuz_util/log.ts';
 import { st } from '@fuzdev/fuz_util/print.ts';
 
 import { invoke_cli, type GroPlatform } from './invoke_task.ts';
-import { to_raw_rest_args, to_task_args, type CliTaskArgs } from './task_args.ts';
+import { to_grant_flags, to_raw_rest_args, to_task_args, type CliTaskArgs } from './task_args.ts';
 import { ReportedError, is_reported_error, is_task_error } from './task_error.ts';
 import { load_gro_config } from './gro_config.ts';
 import {
@@ -48,7 +49,8 @@ export interface GroMainDeps {
 	readonly fs_paths: FsPaths;
 	/**
 	 * The root's env, spawn, and stream handles, cut by each builtin's grants into its `host`,
-	 * the spawn handle also finding `svelte-kit` for the sync before every task.
+	 * the spawn handle also finding `svelte-kit` for the sync before every task,
+	 * and stderr taking the warning for grant flags that confine nothing.
 	 */
 	readonly host_root: BuiltinHostRoot;
 	/**
@@ -68,7 +70,23 @@ export interface GroMainDeps {
  * with `log_cli_error`
  */
 export const gro_main = async (deps: GroMainDeps): Promise<void> => {
-	const { args, fs_paths, host_root, import_module, platform } = deps;
+	const { fs_paths, host_root, import_module, platform } = deps;
+
+	// a root that enforces grant flags, the binary, takes them before it calls this,
+	// so any left in the args reach a run that confines nothing
+	let args: Array<string>;
+	let grant_flags: Array<string>;
+	try {
+		({ cli_args: args, grant_flags } = to_grant_flags(deps.args));
+	} catch (error) {
+		if (!is_task_error(error)) throw error;
+		new Logger('gro').error(st('red', error.message)); // a usage error, no stack trace
+		throw new ReportedError();
+	}
+	if (grant_flags.length) {
+		// straight to stderr, as the only notice that nothing is confined, which no log level hides
+		await host_root.stderr.write(to_grant_flags_unenforced_message(grant_flags) + '\n');
+	}
 
 	// once per CLI run, as only this body calls it, never a task `invoke_task` runs
 	await sveltekit_sync_if_obviously_needed(
@@ -79,7 +97,7 @@ export const gro_main = async (deps: GroMainDeps): Promise<void> => {
 
 	let task_args: CliTaskArgs;
 	try {
-		task_args = to_task_args(args);
+		task_args = to_task_args(args, grant_flags);
 	} catch (error) {
 		if (!is_task_error(error)) throw error;
 		new Logger('gro').error(st('red', error.message)); // a usage error, no stack trace
@@ -95,6 +113,15 @@ export const gro_main = async (deps: GroMainDeps): Promise<void> => {
 		platform
 	);
 };
+
+/**
+ * The warning, once per run, for grant flags given to a Gro that doesn't enforce them,
+ * written to the root's stderr, not through a logger, so no log level hides it.
+ * @param grant_flags - the flags, as written
+ */
+export const to_grant_flags_unenforced_message = (grant_flags: ReadonlyArray<string>): string =>
+	`grant flags have no effect on the Node gro, which confines nothing; ` +
+	`only the gro binary enforces them: ${grant_flags.map((flag) => `\`${flag}\``).join(', ')}`;
 
 /**
  * Logs an error `gro_main` threw, or another the root caught, the way the CLI reports it:

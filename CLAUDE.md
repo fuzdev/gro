@@ -42,6 +42,9 @@ errors and exit codes. Where it lives:
   args, loads the config, and calls `invoke_cli`; the root reports what it throws with
   `log_cli_error` and exits with `to_exit_code`. `invoke.ts` is the Node root: the
   `process` listeners, Node's `styleText` for fuz_util's `st`, and the exit's flush
+- Grant flags - a run right after the command word (`gro check --allow-read=. --watch`),
+  split off by `to_grant_flags` (`task_args.ts`) in `gro_main`, which warns once that they
+  confine nothing on Node ([docs](src/docs/task.md#run-a-task))
 - Resolution - `resolve_task` in `invoke_task.ts`; the CLI's forms in
   `invoke_cli`. A name means only a builtin, a path only a file; an input with
   `/` or a task suffix is a path (`invoke_task` takes either by the same rule)

@@ -1,10 +1,15 @@
 import { test, assert, vi, afterEach } from 'vitest';
 import { Logger } from '@fuzdev/fuz_util/log.ts';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { gro_main, log_cli_error, to_exit_code } from '#lib/gro_main.ts';
+import {
+	gro_main,
+	log_cli_error,
+	to_exit_code,
+	to_grant_flags_unenforced_message
+} from '#lib/gro_main.ts';
 import { import_module_node } from '#lib/internal/node_import_module.ts';
 import { ReportedError, TaskError } from '#lib/task_error.ts';
 import { create_project_fs_paths } from './fs_test_helpers.ts';
@@ -12,16 +17,29 @@ import { create_test_platform, create_throwing_builtin_host_root } from './test_
 
 afterEach(() => {
 	vi.restoreAllMocks();
+	stderr_writes = [];
 });
+
+// what a run writes to the root's stderr, the throwing root's other handles left as they are
+let stderr_writes: Array<string> = [];
 
 const run = async (args: Array<string>, version = '0.0.0-test'): Promise<void> => {
 	const dir = mkdtempSync(join(tmpdir(), 'gro_main_'));
 	try {
 		writeFileSync(join(dir, 'package.json'), '{"name": "x"}');
+		mkdirSync(join(dir, 'src'));
 		await gro_main({
 			args,
 			fs_paths: await create_project_fs_paths(dir),
-			host_root: create_throwing_builtin_host_root(),
+			host_root: {
+				...create_throwing_builtin_host_root(),
+				stderr: {
+					write: (data: string) => {
+						stderr_writes.push(data);
+						return Promise.resolve(true);
+					}
+				} as never
+			},
 			import_module: import_module_node,
 			platform: { ...create_test_platform(), gro: { version, dir: null } }
 		});
@@ -82,4 +100,52 @@ test('log_cli_error logs a task error without its stack and a reported one not a
 	assert.include(String(error.mock.calls[1]![0]), 'Unknown error: null');
 	log_cli_error(Error('boom'), 'origin');
 	assert.include(String(error.mock.calls[2]![0]), 'boom');
+});
+
+test('grant flags warn once on stderr that they confine nothing, and the command runs without them', async () => {
+	const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+	const info = vi.spyOn(Logger.prototype, 'info').mockImplementation(() => undefined);
+	await run(['task', '--allow-read=.', '-A']);
+	// straight to the root's stderr, never through a logger a log level could quiet
+	assert.deepEqual(stderr_writes, [
+		to_grant_flags_unenforced_message(['--allow-read=.', '-A']) + '\n'
+	]);
+	assert.strictEqual(warn.mock.calls.length, 0);
+	assert.include(
+		to_grant_flags_unenforced_message(['--allow-read=.', '-A']),
+		'`--allow-read=.`, `-A`'
+	);
+	// `gro task` with no path, listing the empty `src/`
+	assert.ok(info.mock.calls.some((call) => String(call[0]).includes('No tasks found')));
+});
+
+test('no grant flags, no warning', async () => {
+	vi.spyOn(Logger.prototype, 'info').mockImplementation(() => undefined);
+	await run(['task']);
+	assert.deepEqual(stderr_writes, []);
+});
+
+test("a refused task path's hint keeps the grant flags the run was given", async () => {
+	const error = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+	let thrown: unknown;
+	try {
+		await run(['task', '--allow-read=.', '--x', 'x.task.ts']);
+	} catch (e) {
+		thrown = e;
+	}
+	assert.instanceOf(thrown, ReportedError);
+	assert.include(String(error.mock.calls[0]![0]), '`gro task --allow-read=. x.task.ts --x`');
+});
+
+test('a misspelled grant flag is a usage error before anything runs', async () => {
+	const error = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+	let thrown: unknown;
+	try {
+		await run(['task', '--allow-reed=.']);
+	} catch (e) {
+		thrown = e;
+	}
+	assert.instanceOf(thrown, ReportedError);
+	assert.strictEqual(error.mock.calls.length, 1);
+	assert.include(String(error.mock.calls[0]![0]), 'is no grant flag');
 });

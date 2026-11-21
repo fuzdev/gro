@@ -65,9 +65,13 @@ const to_run_path_index = (cli_args: ReadonlyArray<string>): number =>
  * Refuses a flag before the path of `gro task [flags] <path>`,
  * which would otherwise take the path as its value and list `src/` instead.
  * `gro task` with no path takes `--help`, which the listing ignores.
+ * @param grant_flags - the grant flags split off the args, which the hint keeps after the command
  * @throws TaskError naming the form with the flags after the path
  */
-const assert_no_task_flags_before_path = (cli_args: ReadonlyArray<string>): void => {
+const assert_no_task_flags_before_path = (
+	cli_args: ReadonlyArray<string>,
+	grant_flags: ReadonlyArray<string>
+): void => {
 	if (cli_args[0] !== TASK_VERB) return;
 	const path_index = to_path_index(cli_args, TASK_VERB);
 	const forwarded_index = cli_args.indexOf('--');
@@ -93,6 +97,7 @@ const assert_no_task_flags_before_path = (cli_args: ReadonlyArray<string>): void
 		`\`gro ${TASK_VERB}\` takes no flags before the path, so flags for the task go after it: ` +
 			to_path_first_hint(
 				TASK_VERB,
+				grant_flags,
 				args,
 				hint_path_index,
 				true,
@@ -110,18 +115,21 @@ const SCRIPT_PATH_MATCHER = /\.[cm]?[jt]sx?$/;
  * The hint for a refused `gro <command> [flags] <path>`: the command with the path
  * at `path_index` in `args` first, or `<path>` when it's `-1`,
  * then every other arg in order, raw, so a `--no-x` or a flag's value stays as written.
+ * @param grant_flags - the grant flags given, kept right after the command, where they go
  * @param keep_pre_path_help - whether a `--help` before the path is the task's, kept,
  *   or Gro's own, like `gro run`'s, dropped
  * @param rest - args appended verbatim, like the forwarded sections from the first `--`
  */
 const to_path_first_hint = (
 	command: string,
+	grant_flags: ReadonlyArray<string>,
 	args: Array<string>,
 	path_index: number,
 	keep_pre_path_help: boolean,
 	rest: Array<string> = []
 ): string =>
 	`\`gro ${command} ${[
+		...grant_flags,
 		path_index === -1 ? '<path>' : args[path_index]!,
 		...args.filter(
 			(arg, i) =>
@@ -134,6 +142,114 @@ const to_path_first_hint = (
 	].join(' ')}\``;
 
 /**
+ * The grant flags that take a list after `=`, as the binary reads them.
+ */
+const GRANT_FLAGS_LISTING: ReadonlySet<string> = new Set([
+	'--allow-env',
+	'--allow-read',
+	'--allow-write',
+	'--allow-run',
+	'--allow-run-in',
+	'--allow-run-env'
+]);
+
+/**
+ * The grant flags that take no value, `-A` granting everything.
+ */
+const GRANT_FLAGS_BARE: ReadonlySet<string> = new Set(['-A', '--allow-temp']);
+
+/**
+ * Whether `arg` is spelled as a grant flag, `-A` or one starting `--allow-`, valid or not.
+ */
+const is_grant_flag_like = (arg: string): boolean => arg === '-A' || arg.startsWith('--allow-');
+
+/**
+ * The CLI args with the grant flags split off.
+ */
+export interface CliGrantFlags {
+	/**
+	 * The grant flags, as written, in order.
+	 */
+	grant_flags: Array<string>;
+	/**
+	 * The CLI args without them, everything else verbatim.
+	 */
+	cli_args: Array<string>;
+}
+
+/**
+ * Splits the grant flags off the CLI args: the run of them right after the command word,
+ * like `gro check --allow-run-env=X --watch` or `gro task --allow-read=. src/x.task.ts`,
+ * the grammar of the binary, which enforces them.
+ * Anything after the run is the command's, so a flag spelled `--allow-*` there is a task arg,
+ * and everything from the first `--` is forwarded as written.
+ * Only the flags' spelling is checked here, not the names or directories they list.
+ * @param cli_args - the args after the CLI's own path, the command word first
+ * @throws TaskError for a grant flag before the command word, a flag in the run spelled
+ *   `--allow-*` that's no grant flag, one that lists with no list or `--allow-temp` with a value,
+ *   and `gro run` given `--allow-run-env` with neither `--allow-run` nor `--allow-run-in`
+ */
+export const to_grant_flags = (cli_args: ReadonlyArray<string>): CliGrantFlags => {
+	for (const arg of cli_args) {
+		if (arg === '--' || !arg.startsWith('-')) break;
+		if (is_grant_flag_like(arg)) {
+			// the command word after the flags, if any, before any `--`
+			const end = cli_args.indexOf('--');
+			const command =
+				cli_args.slice(0, end === -1 ? undefined : end).find((a) => !a.startsWith('-')) ??
+				'<command>';
+			throw new TaskError(
+				`\`${arg}\` comes before the command: grant flags go right after the command word, ` +
+					`like \`gro ${command} ${arg}\``
+			);
+		}
+	}
+	const grant_flags: Array<string> = [];
+	const command = cli_args[0];
+	// with no command word, the args start with a flag or `--`, or with a path the CLI refuses
+	// there, its flags the task's, and there's no run
+	const has_command =
+		command !== undefined && !command.startsWith('-') && !is_task_path_input(command);
+	let end = has_command ? 1 : cli_args.length;
+	for (; end < cli_args.length; end++) {
+		const flag = cli_args[end]!;
+		if (!is_grant_flag_like(flag)) break;
+		const equals_index = flag.indexOf('=');
+		const name = equals_index === -1 ? flag : flag.slice(0, equals_index);
+		if (GRANT_FLAGS_BARE.has(name)) {
+			if (equals_index !== -1) throw new TaskError(`\`${name}\` takes no value: \`${flag}\``);
+		} else if (GRANT_FLAGS_LISTING.has(name)) {
+			if (equals_index === -1 || equals_index === flag.length - 1) {
+				throw new TaskError(
+					`\`${name}\` takes a list after \`=\`, like \`${name}=a,b\`: \`${flag}\``
+				);
+			}
+		} else {
+			throw new TaskError(
+				`\`${flag}\` is no grant flag: they're ${[...GRANT_FLAGS_BARE, ...GRANT_FLAGS_LISTING]
+					.map((f) => `\`${f}\``)
+					.join(', ')}`
+			);
+		}
+		grant_flags.push(flag);
+	}
+	if (
+		command === RUN_TASK_NAME &&
+		grant_flags.some((f) => f.startsWith('--allow-run-env=')) &&
+		!grant_flags.some((f) => f.startsWith('--allow-run=') || f.startsWith('--allow-run-in='))
+	) {
+		throw new TaskError(
+			`\`--allow-run-env\` passes variables to the programs \`--allow-run\` or \`--allow-run-in\` grants, ` +
+				`and \`gro ${RUN_TASK_NAME}\` was given neither`
+		);
+	}
+	return {
+		grant_flags,
+		cli_args: grant_flags.length ? [command!, ...cli_args.slice(end)] : [...cli_args]
+	};
+};
+
+/**
  * Parses the task and its `args` from the CLI args, ignoring anything after any `--`.
  * `gro task <path>` consumes one more positional, the path, and refuses a flag before it.
  * `gro run [--help] <path> ...rest` refuses any other flag before the path
@@ -142,10 +258,15 @@ const to_path_first_hint = (
  * @throws TaskError when a flag replaces the positional args, like `--_` or `--no-_`,
  *   `gro run` has a flag other than `--help` before its path,
  *   or `gro task` has a flag before its path or one other than `--help` with none
- * @param cli_args - the args after the CLI's own path, the task name first, as in the `args` host module
+ * @param cli_args - the args after the CLI's own path, the task name first, as in the `args` host module,
+ *   with no grant flags, which `to_grant_flags` splits off
+ * @param grant_flags - the grant flags split off, which a refusal's hint keeps
  */
-export const to_task_args = (cli_args: ReadonlyArray<string>): CliTaskArgs => {
-	assert_no_task_flags_before_path(cli_args);
+export const to_task_args = (
+	cli_args: ReadonlyArray<string>,
+	grant_flags: ReadonlyArray<string> = []
+): CliTaskArgs => {
+	assert_no_task_flags_before_path(cli_args, grant_flags);
 	const run_path_index = to_run_path_index(cli_args);
 	const forwarded_index = cli_args.indexOf('--');
 	const end =
@@ -170,6 +291,7 @@ export const to_task_args = (cli_args: ReadonlyArray<string>): CliTaskArgs => {
 				`\`gro ${RUN_TASK_NAME}\` takes no flags before the path, so flags for the script go after it: ` +
 					to_path_first_hint(
 						RUN_TASK_NAME,
+						grant_flags,
 						run_args,
 						run_args.findIndex((arg) => !arg.startsWith('-') && SCRIPT_PATH_MATCHER.test(arg)),
 						false

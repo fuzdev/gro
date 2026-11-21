@@ -11,6 +11,7 @@ import {
 	to_forwarded_args_by_command,
 	to_forwarded_argv,
 	to_forwarded_flag_value,
+	to_grant_flags,
 	to_implicit_rest_args,
 	to_raw_rest_args,
 	to_task_args
@@ -699,5 +700,105 @@ describe('the CLI args have no leading entries', () => {
 		expect(to_raw_rest_args(['run', 'x.ts', '--', 'a'])).toEqual([]);
 		// a flag before the path still refuses, at the same position
 		expect(() => to_task_args(['task', '--a', 'x.task.ts'])).toThrow('no flags before the path');
+	});
+});
+
+describe('to_grant_flags', () => {
+	test('splits off the run of grant flags right after the command word', () => {
+		expect(to_grant_flags('check --allow-run-env=X --watch'.split(' '))).toEqual({
+			grant_flags: ['--allow-run-env=X'],
+			cli_args: ['check', '--watch']
+		});
+		expect(to_grant_flags('task --allow-read=. -A src/x.task.ts --a'.split(' '))).toEqual({
+			grant_flags: ['--allow-read=.', '-A'],
+			cli_args: ['task', 'src/x.task.ts', '--a']
+		});
+		expect(
+			to_grant_flags('run --allow-temp --allow-env=HOME,PATH --allow-write=a,b x.ts'.split(' '))
+		).toEqual({
+			grant_flags: ['--allow-temp', '--allow-env=HOME,PATH', '--allow-write=a,b'],
+			cli_args: ['run', 'x.ts']
+		});
+		// the grant flags of `gro run` take programs to pass the variables to
+		expect(
+			to_grant_flags(['run', '--allow-run=git', '--allow-run-in=bin', '--allow-run-env=X', 'x.ts'])
+				.grant_flags
+		).toEqual(['--allow-run=git', '--allow-run-in=bin', '--allow-run-env=X']);
+	});
+
+	test('leaves everything after the run as written, a later `--allow-*` the command arg', () => {
+		for (const argv of [
+			'check --watch --allow-read=.',
+			'run x.ts --allow-read=.',
+			'test -- vitest --allow-read=.',
+			'check -- --allow-read=.',
+			'-- --allow-read=.',
+			''
+		]) {
+			const cli_args = argv ? argv.split(' ') : [];
+			expect(to_grant_flags(cli_args)).toEqual({ grant_flags: [], cli_args });
+		}
+		// the split args parse as before, the run gone
+		const { cli_args } = to_grant_flags('task --allow-read=. src/x.task.ts --a 1'.split(' '));
+		expect(to_task_args(cli_args)).toEqual(to_task_args('task src/x.task.ts --a 1'.split(' ')));
+	});
+
+	test("a path where the command goes has no run, its flags the task's, for the hint to use `gro task`", () => {
+		for (const argv of [
+			'src/lib/x.task.ts --allow-foo',
+			'src/lib/x --allow-read=.',
+			'x.task.ts -A'
+		]) {
+			const cli_args = argv.split(' ');
+			expect(to_grant_flags(cli_args)).toEqual({ grant_flags: [], cli_args });
+		}
+	});
+
+	test("a refusal's hint keeps the grant flags right after the command word", () => {
+		expect(() =>
+			to_task_args('task --x src/x.task.ts'.split(' '), ['--allow-read=.', '-A'])
+		).toThrow('`gro task --allow-read=. -A src/x.task.ts --x`');
+		expect(() => to_task_args('run --x x.ts'.split(' '), ['--allow-read=.'])).toThrow(
+			'`gro run --allow-read=. x.ts --x`'
+		);
+		// the split args and their flags, from one command line
+		const { cli_args, grant_flags } = to_grant_flags(
+			'task --allow-read=. --x src/x.task.ts'.split(' ')
+		);
+		expect(() => to_task_args(cli_args, grant_flags)).toThrow(
+			'`gro task --allow-read=. src/x.task.ts --x`'
+		);
+	});
+
+	test('refuses a grant flag before the command word, naming where it goes', () => {
+		expect(() => to_grant_flags('--allow-read=. -A check --watch'.split(' '))).toThrow(
+			'like `gro check --allow-read=.`'
+		);
+		expect(() => to_grant_flags('--allow-read=. -- check'.split(' '))).toThrow(
+			'like `gro <command> --allow-read=.`'
+		);
+		for (const argv of ['--allow-read=. check', '-A check', '--version --allow-read=.']) {
+			expect(() => to_grant_flags(argv.split(' '))).toThrow(TaskError);
+			expect(() => to_grant_flags(argv.split(' '))).toThrow(
+				'grant flags go right after the command word'
+			);
+		}
+	});
+
+	test('refuses a misspelled grant flag in the run, one listing nothing, and a bare one with a value', () => {
+		for (const [argv, message] of [
+			['check --allow-reed=. --watch', '`--allow-reed=.` is no grant flag'],
+			['check --allow-read', '`--allow-read` takes a list after `=`'],
+			['check --allow-read= --watch', '`--allow-read` takes a list after `=`'],
+			['check --allow-temp=x', '`--allow-temp` takes no value'],
+			['run --allow-run-env=X x.ts', '`gro run` was given neither']
+		] as const) {
+			expect(() => to_grant_flags(argv.split(' '))).toThrow(TaskError);
+			expect(() => to_grant_flags(argv.split(' '))).toThrow(message);
+		}
+		// under a builtin the command's grants supply the programs
+		expect(to_grant_flags('check --allow-run-env=X'.split(' ')).grant_flags).toEqual([
+			'--allow-run-env=X'
+		]);
 	});
 });

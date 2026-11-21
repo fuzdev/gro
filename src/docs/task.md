@@ -94,6 +94,16 @@ A `gro/` prefix, like `gro gro/check`, is an error naming the plain builtin.
 Flags go after the path: `gro task --a src/lib/foo.task.ts` is an error,
 since `--a` would take the path as its value.
 
+Grant flags, the binary's (`-A`, `--allow-temp`, and `--allow-env`, `--allow-read`,
+`--allow-write`, `--allow-run`, `--allow-run-in`, and `--allow-run-env` with `=` and a list),
+go in a run right after the command word, before the task's own args or path:
+`gro check --allow-run-env=X --watch`, `gro task --allow-read=. src/lib/foo.task.ts`.
+The Node gro takes the same grammar and confines nothing,
+so it runs the command without them and warns once, on stderr, that they have no effect.
+A grant flag before the command word, one in the run spelled `--allow-*` that's no grant flag,
+one with no list after its `=`, and `--allow-temp` with a value are usage errors;
+after the run a flag spelled `--allow-*` is the task's, and `--` forwards as written.
+
 ### define a task
 
 ```ts
