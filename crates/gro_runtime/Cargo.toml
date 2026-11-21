@@ -41,6 +41,13 @@ url.workspace = true
 # these (an in-workspace crate with no V8)
 gro_bench = { path = "../gro_bench" }
 
+# a child process installing the run's seccomp denylist from its one thread,
+# as a box installs it, which libtest's harness, with its threads, would leave
+# partly outside the filter
+[[test]]
+name = "denylist"
+harness = false
+
 [features]
 # phase timings for the measurement harness (`phases`); the binary that ships
 # never enables it

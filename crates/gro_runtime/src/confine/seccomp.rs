@@ -1,7 +1,15 @@
-//! The box's seccomp filters: the call tables and the compiled pair of
-//! programs, a killing tripwire and the allowlist.
+//! The boxes' seccomp filters.
+//!
+//! Here, eval's call tables and its compiled pair of programs, a killing
+//! tripwire and the allowlist; in `denylist` (built on `x86_64` only), the
+//! run's table and its filter, assembled by [`tree`], a binary search on
+//! the call number.
 
 use super::{ConfineError, Jit};
+
+#[cfg(target_arch = "x86_64")]
+pub mod denylist;
+pub mod tree;
 
 /// The calls that kill the process, by their own filter, installed before
 /// the allowlist.
@@ -199,15 +207,18 @@ fn ioctl_request(request: libc::Ioctl) -> u64 {
 /// `SOCK_CLOEXEC` flags.
 const SOCKET_TYPE_MASK: u64 = 0xf;
 
-/// The namespace flags `clone` accepts, which the box's one kept `clone`
-/// must not set: the flags under the mask of these and `CLONE_THREAD`, the
-/// first argument on `x86_64` and `aarch64`, must be `CLONE_THREAD` alone, so a
-/// thread starts, and no process is forked and no namespace made.
-/// `CLONE_NEWTIME` isn't among them: `clone` reads its flags' low byte as
-/// the exit signal, and takes that flag only from `clone3`.
+/// The namespace flags `clone` accepts, which no `clone` either box allows
+/// may set. In eval's box, the flags under the mask of these and
+/// `CLONE_THREAD`, the first argument on `x86_64` and `aarch64`, must be
+/// `CLONE_THREAD` alone, so a thread starts, and no process is forked and
+/// no namespace made; the run's denylist refuses a `clone` that sets any of
+/// them (`denylist::ArgRule::Clone`). `CLONE_NEWTIME` isn't among them:
+/// `clone` reads its flags' low byte as the exit signal, and takes that
+/// flag only from `clone3`.
 ///
-/// `clone3` isn't allowed: its flags sit in memory, out of a filter's reach,
-/// and its `ENOSYS` makes glibc start the thread with `clone` instead.
+/// Neither box allows `clone3`: its flags sit in memory, out of a filter's
+/// reach, and its `ENOSYS` makes glibc start the thread with `clone`
+/// instead.
 const CLONE_NAMESPACES: libc::c_int = libc::CLONE_NEWNS
     | libc::CLONE_NEWCGROUP
     | libc::CLONE_NEWUTS

@@ -103,7 +103,7 @@ use std::path::{Path, PathBuf};
 mod closure;
 mod landlock;
 pub mod rules;
-mod seccomp;
+pub mod seccomp;
 #[cfg(test)]
 mod tests;
 
@@ -239,6 +239,21 @@ impl Confined {
     pub const fn jit(&self) -> Jit {
         self.jit
     }
+}
+
+/// How a run's box holds the network, which decides what sockets its
+/// seccomp denylist lets a process make
+/// (`seccomp::denylist::ArgRule::Socket`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NetForm {
+    /// In a network namespace of the run's own, whose only interface is its
+    /// own loopback: internet sockets are made freely and reach nothing
+    /// outside the run.
+    Namespace,
+    /// In the host's network, where user namespaces are refused: Landlock
+    /// refuses binding and connecting TCP sockets, and the denylist refuses
+    /// every socket but a pair, so no UDP socket or listener is made either.
+    InetRefused,
 }
 
 /// Whether a run's process is confined, which the engine takes to start.

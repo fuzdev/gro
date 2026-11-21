@@ -1,6 +1,7 @@
 //! Tests for confinement: shared scratch directories here, then the link
-//! closure, the BPF interpreter and eval's seccomp tables and filters read
-//! by it, the Landlock floor, and the rules by topic.
+//! closure, the BPF interpreter and the seccomp tables and filters read by
+//! it (eval's, the tree assembler's, and the run's denylist), the Landlock
+//! floor, and the rules by topic.
 
 use std::path::{Path, PathBuf};
 
@@ -11,9 +12,12 @@ use crate::test_support::TestDir;
 
 mod bpf;
 mod closure;
+#[cfg(target_arch = "x86_64")]
+mod denylist;
 mod landlock;
 mod rules;
 mod seccomp;
+mod tree;
 
 /// A fresh directory under the system's temporary directory (see
 /// [`TestDir`]). Every directory it makes has the mode `0o755`, whatever

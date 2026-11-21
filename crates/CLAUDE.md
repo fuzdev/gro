@@ -223,6 +223,11 @@ and the contracts no one module doc owns.
   test grants a step that returns.
 - A change to the seccomp allowlist reruns the census
   ([eval](../src/docs/eval.md#changing-the-allowlist)).
+- The run's seccomp denylist (`confine/seccomp/denylist.rs`) classifies
+  every `x86_64` call number, each family with its reason, and refuses
+  every number above the highest classified; its tests hold the table to
+  the kernel headers on the build machine, so a header that names a new
+  call fails them until the table classifies it.
 
 ## Tests
 
@@ -235,7 +240,9 @@ They need Landlock ABI 6 and fail below it, naming the kernel's ABI.
 runs under (`INTEGRATION_TESTS` in `crates/xtask/src/snapshot.rs`), and an
 xtask unit test fails on a file of `crates/gro_cli/tests/` no run names.
 `gro_sys`'s tests that close descriptors, clear the environment, cap memory,
-or signal run in a child process, harness off.
+or signal run in a child process, harness off, as does `gro_runtime`'s
+`tests/denylist.rs`, which installs the run's denylist and runs `python3`
+under it for the socket cases std can't make.
 
 ## Reproducible builds
 
