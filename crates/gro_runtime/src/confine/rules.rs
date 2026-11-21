@@ -31,10 +31,11 @@
 //! ([`BoxRules::absent`]). Anything else that keeps an optional rule from
 //! opening (a symlink, a swap, an unreadable directory, an empty path, a
 //! relative one by real path) fails it too, so no rule is dropped quietly
-//! and the box is never narrower or wider than its plan without saying why. One absence passes
-//! a symlink. An optional rule by real path whose missing entry lies beyond
-//! a dangling symlink on the path is recorded absent, since that open
-//! follows every symlink but the last, and the box is only narrower for it.
+//! and the box is never narrower or wider than its plan without saying
+//! why. One absence passes a symlink. An optional rule by real path whose
+//! missing entry lies beyond a dangling symlink on the path is recorded
+//! absent, since that open follows every symlink but the last, and the box
+//! is only narrower for it.
 //!
 //! The kernel holds what the rules grant, a boundary defeated by a kernel
 //! bug. The opening is part of that boundary, a native check made before

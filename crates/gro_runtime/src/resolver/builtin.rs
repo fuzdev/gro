@@ -142,6 +142,16 @@ macro_rules! builtin_rows {
                     "create_ignore_stack"
                 ]
             ),
+            $row!(
+                "@fuzdev/gro/stdio_error.ts",
+                None,
+                ["StdioError", "is_stdio_error"]
+            ),
+            $row!(
+                "@fuzdev/gro/net_error.ts",
+                None,
+                ["NetError", "is_net_error"]
+            ),
         ]
     };
 }
@@ -180,17 +190,14 @@ pub fn find_builtin(specifier: &str) -> Option<&'static Builtin> {
 /// The host modules not built as builtin modules yet, each by its specifier
 /// without the extension, reserved under `.ts` and `.js`.
 ///
-/// The grant-free error modules are among them: their classes will be the
-/// host's, so none resolves to the package's copy before its row lands. A
-/// module joins the table's rows when it's built, and leaves this list.
+/// None resolves to the package's copy before its row lands. A module joins
+/// the table's rows when it's built, and leaves this list.
 pub const UNBUILT_HOST_MODULES: &[&str] = &[
     "@fuzdev/gro/net",
-    "@fuzdev/gro/net_error",
     "@fuzdev/gro/watch",
     "@fuzdev/gro/stdin",
     "@fuzdev/gro/stdout",
     "@fuzdev/gro/stderr",
-    "@fuzdev/gro/stdio_error",
 ];
 
 /// A module Gro has none of, whose members are modules of their own.

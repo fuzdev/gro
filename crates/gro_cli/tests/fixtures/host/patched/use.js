@@ -30,6 +30,12 @@ const fs_error = namespace_of('@fuzdev/gro/fs_error.ts');
 /** The spawn error row's namespace, the same for its errors. */
 const spawn_error = namespace_of('@fuzdev/gro/spawn_error.ts');
 
+/** The stdio error row's namespace, the same for its errors. */
+const stdio_error = namespace_of('@fuzdev/gro/stdio_error.ts');
+
+/** The net error row's namespace, the same for its errors. */
+const net_error = namespace_of('@fuzdev/gro/net_error.ts');
+
 /** The project's path, which the run reads and writes beneath. */
 const project = namespace_of('@fuzdev/gro/fs.ts').fs.project.path;
 
@@ -240,6 +246,40 @@ const EXERCISES = new Map([
 		[
 			[new spawn_error.SpawnError('not_found', 'git'), 'not_found'],
 			[new spawn_error.SpawnError('not_found', 'git'), 'other'],
+			[{ __proto__: null }]
+		]
+	],
+	// a kind and a stream, and with them the options of its cause
+	[
+		'@fuzdev/gro/stdio_error.ts StdioError',
+		[
+			['io_error', 'stdout'],
+			['io_error', 'stdout', { __proto__: null, cause: 1 }]
+		]
+	],
+	// an error of the class, of its kind and of another, and one that isn't
+	[
+		'@fuzdev/gro/stdio_error.ts is_stdio_error',
+		[
+			[new stdio_error.StdioError('io_error', 'stdout'), 'io_error'],
+			[new stdio_error.StdioError('io_error', 'stdout'), 'other'],
+			[{ __proto__: null }]
+		]
+	],
+	// a kind and a host, and with them the options of its cause
+	[
+		'@fuzdev/gro/net_error.ts NetError',
+		[
+			['not_granted', 'example.com:443'],
+			['not_granted', 'example.com:443', { __proto__: null, cause: 1 }]
+		]
+	],
+	// an error of the class, of its kind and of another, and one that isn't
+	[
+		'@fuzdev/gro/net_error.ts is_net_error',
+		[
+			[new net_error.NetError('not_granted', 'example.com:443'), 'not_granted'],
+			[new net_error.NetError('not_granted', 'example.com:443'), 'other'],
 			[{ __proto__: null }]
 		]
 	],

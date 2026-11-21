@@ -70,7 +70,7 @@ for Linux x86_64 only, built from source ([install](../src/docs/runtime.md#insta
     `@fuzdev/gro/blake3.ts`, BLAKE3 over bytes, one-shot and by hashers,
     and `@fuzdev/gro/tsv.ts`, tsv's formatters for TypeScript, Svelte, and CSS, its import parse, and its ignore stacks, by tsv's own crates.
     A panic in tsv, a bug of tsv's, ends the process.
-  - `@fuzdev/gro/env_error.ts`, `@fuzdev/gro/fs_error.ts`, and `@fuzdev/gro/spawn_error.ts` need none either: each error class and its guards are made by the runtime, natively,
+  - `@fuzdev/gro/env_error.ts`, `@fuzdev/gro/fs_error.ts`, `@fuzdev/gro/spawn_error.ts`, `@fuzdev/gro/stdio_error.ts`, and `@fuzdev/gro/net_error.ts` need none either: each error class and its guards are made by the runtime, natively,
     the first time a run needs them, and match the Node module's but that a guard runs no code of a caller's.
   - `fgro run -A <file>` runs unconfined: every builtin module is granted to every module of the run, a package's included,
     each grant at its widest, every variable for `env`, one root at `/` for `fs`, and `fs.temp_dir`, and any program for `spawn`, passed any variable,
@@ -86,7 +86,7 @@ for Linux x86_64 only, built from source ([install](../src/docs/runtime.md#insta
     `--allow-run=` and `--allow-run-env=` with the programs and variables, each a plain name, and for `fs` the flag alone (`--allow-read`, `--allow-write`, or `--allow-temp`) or the handle to open, never a path.
     An `import()` refused because nothing is there, like a missing optional dependency, or because a feature isn't supported, doesn't fail the run.
   - The host modules not on `fgro` yet are refused, never loaded from the npm package:
-    `@fuzdev/gro/net.ts`, `watch.ts`, `stdin.ts`, `stdout.ts`, `stderr.ts`, and their error modules.
+    `@fuzdev/gro/net.ts`, `watch.ts`, `stdin.ts`, `stdout.ts`, and `stderr.ts`.
     So is a builtin module's `.js` spelling (`@fuzdev/gro/args.js`), and a respelling of any of these or of a builtin module's specifier (`@fuzdev/gro/arg%73.ts`).
     So are `@fuzdev/gro/process.ts` and `@fuzdev/gro/process_error.ts`, which Gro doesn't have, either spelling,
     the refusal naming the modules to import instead.

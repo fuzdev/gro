@@ -45,7 +45,7 @@ pub mod tsv;
 use deno_core::error::ModuleLoaderError as JsErrorBox;
 use deno_core::{OpDecl, OpState, op2, v8};
 
-use error_class::{ENV_ERROR, FS_ERROR, SPAWN_ERROR};
+use error_class::{ENV_ERROR, FS_ERROR, NET_ERROR, SPAWN_ERROR, STDIO_ERROR};
 use exit::{ExitState, NOT_A_CODE, to_exit_code};
 use grant::require_authority;
 use handle::{
@@ -854,5 +854,31 @@ native_members! {
     /// `stack.is_ignored(path, is_dir)`, called on `stack` ([`tsv::is_ignored`]).
     fn is_ignored(state; scope, path, is_dir) for "@fuzdev/gro/tsv.ts" on TSV_IGNORE_STACK(stack) {
         tsv::is_ignored(state, scope, stack, path, is_dir)
+    }
+
+    /// `StdioError`, the stdio host modules' error class, the host's
+    /// ([`error_class::exported_class`]), extending the realm's `Error` the
+    /// namespace op held.
+    value StdioError(state; scope) for "@fuzdev/gro/stdio_error.ts" class STDIO_ERROR(family) {
+        error_class::exported_class(state, scope, family)
+    }
+
+    /// `is_stdio_error(error, kind?)`, whether `error` is a `StdioError`,
+    /// of `kind` when it's given ([`error_class::guard`]).
+    fn is_stdio_error(state; scope, error, kind) for "@fuzdev/gro/stdio_error.ts" {
+        error_class::guard(scope, &STDIO_ERROR, error, kind)
+    }
+
+    /// `NetError`, the net host module's error class, the host's
+    /// ([`error_class::exported_class`]), extending the realm's `Error` the
+    /// namespace op held.
+    value NetError(state; scope) for "@fuzdev/gro/net_error.ts" class NET_ERROR(family) {
+        error_class::exported_class(state, scope, family)
+    }
+
+    /// `is_net_error(error, kind?)`, whether `error` is a `NetError`, of
+    /// `kind` when it's given ([`error_class::guard`]).
+    fn is_net_error(state; scope, error, kind) for "@fuzdev/gro/net_error.ts" {
+        error_class::guard(scope, &NET_ERROR, error, kind)
     }
 }

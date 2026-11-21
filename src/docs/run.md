@@ -177,7 +177,8 @@ The binary embeds the commit, so a dirty tree (a changed file, or an untracked o
   `spawn`, the root handle, making program handles of the names it may, of programs beneath the exec roots, and narrower roots, a refusal throwing `SpawnError` `not_granted`, which fails the run caught or not;
   a program's `run`, `out`, `out_bytes`, and `start` start its child, refused `launch_failed` when its file changed since it was pinned ([host modules](host_modules.md#spawn-on-fgro)).
 - `@fuzdev/gro/spawn_error.ts`, a builtin module that needs no grant: `SpawnError` and `is_spawn_error`.
-- A builtin module's `.js` spelling (`@fuzdev/gro/args.js`), the host modules not on `fgro` yet (`@fuzdev/gro/net.ts`, `stdin`, `stdout`, `net_error`, and the rest, either spelling),
+- `@fuzdev/gro/stdio_error.ts` and `@fuzdev/gro/net_error.ts`, builtin modules that need no grant: `StdioError` and `is_stdio_error`, `NetError` and `is_net_error`.
+- A builtin module's `.js` spelling (`@fuzdev/gro/args.js`), the host modules not on `fgro` yet (`@fuzdev/gro/net.ts`, `stdin`, `stdout`, and the rest, either spelling),
   and `@fuzdev/gro/process.ts` and `process_error.ts`, which Gro has none of (either spelling),
   are refused ahead of package lookup, as is a respelling of these or of a builtin module's specifier (`@fuzdev/gro/arg%73.ts`),
   naming the specifier to import, the modules to import instead, or that the module isn't on `fgro` yet,

@@ -125,6 +125,18 @@ fn the_table_is_pinned() {
                     "create_ignore_stack"
                 ][..],
             ),
+            (
+                "@fuzdev/gro/stdio_error.ts",
+                "builtin:@fuzdev/gro/stdio_error.ts",
+                None,
+                &["StdioError", "is_stdio_error"][..],
+            ),
+            (
+                "@fuzdev/gro/net_error.ts",
+                "builtin:@fuzdev/gro/net_error.ts",
+                None,
+                &["NetError", "is_net_error"][..],
+            ),
         ]
     );
 }
@@ -324,8 +336,11 @@ fn the_reserved_specifiers_are_pinned() {
         ("@fuzdev/gro/spawn.ts", None),
         ("@fuzdev/gro/net.ts", unbuilt("@fuzdev/gro/net")),
         ("@fuzdev/gro/net.js", unbuilt("@fuzdev/gro/net")),
-        ("@fuzdev/gro/net_error.ts", unbuilt("@fuzdev/gro/net_error")),
-        ("@fuzdev/gro/net_error.js", unbuilt("@fuzdev/gro/net_error")),
+        ("@fuzdev/gro/net_error.ts", None),
+        (
+            "@fuzdev/gro/net_error.js",
+            Some(Reserved::JsSpelling(&BUILTINS[14])),
+        ),
         ("@fuzdev/gro/watch.ts", unbuilt("@fuzdev/gro/watch")),
         ("@fuzdev/gro/watch.js", unbuilt("@fuzdev/gro/watch")),
         ("@fuzdev/gro/env.ts", None),
@@ -335,13 +350,10 @@ fn the_reserved_specifiers_are_pinned() {
         ("@fuzdev/gro/stdout.js", unbuilt("@fuzdev/gro/stdout")),
         ("@fuzdev/gro/stderr.ts", unbuilt("@fuzdev/gro/stderr")),
         ("@fuzdev/gro/stderr.js", unbuilt("@fuzdev/gro/stderr")),
-        (
-            "@fuzdev/gro/stdio_error.ts",
-            unbuilt("@fuzdev/gro/stdio_error"),
-        ),
+        ("@fuzdev/gro/stdio_error.ts", None),
         (
             "@fuzdev/gro/stdio_error.js",
-            unbuilt("@fuzdev/gro/stdio_error"),
+            Some(Reserved::JsSpelling(&BUILTINS[13])),
         ),
         ("@fuzdev/gro/process.ts", process),
         ("@fuzdev/gro/process.js", process),
@@ -436,7 +448,7 @@ fn a_reserved_specifier_is_refused_reading_nothing() {
         r#"{"name": "@fuzdev/gro", "type": "module", "exports": {"./*.ts": "./*.ts", "./*.js": "./*.ts"}}"#,
     );
     files.insert("/p/net.ts", "");
-    files.insert("/p/net_error.ts", "");
+    files.insert("/p/stdin.ts", "");
     files.insert("/p/fs_search.ts", "");
     files.insert("/p/process.ts", "");
     files.insert("/p/process_error.ts", "");
@@ -489,9 +501,9 @@ fn a_reserved_specifier_is_refused_reading_nothing() {
                  under Node with gro",
             ),
             (
-                "@fuzdev/gro/net_error.ts",
-                Reserved::Unbuilt("@fuzdev/gro/net_error"),
-                "it names Gro's host module '@fuzdev/gro/net_error.ts', which isn't on \
+                "@fuzdev/gro/stdin.ts",
+                Reserved::Unbuilt("@fuzdev/gro/stdin"),
+                "it names Gro's host module '@fuzdev/gro/stdin.ts', which isn't on \
                  {BINARY_NAME} yet, and a host module's specifier never resolves to a package. \
                  Fix: run this under Node with gro",
             ),
@@ -514,8 +526,7 @@ fn a_reserved_specifier_is_refused_reading_nothing() {
                 "it names '@fuzdev/gro/process_error.ts', which isn't one of Gro's modules: its \
                  members are modules of their own, and its specifier never resolves to a \
                  package. Fix: import what you use from '@fuzdev/gro/env_error.ts' or \
-                 '@fuzdev/gro/stdio_error.ts'; of these, only '@fuzdev/gro/env_error.ts' is on \
-                 {BINARY_NAME} yet, so run code that uses the others under Node with gro",
+                 '@fuzdev/gro/stdio_error.ts'",
             ),
         ] {
             let error = resolve_any(&watched, specifier, &importer, &roots).unwrap_err();
@@ -575,7 +586,7 @@ fn a_respelled_specifier_is_reserved() {
         (
             "stdio_error.ts?x",
             "stdio_error.ts",
-            Reserved::Unbuilt("@fuzdev/gro/stdio_error"),
+            Reserved::Respelled(&BUILTINS[13]),
         ),
         ("f%73.ts", "fs.ts", fs),
         ("f%73.js", "fs.js", fs_js),

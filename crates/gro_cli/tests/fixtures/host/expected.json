@@ -21301,6 +21301,576 @@
 			}
 		}
 	},
+	"stdio_error": {
+		"code": 0,
+		"output": {
+			"namespace": {
+				"type": "object",
+				"prototype": null,
+				"frozen": false,
+				"own": {
+					"StdioError": {
+						"type": "function",
+						"writable": true,
+						"enumerable": true,
+						"configurable": false
+					},
+					"is_stdio_error": {
+						"type": "function",
+						"writable": true,
+						"enumerable": true,
+						"configurable": false
+					},
+					"Symbol(Symbol.toStringTag)": {
+						"type": "string",
+						"writable": false,
+						"enumerable": false,
+						"configurable": false
+					}
+				}
+			},
+			"class": {
+				"type": "function",
+				"prototype": "other",
+				"frozen": true,
+				"own": {
+					"length": {
+						"type": "number",
+						"writable": false,
+						"enumerable": false,
+						"configurable": false
+					},
+					"name": {
+						"type": "string",
+						"writable": false,
+						"enumerable": false,
+						"configurable": false
+					},
+					"prototype": {
+						"type": "object",
+						"writable": false,
+						"enumerable": false,
+						"configurable": false
+					}
+				}
+			},
+			"class_name": "StdioError",
+			"class_length": 3,
+			"prototype": {
+				"type": "object",
+				"prototype": "other",
+				"frozen": true,
+				"own": {
+					"constructor": {
+						"type": "function",
+						"writable": false,
+						"enumerable": false,
+						"configurable": false
+					}
+				}
+			},
+			"extends_error": true,
+			"prototype_extends_error": true,
+			"constructor_is_the_class": true,
+			"instance": {
+				"type": "object",
+				"prototype": "other",
+				"frozen": false,
+				"own": {
+					"message": {
+						"type": "string",
+						"writable": true,
+						"enumerable": false,
+						"configurable": true
+					},
+					"name": {
+						"type": "string",
+						"writable": true,
+						"enumerable": true,
+						"configurable": true
+					},
+					"kind": {
+						"type": "string",
+						"writable": true,
+						"enumerable": true,
+						"configurable": true
+					},
+					"target": {
+						"type": "string",
+						"writable": true,
+						"enumerable": true,
+						"configurable": true
+					}
+				}
+			},
+			"instance_of_the_class": true,
+			"instance_of_error": true,
+			"is_error": true,
+			"tag": "[object Error]",
+			"message": "io_error: stdout",
+			"name": "StdioError",
+			"kind": "io_error",
+			"target": "stdout",
+			"string": "StdioError: io_error: stdout",
+			"has_cause": false,
+			"stack_head": "StdioError: io_error: stdout",
+			"stack_has_a_frame": true,
+			"caught_is_the_error": true,
+			"custom": {
+				"type": "object",
+				"prototype": "other",
+				"frozen": false,
+				"own": {
+					"message": {
+						"type": "string",
+						"writable": true,
+						"enumerable": false,
+						"configurable": true
+					},
+					"cause": {
+						"type": "string",
+						"writable": true,
+						"enumerable": false,
+						"configurable": true
+					},
+					"name": {
+						"type": "string",
+						"writable": true,
+						"enumerable": true,
+						"configurable": true
+					},
+					"kind": {
+						"type": "string",
+						"writable": true,
+						"enumerable": true,
+						"configurable": true
+					},
+					"target": {
+						"type": "string",
+						"writable": true,
+						"enumerable": true,
+						"configurable": true
+					}
+				}
+			},
+			"custom_message": "io_error: stdout",
+			"custom_cause": "why",
+			"string_options": {
+				"message": "io_error: stdout",
+				"has_cause": false
+			},
+			"null_options": {
+				"message": "io_error: stdout",
+				"has_cause": false
+			},
+			"getter_cause": "got",
+			"no_options_cause": false,
+			"converted_message": "hostile: hostile",
+			"converted_kind_kept": true,
+			"message_past_the_longest_string": "RangeError",
+			"symbol_kind": "TypeError",
+			"symbol_target": "TypeError",
+			"symbol_options": {
+				"message": "io_error: y",
+				"has_cause": false
+			},
+			"clone": {
+				"tag": "[object Error]",
+				"name": "Error",
+				"message": "io_error: stdout",
+				"has_kind": false,
+				"is_an_error": true,
+				"is_an_stdio_error": false
+			},
+			"json": "{\"name\":\"StdioError\",\"kind\":\"io_error\",\"target\":\"stdout\"}",
+			"call_without_new": "TypeError",
+			"subclass": {
+				"instance_of_sub": true,
+				"instance_of_the_class": true,
+				"extra": 1,
+				"kind": "io_error",
+				"prototype_is_subs": true,
+				"own": {
+					"type": "object",
+					"prototype": "other",
+					"frozen": false,
+					"own": {
+						"message": {
+							"type": "string",
+							"writable": true,
+							"enumerable": false,
+							"configurable": true
+						},
+						"name": {
+							"type": "string",
+							"writable": true,
+							"enumerable": true,
+							"configurable": true
+						},
+						"kind": {
+							"type": "string",
+							"writable": true,
+							"enumerable": true,
+							"configurable": true
+						},
+						"target": {
+							"type": "string",
+							"writable": true,
+							"enumerable": true,
+							"configurable": true
+						},
+						"extra": {
+							"type": "number",
+							"writable": true,
+							"enumerable": true,
+							"configurable": true
+						}
+					}
+				}
+			},
+			"class_frozen_against_set_prototype": "TypeError",
+			"class_write": "TypeError",
+			"prototype_write": "TypeError",
+			"guard": {
+				"type": "function",
+				"prototype": "Function.prototype",
+				"frozen": false,
+				"own": {
+					"length": {
+						"type": "number",
+						"writable": false,
+						"enumerable": false,
+						"configurable": true
+					},
+					"name": {
+						"type": "string",
+						"writable": false,
+						"enumerable": false,
+						"configurable": true
+					}
+				}
+			},
+			"guard_name": "is_stdio_error",
+			"guard_length": 2,
+			"guard_new": "TypeError",
+			"guards": {
+				"error": true,
+				"of_its_kind": true,
+				"of_another_kind": false,
+				"subclass": true,
+				"subclass_of_its_kind": true,
+				"lookalike": true,
+				"inherited": true,
+				"inherited_of_its_kind": false,
+				"plain_error": false,
+				"plain_object": false,
+				"null_prototype": false,
+				"null": false,
+				"undefined": false,
+				"string": false,
+				"class": false,
+				"clone": false,
+				"proxy_of_an_error": true,
+				"function_with_the_prototype": false,
+				"named_through_a_proxy": true,
+				"named_by_a_proxy": true,
+				"constructor_by_getter": true,
+				"named_by_getter": true,
+				"ran": [
+					"chain get",
+					"constructor get",
+					"constructor getter",
+					"name getter"
+				],
+				"kind_by_getter": true
+			}
+		}
+	},
+	"net_error": {
+		"code": 0,
+		"output": {
+			"namespace": {
+				"type": "object",
+				"prototype": null,
+				"frozen": false,
+				"own": {
+					"NetError": {
+						"type": "function",
+						"writable": true,
+						"enumerable": true,
+						"configurable": false
+					},
+					"is_net_error": {
+						"type": "function",
+						"writable": true,
+						"enumerable": true,
+						"configurable": false
+					},
+					"Symbol(Symbol.toStringTag)": {
+						"type": "string",
+						"writable": false,
+						"enumerable": false,
+						"configurable": false
+					}
+				}
+			},
+			"class": {
+				"type": "function",
+				"prototype": "other",
+				"frozen": true,
+				"own": {
+					"length": {
+						"type": "number",
+						"writable": false,
+						"enumerable": false,
+						"configurable": false
+					},
+					"name": {
+						"type": "string",
+						"writable": false,
+						"enumerable": false,
+						"configurable": false
+					},
+					"prototype": {
+						"type": "object",
+						"writable": false,
+						"enumerable": false,
+						"configurable": false
+					}
+				}
+			},
+			"class_name": "NetError",
+			"class_length": 3,
+			"prototype": {
+				"type": "object",
+				"prototype": "other",
+				"frozen": true,
+				"own": {
+					"constructor": {
+						"type": "function",
+						"writable": false,
+						"enumerable": false,
+						"configurable": false
+					}
+				}
+			},
+			"extends_error": true,
+			"prototype_extends_error": true,
+			"constructor_is_the_class": true,
+			"instance": {
+				"type": "object",
+				"prototype": "other",
+				"frozen": false,
+				"own": {
+					"message": {
+						"type": "string",
+						"writable": true,
+						"enumerable": false,
+						"configurable": true
+					},
+					"name": {
+						"type": "string",
+						"writable": true,
+						"enumerable": true,
+						"configurable": true
+					},
+					"kind": {
+						"type": "string",
+						"writable": true,
+						"enumerable": true,
+						"configurable": true
+					},
+					"target": {
+						"type": "string",
+						"writable": true,
+						"enumerable": true,
+						"configurable": true
+					}
+				}
+			},
+			"instance_of_the_class": true,
+			"instance_of_error": true,
+			"is_error": true,
+			"tag": "[object Error]",
+			"message": "not_granted: example.com:443",
+			"name": "NetError",
+			"kind": "not_granted",
+			"target": "example.com:443",
+			"string": "NetError: not_granted: example.com:443",
+			"has_cause": false,
+			"stack_head": "NetError: not_granted: example.com:443",
+			"stack_has_a_frame": true,
+			"caught_is_the_error": true,
+			"custom": {
+				"type": "object",
+				"prototype": "other",
+				"frozen": false,
+				"own": {
+					"message": {
+						"type": "string",
+						"writable": true,
+						"enumerable": false,
+						"configurable": true
+					},
+					"cause": {
+						"type": "string",
+						"writable": true,
+						"enumerable": false,
+						"configurable": true
+					},
+					"name": {
+						"type": "string",
+						"writable": true,
+						"enumerable": true,
+						"configurable": true
+					},
+					"kind": {
+						"type": "string",
+						"writable": true,
+						"enumerable": true,
+						"configurable": true
+					},
+					"target": {
+						"type": "string",
+						"writable": true,
+						"enumerable": true,
+						"configurable": true
+					}
+				}
+			},
+			"custom_message": "not_granted: example.com:443",
+			"custom_cause": "why",
+			"string_options": {
+				"message": "not_granted: example.com:443",
+				"has_cause": false
+			},
+			"null_options": {
+				"message": "not_granted: example.com:443",
+				"has_cause": false
+			},
+			"getter_cause": "got",
+			"no_options_cause": false,
+			"converted_message": "hostile: hostile",
+			"converted_kind_kept": true,
+			"message_past_the_longest_string": "RangeError",
+			"symbol_kind": "TypeError",
+			"symbol_target": "TypeError",
+			"symbol_options": {
+				"message": "not_granted: y",
+				"has_cause": false
+			},
+			"clone": {
+				"tag": "[object Error]",
+				"name": "Error",
+				"message": "not_granted: example.com:443",
+				"has_kind": false,
+				"is_an_error": true,
+				"is_a_net_error": false
+			},
+			"json": "{\"name\":\"NetError\",\"kind\":\"not_granted\",\"target\":\"example.com:443\"}",
+			"call_without_new": "TypeError",
+			"subclass": {
+				"instance_of_sub": true,
+				"instance_of_the_class": true,
+				"extra": 1,
+				"kind": "not_granted",
+				"prototype_is_subs": true,
+				"own": {
+					"type": "object",
+					"prototype": "other",
+					"frozen": false,
+					"own": {
+						"message": {
+							"type": "string",
+							"writable": true,
+							"enumerable": false,
+							"configurable": true
+						},
+						"name": {
+							"type": "string",
+							"writable": true,
+							"enumerable": true,
+							"configurable": true
+						},
+						"kind": {
+							"type": "string",
+							"writable": true,
+							"enumerable": true,
+							"configurable": true
+						},
+						"target": {
+							"type": "string",
+							"writable": true,
+							"enumerable": true,
+							"configurable": true
+						},
+						"extra": {
+							"type": "number",
+							"writable": true,
+							"enumerable": true,
+							"configurable": true
+						}
+					}
+				}
+			},
+			"class_frozen_against_set_prototype": "TypeError",
+			"class_write": "TypeError",
+			"prototype_write": "TypeError",
+			"guard": {
+				"type": "function",
+				"prototype": "Function.prototype",
+				"frozen": false,
+				"own": {
+					"length": {
+						"type": "number",
+						"writable": false,
+						"enumerable": false,
+						"configurable": true
+					},
+					"name": {
+						"type": "string",
+						"writable": false,
+						"enumerable": false,
+						"configurable": true
+					}
+				}
+			},
+			"guard_name": "is_net_error",
+			"guard_length": 2,
+			"guard_new": "TypeError",
+			"guards": {
+				"error": true,
+				"of_its_kind": true,
+				"of_another_kind": false,
+				"subclass": true,
+				"subclass_of_its_kind": true,
+				"lookalike": true,
+				"inherited": true,
+				"inherited_of_its_kind": false,
+				"plain_error": false,
+				"plain_object": false,
+				"null_prototype": false,
+				"null": false,
+				"undefined": false,
+				"string": false,
+				"class": false,
+				"clone": false,
+				"proxy_of_an_error": true,
+				"function_with_the_prototype": false,
+				"named_through_a_proxy": true,
+				"named_by_a_proxy": true,
+				"constructor_by_getter": true,
+				"named_by_getter": true,
+				"ran": [
+					"chain get",
+					"constructor get",
+					"constructor getter",
+					"name getter"
+				],
+				"kind_by_getter": true
+			}
+		}
+	},
 	"spawn_shape": {
 		"code": 0,
 		"output": {

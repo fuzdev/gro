@@ -40,8 +40,8 @@ This table is the reference for what's on `fgro`.
 | `env_error.ts`       | nothing: `env`'s error class            | built, no grant          |
 | `fs_error.ts`        | nothing: `fs`'s error class             | built, no grant          |
 | `spawn_error.ts`     | nothing: `spawn`'s error class          | built, no grant          |
-| `net_error.ts`       | nothing: `net`'s error class            | not yet                  |
-| `stdio_error.ts`     | nothing: the streams' error class       | not yet                  |
+| `net_error.ts`       | nothing: `net`'s error class            | built, no grant          |
+| `stdio_error.ts`     | nothing: the streams' error class       | built, no grant          |
 
 A module that isn't on `fgro` yet is refused there by its specifier, in either spelling, never loaded from the npm package.
 
@@ -692,7 +692,7 @@ None of that is built: under `fgro run` each is the real value.
   in `@fuzdev/gro/env_error.ts`; the streams' are `StdioError` (kind `io_error`, its `target` the stream),
   matched by `is_stdio_error(error, kind?)` in `@fuzdev/gro/stdio_error.ts`.
   Both error modules are apart from the host modules, so matching an error grants nothing;
-  on `fgro` each is a builtin module that grants nothing, `env_error.ts` built and `stdio_error.ts` designed.
+  on `fgro` each is a builtin module that grants nothing.
   `args`, `exit`, and the observations throw only `TypeError`.
 
 Each module's TSDoc has its contract.
@@ -706,7 +706,7 @@ On `fgro`, the process modules [the table](#the-modules) marks built are builtin
 `@fuzdev/gro/cwd.ts`, whose `cwd` is a frozen function returning the directory `fgro` was started in;
 `@fuzdev/gro/pid.ts`, whose `pid` is the `fgro` process's id;
 and `@fuzdev/gro/runtime_version.ts`, whose `runtime_version` is `fgro/<version>+<commit>`, where Node's is `node/<version>`.
-`@fuzdev/gro/env_error.ts`, the env module's errors, is one too ([below](#error-classes-on-fgro)).
+`@fuzdev/gro/env_error.ts`, the env module's errors, and `@fuzdev/gro/stdio_error.ts`, the streams', are too ([below](#error-classes-on-fgro)).
 A builtin module is no part of the startup snapshot: its exports are made natively, by a script that only asks the host for them,
 compiled and run when a run first imports the module,
 so a run that imports none pays for none, and `fgro eval`, which imports none, never does.
@@ -718,7 +718,7 @@ A builtin module declares no types of its own: its types are the Node module's, 
 A set of cases run under both runtimes holds each builtin module's values to what the Node module's are,
 their shapes, property descriptors, and what throws, but where a case names a difference by design.
 
-The observations and `env_error` need no grant: any module of a run imports them, a package's included,
+The observations and the error modules need no grant: any module of a run imports them, a package's included,
 and under `fgro run` each is the real value, with no switch that fixes or refuses one yet.
 
 `runtime_version` carries the commit the binary was built from, as `fgro --version` prints it,
@@ -840,7 +840,8 @@ There's no bare `fetch` export, so a module using the network shows `net` in its
 - Only `http:` and `https:` are sent. `data:`, `blob:`, and every other scheme are `not_granted`, on the root handle too.
 - Errors are `NetError`, of kind `not_granted`, its `target` the refused `hostname:port` or scheme and never a whole URL, which can carry a token.
   Match one with `is_net_error(error, kind?)`, in `@fuzdev/gro/net_error.ts`, apart from the host module,
-  so matching one grants nothing; on `fgro` it's designed as a builtin module that grants nothing, resolved beside `net`.
+  so matching one grants nothing; on `fgro` it's a builtin module that grants nothing, built ahead of `net`,
+  so code that only makes or matches a `NetError` runs there.
   A network failure stays a `TypeError`, as from any `fetch`.
 - Redirects are the escape a host check has to close, so a handle follows them itself:
   each `Location` is resolved against its response and checked against the handle's hosts before anything is sent to it,

@@ -1091,6 +1091,130 @@
 		]
 	},
 	{
+		"name": "stdio_error",
+		"module": "stdio_error",
+		"args": [],
+		"differs": [
+			{
+				"at": "/namespace/own/default",
+				"fgro": {"type": "undefined", "writable": true, "enumerable": true, "configurable": false},
+				"why": "a builtin module's namespace has a default export of undefined, where a Node module has none"
+			},
+			{
+				"at": "/guard/frozen",
+				"fgro": true,
+				"why": "the guard is a native function the host makes, frozen, as each of a builtin's functions is, since every importer shares it"
+			},
+			{
+				"at": "/guard/own/length",
+				"fgro": {"type": "number", "writable": false, "enumerable": false, "configurable": false},
+				"why": "the guard is frozen, so its length isn't configurable"
+			},
+			{
+				"at": "/guard/own/name",
+				"fgro": {"type": "string", "writable": false, "enumerable": false, "configurable": false},
+				"why": "the guard is frozen, so its name isn't configurable"
+			},
+			{
+				"at": "/guards/proxy_of_an_error",
+				"fgro": false,
+				"why": "the guard is native and runs no code of a caller's, so it reads no proxy's prototype through its trap, and a proxy is no error of the family"
+			},
+			{
+				"at": "/guards/kind_by_getter",
+				"fgro": false,
+				"why": "the guard is native and runs no code of a caller's, so it reads only a data property's kind, and calls no getter"
+			},
+			{
+				"at": "/guards/named_through_a_proxy",
+				"fgro": false,
+				"why": "the guard is native and runs no code of a caller's, so it reads no name through a proxy on a constructor's chain, and a proxy there is no match"
+			},
+			{
+				"at": "/guards/named_by_a_proxy",
+				"fgro": false,
+				"why": "the guard is native and runs no code of a caller's, so it reads no name of a constructor that is a proxy, and a proxy there is no match"
+			},
+			{
+				"at": "/guards/constructor_by_getter",
+				"fgro": false,
+				"why": "the guard is native and runs no code of a caller's, so it reads only a data property's constructor, and calls no getter"
+			},
+			{
+				"at": "/guards/named_by_getter",
+				"fgro": false,
+				"why": "the guard is native and runs no code of a caller's, so it reads only a data property's name, and calls no getter"
+			},
+			{
+				"at": "/guards/ran",
+				"fgro": [],
+				"why": "the guard is native and runs no code of a caller's: no trap, and no getter"
+			}
+		]
+	},
+	{
+		"name": "net_error",
+		"module": "net_error",
+		"args": [],
+		"differs": [
+			{
+				"at": "/namespace/own/default",
+				"fgro": {"type": "undefined", "writable": true, "enumerable": true, "configurable": false},
+				"why": "a builtin module's namespace has a default export of undefined, where a Node module has none"
+			},
+			{
+				"at": "/guard/frozen",
+				"fgro": true,
+				"why": "the guard is a native function the host makes, frozen, as each of a builtin's functions is, since every importer shares it"
+			},
+			{
+				"at": "/guard/own/length",
+				"fgro": {"type": "number", "writable": false, "enumerable": false, "configurable": false},
+				"why": "the guard is frozen, so its length isn't configurable"
+			},
+			{
+				"at": "/guard/own/name",
+				"fgro": {"type": "string", "writable": false, "enumerable": false, "configurable": false},
+				"why": "the guard is frozen, so its name isn't configurable"
+			},
+			{
+				"at": "/guards/proxy_of_an_error",
+				"fgro": false,
+				"why": "the guard is native and runs no code of a caller's, so it reads no proxy's prototype through its trap, and a proxy is no error of the family"
+			},
+			{
+				"at": "/guards/kind_by_getter",
+				"fgro": false,
+				"why": "the guard is native and runs no code of a caller's, so it reads only a data property's kind, and calls no getter"
+			},
+			{
+				"at": "/guards/named_through_a_proxy",
+				"fgro": false,
+				"why": "the guard is native and runs no code of a caller's, so it reads no name through a proxy on a constructor's chain, and a proxy there is no match"
+			},
+			{
+				"at": "/guards/named_by_a_proxy",
+				"fgro": false,
+				"why": "the guard is native and runs no code of a caller's, so it reads no name of a constructor that is a proxy, and a proxy there is no match"
+			},
+			{
+				"at": "/guards/constructor_by_getter",
+				"fgro": false,
+				"why": "the guard is native and runs no code of a caller's, so it reads only a data property's constructor, and calls no getter"
+			},
+			{
+				"at": "/guards/named_by_getter",
+				"fgro": false,
+				"why": "the guard is native and runs no code of a caller's, so it reads only a data property's name, and calls no getter"
+			},
+			{
+				"at": "/guards/ran",
+				"fgro": [],
+				"why": "the guard is native and runs no code of a caller's: no trap, and no getter"
+			}
+		]
+	},
+	{
 		"name": "spawn_shape",
 		"module": "spawn",
 		"args": ["shape", "{cwd}"],

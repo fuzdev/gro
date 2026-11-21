@@ -83,6 +83,10 @@
 @fuzdev/gro/tsv.ts push_prettierignore method of @fuzdev/gro/tsv.ts#TsvIgnoreStack length 2 grant-free
 @fuzdev/gro/tsv.ts pop_override method of @fuzdev/gro/tsv.ts#TsvIgnoreStack length 0 grant-free
 @fuzdev/gro/tsv.ts is_ignored method of @fuzdev/gro/tsv.ts#TsvIgnoreStack length 2 grant-free
+@fuzdev/gro/stdio_error.ts StdioError export class StdioError grant-free
+@fuzdev/gro/stdio_error.ts is_stdio_error export length 2 grant-free
+@fuzdev/gro/net_error.ts NetError export class NetError grant-free
+@fuzdev/gro/net_error.ts is_net_error export length 2 grant-free
 @fuzdev/gro/fs.ts path data of @fuzdev/gro/fs.ts#FsReadDir data grant fs
 @fuzdev/gro/spawn.ts name data of @fuzdev/gro/spawn.ts#SpawnProgram data grant spawn
 @fuzdev/gro/spawn.ts path data of @fuzdev/gro/spawn.ts#SpawnProgram data grant spawn

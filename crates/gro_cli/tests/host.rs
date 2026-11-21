@@ -427,13 +427,18 @@ const ERROR_CLASS_USES: &[&str] = &[
 ];
 
 /// [`ERROR_CLASS_USES`], by each error family's class.
-const ARGUMENT_USES: [(&str, &[&str]); 3] = [
+const ARGUMENT_USES: [(&str, &[&str]); 5] = [
     ("new @fuzdev/gro/env_error.ts EnvError", ERROR_CLASS_USES),
     ("new @fuzdev/gro/fs_error.ts FsError", ERROR_CLASS_USES),
     (
         "new @fuzdev/gro/spawn_error.ts SpawnError",
         ERROR_CLASS_USES,
     ),
+    (
+        "new @fuzdev/gro/stdio_error.ts StdioError",
+        ERROR_CLASS_USES,
+    ),
+    ("new @fuzdev/gro/net_error.ts NetError", ERROR_CLASS_USES),
 ];
 
 /// Asserts that each of `touches`, as the patched realm reports a use of a

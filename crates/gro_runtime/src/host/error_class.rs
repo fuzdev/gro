@@ -113,6 +113,21 @@ pub const SPAWN_ERROR: ErrorFamily = ErrorFamily {
     brand: "@fuzdev/gro/spawn_error.ts#SpawnError",
 };
 
+/// The net host module's errors: `NetError`, which the module throws.
+pub const NET_ERROR: ErrorFamily = ErrorFamily {
+    name: "NetError",
+    target: "target",
+    brand: "@fuzdev/gro/net_error.ts#NetError",
+};
+
+/// The stdio host modules' errors: `StdioError`, which their handles
+/// throw.
+pub const STDIO_ERROR: ErrorFamily = ErrorFamily {
+    name: "StdioError",
+    target: "target",
+    brand: "@fuzdev/gro/stdio_error.ts#StdioError",
+};
+
 /// A family a native member declares, `throws FAMILY(name)` or, for an
 /// error row's class, `class FAMILY(name)` in `native_members!`, handed to
 /// the member's body under that name: what throwing the family's error
@@ -148,7 +163,13 @@ impl DeclaredFamily {
 /// Every family the host makes a class of, which a class's native
 /// functions find their own by name in, one for each error row of the
 /// builtin table, as a test holds it.
-const FAMILIES: [&ErrorFamily; 3] = [&ENV_ERROR, &FS_ERROR, &SPAWN_ERROR];
+const FAMILIES: [&ErrorFamily; 5] = [
+    &ENV_ERROR,
+    &FS_ERROR,
+    &SPAWN_ERROR,
+    &STDIO_ERROR,
+    &NET_ERROR,
+];
 
 /// What a member that needs a family's class throws when the run holds
 /// no realm `Error` to make the class from.

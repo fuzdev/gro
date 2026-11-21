@@ -57,7 +57,7 @@ A [host module](#host-modules) the runtime implements itself, named by a bare sp
 like `@fuzdev/gro/args.ts`; [host modules](host_modules.md#the-modules) lists the ones on `fgro` so far.
 It resolves ahead of package lookup to its `builtin:` URL, which imports nothing when written as is,
 and its importer must be [granted](#grant) its host module's grant, when it needs one, checked when the graph links,
-while one that needs none (`cwd`, `pid`, `runtime_version`, `blake3`, `tsv`, and the error modules built so far) is imported by any module of a run, a package's included;
+while one that needs none (`cwd`, `pid`, `runtime_version`, `blake3`, `tsv`, and the error modules) is imported by any module of a run, a package's included;
 `fgro eval` imports none, and a package's modules can't reach a granted one through a project module they import by name.
 Not a builtin task, which Gro's CLI runs by name.
 [resolver](resolver.md#builtin-modules) has the rules.
