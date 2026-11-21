@@ -19,6 +19,7 @@ import {
 	to_task_args
 } from '#lib/task_args.ts';
 import { is_task_path, TASK_VERB, to_task_command } from '#lib/task.ts';
+import { is_task_error } from '#lib/task_error.ts';
 
 /*
 
@@ -50,11 +51,24 @@ The rules, and where each comes from:
   `-- gro gen --no-check` reaches the invoked builtin, merged over the args its invoker passes,
   and runs it in write mode, a write the closure doesn't hold, so there the binary refuses
   what Node writes.
+- The command runs in check mode too, its own writes and its invokes' dropped the same way,
+  when its parsed args hold `true` for `check` and the table marks it check-capable,
+  some builtin's invoke of it marked `check`: `gen --check` and `format --check` write
+  nothing on Node, so the closure holds no write for them.
 - A builtin with no grants anywhere in the closure, `null` in the table, means the command runs
   on the Node Gro: nothing says what it reaches.
 - `install` set in the command's args, with the closure holding the `npm_cli` program, means
   the same: the install needs the network. `sync` runs `npm install` only under its `install` arg,
   and `check` passes its own `install` to the `sync` it invokes.
+- A command line Node refuses or answers with help before any builtin runs has no closure:
+  `help` for a `--help` in the command's args, which prints its help, and `refused` naming why,
+  for args the CLI refuses (`to_task_args`), a forwarded section that's malformed or asks for
+  help (`invoke_task`), args the builtin's `Args` refuse (`run_task`), and a command that names
+  no builtin (`invoke_cli`).
+
+`fallback` is the closure's verdict alone. Whether a command runs on the Node Gro by policy,
+like `clean`, or because the project's installed Gro is another version, is the binary's table,
+not a rule here.
 
 */
 
@@ -68,6 +82,19 @@ const CASES: Array<ClosureCase> = [
 	{ name: 'version', argv: ['--version'] },
 	{ name: 'format_check', argv: ['format', '--check'] },
 	{ name: 'gen_check', argv: ['gen', '--check'] },
+	// a check-capable command's own `--check`, in each form Node reads it
+	{ name: 'gen', argv: ['gen'] },
+	{ name: 'format', argv: ['format'] },
+	{ name: 'format_no_check', argv: ['format', '--no-check'] },
+	{ name: 'gen_check_then_no_check', argv: ['gen', '--check', '--no-check'] },
+	{ name: 'gen_no_check_then_check', argv: ['gen', '--no-check', '--check'] },
+	{ name: 'gen_forwarded_check', argv: ['gen', '--', 'gro', 'gen', '--check'] },
+	{
+		name: 'gen_check_forwarded_no_check',
+		argv: ['gen', '--check', '--', 'gro', 'gen', '--no-check']
+	},
+	{ name: 'format_check_valued', argv: ['format', '--check=true'] },
+	{ name: 'gen_no_no_check', argv: ['gen', '--no-no-check'] },
 	{ name: 'check', argv: ['check'] },
 	{ name: 'check_build', argv: ['check', '--build'] },
 	{ name: 'check_no_build', argv: ['check', '--no-build'] },
@@ -106,8 +133,31 @@ const CASES: Array<ClosureCase> = [
 	{ name: 'build', argv: ['build'] },
 	{ name: 'task_listing', argv: ['task'] },
 	{ name: 'task_path', argv: ['task', 'src/lib/x.task.ts'] },
-	{ name: 'run', argv: ['run', 'x.ts'] }
+	{ name: 'run', argv: ['run', 'x.ts'] },
+	// Node runs no builtin for these
+	{ name: 'check_help', argv: ['check', '--help'] },
+	{ name: 'check_forwarded_help', argv: ['check', '--', 'gro', 'check', '--help'] },
+	{ name: 'check_forwarded_malformed', argv: ['check', '--', 'gro'] },
+	{ name: 'check_build_valued', argv: ['check', '--build=true'] },
+	{ name: 'check_build_spaced_value', argv: ['check', '--build', 'false'] },
+	{ name: 'check_short_flag', argv: ['check', '-h'] },
+	{ name: 'unknown_command', argv: ['nope'] },
+	// a flag keyed `_` reaches the positionals that name the command
+	{ name: 'underscore_value_command', argv: ['--_=check', '--build'] },
+	{ name: 'underscore_spaced_command', argv: ['--_', 'check', '--install'] },
+	{ name: 'underscore_forwarded_command', argv: ['check', '--', 'gro', '--_=check', '--build'] },
+	{ name: 'underscore_replaced', argv: ['check', '-_'] },
+	{
+		name: 'underscore_replaced_section',
+		argv: ['check', '--', 'gro', '--no-_', 'check', '--build']
+	},
+	{ name: 'path_without_task', argv: ['src/lib/x.task.ts'] }
 ];
+
+/**
+ * Why Node runs no builtin for a command line, refusing it before any runs.
+ */
+type Refused = 'task_args' | 'forwarded_args' | 'forwarded_help' | 'invalid_args' | 'not_a_builtin';
 
 /**
  * Why a command can't run on the binary.
@@ -128,6 +178,7 @@ interface ClosureProgram extends BuiltinProgramGrant {
 }
 
 interface Closure {
+	outcome: 'runs';
 	builtins: Array<ClosureBuiltin>;
 	grants: {
 		fs: { read: Array<string>; write: Array<string> };
@@ -139,6 +190,18 @@ interface Closure {
 	};
 	fallback: Array<Fallback>;
 }
+
+/**
+ * What Node does with a command line: runs the closure's builtins, prints a builtin's help,
+ * or refuses it before any builtin runs.
+ */
+type Outcome = Closure | { outcome: 'help' } | { outcome: 'refused'; refused: Refused };
+
+/**
+ * The command's args as `invoke_task` and `run_task` read them, or why they run nothing.
+ */
+type CommandArgs =
+	{ outcome: 'runs'; args: Args } | { outcome: 'help' } | { outcome: 'refused'; refused: Refused };
 
 /**
  * A builtin as the closure reads it: its grants and the schema its args are parsed by.
@@ -162,7 +225,9 @@ const sorted = (values: Iterable<string>): Array<string> => [...new Set(values)]
 const compare = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 
 /**
- * The parsed args of the builtin `name` run as the command, as `run_task` validates them.
+ * The parsed args of the builtin `name` run as the command, in the order `invoke_task`
+ * and `run_task` read them: the forwarded section, refused when malformed or asking for help,
+ * then the merged args' `--help`, then the builtin's `Args`.
  */
 const to_command_args = async (
 	name: string,
@@ -170,17 +235,33 @@ const to_command_args = async (
 	args: Args,
 	raw_rest_args: Array<string>,
 	fs_paths: FsPaths
-): Promise<Args> => {
-	const merged = merge_forwarded_args(
-		args,
-		await to_forwarded_args(to_task_command(name), raw_rest_args, fs_paths)
-	);
-	if (merged.help) throw Error(`\`--help\` prints \`${name}\`'s help, running nothing`);
-	if (!Args) return merged;
+): Promise<CommandArgs> => {
+	let forwarded: Args;
+	try {
+		forwarded = await to_forwarded_args(to_task_command(name), raw_rest_args, fs_paths);
+	} catch (error) {
+		if (!is_task_error(error)) throw error;
+		return { outcome: 'refused', refused: 'forwarded_args' };
+	}
+	if (forwarded.help) return { outcome: 'refused', refused: 'forwarded_help' };
+	const merged = merge_forwarded_args(args, forwarded);
+	if (merged.help) return { outcome: 'help' };
+	if (!Args) return { outcome: 'runs', args: merged };
 	const parsed = args_parse(merged, Args);
-	if (!parsed.ok) throw Error(`\`${name}\` refuses the args ${JSON.stringify(merged)}`);
-	return parsed.value;
+	if (!parsed.ok) return { outcome: 'refused', refused: 'invalid_args' };
+	return { outcome: 'runs', args: parsed.value };
 };
+
+// the program's fields in one order, so two builtins granting it alike with their keys
+// in different orders are held once
+const to_program_key = ({
+	role,
+	name,
+	local,
+	pass_env,
+	omit_env,
+	env: values
+}: ClosureProgram): string => JSON.stringify([role, name, local, pass_env, omit_env, values]);
 
 /**
  * The closure of the command `argv`, the args after the CLI's own path.
@@ -189,7 +270,7 @@ const to_closure = async (
 	argv: Array<string>,
 	table: ClosureTable,
 	fs_paths: FsPaths
-): Promise<Closure> => {
+): Promise<Outcome> => {
 	const builtins: Array<ClosureBuiltin> = [];
 	const fallback: Array<Fallback> = [];
 	const read: Array<string> = [];
@@ -206,7 +287,7 @@ const to_closure = async (
 		for (const [role, grant] of Object.entries(grants.programs ?? {})) {
 			const program = { role, ...grant };
 			// a role two builtins grant differently is held each way
-			programs.set(JSON.stringify(program), program);
+			programs.set(to_program_key(program), program);
 		}
 		project_modules ||= grants.project_modules === true;
 		stdout ||= grants.stdout === true;
@@ -223,7 +304,10 @@ const to_closure = async (
 		builtins.push({ name, check });
 		const { grants } = entry;
 		if (grants === null) {
-			fallback.push({ kind: 'ungranted', builtin: name });
+			// reached in both modes, it's one fallback
+			if (!builtins.some((b) => b.name === name && b.check !== check)) {
+				fallback.push({ kind: 'ungranted', builtin: name });
+			}
 			return;
 		}
 		add(grants, check);
@@ -244,20 +328,35 @@ const to_closure = async (
 
 	add(table.cli, false);
 	const { cli_args } = to_grant_flags(argv);
-	const { task_name, task_path, args } = to_task_args(cli_args);
+	let task_args;
+	try {
+		task_args = to_task_args(cli_args);
+	} catch (error) {
+		if (!is_task_error(error)) throw error;
+		return { outcome: 'refused', refused: 'task_args' };
+	}
+	const { task_name, task_path, args } = task_args;
 	if (task_name === TASK_VERB) {
 		if (task_path !== null && is_task_path(task_path)) fallback.push({ kind: 'project_task' });
 	} else if (task_name) {
 		const entry = table.builtins.get(task_name);
-		if (!entry) throw Error(`the CLI refuses \`${task_name}\``);
-		const command_args = await to_command_args(
+		if (!entry) return { outcome: 'refused', refused: 'not_a_builtin' };
+		const command = await to_command_args(
 			task_name,
 			entry,
 			args,
 			to_raw_rest_args(cli_args),
 			fs_paths
 		);
-		visit(task_name, command_args, false);
+		if (command.outcome !== 'runs') return command;
+		const command_args = command.args;
+		// check-capable: some builtin's invoke of it is marked `check`
+		const check_capable = [...table.builtins.values()].some(
+			({ grants }) => grants?.invokes?.[task_name as keyof typeof grants.invokes]?.check === true
+		);
+		const check_mode =
+			check_capable && Object.hasOwn(command_args, 'check') && command_args.check === true;
+		visit(task_name, command_args, check_mode);
 		if (
 			Object.hasOwn(command_args, 'install') &&
 			command_args.install === true &&
@@ -268,6 +367,7 @@ const to_closure = async (
 	}
 
 	return {
+		outcome: 'runs',
 		builtins: builtins.sort((a, b) => compare(a.name, b.name) || Number(a.check) - Number(b.check)),
 		grants: {
 			fs: { read: sorted(read), write: sorted(write) },
@@ -317,9 +417,12 @@ export const gen: Gen = async ({ origin_id, origin_path }) => {
 	}
 	const fixture = {
 		description:
-			"Each case's CLI args, the args after the CLI's own path, and the command's closure: " +
-			"the builtins it runs, each in check mode or not, the union of their grants and the CLI's own row, " +
-			'and why it runs on the Node Gro, if it does. ' +
+			"Each case's CLI args, the args after the CLI's own path, and what Node does with them: " +
+			"`runs` with the command's closure, the builtins it runs, each in check mode or not, " +
+			"the union of their grants and the CLI's own row, and the closure's own verdict on running " +
+			'on the Node Gro, its `fallback`, apart from any policy of the binary; ' +
+			'`help` for a builtin printing its help; or `refused`, naming why Node refuses the command line ' +
+			'before any builtin runs. ' +
 			`Generated by ${origin_path}, never edited by hand.`,
 		cases
 	};

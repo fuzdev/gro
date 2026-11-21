@@ -16,24 +16,11 @@ so `gro gen --check` holds each file to its render and this holds the two render
 const read_json = (): Record<string, unknown> =>
 	JSON.parse(readFileSync(join(paths.root, 'src/builtin_grants.json'), 'utf8'));
 
-/**
- * A plain copy of a value of the TS table, each null-prototype object an ordinary one,
- * keeping an `undefined` value, which JSON can't hold, so a field it drops fails to compare.
- */
-const to_plain = (value: unknown): unknown => {
-	if (value === null || typeof value !== 'object') return value;
-	if (Array.isArray(value)) return value.map(to_plain);
-	const plain: Record<string, unknown> = {};
-	for (const key of Object.keys(value)) {
-		plain[key] = to_plain((value as Record<string, unknown>)[key]);
-	}
-	return plain;
-};
-
 test('the JSON holds the TS table, deep, in its order', () => {
 	const { cli, builtins } = read_json();
-	assert.deepEqual(cli, to_plain(GRO_CLI_GRANTS));
-	assert.deepEqual(builtins, to_plain(GRO_BUILTIN_TASK_GRANTS));
+	// chai compares a null-prototype object of the TS table equal to a plain one
+	assert.deepEqual(cli, GRO_CLI_GRANTS);
+	assert.deepEqual(builtins, GRO_BUILTIN_TASK_GRANTS);
 	// key order too, the builtins sorted by name, so the JSON reads as the TS table does
 	assert.strictEqual(JSON.stringify(cli), JSON.stringify(GRO_CLI_GRANTS));
 	assert.strictEqual(JSON.stringify(builtins), JSON.stringify(GRO_BUILTIN_TASK_GRANTS));
