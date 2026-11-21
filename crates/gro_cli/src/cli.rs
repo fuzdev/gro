@@ -194,14 +194,15 @@ fn run_help() -> String {
 /// The authority a run's flags give it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RunGrant {
-    /// The project's modules granted `args`, `exit`, and `fs`, which reads
-    /// the project's tree and the directories `--allow-read=` lists and
-    /// writes those `--allow-write=` lists ([`FlagDirs`]), and `env` for the
-    /// names `--allow-env=` listed, when it listed any, and fresh
-    /// temporary directories when `--allow-temp` was given, and `spawn`
-    /// for the programs `--allow-run=` listed and the exec roots
-    /// `--allow-run-in=` listed ([`FlagDirs`]), when it listed any of
-    /// either, each passed the variables `--allow-run-env=` lists.
+    /// The project's modules granted `args`, `exit`, `stdout`, `stderr`,
+    /// and `fs`, which reads the project's tree and the directories
+    /// `--allow-read=` lists and writes those `--allow-write=` lists
+    /// ([`FlagDirs`]), and `env` for the names `--allow-env=` listed, when
+    /// it listed any, and fresh temporary directories when `--allow-temp`
+    /// was given, and `spawn` for the programs `--allow-run=` listed and
+    /// the exec roots `--allow-run-in=` listed ([`FlagDirs`]), when it
+    /// listed any of either, each passed the variables `--allow-run-env=`
+    /// lists.
     Named {
         /// The environment variables granted, each an exact name.
         env: BTreeSet<String>,

@@ -50,7 +50,8 @@ use gro_runtime::resolver::normalize;
 use gro_runtime::{
     ArgsGrant, Authority, CHILD_BASE_ENV, EnvGrant, EnvPattern, EnvVars, ExecRootGrant, Exit,
     ExitGrant, FsGrant, FsNeed, GrantedDir, Grants, NameKind, NeededGrant, ProgramGrant, Refusal,
-    Refusals, RefusedBy, RunOutcome, RuntimeOptions, SpawnGrant, env_name_fault,
+    Refusals, RefusedBy, RunOutcome, RuntimeOptions, SpawnGrant, StderrGrant, StdoutGrant,
+    env_name_fault,
 };
 
 use crate::EXIT_FAILURE;
@@ -520,12 +521,12 @@ fn runtime_options(
 /// The authority `grant` gives: unconfined for `-A`, which reads and
 /// writes every directory, `fs`'s directories adding nothing; else the
 /// project's own modules granted the args host module, the exit host
-/// module, the fs host module, reading the project's tree and the
-/// directories `dirs` grants as it grants them, and, when `--allow-env=`
-/// named any variable, the env host module with those names, and, when
-/// `--allow-run=` named any program or `--allow-run-in=` any exec root,
-/// the spawn host module with those programs and exec roots, each
-/// forwarded what `--allow-run-env=` lists.
+/// module, the stdout and stderr host modules, the fs host module, reading
+/// the project's tree and the directories `dirs` grants as it grants them,
+/// and, when `--allow-env=` named any variable, the env host module with
+/// those names, and, when `--allow-run=` named any program or
+/// `--allow-run-in=` any exec root, the spawn host module with those
+/// programs and exec roots, each forwarded what `--allow-run-env=` lists.
 fn authority(grant: &RunGrant, dirs: GrantedDirs) -> Authority {
     let GrantedDirs { fs, exec_roots } = dirs;
     match grant {
@@ -538,6 +539,8 @@ fn authority(grant: &RunGrant, dirs: GrantedDirs) -> Authority {
         } => Authority::Confined(Grants {
             args: Some(ArgsGrant {}),
             exit: Some(ExitGrant {}),
+            stdout: Some(StdoutGrant {}),
+            stderr: Some(StderrGrant {}),
             env: (!env.is_empty()).then(|| EnvGrant { names: env.clone() }),
             fs: Some(FsGrant { temp: *temp, ..fs }),
             spawn: (!run.is_empty() || !exec_roots.is_empty()).then(|| SpawnGrant {
@@ -901,10 +904,11 @@ mod tests {
     }
 
     /// `run` grants the args host module, the exit host module, whose
-    /// step is the CLI's, and the fs host module, its root the project's
-    /// tree to read, and nothing else, reading no environment variable.
+    /// step is the CLI's, the stdout and stderr host modules, and the fs
+    /// host module, its root the project's tree to read, and nothing else,
+    /// reading no environment variable.
     #[test]
-    fn the_run_grants_args_exit_and_fs() {
+    fn the_run_grants_args_exit_the_streams_and_fs() {
         let run = invocation(&["a.js"]);
         let environment = TestEnvironment::of(&[(b"HOME", b"/home/a")]);
         let options = runtime_options(&run, &environment, GrantedDirs::default(), Path::new("/w"));
@@ -913,6 +917,8 @@ mod tests {
             gro_runtime::Authority::Confined(gro_runtime::Grants {
                 args: Some(gro_runtime::ArgsGrant {}),
                 exit: Some(gro_runtime::ExitGrant {}),
+                stdout: Some(gro_runtime::StdoutGrant {}),
+                stderr: Some(gro_runtime::StderrGrant {}),
                 env: None,
                 fs: Some(FsGrant::default()),
                 spawn: None,
@@ -950,6 +956,8 @@ mod tests {
             gro_runtime::Authority::Confined(gro_runtime::Grants {
                 args: Some(gro_runtime::ArgsGrant {}),
                 exit: Some(gro_runtime::ExitGrant {}),
+                stdout: Some(gro_runtime::StdoutGrant {}),
+                stderr: Some(gro_runtime::StderrGrant {}),
                 env: Some(gro_runtime::EnvGrant {
                     names: ["A", "B", "C"].map(ToOwned::to_owned).into(),
                 }),

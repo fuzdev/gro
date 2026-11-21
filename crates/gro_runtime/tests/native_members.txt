@@ -85,6 +85,10 @@
 @fuzdev/gro/tsv.ts is_ignored method of @fuzdev/gro/tsv.ts#TsvIgnoreStack length 2 grant-free
 @fuzdev/gro/stdio_error.ts StdioError export class StdioError grant-free
 @fuzdev/gro/stdio_error.ts is_stdio_error export length 2 grant-free
+@fuzdev/gro/stdout.ts stdout export handle @fuzdev/gro/stdout.ts#ProcessOutput grant stdout
+@fuzdev/gro/stdout.ts write method of @fuzdev/gro/stdout.ts#ProcessOutput length 1 async grant stdout throws StdioError
+@fuzdev/gro/stderr.ts stderr export handle @fuzdev/gro/stderr.ts#ProcessOutput grant stderr
+@fuzdev/gro/stderr.ts write method of @fuzdev/gro/stderr.ts#ProcessOutput length 1 async grant stderr throws StdioError
 @fuzdev/gro/net_error.ts NetError export class NetError grant-free
 @fuzdev/gro/net_error.ts is_net_error export length 2 grant-free
 @fuzdev/gro/fs.ts path data of @fuzdev/gro/fs.ts#FsReadDir data grant fs
@@ -95,3 +99,5 @@
 @fuzdev/gro/spawn.ts stdout data of @fuzdev/gro/spawn.ts#SpawnChild handle @fuzdev/gro/spawn.ts#AsyncIterable grant spawn
 @fuzdev/gro/spawn.ts stderr data of @fuzdev/gro/spawn.ts#SpawnChild handle @fuzdev/gro/spawn.ts#AsyncIterable grant spawn
 @fuzdev/gro/spawn.ts stdin data of @fuzdev/gro/spawn.ts#SpawnChild handle @fuzdev/gro/spawn.ts#SpawnStdin grant spawn
+@fuzdev/gro/stdout.ts is_terminal data of @fuzdev/gro/stdout.ts#ProcessOutput data grant stdout
+@fuzdev/gro/stderr.ts is_terminal data of @fuzdev/gro/stderr.ts#ProcessOutput data grant stderr

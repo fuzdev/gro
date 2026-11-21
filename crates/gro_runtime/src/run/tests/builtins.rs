@@ -930,8 +930,9 @@ for (const [specifier, words] of cases) {
              '@fuzdev/gro/stdin.ts', '@fuzdev/gro/stdout.ts', '@fuzdev/gro/stderr.ts', \
              '@fuzdev/gro/cwd.ts', '@fuzdev/gro/pid.ts', or '@fuzdev/gro/runtime_version.ts'; of \
              these, only '@fuzdev/gro/env.ts', '@fuzdev/gro/args.ts', '@fuzdev/gro/exit.ts', \
-             '@fuzdev/gro/cwd.ts', '@fuzdev/gro/pid.ts', and '@fuzdev/gro/runtime_version.ts' are \
-             on {BINARY_NAME} yet, so run code that uses the others under Node with gro",
+             '@fuzdev/gro/stdout.ts', '@fuzdev/gro/stderr.ts', '@fuzdev/gro/cwd.ts', \
+             '@fuzdev/gro/pid.ts', and '@fuzdev/gro/runtime_version.ts' are on {BINARY_NAME} \
+             yet, so run code that uses the others under Node with gro",
             graph.roots().project().dir.display()
         )),
         "{report}"

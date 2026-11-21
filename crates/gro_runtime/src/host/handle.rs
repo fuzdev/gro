@@ -56,10 +56,12 @@ pub struct HandleKind {
     /// The private symbol's name, in V8's one namespace of API private
     /// symbols, qualified so no other embedder code's collides: the row's
     /// specifier, `#`, and the interface of its Node module that the
-    /// kind's handles implement, or of TypeScript's own when the module
-    /// exports none of the name (`AsyncIterableIterator`, what `fs`'s
-    /// `list` returns), which `src/test/builtin_types.test.ts`
-    /// holds the kind's methods to.
+    /// kind's handles implement, or, when the module exports none of the
+    /// name, the interface an export's type is, declared in another module
+    /// (`stderr`'s `ProcessOutput`, which `stdout.ts` declares), else
+    /// TypeScript's own (`AsyncIterableIterator`, what `fs`'s `list`
+    /// returns), which `src/test/builtin_types.test.ts` holds the kind's
+    /// methods to.
     pub brand: &'static str,
     /// The kind it extends, whose prototype its prototype's is and whose
     /// brand its handles hold too, if any.
@@ -210,6 +212,23 @@ pub const SPAWN_OUTPUT_ITERATOR: HandleKind = HandleKind {
     brand: "@fuzdev/gro/spawn.ts#AsyncIterator",
     parent: None,
     fields: &[],
+};
+
+/// The stdout host module's handle, its `ProcessOutput`, holding whether
+/// the stream is a terminal as its `is_terminal`.
+pub const STDOUT: HandleKind = HandleKind {
+    brand: "@fuzdev/gro/stdout.ts#ProcessOutput",
+    parent: None,
+    fields: &[Field::data("is_terminal")],
+};
+
+/// The stderr host module's handle, a `ProcessOutput` as the stdout host
+/// module's is, of a kind of its own, so neither module's `write` takes the
+/// other's handle.
+pub const STDERR: HandleKind = HandleKind {
+    brand: "@fuzdev/gro/stderr.ts#ProcessOutput",
+    parent: None,
+    fields: &[Field::data("is_terminal")],
 };
 
 impl HandleKind {

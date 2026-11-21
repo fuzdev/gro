@@ -111,7 +111,7 @@ it's refused naming the package and the module, by a static import, `import()`, 
 The project importing itself, by self-reference or through a link to its own directory, is unaffected, as is a package's self-reference.
 This refuses a workspace sibling or a tool package that imports the app by name;
 an acceptance in the policy file naming the package, or workspace support, is what will admit one.
-`fgro run` grants the project's modules `args`, `exit`, and `fs`, `env` with the variables `--allow-env=` names, and `spawn` with the programs `--allow-run=` and `--allow-run-in=` name ([run](run.md#usage)),
+`fgro run` grants the project's modules `args`, `exit`, `stdout`, `stderr`, and `fs`, `env` with the variables `--allow-env=` names, and `spawn` with the programs `--allow-run=` and `--allow-run-in=` name ([run](run.md#usage)),
 and `fgro eval` imports no builtin module, a grant-free one included,
 refused with a message that names no grant ([eval](eval.md)).
 `import.meta.resolve` returns a builtin module's URL to any importer, granted or not, since it imports nothing.

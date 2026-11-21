@@ -21586,6 +21586,302 @@
 			}
 		}
 	},
+	"stdout": {
+		"code": 0,
+		"output": {
+			"namespace": {
+				"type": "object",
+				"prototype": null,
+				"frozen": false,
+				"own": {
+					"stdout": {
+						"type": "object",
+						"writable": true,
+						"enumerable": true,
+						"configurable": false
+					},
+					"Symbol(Symbol.toStringTag)": {
+						"type": "string",
+						"writable": false,
+						"enumerable": false,
+						"configurable": false
+					}
+				}
+			},
+			"handle": {
+				"type": "object",
+				"prototype": "other",
+				"frozen": true,
+				"own": {}
+			},
+			"prototype": {
+				"type": "object",
+				"prototype": null,
+				"frozen": true,
+				"own": {
+					"constructor": {
+						"type": "function",
+						"writable": false,
+						"enumerable": false,
+						"configurable": false
+					},
+					"is_terminal": {
+						"accessor": true,
+						"enumerable": false,
+						"configurable": false
+					},
+					"write": {
+						"type": "function",
+						"writable": false,
+						"enumerable": false,
+						"configurable": false
+					}
+				}
+			},
+			"frozen": true,
+			"is_terminal": false,
+			"write": {
+				"type": "function",
+				"prototype": "Function.prototype",
+				"frozen": true,
+				"own": {
+					"length": {
+						"type": "number",
+						"writable": false,
+						"enumerable": false,
+						"configurable": false
+					},
+					"name": {
+						"type": "string",
+						"writable": false,
+						"enumerable": false,
+						"configurable": false
+					}
+				}
+			},
+			"write_name": "write",
+			"write_length": 1,
+			"write_new": "TypeError",
+			"empty": {
+				"string": {
+					"fulfilled": true
+				},
+				"bytes": {
+					"fulfilled": true
+				},
+				"subclass": {
+					"fulfilled": true
+				},
+				"view_at_the_end": {
+					"fulfilled": true
+				},
+				"unawaited": true
+			},
+			"refusals": {
+				"lone_surrogate": {
+					"rejected": "TypeError"
+				},
+				"boxed_string": {
+					"rejected": "TypeError"
+				},
+				"number": {
+					"rejected": "TypeError"
+				},
+				"null": {
+					"rejected": "TypeError"
+				},
+				"undefined": {
+					"rejected": "TypeError"
+				},
+				"array": {
+					"rejected": "TypeError"
+				},
+				"array_buffer": {
+					"rejected": "TypeError"
+				},
+				"data_view": {
+					"rejected": "TypeError"
+				},
+				"uint16": {
+					"rejected": "TypeError"
+				},
+				"proxy": {
+					"rejected": "TypeError"
+				},
+				"detached": {
+					"rejected": "TypeError"
+				}
+			},
+			"out_of_bounds": {
+				"fulfilled": true
+			},
+			"receivers": {
+				"plain": {
+					"rejected": "TypeError"
+				},
+				"undefined": {
+					"rejected": "TypeError"
+				},
+				"copy": {
+					"rejected": "TypeError"
+				},
+				"proxy": {
+					"rejected": "TypeError"
+				},
+				"other": {
+					"fulfilled": true
+				}
+			}
+		}
+	},
+	"stderr": {
+		"code": 0,
+		"output": {
+			"namespace": {
+				"type": "object",
+				"prototype": null,
+				"frozen": false,
+				"own": {
+					"stderr": {
+						"type": "object",
+						"writable": true,
+						"enumerable": true,
+						"configurable": false
+					},
+					"Symbol(Symbol.toStringTag)": {
+						"type": "string",
+						"writable": false,
+						"enumerable": false,
+						"configurable": false
+					}
+				}
+			},
+			"handle": {
+				"type": "object",
+				"prototype": "other",
+				"frozen": true,
+				"own": {}
+			},
+			"prototype": {
+				"type": "object",
+				"prototype": null,
+				"frozen": true,
+				"own": {
+					"constructor": {
+						"type": "function",
+						"writable": false,
+						"enumerable": false,
+						"configurable": false
+					},
+					"is_terminal": {
+						"accessor": true,
+						"enumerable": false,
+						"configurable": false
+					},
+					"write": {
+						"type": "function",
+						"writable": false,
+						"enumerable": false,
+						"configurable": false
+					}
+				}
+			},
+			"frozen": true,
+			"is_terminal": false,
+			"write": {
+				"type": "function",
+				"prototype": "Function.prototype",
+				"frozen": true,
+				"own": {
+					"length": {
+						"type": "number",
+						"writable": false,
+						"enumerable": false,
+						"configurable": false
+					},
+					"name": {
+						"type": "string",
+						"writable": false,
+						"enumerable": false,
+						"configurable": false
+					}
+				}
+			},
+			"write_name": "write",
+			"write_length": 1,
+			"write_new": "TypeError",
+			"empty": {
+				"string": {
+					"fulfilled": true
+				},
+				"bytes": {
+					"fulfilled": true
+				},
+				"subclass": {
+					"fulfilled": true
+				},
+				"view_at_the_end": {
+					"fulfilled": true
+				},
+				"unawaited": true
+			},
+			"refusals": {
+				"lone_surrogate": {
+					"rejected": "TypeError"
+				},
+				"boxed_string": {
+					"rejected": "TypeError"
+				},
+				"number": {
+					"rejected": "TypeError"
+				},
+				"null": {
+					"rejected": "TypeError"
+				},
+				"undefined": {
+					"rejected": "TypeError"
+				},
+				"array": {
+					"rejected": "TypeError"
+				},
+				"array_buffer": {
+					"rejected": "TypeError"
+				},
+				"data_view": {
+					"rejected": "TypeError"
+				},
+				"uint16": {
+					"rejected": "TypeError"
+				},
+				"proxy": {
+					"rejected": "TypeError"
+				},
+				"detached": {
+					"rejected": "TypeError"
+				}
+			},
+			"out_of_bounds": {
+				"fulfilled": true
+			},
+			"receivers": {
+				"plain": {
+					"rejected": "TypeError"
+				},
+				"undefined": {
+					"rejected": "TypeError"
+				},
+				"copy": {
+					"rejected": "TypeError"
+				},
+				"proxy": {
+					"rejected": "TypeError"
+				},
+				"other": {
+					"fulfilled": true
+				}
+			}
+		}
+	},
 	"net_error": {
 		"code": 0,
 		"output": {
@@ -25859,6 +26155,7 @@
 					false,
 					null
 				],
+				"detached_write": "TypeError",
 				"stdout": {
 					"text": "ab",
 					"plain": true

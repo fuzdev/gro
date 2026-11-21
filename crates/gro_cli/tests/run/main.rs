@@ -18,6 +18,7 @@ mod refusals;
 mod reports;
 mod resolution;
 mod spawn;
+mod stdio;
 mod typescript;
 mod usage;
 

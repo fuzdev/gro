@@ -16,9 +16,10 @@ side and not the other fails, naming it:
   or a class
 - each kind of handle the row makes, named in the table `<specifier>#<Interface>`, is the Node
   module's exported interface of that name, which the Node module's handles implement, or, when
-  the module exports none of the name, TypeScript's own of it, from the compiler's lib
-  (`AsyncIterableIterator`, which what `fs`'s `list` returns implements): the interface's
-  members are the kind's methods
+  the module exports none of the name, the interface of the name an export's type is, declared
+  in another module (`stderr`'s `ProcessOutput`, which `stdout.ts` declares), else TypeScript's
+  own of it, from the compiler's lib (`AsyncIterableIterator`, which what `fs`'s `list` returns
+  implements): the interface's members are the kind's methods
 - each function and method of a `length` its declaration allows
 
 It holds names, kinds, and arity, never argument or result types: the differential cases
@@ -246,8 +247,24 @@ const read_node_members = (
 			kinds.set(symbol, `${row.specifier}#${symbol.name}`);
 		}
 	}
-	// and each of TypeScript's own interfaces the table names a kind for, the module exporting none
+	// and each interface the table names a kind for that the module exports none of: the one an
+	// export's type names, declared in another module (`stderr`'s `ProcessOutput`, `stdout.ts`'s),
+	// else TypeScript's own
 	const exported = new Set(Array.from(kinds.keys(), (symbol) => symbol.name));
+	for (const symbol of exports) {
+		if (!(symbol.flags & ts.SymbolFlags.Value)) continue;
+		const type = checker.getTypeOfSymbol(symbol);
+		const type_symbol = type.aliasSymbol ?? type.getSymbol();
+		if (
+			type_symbol &&
+			type_symbol.flags & ts.SymbolFlags.Interface &&
+			kind_names.has(type_symbol.name) &&
+			!exported.has(type_symbol.name)
+		) {
+			kinds.set(type_symbol, `${row.specifier}#${type_symbol.name}`);
+			exported.add(type_symbol.name);
+		}
+	}
 	const globals = checker.getSymbolsInScope(source, ts.SymbolFlags.Interface);
 	for (const name of kind_names) {
 		if (exported.has(name)) continue;
@@ -369,7 +386,7 @@ describe('the builtin table', () => {
 			'a pinned member of no row'
 		);
 		// each kind of member and of difference the checks below mutate is among them
-		for (const name of ['cwd', 'exit', 'env', 'env_error', 'blake3', 'pid', 'fs']) {
+		for (const name of ['cwd', 'exit', 'env', 'env_error', 'blake3', 'pid', 'fs', 'stderr']) {
 			assert.ok(
 				rows.some((row) => row.name === name),
 				name
@@ -484,6 +501,20 @@ describe('a mismatch fails, naming the member', () => {
 			`@fuzdev/gro/fs.ts return method of ${listing} length 1 async grant fs\n`,
 			'',
 			[`method of ${listing} return (function 0..1) is on Node only`]
+		);
+		// a kind declared in another module is found through the export whose type it is, and is
+		// none when the export isn't of it
+		const output = '@fuzdev/gro/stderr.ts#ProcessOutput';
+		assert_differences(
+			'stderr',
+			'node',
+			'export const stderr: ProcessOutput',
+			'export const stderr: Pick<ProcessOutput, "write">',
+			[
+				`export stderr is handle ${output} on fgro, data on Node`,
+				`method of ${output} write (function 1) is on fgro only`,
+				`data of ${output} is_terminal (data) is on fgro only`
+			]
 		);
 	});
 

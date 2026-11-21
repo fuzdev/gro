@@ -21,6 +21,10 @@ for Linux x86_64 only, built from source ([install](../src/docs/runtime.md#insta
     A builtin module's implementation is compiled and run when a run first imports it, so a run that imports none pays for none.
     A handle one makes is the runtime's, recognized by a mark no program can read or forge.
   - `@fuzdev/gro/args.ts`: the script reads its arguments as `args`.
+  - `@fuzdev/gro/stdout.ts` and `@fuzdev/gro/stderr.ts`, granted like `args`: `write(data)` writes a string or bytes whole before it returns,
+    through the path the console writes by, so output keeps program order and `exit` drops nothing,
+    resolving `false` when the reader has gone and rejecting with `StdioError` `io_error` for any other failure;
+    `is_terminal` is read once, when the run first imports the module. The console isn't gated by either grant.
   - `@fuzdev/gro/exit.ts`: `exit(code?)` ends the process inside the call, with no `finally` and no queued job run,
     and `set_exit_code(code)` sets the code a run that ends on its own exits with, each code an integer from 0 to 255 passed as it is.
   - `@fuzdev/gro/env.ts`, granted by `fgro run --allow-env=A,B <file>`: its root `env` reads exactly those variables, read once as the run starts,
@@ -86,7 +90,7 @@ for Linux x86_64 only, built from source ([install](../src/docs/runtime.md#insta
     `--allow-run=` and `--allow-run-env=` with the programs and variables, each a plain name, and for `fs` the flag alone (`--allow-read`, `--allow-write`, or `--allow-temp`) or the handle to open, never a path.
     An `import()` refused because nothing is there, like a missing optional dependency, or because a feature isn't supported, doesn't fail the run.
   - The host modules not on `fgro` yet are refused, never loaded from the npm package:
-    `@fuzdev/gro/net.ts`, `watch.ts`, `stdin.ts`, `stdout.ts`, and `stderr.ts`.
+    `@fuzdev/gro/net.ts`, `watch.ts`, and `stdin.ts`.
     So is a builtin module's `.js` spelling (`@fuzdev/gro/args.js`), and a respelling of any of these or of a builtin module's specifier (`@fuzdev/gro/arg%73.ts`).
     So are `@fuzdev/gro/process.ts` and `@fuzdev/gro/process_error.ts`, which Gro doesn't have, either spelling,
     the refusal naming the modules to import instead.

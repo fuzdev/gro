@@ -46,7 +46,7 @@ use crate::host::handle::{
     self, HandleKind, SPAWN_CHILD, SPAWN_OUTPUT, SPAWN_OUTPUT_ITERATOR, SPAWN_STDIN,
 };
 use crate::host::later::{self, Deferred};
-use crate::host::{name, native, throw_error, throw_type_error};
+use crate::host::{ChunkMessages, name, native, read_chunk, throw_error, throw_type_error};
 
 /// What a stream's second iteration throws, the Node module's message.
 const ONE_READER: &str = "a child output stream has one reader, once";
@@ -59,11 +59,12 @@ const NOT_A_SIGNAL: &str = "a signal is one of the `SpawnSignal` names";
 /// names, which no handle the host made meets.
 const NO_CHILD: &str = "this spawn handle names no child the run holds";
 
-/// What stdin's `write` throws for data that's neither text nor bytes.
-const NOT_DATA: &str = "stdin data is a string or a `Uint8Array`";
-
-/// What stdin's `write` throws for text that isn't well-formed.
-const NOT_WELL_FORMED: &str = "stdin data isn't well-formed Unicode";
+/// What stdin's `write` refuses its data for, the Node module's messages.
+const MESSAGES: ChunkMessages = ChunkMessages {
+    not_data: "stdin data is a string or a `Uint8Array`",
+    not_well_formed: "stdin data isn't well-formed Unicode",
+    detached: "stdin can't write a view of a detached buffer",
+};
 
 /// The signals `kill` sends, by the names `SpawnSignal` allows.
 const SIGNALS: [(&str, libc::c_int); 7] = [
@@ -429,9 +430,10 @@ pub fn dispose<'s>(
 }
 
 /// `stdin.write(data)` called on `receiver`: `data`, a string as UTF-8 or
-/// a `Uint8Array`, copied now, written in order, the promise settled
-/// `true` once the pipe took it, or `false` when it went nowhere; a
-/// `TypeError` rejection for data that's neither, as the Node module's.
+/// a `Uint8Array`, copied now ([`read_chunk`]), written in order, the
+/// promise settled `true` once the pipe took it, or `false` when it went
+/// nowhere; a `TypeError` rejection for data that's neither, or a view of
+/// a detached buffer, as the Node module's.
 pub fn write<'s>(
     state: &OpState,
     scope: &v8::PinScope<'s, '_>,
@@ -440,21 +442,8 @@ pub fn write<'s>(
 ) -> Option<Deferred<'s>> {
     let read = (|| {
         let (child, _) = read_child(state, scope, &SPAWN_STDIN, receiver)?;
-        let bytes = if let Ok(text) = v8::Local::<v8::String>::try_from(data) {
-            let mut units = vec![0; text.length()];
-            text.write_v2(scope, 0, &mut units, v8::WriteFlags::empty());
-            String::from_utf16(&units)
-                .map_err(|_| Failure::Type(NOT_WELL_FORMED.to_owned()))?
-                .into_bytes()
-        } else if let Ok(view) = v8::Local::<v8::Uint8Array>::try_from(data) {
-            // a copy, so a later change to the array changes nothing sent
-            let mut bytes = vec![0; view.byte_length()];
-            let copied = view.copy_contents(&mut bytes);
-            bytes.truncate(copied);
-            bytes
-        } else {
-            return Err(Failure::Type(NOT_DATA.to_owned()));
-        };
+        let bytes = read_chunk(scope, data, &MESSAGES)
+            .map_err(|message| Failure::Type(message.to_owned()))?;
         Ok((child, bytes))
     })();
     let (child, bytes) = match read {

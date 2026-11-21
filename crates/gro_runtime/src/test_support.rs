@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 
 use crate::{
     ArgsGrant, Authority, EnvGrant, Exit, ExitGrant, FsGrant, Grants, ProgramGrant, SpawnGrant,
+    StderrGrant, StdoutGrant,
 };
 
 /// The exit step of a test's run, which no test's program reaches: a
@@ -19,15 +20,17 @@ pub fn never_exits(exit: &Exit) -> ! {
 }
 
 /// The authority `fgro run --allow-env=GRO_TEST_ENV
-/// --allow-run=gro_test_program` gives: `args`, `exit`, `env` for that one
-/// variable, which no test's environment sets, `fs`, the project's tree to
-/// read, and `spawn` for that one program, which no test's `PATH` has,
-/// granted. A run that holds it is given the exit step
-/// [`never_exits`].
+/// --allow-run=gro_test_program` gives: `args`, `exit`, `stdout`,
+/// `stderr`, `env` for that one variable, which no test's environment sets,
+/// `fs`, the project's tree to read, and `spawn` for that one program,
+/// which no test's `PATH` has, granted. A run that holds it is given the
+/// exit step [`never_exits`].
 pub fn run_authority() -> Authority {
     Authority::Confined(Grants {
         args: Some(ArgsGrant {}),
         exit: Some(ExitGrant {}),
+        stdout: Some(StdoutGrant {}),
+        stderr: Some(StderrGrant {}),
         env: Some(EnvGrant {
             names: BTreeSet::from(["GRO_TEST_ENV".to_owned()]),
         }),

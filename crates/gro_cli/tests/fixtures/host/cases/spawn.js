@@ -573,6 +573,13 @@ export default async (ns, [scenario, cwd], _print, /** @type {any} */ load) => {
 			const fed = /** @type {any} */ (
 				await emit.start(['echo_err'], { stdio: ['pipe', 'pipe', 'pipe'] })
 			);
+			// a view of a detached buffer, refused while the pipe is open, so it's the data refused
+			const detached = new Uint8Array(4);
+			detached.buffer.transfer();
+			const detached_write = await fed.stdin.write(detached).then(
+				() => 'resolved',
+				(/** @type {any} */ error) => error.constructor.name
+			);
 			// written and closed at once, never awaited between
 			const writes = [
 				fed.stdin.write('a'),
@@ -647,6 +654,7 @@ export default async (ns, [scenario, cwd], _print, /** @type {any} */ load) => {
 				},
 				fed: {
 					writes: await Promise.all(writes),
+					detached_write,
 					stdout: fed_read[0],
 					stderr: fed_read[1],
 					invalid: await Promise.all(

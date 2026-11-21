@@ -15,7 +15,9 @@
 //! dropped, the runtime is torn down, and a process about to exit can
 //! forget it instead. A host module that buffers stdout or stderr must have
 //! it written before the runtime is handed back and before `exit` calls the
-//! embedder's step, since the embedder may end the process next. A program
+//! embedder's step, since the embedder may end the process next; none does
+//! today: the console and the stdout and stderr host modules write inline,
+//! unbuffered, through one path (`host/stdio.rs`). A program
 //! granted the exit host module can end the run from inside a call, and
 //! since this crate doesn't end its embedder's
 //! process for a program, it does so by the step the embedder gave
@@ -304,6 +306,10 @@ pub struct Grants {
     pub args: Option<ArgsGrant>,
     /// The exit host module's.
     pub exit: Option<ExitGrant>,
+    /// The stdout host module's.
+    pub stdout: Option<StdoutGrant>,
+    /// The stderr host module's.
+    pub stderr: Option<StderrGrant>,
     /// The env host module's.
     pub env: Option<EnvGrant>,
     /// The fs host module's.
@@ -318,6 +324,8 @@ impl Grants {
         match capability {
             Capability::Args => self.args.is_some(),
             Capability::Exit => self.exit.is_some(),
+            Capability::Stdout => self.stdout.is_some(),
+            Capability::Stderr => self.stderr.is_some(),
             Capability::Env => self.env.is_some(),
             Capability::Fs => self.fs.is_some(),
             Capability::Spawn => self.spawn.is_some(),
@@ -335,6 +343,17 @@ pub struct ArgsGrant {}
 /// embedder's, given beside it ([`RuntimeOptions::exit_step`]).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ExitGrant {}
+
+/// The stdout host module's grant: raw writes to the process's standard
+/// output. It scopes nothing. It doesn't gate the console, which writes
+/// to the same descriptor from every module of a run.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct StdoutGrant {}
+
+/// The stderr host module's grant: raw writes to the process's standard
+/// error, as [`StdoutGrant`] is to standard output.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct StderrGrant {}
 
 /// The env host module's grant: the environment variables its root handle
 /// may read.

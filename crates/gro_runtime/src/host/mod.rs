@@ -40,6 +40,7 @@ pub mod handle;
 pub mod later;
 pub mod native;
 pub mod spawn;
+pub mod stdio;
 pub mod tsv;
 
 use deno_core::error::ModuleLoaderError as JsErrorBox;
@@ -50,13 +51,16 @@ use exit::{ExitState, NOT_A_CODE, to_exit_code};
 use grant::require_authority;
 use handle::{
     BLAKE3_HASHER, ENV_HANDLE, FS_DIR, FS_LISTING, FS_READ_DIR, FS_ROOT, FS_TEMP_DIR, SPAWN,
-    SPAWN_CHILD, SPAWN_OUTPUT, SPAWN_OUTPUT_ITERATOR, SPAWN_PROGRAM, SPAWN_STDIN, TSV_IGNORE_STACK,
+    SPAWN_CHILD, SPAWN_OUTPUT, SPAWN_OUTPUT_ITERATOR, SPAWN_PROGRAM, SPAWN_STDIN, STDERR, STDOUT,
+    TSV_IGNORE_STACK,
 };
 use native::native_members;
 use native::{ASYNC_DISPOSE, ASYNC_ITERATOR};
 
 use crate::loader::RefusalLog;
-use crate::{ArgsGrant, EnvGrant, EnvVars, ExitGrant, FsGrant, SpawnGrant};
+use crate::{
+    ArgsGrant, EnvGrant, EnvVars, ExitGrant, FsGrant, SpawnGrant, StderrGrant, StdoutGrant,
+};
 
 /// What `exit`'s functions throw in a runtime started without the exit
 /// host module's state, which only a runtime made outside a run's start is: a
@@ -192,6 +196,55 @@ fn string<'s>(scope: &v8::PinScope<'s, '_>, text: &str) -> Option<v8::Local<'s, 
 /// `text` as a property name.
 fn name<'s>(scope: &v8::PinScope<'s, '_>, text: &str) -> Option<v8::Local<'s, v8::Name>> {
     v8::String::new(scope, text).map(Into::into)
+}
+
+/// What a write refuses its data for, by its module's messages.
+struct ChunkMessages {
+    /// Data that's neither a string nor a `Uint8Array`.
+    not_data: &'static str,
+    /// A string with a lone surrogate.
+    not_well_formed: &'static str,
+    /// A `Uint8Array` of a detached buffer.
+    detached: &'static str,
+}
+
+/// `data` as the bytes a write sends, copied now, so a later change to the
+/// caller's array changes nothing sent: a primitive string as UTF-8, or a
+/// `Uint8Array`, a subclass's included, read as it is; or the message of
+/// the `TypeError` it's refused with, from `messages`, for a string that
+/// isn't well-formed, a view of a detached buffer, and anything else, a
+/// boxed string and a proxy of an array among them, which V8 tells by the
+/// value's own type, so reading it runs no code of a caller's. A fixed-length
+/// view a resize left out of its buffer's bounds reads as empty: V8's API
+/// reports a view's length as zero then and says nothing of its bounds.
+fn read_chunk(
+    scope: &v8::PinScope<'_, '_>,
+    data: v8::Local<'_, v8::Value>,
+    messages: &ChunkMessages,
+) -> Result<Vec<u8>, &'static str> {
+    if let Ok(text) = v8::Local::<v8::String>::try_from(data) {
+        let mut units = vec![0; text.length()];
+        text.write_v2(scope, 0, &mut units, v8::WriteFlags::empty());
+        return String::from_utf16(&units)
+            .map(String::into_bytes)
+            .map_err(|_| messages.not_well_formed);
+    }
+    let Ok(view) = v8::Local::<v8::Uint8Array>::try_from(data) else {
+        return Err(messages.not_data);
+    };
+    // a view with no buffer yet holds its bytes on V8's heap and can't
+    // have been detached; asking for its buffer would make one
+    if view.has_buffer()
+        && view
+            .buffer(scope)
+            .is_some_and(|buffer| buffer.was_detached())
+    {
+        return Err(messages.detached);
+    }
+    let mut bytes = vec![0; view.byte_length()];
+    let copied = view.copy_contents(&mut bytes);
+    bytes.truncate(copied);
+    Ok(bytes)
 }
 
 /// A read that threw, its exception pending.
@@ -867,6 +920,36 @@ native_members! {
     /// of `kind` when it's given ([`error_class::guard`]).
     fn is_stdio_error(state; scope, error, kind) for "@fuzdev/gro/stdio_error.ts" {
         error_class::guard(scope, &STDIO_ERROR, error, kind)
+    }
+
+    /// `stdout`, the handle of the process's standard output
+    /// ([`stdio::output`]).
+    value stdout(state, _granted: StdoutGrant; scope) for "@fuzdev/gro/stdout.ts"
+        handle STDOUT(prototype)
+    {
+        stdio::output(scope, &STDOUT, prototype, stdio::Stream::Stdout)
+    }
+
+    /// `stdout.write(data)`, called on `handle` ([`stdio::write`]).
+    async write(state, _granted: StdoutGrant; scope, data) for "@fuzdev/gro/stdout.ts"
+        on STDOUT(handle) throws STDIO_ERROR(errors)
+    {
+        stdio::write(state, scope, stdio::Stream::Stdout, &STDOUT, handle, data, errors)
+    }
+
+    /// `stderr`, the handle of the process's standard error
+    /// ([`stdio::output`]).
+    value stderr(state, _granted: StderrGrant; scope) for "@fuzdev/gro/stderr.ts"
+        handle STDERR(prototype)
+    {
+        stdio::output(scope, &STDERR, prototype, stdio::Stream::Stderr)
+    }
+
+    /// `stderr.write(data)`, called on `handle` ([`stdio::write`]).
+    async write(state, _granted: StderrGrant; scope, data) for "@fuzdev/gro/stderr.ts"
+        on STDERR(handle) throws STDIO_ERROR(errors)
+    {
+        stdio::write(state, scope, stdio::Stream::Stderr, &STDERR, handle, data, errors)
     }
 
     /// `NetError`, the net host module's error class, the host's

@@ -40,7 +40,7 @@ Arguments the command-line parser refuses before `run` reads its own, an unknown
 `error: invalid arguments to fgro eval: <the arguments>` (or `to fgro:`) and `Run fgro eval --help for more information.`,
 the first 16 arguments each printed by that rule and cut past 80 characters, then a count of the rest, and no other text, so the message doesn't say which argument was wrong;
 a file whose name starts with `-` goes after `--`.
-A run grants the project's own modules `args`, `exit`, and `fs`, whose root reads the project's tree and writes nothing, and these widen it, for that run only:
+A run grants the project's own modules `args`, `exit`, `stdout`, `stderr`, and `fs`, whose root reads the project's tree and writes nothing, and these widen it, for that run only:
 
 - `--allow-env=A,B` grants `@fuzdev/gro/env.ts` to the project's modules, its root handle reading exactly those variables.
   It's repeatable, the names of every one joined, and each name is exact and case-sensitive,
@@ -152,6 +152,10 @@ The binary embeds the commit, so a dirty tree (a changed file, or an untracked o
 - `@fuzdev/gro/exit.ts`, a builtin module granted to the project's own modules as `args` is, and refused to a package's the same way:
   `exit(code?)` ends the process inside the call, and `set_exit_code(code)` sets the code a run that ends on its own exits with
   ([host modules](host_modules.md#exit-on-fgro)).
+- `@fuzdev/gro/stdout.ts` and `@fuzdev/gro/stderr.ts`, builtin modules each granted to the project's own modules as `args` is, and refused to a package's the same way:
+  `stdout` and `stderr`, whose `write(data)` writes a string or bytes whole before it returns, through the path the console writes by, so output keeps program order,
+  resolving `false` when the reader has gone and rejecting with `StdioError` `io_error` for any other failure;
+  `console` isn't gated, so the grant bounds raw writes, not what reaches the terminal ([host modules](host_modules.md#stdout-and-stderr-on-fgro)).
 - `@fuzdev/gro/cwd.ts`, `@fuzdev/gro/pid.ts`, and `@fuzdev/gro/runtime_version.ts`, builtin modules that need no grant,
   so the project's modules and a package's import them alike:
   `cwd()` is the directory `fgro` was started in, `pid` the process's id, and `runtime_version` the string `fgro/<version>+<commit>`,
@@ -178,7 +182,7 @@ The binary embeds the commit, so a dirty tree (a changed file, or an untracked o
   a program's `run`, `out`, `out_bytes`, and `start` start its child, refused `launch_failed` when its file changed since it was pinned ([host modules](host_modules.md#spawn-on-fgro)).
 - `@fuzdev/gro/spawn_error.ts`, a builtin module that needs no grant: `SpawnError` and `is_spawn_error`.
 - `@fuzdev/gro/stdio_error.ts` and `@fuzdev/gro/net_error.ts`, builtin modules that need no grant: `StdioError` and `is_stdio_error`, `NetError` and `is_net_error`.
-- A builtin module's `.js` spelling (`@fuzdev/gro/args.js`), the host modules not on `fgro` yet (`@fuzdev/gro/net.ts`, `stdin`, `stdout`, and the rest, either spelling),
+- A builtin module's `.js` spelling (`@fuzdev/gro/args.js`), the host modules not on `fgro` yet (`@fuzdev/gro/net.ts`, `watch`, and `stdin`, either spelling),
   and `@fuzdev/gro/process.ts` and `process_error.ts`, which Gro has none of (either spelling),
   are refused ahead of package lookup, as is a respelling of these or of a builtin module's specifier (`@fuzdev/gro/arg%73.ts`),
   naming the specifier to import, the modules to import instead, or that the module isn't on `fgro` yet,
@@ -332,7 +336,8 @@ A module whose file was replaced between resolving and loading isn't loaded
 [resolver](resolver.md#departures-from-node) has what it catches and what it can't),
 the entry's included, which exits 1.
 
-`console.log` and `console.info` write to stdout, `console.warn` and `console.error` to stderr.
+`console.log` and `console.info` write to stdout, `console.warn` and `console.error` to stderr,
+inline, through the path `@fuzdev/gro/stdout.ts` and `stderr.ts` write by, so the run's output keeps program order across them.
 A write whose reader has left, a run piped to `head`, is dropped, and the run goes on to its own exit code, so a run that never ends on its own runs until signalled;
 any other failed write, like one to a full disk, throws an `Error` naming the stream, where Node's console drops it.
 Whether a stream is colored is decided once per process, in order:

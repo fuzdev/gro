@@ -266,6 +266,10 @@ const EXERCISES = new Map([
 			[{ __proto__: null }]
 		]
 	],
+	// data of no bytes, a string's and an array's, so a write puts nothing between the reports
+	// this run prints on its stdout and stderr
+	['@fuzdev/gro/stdout.ts stdout.write', [[''], [new Uint8Array(0)]]],
+	['@fuzdev/gro/stderr.ts stderr.write', [[''], [new Uint8Array(0)]]],
 	// a kind and a host, and with them the options of its cause
 	[
 		'@fuzdev/gro/net_error.ts NetError',

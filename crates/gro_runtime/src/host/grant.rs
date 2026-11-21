@@ -10,7 +10,9 @@ use deno_core::OpState;
 use deno_core::error::ModuleLoaderError as JsErrorBox;
 
 use crate::resolver::Capability;
-use crate::{ArgsGrant, Authority, EnvGrant, ExitGrant, FsGrant, SpawnGrant};
+use crate::{
+    ArgsGrant, Authority, EnvGrant, ExitGrant, FsGrant, SpawnGrant, StderrGrant, StdoutGrant,
+};
 
 /// A host module's grant, as [`Grants`](crate::Grants) holds it.
 pub trait Grant: 'static {
@@ -24,6 +26,14 @@ impl Grant for ArgsGrant {
 
 impl Grant for ExitGrant {
     const CAPABILITY: Capability = Capability::Exit;
+}
+
+impl Grant for StdoutGrant {
+    const CAPABILITY: Capability = Capability::Stdout;
+}
+
+impl Grant for StderrGrant {
+    const CAPABILITY: Capability = Capability::Stderr;
 }
 
 impl Grant for EnvGrant {

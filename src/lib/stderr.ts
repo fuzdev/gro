@@ -11,8 +11,10 @@
  * the runtime's builtin, which it documents rather than the API weakening to match:
  *
  * - The global `process` stays, and any module can write to `process.stderr`.
- * - On POSIX Node's stdio writes to files and terminals block the event loop until the kernel
- *   takes them, where the runtime's complete on its own schedule. Writes to pipes are asynchronous.
+ * - Node's writes to pipes are asynchronous, queued in memory behind a slow reader, and `exit` drops
+ *   any not yet accepted. The runtime writes each one inline, as its console does, taken whole by the
+ *   kernel before the call returns, so `exit` drops none and a slow reader stalls the run. On POSIX
+ *   Node's writes to files and terminals block until the kernel takes them, as the runtime's do.
  * - Intrinsics stay pollutable. Node's stream `write` is the stream's own, so code that patched it
  *   runs inside a write, and the stream is created on first use, so one replaced on the global by
  *   then is the one written to. The stream classes and `EventEmitter.prototype` (`once`,

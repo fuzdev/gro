@@ -39,6 +39,8 @@
 //! - [`raise_open_files_limit`] raises the soft limit on the process's open
 //!   descriptors to its hard one, as Node does as it starts.
 //! - [`exit_now`] ends the process by `_exit`, running none of its teardown.
+//! - [`write_unbuffered`] writes to a descriptor by one `write`, where std's
+//!   `Stdout` buffers what a write leaves and writes it ahead of the next.
 //! - [`may_execute`] asks whether the process may execute a file, by
 //!   `access`, as `execve` would judge it.
 //! - [`beneath`] makes the filesystem calls confined beneath a directory
@@ -1547,6 +1549,34 @@ pub fn exit_now(code: i32) -> ! {
     // SAFETY: `_exit` takes an integer, reads no memory of the process's,
     // and never returns; skipping the process's teardown is its purpose
     unsafe { libc::_exit(code) }
+}
+
+/// Writes as much of `bytes` to `fd` as one `write(2)` takes, returning how
+/// many bytes it took, buffering nothing.
+///
+/// std writes stdout through a line buffer that keeps what a failed or
+/// partial write left and writes it ahead of the next write, so bytes a
+/// caller was told failed could still land; a write here either took its
+/// bytes or reports the call's error, and leaves nothing behind.
+///
+/// # Errors
+///
+/// Returns the call's error: `EAGAIN` (`WouldBlock`) on a descriptor
+/// something made non-blocking, `EINTR` when a signal interrupted it before
+/// it took anything, `EPIPE` when the reader has gone, and the like.
+#[expect(
+    unsafe_code,
+    reason = "std writes a borrowed descriptor only through its buffer or a duplicate"
+)]
+pub fn write_unbuffered(fd: std::os::fd::BorrowedFd<'_>, bytes: &[u8]) -> io::Result<usize> {
+    use std::os::fd::AsRawFd as _;
+    // a count past `isize::MAX` is the implementation's to define, and
+    // Linux takes less than that in one call anyway
+    let length = bytes.len().min(isize::MAX.unsigned_abs());
+    // SAFETY: `fd` is open for as long as it's borrowed, and `bytes` is
+    // readable for `length` bytes, which `write` only reads
+    let written = unsafe { libc::write(fd.as_raw_fd(), bytes.as_ptr().cast(), length) };
+    usize::try_from(written).map_err(|_| io::Error::last_os_error())
 }
 
 /// `error`, of the same kind, its message prefixed with `what`.

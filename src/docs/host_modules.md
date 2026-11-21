@@ -20,28 +20,28 @@ and narrowing it means handing down a narrower handle.
 Every host module, each `@fuzdev/gro/<module>`, and whether it's a builtin module on `fgro` yet.
 This table is the reference for what's on `fgro`.
 
-| module               | what it reaches                         | on `fgro`                |
-| -------------------- | --------------------------------------- | ------------------------ |
-| `fs.ts`              | the filesystem, through handles         | built, the `fs` grant    |
-| `spawn.ts`           | programs, as child processes            | built, the `spawn` grant |
-| `net.ts`             | the network, by host                    | not yet                  |
-| `watch.ts`           | changes under a directory handle        | not yet                  |
-| `env.ts`             | the environment                         | built, the `env` grant   |
-| `args.ts`            | the script's arguments                  | built, the `args` grant  |
-| `exit.ts`            | how the run ends                        | built, the `exit` grant  |
-| `stdin.ts`           | standard input                          | not yet                  |
-| `stdout.ts`          | standard output                         | not yet                  |
-| `stderr.ts`          | standard error                          | not yet                  |
-| `cwd.ts`             | nothing: the working directory, a value | built, no grant          |
-| `pid.ts`             | nothing: the process's id, a value      | built, no grant          |
-| `runtime_version.ts` | nothing: the runtime's name, a value    | built, no grant          |
-| `blake3.ts`          | nothing: BLAKE3 hashing over bytes      | built, no grant          |
-| `tsv.ts`             | nothing: tsv's formatters and parses    | built, no grant          |
-| `env_error.ts`       | nothing: `env`'s error class            | built, no grant          |
-| `fs_error.ts`        | nothing: `fs`'s error class             | built, no grant          |
-| `spawn_error.ts`     | nothing: `spawn`'s error class          | built, no grant          |
-| `net_error.ts`       | nothing: `net`'s error class            | built, no grant          |
-| `stdio_error.ts`     | nothing: the streams' error class       | built, no grant          |
+| module               | what it reaches                         | on `fgro`                 |
+| -------------------- | --------------------------------------- | ------------------------- |
+| `fs.ts`              | the filesystem, through handles         | built, the `fs` grant     |
+| `spawn.ts`           | programs, as child processes            | built, the `spawn` grant  |
+| `net.ts`             | the network, by host                    | not yet                   |
+| `watch.ts`           | changes under a directory handle        | not yet                   |
+| `env.ts`             | the environment                         | built, the `env` grant    |
+| `args.ts`            | the script's arguments                  | built, the `args` grant   |
+| `exit.ts`            | how the run ends                        | built, the `exit` grant   |
+| `stdin.ts`           | standard input                          | not yet                   |
+| `stdout.ts`          | standard output                         | built, the `stdout` grant |
+| `stderr.ts`          | standard error                          | built, the `stderr` grant |
+| `cwd.ts`             | nothing: the working directory, a value | built, no grant           |
+| `pid.ts`             | nothing: the process's id, a value      | built, no grant           |
+| `runtime_version.ts` | nothing: the runtime's name, a value    | built, no grant           |
+| `blake3.ts`          | nothing: BLAKE3 hashing over bytes      | built, no grant           |
+| `tsv.ts`             | nothing: tsv's formatters and parses    | built, no grant           |
+| `env_error.ts`       | nothing: `env`'s error class            | built, no grant           |
+| `fs_error.ts`        | nothing: `fs`'s error class             | built, no grant           |
+| `spawn_error.ts`     | nothing: `spawn`'s error class          | built, no grant           |
+| `net_error.ts`       | nothing: `net`'s error class            | built, no grant           |
+| `stdio_error.ts`     | nothing: the streams' error class       | built, no grant           |
 
 A module that isn't on `fgro` yet is refused there by its specifier, in either spelling, never loaded from the npm package.
 
@@ -680,7 +680,11 @@ None of that is built: under `fgro run` each is the real value.
   and the process can exit with stdin still open.
 - `stdout` and `stderr` take `write(data)`, a string as UTF-8 or a `Uint8Array`,
   resolving once it's accepted, so awaiting each write paces a writer against its reader, and writes not awaited queue in memory.
-  A broken pipe, a task piped to `head`, resolves `false` instead of throwing, and every later write resolves `false` too.
+  A broken pipe, a task piped to `head`, resolves `false` instead of throwing, and so does every later write of data.
+  An empty write sends no bytes and resolves once the writes before it are accepted, so awaiting one flushes,
+  but it's still a write of no bytes to the descriptor, answered as the descriptor answers it:
+  `true` on a pipe whose reader has gone, `false` on such a socket (Node's own `'pipe'` stdio is a socket pair), the first one included,
+  and a rejection on a full disk or a descriptor open only for reading.
   Data that's neither a well-formed string nor bytes is a `TypeError`.
   Any other write failure, like a full disk, rejects with `StdioError` of kind `io_error`.
   Their type is `ProcessOutput`, declared in `stdout.ts`; `stdin`'s is `ProcessInput`.
@@ -703,6 +707,7 @@ On `fgro`, the process modules [the table](#the-modules) marks built are builtin
 `@fuzdev/gro/args.ts`, whose `args` is a frozen array of strings, the script's arguments, every one after the file `fgro run` was given, as written;
 `@fuzdev/gro/exit.ts`, whose `exit` ends the run and whose `set_exit_code` sets the code a run that ends on its own exits with ([below](#exit-on-fgro));
 `@fuzdev/gro/env.ts`, whose `env` reads the variables `--allow-env=` grants ([below](#env-on-fgro));
+`@fuzdev/gro/stdout.ts` and `@fuzdev/gro/stderr.ts`, whose handles write the process's standard output and error ([below](#stdout-and-stderr-on-fgro));
 `@fuzdev/gro/cwd.ts`, whose `cwd` is a frozen function returning the directory `fgro` was started in;
 `@fuzdev/gro/pid.ts`, whose `pid` is the `fgro` process's id;
 and `@fuzdev/gro/runtime_version.ts`, whose `runtime_version` is `fgro/<version>+<commit>`, where Node's is `node/<version>`.
@@ -731,7 +736,7 @@ so a dirty build's `runtime_version` isn't an identity, and a cache it keys can 
 A build that embeds no commit, a plain `cargo build` or a `cargo xtask build` of a tree git can't read,
 is `fgro/<version>` alone, which every such build of that version shares, so it isn't an identity either.
 
-`args` needs the `args` grant and `exit` the `exit` grant, both of which `fgro run` gives the project's own modules, and the import is checked when the graph links,
+`args` needs the `args` grant, `exit` the `exit` grant, and `stdout` and `stderr` their own, each of which `fgro run` gives the project's own modules, and the import is checked when the graph links,
 for a static import and `import()` alike: a module of an installed or linked package is refused each for now,
 naming the package, until `-A` lifts that, which grants every module of the run each builtin module ([run](run.md#usage)),
 or the policy file's acceptance does (designed).
@@ -756,9 +761,33 @@ The host checks a code as the value it is, a number that is an integer from 0 to
 a string, a boxed number, a thenable, and an object with a `Symbol.toPrimitive` are each a `TypeError` with the Node module's message,
 the realm's own `TypeError` whatever the global of that name has become, and no property of the value is read.
 The code set is the run's state, kept by the host, not the module's.
-Nothing is flushed, because nothing is buffered: on `fgro` the console is the only writer to stdout and stderr so far.
+Nothing is flushed, because nothing is buffered: on `fgro` the console and the stream modules each write inline ([below](#stdout-and-stderr-on-fgro)).
 On Node, `exit` also runs the spawn module's child cleanup; on `fgro` it kills every child the run started and hasn't reaped,
 each group a child leads with it, before the embedder's step ends the process ([spawn on fgro](#spawn-on-fgro)).
+
+#### stdout and stderr on fgro
+
+`stdout` needs the `stdout` grant and `stderr` the `stderr` grant, which `fgro run` gives the project's own modules, as it gives `args`,
+and `-A` gives every module; a package is refused each otherwise, naming the package.
+The grant bounds raw writes to the stream, not the stream: the console isn't gated, and writes to the same descriptors from every module of a run, a package's included,
+so today the link-time check is a boundary on what imports the modules, not on what reaches the terminal.
+A write is inline and synchronous, through the one path the console writes by: the bytes reach the kernel before `write` returns its promise, already settled,
+so the run's output keeps program order across `console`, `stdout`, and `stderr`, which is one of the orders Node can produce,
+and nothing is buffered, so `exit` drops no write, where Node drops what it hadn't accepted, and a write that failed leaves nothing a later write could carry out.
+The cost is that a slow reader stalls the run, as it stalls the console.
+A descriptor something else made non-blocking (a process sharing the open file, as Node does its own stdio) is waited on with a short sleep that doubles to a millisecond, not a spinning core.
+`write` reads its data as the value it is, running no code of a caller's:
+a string as UTF-8, a lone surrogate a `TypeError`; a `Uint8Array`, a subclass's included, copied, one of a detached buffer a `TypeError`;
+anything else a `TypeError` with the Node module's message, a boxed string and a proxy of an array among them.
+A fixed-length view a resize left out of its buffer's bounds writes nothing and resolves `true`, as on Node.
+Empty data resolves `true` with no system call, whatever the descriptor is,
+where Node's empty write is a write of no bytes, answered as the descriptor answers it:
+`true` on a pipe whose reader has gone, `false` on such a socket, and a rejection on a full disk or a descriptor open only for reading.
+A reader gone (`EPIPE`, or `ECONNRESET` from a socket) resolves `false`, as the kernel says each time, so an empty write after it still resolves `true`;
+any other failure rejects with `StdioError` `io_error`, its `target` the stream and its `cause` an `Error` holding what the OS said, as on Node, whose `cause` is its own error.
+A call on anything but the module's own handle rejects with a `TypeError`, as on Node, and so does a call on the other stream's handle, which Node writes to that handle's stream.
+`is_terminal` is the handle's own frozen data, asked of the OS once, when the run first imports the module, where Node's is a getter on the prototype that asks each time.
+A closed descriptor 1 or 2 is open on `/dev/null` by the time a run starts, so writes to it succeed and go nowhere.
 
 #### env on fgro
 
@@ -1329,8 +1358,9 @@ It documents each gap rather than weakening the API to match, and is a review si
 - The snapshot is taken when `env.ts` loads, so a write to `process.env` made before that shows.
 - `args` under `node -e` and `node -p` depends on the undocumented `process._eval`, since no documented API says the process has no script.
 - `exit` in a Node worker ends the thread rather than the process.
-- On POSIX Node's stdio writes to files and terminals block the event loop until the kernel takes them,
-  where the runtime's complete on their own schedule. Writes to pipes are asynchronous.
+- Node's writes to pipes are asynchronous, queued in memory behind a slow reader, and `exit` drops any not yet accepted,
+  where the runtime writes each inline, taken whole by the kernel before the call returns, so it drops none and a slow reader stalls the run.
+  On POSIX Node's writes to files and terminals block until the kernel takes them, as the runtime's do.
 - Node's stream `write` is the stream's own, and the streams are created on first use, so code that patched `write`
   or replaced `process.stdout` by then runs inside a write. The modules' other Node functions are copied at load.
   `EventEmitter.prototype` and the stream classes aren't, so code that patches them runs inside these ops holding the raw stream.

@@ -1153,6 +1153,60 @@
 		]
 	},
 	{
+		"name": "stdout",
+		"module": "stdout",
+		"args": [],
+		"differs": [
+			{
+				"at": "/namespace/own/default",
+				"fgro": {"type": "undefined", "writable": true, "enumerable": true, "configurable": false},
+				"why": "a builtin module's namespace has a default export of undefined, where a Node module has none"
+			},
+			{
+				"at": "/handle/own",
+				"fgro": {"is_terminal": {"type": "boolean", "writable": false, "enumerable": true, "configurable": false}},
+				"why": "is_terminal is the handle's own frozen data, asked of the OS once when the run first imports the module, where Node's is a getter on the prototype that asks each time"
+			},
+			{
+				"at": "/prototype/own",
+				"fgro": {"write": {"type": "function", "writable": false, "enumerable": true, "configurable": false}},
+				"why": "a handle's prototype is the host's frozen null-prototype record of native methods, each an enumerable property as an object literal's is, with no constructor and no getter, is_terminal being the handle's own"
+			},
+			{
+				"at": "/receivers/other",
+				"fgro": {"rejected": "TypeError"},
+				"why": "each stream's handle is of a kind of its own, so neither module's write takes the other's handle, where Node's two handles are one class's and a write called on the other's writes to its stream"
+			}
+		]
+	},
+	{
+		"name": "stderr",
+		"module": "stderr",
+		"args": [],
+		"differs": [
+			{
+				"at": "/namespace/own/default",
+				"fgro": {"type": "undefined", "writable": true, "enumerable": true, "configurable": false},
+				"why": "a builtin module's namespace has a default export of undefined, where a Node module has none"
+			},
+			{
+				"at": "/handle/own",
+				"fgro": {"is_terminal": {"type": "boolean", "writable": false, "enumerable": true, "configurable": false}},
+				"why": "is_terminal is the handle's own frozen data, asked of the OS once when the run first imports the module, where Node's is a getter on the prototype that asks each time"
+			},
+			{
+				"at": "/prototype/own",
+				"fgro": {"write": {"type": "function", "writable": false, "enumerable": true, "configurable": false}},
+				"why": "a handle's prototype is the host's frozen null-prototype record of native methods, each an enumerable property as an object literal's is, with no constructor and no getter, is_terminal being the handle's own"
+			},
+			{
+				"at": "/receivers/other",
+				"fgro": {"rejected": "TypeError"},
+				"why": "each stream's handle is of a kind of its own, so neither module's write takes the other's handle, where Node's two handles are one class's and a write called on the other's writes to its stream"
+			}
+		]
+	},
+	{
 		"name": "net_error",
 		"module": "net_error",
 		"args": [],

@@ -29,8 +29,8 @@ arm (a `cfg` on the architecture or the C library is fine).
   by tokio's reactor, in `child`, behind the `child` feature `gro_runtime`
   enables, so `gro_bench` builds no tokio, process groups and the signal
   handler that guards them, `_exit`, `access`, and the filesystem calls
-  confined beneath a directory descriptor by `openat2`, in `beneath`), each
-  behind a safe API
+  confined beneath a directory descriptor by `openat2`, in `beneath`, and
+  an unbuffered write to a descriptor), each behind a safe API
 - `gro_v8` - the V8 boundary: the calls rusty_v8 exposes only as `unsafe`,
   behind a safe API (eval's recording `ArrayBuffer` allocator,
   `record_array_buffers`, and `PendingArrayBuffer`, an `ArrayBuffer`'s bytes
@@ -206,7 +206,9 @@ and the contracts no one module doc owns.
   `crates/gro_cli/src/main.rs` but for eval's out-of-memory backstop. A host
   module that buffers stdout or stderr must have it written before the
   runtime is handed back and before `exit` calls the embedder's step
-  (`lib.rs`'s module doc).
+  (`lib.rs`'s module doc). None does: the console and the stdout and
+  stderr host modules write inline and unbuffered through one path per
+  descriptor, std's line buffer bypassed (`host/stdio.rs`'s module doc).
 - `gro_runtime` ends its embedder's process itself in two places only
   (`lib.rs`'s module doc), beside the signal handler a run that grants a
   program installs at its first launch, which ends the process by the

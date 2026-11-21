@@ -35,6 +35,10 @@ pub enum Capability {
     Args,
     /// The exit host module's: how the run ends, and the code it ends with.
     Exit,
+    /// The stdout host module's: raw writes to standard output.
+    Stdout,
+    /// The stderr host module's: raw writes to standard error.
+    Stderr,
     /// The env host module's: the environment variables it names.
     Env,
     /// The fs host module's: the directories its root reaches.
@@ -48,6 +52,8 @@ impl fmt::Display for Capability {
         f.write_str(match self {
             Self::Args => "args",
             Self::Exit => "exit",
+            Self::Stdout => "stdout",
+            Self::Stderr => "stderr",
             Self::Env => "env",
             Self::Fs => "fs",
             Self::Spawn => "spawn",
@@ -148,6 +154,16 @@ macro_rules! builtin_rows {
                 ["StdioError", "is_stdio_error"]
             ),
             $row!(
+                "@fuzdev/gro/stdout.ts",
+                Some($crate::resolver::Capability::Stdout),
+                ["stdout"]
+            ),
+            $row!(
+                "@fuzdev/gro/stderr.ts",
+                Some($crate::resolver::Capability::Stderr),
+                ["stderr"]
+            ),
+            $row!(
                 "@fuzdev/gro/net_error.ts",
                 None,
                 ["NetError", "is_net_error"]
@@ -192,13 +208,8 @@ pub fn find_builtin(specifier: &str) -> Option<&'static Builtin> {
 ///
 /// None resolves to the package's copy before its row lands. A module joins
 /// the table's rows when it's built, and leaves this list.
-pub const UNBUILT_HOST_MODULES: &[&str] = &[
-    "@fuzdev/gro/net",
-    "@fuzdev/gro/watch",
-    "@fuzdev/gro/stdin",
-    "@fuzdev/gro/stdout",
-    "@fuzdev/gro/stderr",
-];
+pub const UNBUILT_HOST_MODULES: &[&str] =
+    &["@fuzdev/gro/net", "@fuzdev/gro/watch", "@fuzdev/gro/stdin"];
 
 /// A module Gro has none of, whose members are modules of their own.
 #[derive(Debug, PartialEq, Eq)]

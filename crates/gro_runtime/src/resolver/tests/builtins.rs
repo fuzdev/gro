@@ -132,6 +132,18 @@ fn the_table_is_pinned() {
                 &["StdioError", "is_stdio_error"][..],
             ),
             (
+                "@fuzdev/gro/stdout.ts",
+                "builtin:@fuzdev/gro/stdout.ts",
+                Some(Capability::Stdout),
+                &["stdout"][..],
+            ),
+            (
+                "@fuzdev/gro/stderr.ts",
+                "builtin:@fuzdev/gro/stderr.ts",
+                Some(Capability::Stderr),
+                &["stderr"][..],
+            ),
+            (
                 "@fuzdev/gro/net_error.ts",
                 "builtin:@fuzdev/gro/net_error.ts",
                 None,
@@ -339,17 +351,23 @@ fn the_reserved_specifiers_are_pinned() {
         ("@fuzdev/gro/net_error.ts", None),
         (
             "@fuzdev/gro/net_error.js",
-            Some(Reserved::JsSpelling(&BUILTINS[14])),
+            Some(Reserved::JsSpelling(&BUILTINS[16])),
         ),
         ("@fuzdev/gro/watch.ts", unbuilt("@fuzdev/gro/watch")),
         ("@fuzdev/gro/watch.js", unbuilt("@fuzdev/gro/watch")),
         ("@fuzdev/gro/env.ts", None),
         ("@fuzdev/gro/stdin.ts", unbuilt("@fuzdev/gro/stdin")),
         ("@fuzdev/gro/stdin.js", unbuilt("@fuzdev/gro/stdin")),
-        ("@fuzdev/gro/stdout.ts", unbuilt("@fuzdev/gro/stdout")),
-        ("@fuzdev/gro/stdout.js", unbuilt("@fuzdev/gro/stdout")),
-        ("@fuzdev/gro/stderr.ts", unbuilt("@fuzdev/gro/stderr")),
-        ("@fuzdev/gro/stderr.js", unbuilt("@fuzdev/gro/stderr")),
+        ("@fuzdev/gro/stdout.ts", None),
+        (
+            "@fuzdev/gro/stdout.js",
+            Some(Reserved::JsSpelling(&BUILTINS[14])),
+        ),
+        ("@fuzdev/gro/stderr.ts", None),
+        (
+            "@fuzdev/gro/stderr.js",
+            Some(Reserved::JsSpelling(&BUILTINS[15])),
+        ),
         ("@fuzdev/gro/stdio_error.ts", None),
         (
             "@fuzdev/gro/stdio_error.js",
@@ -516,9 +534,10 @@ fn a_reserved_specifier_is_refused_reading_nothing() {
                  '@fuzdev/gro/exit.ts', '@fuzdev/gro/stdin.ts', '@fuzdev/gro/stdout.ts', \
                  '@fuzdev/gro/stderr.ts', '@fuzdev/gro/cwd.ts', '@fuzdev/gro/pid.ts', or \
                  '@fuzdev/gro/runtime_version.ts'; of these, only '@fuzdev/gro/env.ts', \
-                 '@fuzdev/gro/args.ts', '@fuzdev/gro/exit.ts', '@fuzdev/gro/cwd.ts', \
-                 '@fuzdev/gro/pid.ts', and '@fuzdev/gro/runtime_version.ts' are on {BINARY_NAME} \
-                 yet, so run code that uses the others under Node with gro",
+                 '@fuzdev/gro/args.ts', '@fuzdev/gro/exit.ts', '@fuzdev/gro/stdout.ts', \
+                 '@fuzdev/gro/stderr.ts', '@fuzdev/gro/cwd.ts', '@fuzdev/gro/pid.ts', and \
+                 '@fuzdev/gro/runtime_version.ts' are on {BINARY_NAME} yet, so run code that uses \
+                 the others under Node with gro",
             ),
             (
                 "@fuzdev/gro/process_error.js",

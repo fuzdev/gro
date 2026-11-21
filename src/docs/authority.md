@@ -6,7 +6,7 @@
 > **status**: the model as designed, part of it built. Built today: `fgro eval`'s box ([eval](eval.md#the-box)),
 > the omissions (no runtime namespace, no Node compat, no remote imports, no authority globals),
 > and for `fgro run` the link-time grant check by origin over the builtin modules built so far:
-> the project's modules get `args`, `exit`, `env` with the variables `--allow-env=` names, and `fs`, reading the project's tree
+> the project's modules get `args`, `exit`, `stdout` and `stderr` (raw writes, beside the console, which no grant gates), `env` with the variables `--allow-env=` names, and `fs`, reading the project's tree
 > and the directories `--allow-read=` names, with a write scope on those `--allow-write=` names,
 > each scope carried by the handles made under it;
 > the grant-free modules link for every module; `-A` grants every module every one;

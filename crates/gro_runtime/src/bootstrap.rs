@@ -124,7 +124,6 @@
 //! bootstrap's refusals still finds none of them.
 
 use std::borrow::Cow;
-use std::io::{self, Write};
 use std::sync::OnceLock;
 
 use deno_core::error::JsError;
@@ -135,6 +134,7 @@ use deno_core::{
 };
 
 use crate::host::host_ops;
+use crate::host::stdio;
 use crate::resolver::{BUILTINS, builtin_rows, builtin_url};
 use crate::{ConsoleOptions, ConsoleRouting};
 
@@ -229,62 +229,30 @@ fn op_gro_console_stderr(state: &OpState) -> bool {
 /// Writes a console message to stderr when `stderr` is true (`warn`,
 /// `error`, and `trace`) or the run's [`ConsoleOptions`] send every level
 /// there, as eval's do, and to stdout otherwise: the host decides, so no
-/// script's argument puts a message on eval's stdout.
+/// script's argument puts a message on eval's stdout. It writes through the
+/// path the stdout and stderr host modules write by
+/// ([`stdio::write_all`]), so the run's output keeps program order across
+/// them.
 ///
-/// A reader that has left (`EPIPE`, a run piped to `head`) loses the
-/// message and the run goes on, to end with its own exit code, as Gro's
-/// own writes to a closed stream do; any other failure, a full disk among
-/// them, throws an `Error` naming the stream and the system's error.
+/// A reader that has left (`EPIPE`, a run piped to `head`, or
+/// `ECONNRESET` from a socket) loses the message and the run goes on, to
+/// end with its own exit code, as Gro's own writes to a closed stream do;
+/// any other failure, a full disk or a descriptor open only for reading
+/// among them, throws an `Error` naming the stream and the system's error.
 #[op2(fast)]
 fn op_gro_print(state: &OpState, #[string] message: &str, stderr: bool) -> Result<(), JsErrorBox> {
     let stderr = stderr || state.borrow::<ConsoleOptions>().routing == ConsoleRouting::Stderr;
-    let written = if stderr {
-        write_message(&mut io::stderr().lock(), message.as_bytes())
+    let stream = if stderr {
+        stdio::Stream::Stderr
     } else {
-        write_message(&mut io::stdout().lock(), message.as_bytes())
+        stdio::Stream::Stdout
     };
-    match written {
-        Err(error) if error.kind() != io::ErrorKind::BrokenPipe => {
-            let stream = if stderr { "stderr" } else { "stdout" };
-            Err(JsErrorBox::generic(format!(
-                "failed to write to {stream}: {error}"
-            )))
-        }
+    match stdio::write_all(stream, message.as_bytes()) {
+        Err(error) if !stdio::is_reader_gone(&error) => Err(JsErrorBox::generic(format!(
+            "failed to write to {}: {error}",
+            stream.name()
+        ))),
         _ => Ok(()),
-    }
-}
-
-/// Writes `message` whole and flushes it, retrying a write or flush that
-/// would block (a process sharing the descriptor can make it non-blocking,
-/// as Node does its own stdio) or that a signal interrupted.
-fn write_message(out: &mut impl Write, mut message: &[u8]) -> io::Result<()> {
-    while !message.is_empty() {
-        match out.write(message) {
-            Ok(0) => return Err(io::ErrorKind::WriteZero.into()),
-            Ok(written) => message = message.get(written..).unwrap_or_default(),
-            Err(error) if retried(&error) => {}
-            Err(error) => return Err(error),
-        }
-    }
-    loop {
-        match out.flush() {
-            Err(error) if retried(&error) => {}
-            flushed => return flushed,
-        }
-    }
-}
-
-/// Whether a write or flush that failed with `error` is tried again: one
-/// that would block, after yielding the thread, or that a signal
-/// interrupted.
-fn retried(error: &io::Error) -> bool {
-    match error.kind() {
-        io::ErrorKind::WouldBlock => {
-            std::thread::yield_now();
-            true
-        }
-        io::ErrorKind::Interrupted => true,
-        _ => false,
     }
 }
 
@@ -710,93 +678,5 @@ mod tests {
                 .collect();
             assert_eq!(classes, WEB_CLASSES);
         }
-    }
-
-    /// A writer that answers each `write` with the next of its `writes`, an
-    /// `Ok` taking up to that many bytes, and each `flush` with the next of
-    /// its `flushes`, and records what it took and whether a flush succeeded.
-    struct Scripted {
-        writes: Vec<io::Result<usize>>,
-        flushes: Vec<io::Result<()>>,
-        taken: Vec<u8>,
-        flushed: bool,
-    }
-
-    impl Write for Scripted {
-        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-            let written = self.writes.remove(0)?.min(buf.len());
-            self.taken.extend_from_slice(&buf[..written]);
-            Ok(written)
-        }
-
-        fn flush(&mut self) -> io::Result<()> {
-            self.flushes.remove(0)?;
-            self.flushed = true;
-            Ok(())
-        }
-    }
-
-    /// A message is written whole and flushed, across short writes, and a
-    /// write or a flush that would block or that a signal interrupted; a
-    /// write of nothing, or any other failure of a write or the flush, ends
-    /// it with that error, unflushed.
-    #[test]
-    fn a_console_message_is_written_whole_or_fails() {
-        let write = |writes: Vec<io::Result<usize>>, flushes: Vec<io::Result<()>>| {
-            let mut out = Scripted {
-                writes,
-                flushes,
-                taken: Vec::new(),
-                flushed: false,
-            };
-            let written = write_message(&mut out, b"abcdef").map_err(|error| error.kind());
-            (written, String::from_utf8(out.taken).unwrap(), out.flushed)
-        };
-        let whole = (Ok(()), "abcdef".to_owned(), true);
-        assert_eq!(
-            write(
-                vec![
-                    Ok(2),
-                    Err(io::ErrorKind::WouldBlock.into()),
-                    Err(io::ErrorKind::Interrupted.into()),
-                    Ok(9),
-                ],
-                vec![Ok(())]
-            ),
-            whole
-        );
-        assert_eq!(
-            write(
-                vec![Ok(6)],
-                vec![Err(io::ErrorKind::WouldBlock.into()), Ok(())]
-            ),
-            whole
-        );
-        assert_eq!(
-            write(
-                vec![Ok(6)],
-                vec![Err(io::ErrorKind::Interrupted.into()), Ok(())]
-            ),
-            whole
-        );
-        assert_eq!(
-            write(vec![Ok(6)], vec![Err(io::ErrorKind::StorageFull.into())]),
-            (Err(io::ErrorKind::StorageFull), "abcdef".to_owned(), false)
-        );
-        assert_eq!(
-            write(
-                vec![Ok(1), Err(io::ErrorKind::BrokenPipe.into())],
-                Vec::new()
-            ),
-            (Err(io::ErrorKind::BrokenPipe), "a".to_owned(), false)
-        );
-        assert_eq!(
-            write(vec![Ok(0)], Vec::new()),
-            (Err(io::ErrorKind::WriteZero), String::new(), false)
-        );
-        assert_eq!(
-            write(vec![Err(io::ErrorKind::StorageFull.into())], Vec::new()),
-            (Err(io::ErrorKind::StorageFull), String::new(), false)
-        );
     }
 }
