@@ -74,6 +74,7 @@ mod find;
 mod format;
 mod package;
 mod roots;
+pub(crate) mod semver;
 mod specifier;
 #[cfg(test)]
 pub(crate) mod test_tree;

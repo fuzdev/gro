@@ -4,6 +4,8 @@
 
 use std::path::Path;
 
+#[cfg(test)]
+use gro_runtime::embed::EmbedContents;
 use gro_runtime::embed::{EMBED_FILE, Embed, make_embed as make_blob};
 
 use crate::error::CliError;
@@ -58,28 +60,43 @@ pub fn make_embed(src: &Path, dir: &Path) -> Result<(), CliError> {
     }
 }
 
-/// Fails unless `embedded` holds `made`'s modules, the same code at the same
-/// paths and no other, naming the first path whose module differs or is in
-/// one and not the other.
+/// Fails unless `embedded` holds what `made` holds, naming the first
+/// difference: the first path whose module differs or is in one and not the
+/// other, else the first path left out of one and not the other, else
+/// `../package.json` when the peers differ.
 fn compare(embedded: &Embed<'_>, made: &Embed<'_>) -> Result<(), CliError> {
-    let difference = embedded
-        .iter()
-        .zip(made.iter())
-        .find(|(a, b)| a != b)
-        .map(|((a, _), (b, _))| a.min(b))
+    fn modules<'a>(embed: &Embed<'a>) -> Vec<(&'a str, &'a str)> {
+        embed.iter().collect()
+    }
+    fn left_out<'a>(embed: &Embed<'a>) -> Vec<(&'a str, &'a str)> {
+        embed.left_out().map(|path| (path, "")).collect()
+    }
+    let difference = first_difference(&modules(embedded), &modules(made))
+        .or_else(|| first_difference(&left_out(embedded), &left_out(made)))
         .or_else(|| {
-            let (longer, shorter) = if embedded.len() > made.len() {
-                (embedded, made)
-            } else {
-                (made, embedded)
-            };
-            longer.iter().nth(shorter.len()).map(|(path, _)| path)
+            embedded
+                .peers()
+                .ne(made.peers())
+                .then_some("../package.json")
         });
     difference.map_or(Ok(()), |path| {
         Err(CliError::EmbedStale {
             path: path.to_owned(),
         })
     })
+}
+
+/// The first key, in two lists of `(key, value)` each in its keys' order,
+/// whose value differs or that one list holds and the other doesn't.
+fn first_difference<'a>(a: &[(&'a str, &'a str)], b: &[(&'a str, &'a str)]) -> Option<&'a str> {
+    a.iter()
+        .zip(b)
+        .find(|(a, b)| a != b)
+        .map(|((a, _), (b, _))| *a.min(b))
+        .or_else(|| {
+            let (longer, shorter) = if a.len() > b.len() { (a, b) } else { (b, a) };
+            longer.get(shorter.len()).map(|(key, _)| *key)
+        })
 }
 
 #[cfg(test)]
@@ -109,7 +126,11 @@ mod tests {
                 .iter()
                 .map(|(path, code)| ((*path).to_owned(), (*code).to_owned()))
                 .collect();
-            gro_runtime::embed::encode(&modules).unwrap()
+            gro_runtime::embed::encode(&EmbedContents {
+                modules,
+                ..EmbedContents::default()
+            })
+            .unwrap()
         };
         let made = blob(&[("a.ts", "a"), ("b.ts", "b"), ("c.ts", "c")]);
         let made = Embed::decode(&made).unwrap();
@@ -139,5 +160,44 @@ mod tests {
             Some("d.ts")
         );
         assert_eq!(stale(&[]).as_deref(), Some("a.ts"));
+    }
+
+    /// Past the modules, [`compare`] names the first path left out of one
+    /// and not the other, then the peers' `package.json`.
+    #[test]
+    fn compare_names_a_left_out_path_or_the_peers_that_differ() {
+        let contents = |left_out: &[&str], peers: &[(&str, &str)]| EmbedContents {
+            modules: vec![("a.ts".to_owned(), "a".to_owned())],
+            left_out: left_out.iter().map(|path| (*path).to_owned()).collect(),
+            peers: peers
+                .iter()
+                .map(|(name, range)| ((*name).to_owned(), (*range).to_owned()))
+                .collect(),
+        };
+        let made =
+            gro_runtime::embed::encode(&contents(&["b.ts", "c.ts"], &[("p", "^1")])).unwrap();
+        let made = Embed::decode(&made).unwrap();
+        let stale = |left_out: &[&str], peers: &[(&str, &str)]| {
+            let embedded = gro_runtime::embed::encode(&contents(left_out, peers)).unwrap();
+            match compare(&Embed::decode(&embedded).unwrap(), &made) {
+                Ok(()) => None,
+                Err(CliError::EmbedStale { path }) => Some(path),
+                Err(error) => panic!("{error}"),
+            }
+        };
+        assert_eq!(stale(&["b.ts", "c.ts"], &[("p", "^1")]), None);
+        assert_eq!(stale(&["b.ts"], &[("p", "^1")]).as_deref(), Some("c.ts"));
+        assert_eq!(stale(&["c.ts"], &[("p", "^1")]).as_deref(), Some("b.ts"));
+        assert_eq!(
+            stale(&["b.ts", "c.ts", "d.ts"], &[("p", "^1")]).as_deref(),
+            Some("d.ts")
+        );
+        for peers in [&[("p", "^2")][..], &[], &[("p", "^1"), ("q", "^1")]] {
+            assert_eq!(
+                stale(&["b.ts", "c.ts"], peers).as_deref(),
+                Some("../package.json"),
+                "{peers:?}"
+            );
+        }
     }
 }

@@ -2,10 +2,18 @@
 //!
 //! It's the modules of `src/lib` that `src/embed.json` lists as `embedded`,
 //! each stripped of its types, in one blob the binary includes, which no
-//! command loads yet.
+//! command loads yet. Beside them the blob names the modules `embed.json`
+//! leaves out but the host modules, the ones that run only on Node, so a
+//! specifier naming one is refused as that rather than as a module Gro
+//! doesn't have, and carries the `peerDependencies` of Gro's `package.json`,
+//! the packages the embedded modules import from the project and the
+//! versions they need.
 //!
 //! [`make_embed`] makes the blob from a checkout's `src/` directory, which
-//! holds `embed.json` and `lib/`. It refuses an `embed.json` whose lists
+//! holds `embed.json` and `lib/`, with the checkout's `package.json` beside
+//! it. It refuses a peer whose range isn't one the resolver reads
+//! (`resolver::semver`), so no range ships that a run couldn't
+//! check, and an `embed.json` whose lists
 //! aren't sorted, whose `embedded` list names something other than a `.ts`
 //! file inside `lib/` or names a host module's file, or whose
 //! `host_modules` group isn't exactly the runtime's host modules: the
@@ -29,16 +37,21 @@
 //! loader relocates at every start, embed used or not. Little-endian
 //! throughout:
 //!
-//! - the count of modules, `n`
-//! - `2n + 1` offsets into the text: module `i`'s path starts at offset
-//!   `2i`, its code at `2i + 1`, and the next module at `2i + 2`, the last
-//!   offset the text's length
-//! - the text: each module's path, then its code, in the paths' byte order
+//! - the count of modules, `n`, of modules left out, `m`, and of peers, `p`
+//! - `2n + m + 2p + 1` offsets into the text, each span's start, the last
+//!   offset the text's length: module `i`'s path at `2i` and its code at
+//!   `2i + 1`, left-out module `j`'s path at `2n + j`, and peer `k`'s name
+//!   at `2n + m + 2k` and its range at `2n + m + 2k + 1`
+//! - the text: each module's path then its code, in the paths' byte order;
+//!   each left-out module's path, in byte order; each peer's name then its
+//!   range, in the names' byte order
 //!
 //! [`Embed::decode`] checks a blob whole before it reads anything from it:
 //! the offsets in order from 0 and within the text, the text UTF-8 with every
-//! offset on a character's boundary, and the paths strictly ascending. A
-//! module is then found by its path in a binary search.
+//! offset on a character's boundary, the module paths, the left-out paths,
+//! and the peers' names each strictly ascending, and no path both embedded
+//! and left out. A module, a left-out path, or a peer is then found by a
+//! binary search.
 
 use std::collections::BTreeSet;
 use std::fmt;
@@ -50,6 +63,7 @@ use url::Url;
 
 use crate::loader::strip::strip_module;
 use crate::resolver::host_modules;
+use crate::resolver::semver::VersionRange;
 
 /// The name of the blob's file, which the binary's build includes.
 pub const EMBED_FILE: &str = "embed.bin";
@@ -60,6 +74,10 @@ const SORT_FILE: &str = "embed.json";
 /// The directory of Gro's library in the `src/` directory [`make_embed`]
 /// reads, which the paths in [`SORT_FILE`] are relative to.
 const LIB_DIR: &str = "lib";
+
+/// The checkout's `package.json`, beside the `src/` directory
+/// [`make_embed`] reads, whose `peerDependencies` the blob carries.
+const PACKAGE_JSON: &str = "package.json";
 
 /// Why the embed couldn't be made, or a blob doesn't decode.
 #[derive(Debug, Error)]
@@ -97,10 +115,10 @@ pub enum EmbedError {
         /// The path out of order.
         path: String,
     },
-    /// The `embedded` list names something other than a `.ts` file inside
-    /// `lib/`.
+    /// The `embedded` list, or a group it leaves out to run on Node, names
+    /// something other than a `.ts` file inside `lib/`.
     #[error(
-        "{} embeds {path:?}, which isn't the relative path of a `.ts` file inside src/lib",
+        "{} lists {path:?}, which isn't the relative path of a `.ts` file inside src/lib",
         file.display()
     )]
     Path {
@@ -124,6 +142,14 @@ pub enum EmbedError {
         /// What the group lists that is no host module of the runtime's.
         extra: Vec<String>,
     },
+    /// A path both embedded and left out to run on Node.
+    #[error("{} lists {path:?} as embedded and as left out", file.display())]
+    ListedTwice {
+        /// `embed.json`.
+        file: PathBuf,
+        /// The path.
+        path: String,
+    },
     /// The `embedded` list names a host module's file, which the runtime
     /// serves itself.
     #[error(
@@ -135,6 +161,31 @@ pub enum EmbedError {
         file: PathBuf,
         /// The path.
         path: String,
+    },
+    /// The checkout's `package.json` isn't JSON, or its `peerDependencies`
+    /// aren't an object of strings.
+    #[error("{}'s peerDependencies aren't an object of version ranges: {reason}", path.display())]
+    Peers {
+        /// The `package.json`.
+        path: PathBuf,
+        /// What is wrong with it.
+        reason: String,
+    },
+    /// A peer's range isn't one the resolver reads, so a run couldn't check
+    /// it.
+    #[error(
+        "{}'s peer dependency {name:?} has the range {range:?}, which the runtime doesn't \
+         read: {}",
+        path.display(),
+        crate::resolver::semver::UnreadRange
+    )]
+    PeerRange {
+        /// The `package.json`.
+        path: PathBuf,
+        /// The peer's name.
+        name: String,
+        /// Its range.
+        range: String,
     },
     /// A module's source isn't UTF-8.
     #[error("{} isn't UTF-8", path.display())]
@@ -169,9 +220,8 @@ fn host_modules_difference(missing: &[String], extra: &[String]) -> String {
     }
 }
 
-/// `embed.json` as the build reads it: its shape is checked whole, but
-/// only the `embedded` list and the `host_modules` group decide anything
-/// here; `src/test/package_module_closure.test.ts` holds the rest.
+/// `embed.json` as the build reads it: its shape is checked whole, and the
+/// groups' reasons are left to `src/test/package_module_closure.test.ts`.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SortJson {
@@ -181,23 +231,33 @@ struct SortJson {
     excluded: ExcludedJson,
 }
 
-/// The groups `embed.json` leaves out.
+/// The groups `embed.json` leaves out: the host modules, which the runtime
+/// serves, and the others, which run only on Node.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ExcludedJson {
     host_modules: GroupJson,
-    #[serde(rename = "node_roots")]
-    _node_roots: GroupJson,
-    #[serde(rename = "node_loader")]
-    _node_loader: GroupJson,
-    #[serde(rename = "node_only")]
-    _node_only: GroupJson,
-    #[serde(rename = "node_builtin_tasks")]
-    _node_builtin_tasks: GroupJson,
-    #[serde(rename = "genfiles")]
-    _genfiles: GroupJson,
-    #[serde(rename = "reaches_node")]
-    _reaches_node: GroupJson,
+    node_roots: GroupJson,
+    node_loader: GroupJson,
+    node_only: GroupJson,
+    node_builtin_tasks: GroupJson,
+    genfiles: GroupJson,
+    reaches_node: GroupJson,
+}
+
+impl ExcludedJson {
+    /// The groups of modules that run only on Node, every group but the
+    /// host modules.
+    const fn node_groups(&self) -> [&GroupJson; 6] {
+        [
+            &self.node_roots,
+            &self.node_loader,
+            &self.node_only,
+            &self.node_builtin_tasks,
+            &self.genfiles,
+            &self.reaches_node,
+        ]
+    }
 }
 
 /// A group `embed.json` leaves out, with its reason.
@@ -209,9 +269,11 @@ struct GroupJson {
     modules: Vec<String>,
 }
 
-/// Makes the blob of the modules `src/embed.json` lists as `embedded`,
-/// each read from `src/lib` and stripped, where `src` is a checkout's `src/`
-/// directory.
+/// Makes the blob of a checkout's `src/` directory, `src`.
+///
+/// It holds the modules `src/embed.json` lists as `embedded`, each read
+/// from `src/lib` and stripped, the modules it leaves out to run on Node,
+/// and the peers of the `package.json` beside `src`.
 ///
 /// The strip recurses with the source's nesting, on the caller's stack,
 /// which must hold tsv's contract (`tsv_ts::STACK_SIZE`), as a load's does.
@@ -219,7 +281,7 @@ struct GroupJson {
 /// # Errors
 ///
 /// Returns the first refusal of `embed.json` the module doc lists, or why
-/// a module couldn't be read or stripped.
+/// a module couldn't be read or stripped, or the peers read.
 pub fn make_embed(src: &Path) -> Result<Vec<u8>, EmbedError> {
     // absolute, so each module's URL names its file in a refusal
     let src = std::path::absolute(src).map_err(|source| EmbedError::Read {
@@ -227,7 +289,8 @@ pub fn make_embed(src: &Path) -> Result<Vec<u8>, EmbedError> {
         source,
     })?;
     let file = src.join(SORT_FILE);
-    let embedded = read_sort(&file)?;
+    let Sorted { embedded, left_out } = read_sort(&file)?;
+    let peers = read_peers(&src.parent().unwrap_or(&src).join(PACKAGE_JSON))?;
     let lib = src.join(LIB_DIR);
     let mut modules = Vec::with_capacity(embedded.len());
     for path in embedded {
@@ -248,12 +311,24 @@ pub fn make_embed(src: &Path) -> Result<Vec<u8>, EmbedError> {
             strip_module(&source, &url).map_err(|refusal| EmbedError::Strip(refusal.message))?;
         modules.push((path, code));
     }
-    encode(&modules)
+    encode(&EmbedContents {
+        modules,
+        left_out,
+        peers,
+    })
 }
 
-/// Reads `embed.json` at `file`, returning its `embedded` list once it's
-/// checked as [`make_embed`] says.
-fn read_sort(file: &Path) -> Result<Vec<String>, EmbedError> {
+/// The paths `embed.json` sorts: the modules embedded, and those left out
+/// to run on Node, each list in order.
+struct Sorted {
+    embedded: Vec<String>,
+    left_out: Vec<String>,
+}
+
+/// Reads `embed.json` at `file`, returning its `embedded` list and the
+/// modules it leaves out to run on Node once it's checked as [`make_embed`]
+/// says.
+fn read_sort(file: &Path) -> Result<Sorted, EmbedError> {
     let text = std::fs::read_to_string(file).map_err(|source| EmbedError::Read {
         path: file.to_owned(),
         source,
@@ -263,7 +338,58 @@ fn read_sort(file: &Path) -> Result<Vec<String>, EmbedError> {
         source,
     })?;
     check_sort(file, &sort)?;
-    Ok(sort.embedded)
+    let left_out: BTreeSet<String> = sort
+        .excluded
+        .node_groups()
+        .into_iter()
+        .flat_map(|group| group.modules.iter().cloned())
+        .collect();
+    Ok(Sorted {
+        embedded: sort.embedded,
+        left_out: left_out.into_iter().collect(),
+    })
+}
+
+/// Reads the `peerDependencies` of the `package.json` at `path`, in their
+/// names' order, refusing a range the resolver doesn't read.
+fn read_peers(path: &Path) -> Result<Vec<(String, String)>, EmbedError> {
+    let text = std::fs::read_to_string(path).map_err(|source| EmbedError::Read {
+        path: path.to_owned(),
+        source,
+    })?;
+    parse_peers(path, &text)
+}
+
+/// The `peerDependencies` of `text`, the `package.json` at `path`, as
+/// [`read_peers`] reads them.
+fn parse_peers(path: &Path, text: &str) -> Result<Vec<(String, String)>, EmbedError> {
+    let fault = |reason: String| EmbedError::Peers {
+        path: path.to_owned(),
+        reason,
+    };
+    let package: serde_json::Value =
+        serde_json::from_str(text).map_err(|error| fault(error.to_string()))?;
+    let peers = match package.get("peerDependencies") {
+        None => return Ok(Vec::new()),
+        Some(serde_json::Value::Object(peers)) => peers,
+        Some(_) => return Err(fault("not an object".to_owned())),
+    };
+    let mut read = Vec::with_capacity(peers.len());
+    for (name, range) in peers {
+        let Some(range) = range.as_str() else {
+            return Err(fault(format!("{name:?}'s range isn't a string")));
+        };
+        if VersionRange::parse(range).is_err() {
+            return Err(EmbedError::PeerRange {
+                path: path.to_owned(),
+                name: name.clone(),
+                range: range.to_owned(),
+            });
+        }
+        read.push((name.clone(), range.to_owned()));
+    }
+    read.sort();
+    Ok(read)
 }
 
 /// Checks `sort`, read from `file`, as [`make_embed`] says.
@@ -279,7 +405,17 @@ fn check_sort(file: &Path, sort: &SortJson) -> Result<(), EmbedError> {
             });
         }
     }
-    if let Some(path) = sort.embedded.iter().find(|path| !is_lib_module_path(path)) {
+    let left_out = sort
+        .excluded
+        .node_groups()
+        .into_iter()
+        .flat_map(|group| &group.modules);
+    if let Some(path) = sort
+        .embedded
+        .iter()
+        .chain(left_out)
+        .find(|path| !is_lib_module_path(path))
+    {
         return Err(EmbedError::Path {
             file: file.to_owned(),
             path: path.clone(),
@@ -294,6 +430,17 @@ fn check_sort(file: &Path, sort: &SortJson) -> Result<(), EmbedError> {
             file: file.to_owned(),
             missing,
             extra,
+        });
+    }
+    if let Some(path) = sort.embedded.iter().find(|path| {
+        sort.excluded
+            .node_groups()
+            .into_iter()
+            .any(|group| group.modules.contains(path))
+    }) {
+        return Err(EmbedError::ListedTwice {
+            file: file.to_owned(),
+            path: path.clone(),
         });
     }
     if let Some(path) = sort.embedded.iter().find(|path| expected.contains(*path)) {
@@ -326,29 +473,76 @@ fn is_lib_module_path(path: &str) -> bool {
             .all(|segment| !matches!(segment, "" | "." | "..") && !segment.contains('\\'))
 }
 
-/// The blob of `modules`, `(path, code)` pairs in their paths' order.
+/// What a blob holds, as [`encode`] takes it.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct EmbedContents {
+    /// Each embedded module, `(path, code)`, in its paths' order.
+    pub modules: Vec<(String, String)>,
+    /// The modules of `src/lib` left out to run only on Node, by path, in
+    /// order.
+    pub left_out: Vec<String>,
+    /// Gro's peer dependencies, `(name, range)`, in their names' order.
+    pub peers: Vec<(String, String)>,
+}
+
+/// The blob of `contents`.
 ///
 /// # Errors
 ///
-/// Returns [`EmbedError::Malformed`] when the paths aren't strictly
-/// ascending, and [`EmbedError::TooLarge`] past what an offset names.
-pub fn encode(modules: &[(String, String)]) -> Result<Vec<u8>, EmbedError> {
+/// Returns [`EmbedError::Malformed`] when a list isn't strictly ascending
+/// or a path is both embedded and left out, and [`EmbedError::TooLarge`]
+/// past what an offset names.
+pub fn encode(contents: &EmbedContents) -> Result<Vec<u8>, EmbedError> {
+    let EmbedContents {
+        modules,
+        left_out,
+        peers,
+    } = contents;
     if modules.windows(2).any(|pair| pair[0].0 >= pair[1].0) {
         return Err(EmbedError::Malformed("the paths aren't strictly ascending"));
     }
+    if left_out.windows(2).any(|pair| pair[0] >= pair[1]) {
+        return Err(EmbedError::Malformed(
+            "the left-out paths aren't strictly ascending",
+        ));
+    }
+    if peers.windows(2).any(|pair| pair[0].0 >= pair[1].0) {
+        return Err(EmbedError::Malformed(
+            "the peers' names aren't strictly ascending",
+        ));
+    }
+    if left_out.iter().any(|path| {
+        modules
+            .binary_search_by(|(module, _)| module.cmp(path))
+            .is_ok()
+    }) {
+        return Err(EmbedError::Malformed(
+            "a path is both embedded and left out",
+        ));
+    }
     let offset = |value: usize| u32::try_from(value).map_err(|_| EmbedError::TooLarge);
-    let count = offset(modules.len())?;
-    let mut offsets = Vec::with_capacity(modules.len() * 2 + 1);
+    let spans: Vec<&str> = modules
+        .iter()
+        .flat_map(|(path, code)| [path.as_str(), code.as_str()])
+        .chain(left_out.iter().map(String::as_str))
+        .chain(
+            peers
+                .iter()
+                .flat_map(|(name, range)| [name.as_str(), range.as_str()]),
+        )
+        .collect();
+    let mut blob = Vec::new();
+    for count in [modules.len(), left_out.len(), peers.len()] {
+        blob.extend_from_slice(&offset(count)?.to_le_bytes());
+    }
     let mut text = String::new();
-    for (path, code) in modules {
+    let mut offsets = Vec::with_capacity(spans.len() + 1);
+    for span in spans {
         offsets.push(offset(text.len())?);
-        text.push_str(path);
-        offsets.push(offset(text.len())?);
-        text.push_str(code);
+        text.push_str(span);
     }
     offsets.push(offset(text.len())?);
-    let mut blob = Vec::with_capacity(4 + offsets.len() * 4 + text.len());
-    blob.extend_from_slice(&count.to_le_bytes());
+    blob.reserve(offsets.len() * WORD + text.len());
     for value in offsets {
         blob.extend_from_slice(&value.to_le_bytes());
     }
@@ -356,26 +550,38 @@ pub fn encode(modules: &[(String, String)]) -> Result<Vec<u8>, EmbedError> {
     Ok(blob)
 }
 
-/// A decoded blob: the embedded modules, found by path.
+/// A decoded blob: the embedded modules, found by path, the modules left
+/// out, and the peers.
 #[derive(Clone, Copy)]
 pub struct Embed<'a> {
-    /// The offsets, `2n + 1` little-endian `u32`s.
+    /// The offsets, `2n + m + 2p + 1` little-endian `u32`s.
     offsets: &'a [u8],
     /// The text the offsets index.
     text: &'a str,
+    /// The count of modules, `n`.
+    modules: usize,
+    /// The count of modules left out, `m`.
+    left_out: usize,
+    /// The count of peers, `p`.
+    peers: usize,
 }
 
 impl fmt::Debug for Embed<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Embed")
-            .field("modules", &self.len())
+            .field("modules", &self.modules)
+            .field("left_out", &self.left_out)
+            .field("peers", &self.peers)
             .field("text", &self.text.len())
             .finish()
     }
 }
 
-/// The size of an offset, and of the count.
+/// The size of an offset, and of a count.
 const WORD: usize = 4;
+
+/// The counts that lead a blob.
+const COUNTS: usize = 3;
 
 impl<'a> Embed<'a> {
     /// Decodes `blob`, checking it whole first, as the module doc says.
@@ -384,14 +590,25 @@ impl<'a> Embed<'a> {
     ///
     /// Returns [`EmbedError::Malformed`] naming what the check found.
     pub fn decode(blob: &'a [u8]) -> Result<Self, EmbedError> {
-        let (count, rest) = blob
-            .split_first_chunk::<WORD>()
-            .ok_or(EmbedError::Malformed("it has no count"))?;
-        let words = usize::try_from(u32::from_le_bytes(*count))
-            .ok()
-            .and_then(|count| count.checked_mul(2))
+        let (counts, rest) = blob
+            .split_first_chunk::<{ COUNTS * WORD }>()
+            .ok_or(EmbedError::Malformed("it has no counts"))?;
+        let count = |index: usize| {
+            counts
+                .get(index * WORD..(index + 1) * WORD)
+                .and_then(|word| <[u8; WORD]>::try_from(word).ok())
+                .and_then(|word| usize::try_from(u32::from_le_bytes(word)).ok())
+        };
+        let too_many = EmbedError::Malformed("its counts are past what it can hold");
+        let (Some(modules), Some(left_out), Some(peers)) = (count(0), count(1), count(2)) else {
+            return Err(too_many);
+        };
+        let words = modules
+            .checked_mul(2)
+            .and_then(|words| words.checked_add(left_out))
+            .and_then(|words| words.checked_add(peers.checked_mul(2)?))
             .and_then(|words| words.checked_add(1))
-            .ok_or(EmbedError::Malformed("its count is past what it can hold"))?;
+            .ok_or(too_many)?;
         let offsets_len = words
             .checked_mul(WORD)
             .filter(|len| *len <= rest.len())
@@ -399,8 +616,14 @@ impl<'a> Embed<'a> {
         let (offsets, text) = rest.split_at(offsets_len);
         let text =
             std::str::from_utf8(text).map_err(|_| EmbedError::Malformed("its text isn't UTF-8"))?;
-        let embed = Self { offsets, text };
-        // the first path starts the text, so no byte goes unread
+        let embed = Self {
+            offsets,
+            text,
+            modules,
+            left_out,
+            peers,
+        };
+        // the first span starts the text, so no byte goes unread
         if embed.offset(0) != 0 {
             return Err(EmbedError::Malformed("its first offset isn't 0"));
         }
@@ -422,43 +645,71 @@ impl<'a> Embed<'a> {
                 "its last offset isn't its text's length",
             ));
         }
-        for index in 1..embed.len() {
-            if embed.path(index - 1) >= embed.path(index) {
-                return Err(EmbedError::Malformed("its paths aren't strictly ascending"));
-            }
+        let ascending = |len: usize, key: &dyn Fn(usize) -> &'a str| {
+            (1..len).all(|index| key(index - 1) < key(index))
+        };
+        if !ascending(modules, &|index| embed.path(index)) {
+            return Err(EmbedError::Malformed("its paths aren't strictly ascending"));
+        }
+        if !ascending(left_out, &|index| embed.left_out_path(index)) {
+            return Err(EmbedError::Malformed(
+                "its left-out paths aren't strictly ascending",
+            ));
+        }
+        if !ascending(peers, &|index| embed.peer_name(index)) {
+            return Err(EmbedError::Malformed(
+                "its peers' names aren't strictly ascending",
+            ));
+        }
+        if embed.left_out().any(|path| embed.get(path).is_some()) {
+            return Err(EmbedError::Malformed(
+                "a path is both embedded and left out",
+            ));
         }
         Ok(embed)
     }
 
     /// How many modules it holds.
     pub const fn len(&self) -> usize {
-        self.offsets.len() / WORD / 2
+        self.modules
     }
 
     /// Whether it holds no module.
     pub const fn is_empty(&self) -> bool {
-        self.len() == 0
+        self.modules == 0
     }
 
     /// The code of the module at `path`, relative to `lib/`, if it holds
     /// one.
     pub fn get(&self, path: &str) -> Option<&'a str> {
-        let mut low = 0;
-        let mut high = self.len();
-        while low < high {
-            let middle = low + (high - low) / 2;
-            match self.path(middle).cmp(path) {
-                std::cmp::Ordering::Less => low = middle + 1,
-                std::cmp::Ordering::Greater => high = middle,
-                std::cmp::Ordering::Equal => return Some(self.code(middle)),
-            }
-        }
-        None
+        search(self.modules, |index| self.path(index), path).map(|index| self.code(index))
     }
 
     /// Each module, `(path, code)`, in its paths' order.
     pub fn iter(&self) -> impl Iterator<Item = (&'a str, &'a str)> + '_ {
-        (0..self.len()).map(|index| (self.path(index), self.code(index)))
+        (0..self.modules).map(|index| (self.path(index), self.code(index)))
+    }
+
+    /// Whether `path`, relative to `lib/`, is a module left out to run only
+    /// on Node.
+    pub fn is_left_out(&self, path: &str) -> bool {
+        search(self.left_out, |index| self.left_out_path(index), path).is_some()
+    }
+
+    /// Each module left out to run only on Node, by path, in order.
+    pub fn left_out(&self) -> impl Iterator<Item = &'a str> + '_ {
+        (0..self.left_out).map(|index| self.left_out_path(index))
+    }
+
+    /// The range of Gro's peer dependency `name`, if it has one.
+    pub fn peer_range(&self, name: &str) -> Option<&'a str> {
+        search(self.peers, |index| self.peer_name(index), name)
+            .map(|index| self.span(self.peer_start(index) + 1))
+    }
+
+    /// Each peer dependency, `(name, range)`, in its names' order.
+    pub fn peers(&self) -> impl Iterator<Item = (&'a str, &'a str)> + '_ {
+        (0..self.peers).map(|index| (self.peer_name(index), self.span(self.peer_start(index) + 1)))
     }
 
     /// The offset at `index`, below the count of offsets, which
@@ -489,6 +740,37 @@ impl<'a> Embed<'a> {
     fn code(&self, index: usize) -> &'a str {
         self.span(index * 2 + 1)
     }
+
+    /// The path of left-out module `index`.
+    fn left_out_path(&self, index: usize) -> &'a str {
+        self.span(self.modules * 2 + index)
+    }
+
+    /// The offset index of peer `index`'s name.
+    const fn peer_start(&self, index: usize) -> usize {
+        self.modules * 2 + self.left_out + index * 2
+    }
+
+    /// The name of peer `index`.
+    fn peer_name(&self, index: usize) -> &'a str {
+        self.span(self.peer_start(index))
+    }
+}
+
+/// The index below `len` whose key is `target`, by a binary search over
+/// keys in strictly ascending order.
+fn search<'a>(len: usize, key: impl Fn(usize) -> &'a str, target: &str) -> Option<usize> {
+    let mut low = 0;
+    let mut high = len;
+    while low < high {
+        let middle = low + (high - low) / 2;
+        match key(middle).cmp(target) {
+            std::cmp::Ordering::Less => low = middle + 1,
+            std::cmp::Ordering::Greater => high = middle,
+            std::cmp::Ordering::Equal => return Some(middle),
+        }
+    }
+    None
 }
 
 #[cfg(test)]
@@ -496,11 +778,14 @@ mod tests {
     use super::*;
     use crate::resolver::{BUILTINS, UNBUILT_HOST_MODULES};
 
-    fn modules(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
-        pairs
-            .iter()
-            .map(|(path, code)| ((*path).to_owned(), (*code).to_owned()))
-            .collect()
+    fn modules(pairs: &[(&str, &str)]) -> EmbedContents {
+        EmbedContents {
+            modules: pairs
+                .iter()
+                .map(|(path, code)| ((*path).to_owned(), (*code).to_owned()))
+                .collect(),
+            ..EmbedContents::default()
+        }
     }
 
     /// A blob decodes to the modules it was made of, each found by its
@@ -523,32 +808,103 @@ mod tests {
         for absent in ["", "a", "a.tsx", "c.ts", "internal/", "z.ts"] {
             assert_eq!(embed.get(absent), None, "{absent}");
         }
-        let empty = encode(&[]).unwrap();
-        assert_eq!(empty, [0, 0, 0, 0, 0, 0, 0, 0]);
+        let empty = encode(&EmbedContents::default()).unwrap();
+        assert_eq!(empty, [0; 16]);
         let embed = Embed::decode(&empty).unwrap();
         assert!(embed.is_empty());
         assert_eq!(embed.get("a.ts"), None);
+        assert!(!embed.is_left_out("a.ts"));
+        assert_eq!(embed.peer_range("a"), None);
     }
 
-    /// The layout the module doc gives: the count, the offsets, the text.
+    /// The modules left out and the peers decode beside the modules, each
+    /// found by its path or name, and nothing else is found as one.
     #[test]
-    fn a_blob_is_the_count_the_offsets_and_the_text() {
-        let blob = encode(&modules(&[("a.ts", "xy"), ("b.ts", "z")])).unwrap();
-        let mut expected = vec![2, 0, 0, 0];
-        for offset in [0_u32, 4, 6, 10, 11] {
+    fn a_blob_decodes_to_its_left_out_modules_and_peers() {
+        let contents = EmbedContents {
+            left_out: vec!["b.ts".to_owned(), "internal/z.ts".to_owned()],
+            peers: vec![
+                ("@fuzdev/fuz_util".to_owned(), ">=0.83.0".to_owned()),
+                ("typescript".to_owned(), "^6".to_owned()),
+            ],
+            ..modules(&[("a.ts", "a"), ("c.ts", "c")])
+        };
+        let blob = encode(&contents).unwrap();
+        let embed = Embed::decode(&blob).unwrap();
+        assert_eq!(embed.len(), 2);
+        assert_eq!(embed.get("a.ts"), Some("a"));
+        assert_eq!(embed.get("b.ts"), None);
+        assert!(embed.is_left_out("b.ts"));
+        assert!(embed.is_left_out("internal/z.ts"));
+        for path in ["a.ts", "c.ts", "z.ts", "", "typescript"] {
+            assert!(!embed.is_left_out(path), "{path}");
+        }
+        assert_eq!(
+            embed.left_out().collect::<Vec<_>>(),
+            ["b.ts", "internal/z.ts"]
+        );
+        assert_eq!(embed.peer_range("@fuzdev/fuz_util"), Some(">=0.83.0"));
+        assert_eq!(embed.peer_range("typescript"), Some("^6"));
+        for name in ["@fuzdev/fuz_schema", "a.ts", ">=0.83.0", ""] {
+            assert_eq!(embed.peer_range(name), None, "{name}");
+        }
+        assert_eq!(
+            embed.peers().collect::<Vec<_>>(),
+            [("@fuzdev/fuz_util", ">=0.83.0"), ("typescript", "^6")]
+        );
+    }
+
+    /// The layout the module doc gives: the counts, the offsets, the text.
+    #[test]
+    fn a_blob_is_the_counts_the_offsets_and_the_text() {
+        let contents = EmbedContents {
+            left_out: vec!["c.ts".to_owned()],
+            peers: vec![("p".to_owned(), "^1".to_owned())],
+            ..modules(&[("a.ts", "xy"), ("b.ts", "z")])
+        };
+        let blob = encode(&contents).unwrap();
+        let mut expected = Vec::new();
+        for count in [2_u32, 1, 1] {
+            expected.extend_from_slice(&count.to_le_bytes());
+        }
+        for offset in [0_u32, 4, 6, 10, 11, 15, 16, 18] {
             expected.extend_from_slice(&offset.to_le_bytes());
         }
-        expected.extend_from_slice(b"a.tsxyb.tsz");
+        expected.extend_from_slice(b"a.tsxyb.tszc.tsp^1");
         assert_eq!(blob, expected);
     }
 
     #[test]
-    fn encode_refuses_paths_out_of_order() {
+    fn encode_refuses_lists_out_of_order() {
         for pairs in [[("b.ts", ""), ("a.ts", "")], [("a.ts", ""), ("a.ts", "")]] {
             assert!(matches!(
                 encode(&modules(&pairs)),
                 Err(EmbedError::Malformed(_))
             ));
+        }
+        let owned = |paths: &[&str]| paths.iter().map(|path| (*path).to_owned()).collect();
+        for left_out in [&["b.ts", "a.ts"][..], &["a.ts", "a.ts"], &["m.ts"]] {
+            let contents = EmbedContents {
+                left_out: owned(left_out),
+                ..modules(&[("m.ts", "")])
+            };
+            assert!(
+                matches!(encode(&contents), Err(EmbedError::Malformed(_))),
+                "{left_out:?}"
+            );
+        }
+        for names in [["b", "a"], ["a", "a"]] {
+            let contents = EmbedContents {
+                peers: names
+                    .iter()
+                    .map(|name| ((*name).to_owned(), "^1".to_owned()))
+                    .collect(),
+                ..EmbedContents::default()
+            };
+            assert!(
+                matches!(encode(&contents), Err(EmbedError::Malformed(_))),
+                "{names:?}"
+            );
         }
     }
 
@@ -557,6 +913,8 @@ mod tests {
     #[test]
     fn decode_refuses_a_malformed_blob() {
         let good = encode(&modules(&[("a.ts", "xy"), ("b.ts", "z")])).unwrap();
+        // the first offset, after the three counts
+        let first = COUNTS * WORD;
         let with = |at: usize, value: u32| {
             let mut blob = good.clone();
             blob[at..at + 4].copy_from_slice(&value.to_le_bytes());
@@ -567,33 +925,50 @@ mod tests {
         not_utf8[last] = 0xff;
         let mut split = encode(&modules(&[("a.ts", "\u{e9}")])).unwrap();
         // the path's end moved inside the code's two-byte character
-        split[8..12].copy_from_slice(&5_u32.to_le_bytes());
-        let cases: [(&str, Vec<u8>); 12] = [
+        split[first + 4..first + 8].copy_from_slice(&5_u32.to_le_bytes());
+        let blob = |counts: [u32; 3], offsets: &[u32], text: &[u8]| {
+            [
+                counts
+                    .iter()
+                    .flat_map(|count| count.to_le_bytes())
+                    .collect(),
+                offsets
+                    .iter()
+                    .flat_map(|offset| offset.to_le_bytes())
+                    .collect(),
+                text.to_vec(),
+            ]
+            .concat()
+        };
+        let cases: [(&str, Vec<u8>); 17] = [
             ("empty", vec![]),
-            ("short count", vec![1, 0]),
-            ("text before the first path", with(4, 1)),
-            (
-                "text in an empty blob",
-                [0, 0, 0, 0, 1, 0, 0, 0, b'a'].to_vec(),
-            ),
+            ("short counts", vec![1, 0, 0, 0, 0, 0, 0, 0]),
+            ("text before the first path", with(first, 1)),
+            ("text in an empty blob", blob([0, 0, 0], &[1], b"a")),
             ("count past the offsets", with(0, 3)),
             ("count past usize", with(0, u32::MAX)),
-            ("an offset past the text", with(4 + 4 * 4, 12)),
-            ("offsets out of order", with(4 + 4 * 2, 3)),
-            ("last offset short", with(4 + 4 * 4, 10)),
+            ("left-out count past usize", with(4, u32::MAX)),
+            ("peer count past usize", with(8, u32::MAX)),
+            ("an offset past the text", with(first + 4 * 4, 12)),
+            ("offsets out of order", with(first + 4 * 2, 3)),
+            ("last offset short", with(first + 4 * 4, 10)),
             ("text not UTF-8", not_utf8),
             ("an offset inside a character", split),
             (
                 "paths out of order",
-                [
-                    vec![2, 0, 0, 0],
-                    [0_u32, 4, 6, 10, 11]
-                        .iter()
-                        .flat_map(|offset| offset.to_le_bytes())
-                        .collect(),
-                    b"b.tsxya.tsz".to_vec(),
-                ]
-                .concat(),
+                blob([2, 0, 0], &[0, 4, 6, 10, 11], b"b.tsxya.tsz"),
+            ),
+            (
+                "left-out paths out of order",
+                blob([0, 2, 0], &[0, 4, 8], b"b.tsa.ts"),
+            ),
+            (
+                "peers out of order",
+                blob([0, 0, 2], &[0, 1, 3, 4, 6], b"b^1a^1"),
+            ),
+            (
+                "a path embedded and left out",
+                blob([1, 1, 0], &[0, 4, 5, 9], b"a.tsxa.ts"),
             ),
         ];
         for (name, blob) in cases {
@@ -603,6 +978,7 @@ mod tests {
             );
         }
         assert!(Embed::decode(&good).is_ok());
+        assert!(Embed::decode(&blob([1, 1, 1], &[0, 4, 5, 9, 10, 12], b"a.tsxb.tsp^1")).is_ok());
     }
 
     /// The runtime's host modules, as the check reads them: a row's and an
@@ -632,6 +1008,11 @@ mod tests {
     /// A sort read from JSON, `embedded` and `host_modules` given and every
     /// other group empty.
     fn sort(embedded: &[&str], host_modules: &[&str]) -> SortJson {
+        sort_left_out(embedded, host_modules, &[])
+    }
+
+    /// A sort as [`sort`] reads, with `node_only` listing `left_out`.
+    fn sort_left_out(embedded: &[&str], host_modules: &[&str], left_out: &[&str]) -> SortJson {
         let group = |modules: &[&str]| serde_json::json!({"reason": "r", "modules": modules});
         serde_json::from_value(serde_json::json!({
             "description": "d",
@@ -640,7 +1021,7 @@ mod tests {
                 "host_modules": group(host_modules),
                 "node_roots": group(&[]),
                 "node_loader": group(&[]),
-                "node_only": group(&[]),
+                "node_only": group(left_out),
                 "node_builtin_tasks": group(&[]),
                 "genfiles": group(&[]),
                 "reaches_node": group(&[]),
@@ -719,6 +1100,54 @@ mod tests {
             refused(&["fs.ts"], &host_modules),
             EmbedError::EmbedsHostModule { .. }
         ));
+        let refused_left_out = |embedded: &[&str], left_out: &[&str]| {
+            check_sort(file, &sort_left_out(embedded, &host_modules, left_out)).unwrap_err()
+        };
+        assert!(matches!(
+            refused_left_out(&["a.ts"], &["a.ts"]),
+            EmbedError::ListedTwice { .. }
+        ));
+        assert!(matches!(
+            refused_left_out(&[], &["a.js"]),
+            EmbedError::Path { .. }
+        ));
+        check_sort(file, &sort_left_out(&["a.ts"], &host_modules, &["b.ts"])).unwrap();
+    }
+
+    /// The peers read, in their names' order, and each refusal of them.
+    #[test]
+    fn peers_are_read_in_order_and_refused_unread() {
+        let file = Path::new("package.json");
+        let peers = parse_peers(
+            file,
+            r#"{"name": "x", "peerDependencies": {"z": "^1", "@a/b": ">=0.83.0", "m": "^5.0.3 || ^6.0.0"}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            peers,
+            [
+                ("@a/b".to_owned(), ">=0.83.0".to_owned()),
+                ("m".to_owned(), "^5.0.3 || ^6.0.0".to_owned()),
+                ("z".to_owned(), "^1".to_owned()),
+            ]
+        );
+        assert_eq!(parse_peers(file, r#"{"name": "x"}"#).unwrap(), []);
+        for text in [
+            "not json",
+            r#"{"peerDependencies": []}"#,
+            r#"{"peerDependencies": {"a": 1}}"#,
+        ] {
+            assert!(
+                matches!(parse_peers(file, text), Err(EmbedError::Peers { .. })),
+                "{text}"
+            );
+        }
+        let Err(EmbedError::PeerRange { name, range, .. }) =
+            parse_peers(file, r#"{"peerDependencies": {"a": "^1", "b": "~1.2.3"}}"#)
+        else {
+            panic!("an unread range was accepted");
+        };
+        assert_eq!((name.as_str(), range.as_str()), ("b", "~1.2.3"));
     }
 
     /// The JSON's shape is checked whole: a group missing, or a field it
@@ -755,12 +1184,28 @@ mod tests {
         let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../src");
         let blob = tsv_ts::run_with_stack(|| make_embed(&src).unwrap()).unwrap();
         let embed = Embed::decode(&blob).unwrap();
-        let embedded = read_sort(&src.join(SORT_FILE)).unwrap();
+        let Sorted { embedded, left_out } = read_sort(&src.join(SORT_FILE)).unwrap();
         assert!(!embedded.is_empty());
         assert_eq!(
             embed.iter().map(|(path, _)| path).collect::<Vec<_>>(),
             embedded
         );
+        assert!(!left_out.is_empty());
+        assert_eq!(embed.left_out().collect::<Vec<_>>(), left_out);
+        for path in ["invoke.ts", "loader.ts", "library_load.ts", "build.task.ts"] {
+            assert!(embed.is_left_out(path), "{path}");
+        }
+        // the package's own peers, each read
+        assert_eq!(
+            embed
+                .peers()
+                .map(|(name, range)| (name.to_owned(), range.to_owned()))
+                .collect::<Vec<_>>(),
+            read_peers(&src.join("../package.json")).unwrap()
+        );
+        for name in ["@fuzdev/fuz_util", "@fuzdev/fuz_schema", "typescript"] {
+            assert!(embed.peer_range(name).is_some(), "{name}");
+        }
         // blanked in place: each line keeps its count of UTF-16 units
         let lines = |text: &str| -> Vec<usize> {
             text.split('\n')

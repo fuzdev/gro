@@ -71,11 +71,13 @@ and the contracts no one module doc owns.
 - The embed (`gro_runtime::embed`) is Gro's own library, the modules
   `src/embed.json` lists, stripped at build time into one blob of `u32`
   offsets and text, never a table of references the binary would relocate
-  at every start. `cargo xtask build` makes it on every build, outside the
-  snapshot's stamp, by the plain `fgro make-embed`, which refuses an
-  `embed.json` whose `host_modules` aren't the builtin table's rows and its
-  unbuilt ones; `--verify` holds the binary's own blob to what `src/lib`
-  makes then, module by module.
+  at every start, beside the modules it leaves out to run on Node and the
+  `peerDependencies` of `package.json`. `cargo xtask build` makes it on
+  every build, outside the snapshot's stamp, by the plain `fgro make-embed`,
+  which refuses an `embed.json` whose `host_modules` aren't the builtin
+  table's rows and its unbuilt ones, and a peer range the resolver's
+  `semver` doesn't read; `--verify` holds the binary's own blob to what
+  `src/lib` and `package.json` make then.
 - The resolver (`resolver/`) is a pure module: no deno_core types, reading
   only through the `SourceTree` trait. The loader owns the admitted roots
   (`Roots`) and passes them into `resolve_from`. Failures are enums (the
@@ -265,8 +267,9 @@ A clean checkout of one commit, the same toolchain (the system's C compiler
 and library included), and the same cargo home build the same `fgro`, byte for
 byte, wherever the checkout is; `fgro` embeds its commit, so a dirty tree
 builds other bytes. The version it names is `package.json`'s, which xtask
-stamps (Cargo's stays `0.0.0`), and its embed is made from `src/lib`, both
-committed, so nothing outside the commit reaches them.
+stamps (Cargo's stays `0.0.0`), and its embed is made from `src/lib` and
+`package.json`'s peers, all committed, so nothing outside the commit
+reaches them.
 `cargo xtask check-reproducible` holds it for the release build;
 `crates/xtask/src/reproducible.rs` says what it refuses and what it can't
 see.

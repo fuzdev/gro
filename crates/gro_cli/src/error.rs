@@ -212,7 +212,9 @@ pub enum CliError {
     )]
     EmbedStale {
         /// The first module's path, relative to `src/lib`, that differs, or
-        /// that one holds and the other doesn't.
+        /// that one holds and the other doesn't, else the first path left
+        /// out of one and not the other, else `../package.json` when the
+        /// peers differ.
         path: String,
     },
     /// The engine couldn't be set up.

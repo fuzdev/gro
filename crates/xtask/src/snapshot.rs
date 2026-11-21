@@ -18,7 +18,8 @@
 //!    build and outside the stamp, the plain `fgro` runs
 //!    `fgro make-embed <checkout>/src <target>/gro_snapshot/<profile>/`,
 //!    which writes `embed.bin`, the modules of `src/lib` that
-//!    `src/embed.json` embeds, stripped (`gro_runtime::embed`): `src/lib`
+//!    `src/embed.json` embeds, stripped, with the ones it leaves out and
+//!    `package.json`'s peers (`gro_runtime::embed`): `src/lib`
 //!    changes with nearly every commit, so a stamp would ship a stale embed,
 //!    and making it costs milliseconds. It too leaves an identical file
 //!    untouched.
