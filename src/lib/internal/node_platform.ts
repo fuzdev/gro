@@ -12,6 +12,8 @@ import { to_file_path, type PathId } from '@fuzdev/fuz_util/path.ts';
 import type { GroPlatform } from '../invoke_task.ts';
 import type { FsPaths } from '../fs_paths.ts';
 import type { GroPackage } from '../package_json.ts';
+import { create_node_module_graph } from '../module_graph_node.ts';
+import { load_default_svelte_config } from '../svelte_config.ts';
 import { posix_join } from './posix_path.ts';
 
 /**
@@ -47,5 +49,7 @@ export const load_gro_package = async (fs_paths: FsPaths, dir: string): Promise<
  * @param fs_paths - opens Gro's `package.json`
  */
 export const create_node_platform = async (fs_paths: FsPaths): Promise<GroPlatform> => ({
+	create_module_graph: create_node_module_graph,
+	load_svelte_config: load_default_svelte_config,
 	gro: await load_gro_package(fs_paths, to_gro_package_dir(to_file_path(new URL(import.meta.url))))
 });

@@ -431,12 +431,14 @@ Key utilities:
   `task.ts`, `paths.ts`, `modules.ts`, and the rest of `PACKAGE_MODULES`), where `src/lib`'s
   relative imports of its host modules would load the Node files: their static closure holds no
   `node:` builtin and no host module's Node file, beside the grant-free error modules, and they
-  read nothing of the process when they load, as `src/test/package_module_closure.test.ts` holds,
+  read nothing of the process when they load, but `invoke_task.ts`, whose fuz_util `Logger` reads
+  it (`PACKAGE_MODULE_LOAD_READS`), as `src/test/package_module_closure.test.ts` holds,
   which also holds that each builtin in its `BUILTIN_TASKS`, one that takes its handles from its `host`,
-  imports no `node:` builtin itself and reaches no granted host module (a grant-free one, like `tsv`,
-  lends nothing), neither Node's project loader nor its module graph, and no authority-bearing `node:`
-  builtin but through a listed exception, and reads nothing of the process when it loads;
-  paths there are text through `internal/posix_path.ts`, and color through fuz_util's `st`, which
+  reaches no `node:` builtin and no granted host module (a grant-free one, like `tsv`,
+  lends nothing), neither Node's project loader nor its module graph, and reads nothing of the
+  process when it loads, each builtin with no grants listed in `NODE_BUILTIN_TASKS`;
+  paths there are text through `internal/posix_path.ts`, globs through `internal/glob.ts`
+  (`matchesGlob`'s reading, refusing extended globs), and color through fuz_util's `st`, which
   `invoke.ts` configures. The same test sorts every module `invoke.ts` reaches into those, the
   roots, the host modules, the Node-only machinery, and the exceptions still reaching Node, each
   with what it reaches

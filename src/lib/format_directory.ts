@@ -1,7 +1,6 @@
 import { map_concurrent } from '@fuzdev/fuz_util/async.ts';
 import type { Logger } from '@fuzdev/fuz_util/log.ts';
 import type { PathFilter } from '@fuzdev/fuz_util/path.ts';
-import { isAbsolute, join, matchesGlob, relative, resolve } from 'node:path';
 
 import { GRO_CONFIG_FILENAME, VITE_CONFIG_FILENAMES } from './constants.ts';
 import { format_file } from './format_file.ts';
@@ -12,6 +11,9 @@ import { fs_search } from './fs_search.ts';
 import { create_ignore_stack } from './tsv.ts';
 import type { FsPaths } from './fs_paths.ts';
 import { format_error_detail } from './error_detail.ts';
+import { glob_to_matcher } from './internal/glob.ts';
+import { TaskError } from './task_error.ts';
+import { posix_join, posix_relative, posix_resolve } from './internal/posix_path.ts';
 
 /**
  * File extensions the format sweep collects. `json` is intentionally omitted
@@ -82,15 +84,24 @@ export interface FormatDirectoryOptions {
 	 */
 	filter?: PathFilter | Array<PathFilter>;
 	/**
-	 * Files or globs to format instead of sweeping `dir`, relative to the cwd or absolute.
+	 * Files or globs to format instead of sweeping `dir`, relative to the project or absolute.
 	 * A pattern naming an existing file is that file, followed through its symlinks,
 	 * even when its name holds glob syntax (`src/routes/[slug]/+page.ts`).
-	 * Any other is a glob, matched as `path.matchesGlob` does, searched from its leading
+	 * Any other is a glob, matched as `path.matchesGlob` matches on Linux (`internal/glob.ts`,
+	 * which refuses extended globs, brace sequences, a brace group inside another, unbalanced
+	 * braces, `${`, POSIX classes, a class range out of order, and a `..` segment,
+	 * naming the pattern), searched from its leading
 	 * literal directory, whose symlinks are followed; beneath it, a symlink is skipped.
+	 * A file a pattern names and a glob's leading literal directory are opened through the
+	 * filesystem, so they match in any case it accepts, and their names are never glob syntax;
+	 * the rest of a glob matches case-sensitively, on every OS. A glob resolves lexically,
+	 * a wildcard segment's following `..` cancelling it, so one whose `..` climbs above its
+	 * leading literal directory, which it searches from, is refused.
 	 */
 	patterns?: Array<string>;
 	/**
-	 * The project root `filter` tests paths relative to, and where the ignore files are read.
+	 * The project root `filter` tests paths relative to, and where the ignore files are read,
+	 * absolute or relative to the project of `fs_paths`.
 	 * @default the project of `fs_paths`
 	 */
 	root?: string;
@@ -191,15 +202,16 @@ export type FormatIgnore = (id: string) => boolean;
  * a directory pattern skips everything beneath it, and `!` re-includes. A file outside
  * the root is never skipped, and no ignore file skips nothing.
  * @param fs_paths - opens the ignore files, their symlinks followed
- * @param root - the project root, absolute or relative to the cwd
+ * @param root - the project root, absolute or relative to the project of `fs_paths`
  * @throws `FsError` - when reading an ignore file fails other than by its absence
  */
 export const read_format_ignore = async (
 	fs_paths: FsPaths,
 	root: string
 ): Promise<FormatIgnore> => {
+	const root_dir = posix_resolve(fs_paths.project.path, root);
 	const read = async (name: string): Promise<string | null> => {
-		const opened = await fs_paths.open_path(resolve(root, name));
+		const opened = await fs_paths.open_path(posix_join(root_dir, name));
 		return opened.dir.read_text_if_exists(opened.path);
 	};
 	const stack = create_ignore_stack();
@@ -211,10 +223,9 @@ export const read_format_ignore = async (
 		if (prettierignore === null) return () => false;
 		stack.push_prettierignore('', prettierignore);
 	}
-	const root_dir = resolve(root);
 	return (id) => {
-		const path = relative(root_dir, id);
-		if (!path || path === '..' || path.startsWith('../') || isAbsolute(path)) return false;
+		const path = posix_relative(root_dir, id);
+		if (!path || path === '..' || path.startsWith('../')) return false;
 		return stack.is_ignored(path, false);
 	};
 };
@@ -225,7 +236,10 @@ const GLOB_MAGIC_MATCHER = /[*?[\]{}()!]/;
  * Splits a glob pattern into the directory it searches, its leading segments before the
  * first with glob syntax, and the segments after it.
  */
-const to_glob_parts = (pattern: string): { base_dir: string; rest: Array<string> } => {
+const to_glob_parts = (
+	pattern: string,
+	project: string
+): { base_dir: string; rest: Array<string> } => {
 	const segments = pattern.split('/');
 	const files = segments.pop()!; // the last segment names files, magic or not
 	const magic_index = segments.findIndex((segment) => GLOB_MAGIC_MATCHER.test(segment));
@@ -233,7 +247,7 @@ const to_glob_parts = (pattern: string): { base_dir: string; rest: Array<string>
 	const base = base_segments.join('/');
 	const rest = (magic_index === -1 ? [] : segments.slice(magic_index)).concat(files);
 	return {
-		base_dir: resolve(base || (pattern.startsWith('/') ? '/' : '.')),
+		base_dir: posix_resolve(project, base || (pattern.startsWith('/') ? '/' : '.')),
 		rest: rest.filter((segment) => segment !== '' && segment !== '.')
 	};
 };
@@ -252,6 +266,7 @@ const collect_glob_files = async (
 	root: string
 ): Promise<Array<FormatFile>> => {
 	const files: Map<string, FormatFile> = new Map();
+	const project = fs_paths.project.path;
 	for (const pattern of patterns) {
 		const literal = await open_file(fs_paths, pattern);
 		if (literal !== null) {
@@ -261,10 +276,24 @@ const collect_glob_files = async (
 			continue;
 		}
 		if (!GLOB_MAGIC_MATCHER.test(pattern)) continue; // names no file
-		const { base_dir, rest } = to_glob_parts(pattern);
+		const { base_dir, rest } = to_glob_parts(pattern, project);
 		const opened = await fs_paths.open_dir_path(base_dir);
 		if (opened === null) continue;
-		const matcher = resolve(pattern);
+		// only the segments after the base directory are glob syntax: the base, the project's path
+		// and the pattern's leading literal directories, is opened through the filesystem,
+		// so a brace or bracket in a directory's name is never read as a glob
+		const beneath = posix_relative(base_dir, posix_resolve(project, pattern));
+		// the pattern resolves lexically, `*/..` cancelling, so one can climb above its base,
+		// where the search never looks, matching nothing in silence
+		if (beneath === '..' || beneath.startsWith('../')) {
+			const base_label = posix_relative(project, base_dir) || '.';
+			throw new TaskError(
+				`the glob \`${pattern}\` climbs with \`..\` above \`${base_label}\`, ` +
+					'the directory before its first wildcard, which it searches from, ' +
+					'so it could match nothing there: name the directory it reaches instead'
+			);
+		}
+		const matches = glob_to_matcher(beneath, { written: pattern });
 		const unbounded = rest.some((segment) => segment.includes('**'));
 		const base_prefix = base_dir === '/' ? '/' : base_dir + '/';
 		// a directory at the depth of the pattern's last segment can hold no match
@@ -273,8 +302,11 @@ const collect_glob_files = async (
 		const found = await fs_search(opened.dir, {
 			path: opened.path,
 			id_dir: base_dir,
-			filter: [depth_filter, ...to_search_filters_relative(filter, resolve(root), base_dir)],
-			file_filter: (id) => FORMATTABLE_MATCHER.test(id) && matchesGlob(id, matcher)
+			filter: [
+				depth_filter,
+				...to_search_filters_relative(filter, posix_resolve(project, root), base_dir)
+			],
+			file_filter: (id) => FORMATTABLE_MATCHER.test(id) && matches(id.slice(base_prefix.length))
 		});
 		for (const f of found) {
 			if (f.kind === 'file' && !files.has(f.id)) {
@@ -290,7 +322,7 @@ const collect_glob_files = async (
  * or `null` when nothing or something other than a file is there.
  */
 const open_file = async (fs_paths: FsPaths, path: string): Promise<FormatFile | null> => {
-	const id = resolve(path);
+	const id = posix_resolve(fs_paths.project.path, path);
 	try {
 		const opened = await fs_paths.open_path(id);
 		const info = await opened.dir.stat(opened.path);
@@ -309,13 +341,15 @@ const collect_source_files = async (
 	root: string
 ): Promise<Array<FormatFile>> => {
 	const files: Array<FormatFile> = [];
+	const project = fs_paths.project.path;
+	const dir_id = posix_resolve(project, dir);
 	// opened once, the found files read and written beneath it
-	const opened = await fs_paths.open_dir_path(resolve(dir));
+	const opened = await fs_paths.open_dir_path(dir_id);
 	if (opened !== null) {
 		const found = await fs_search(opened.dir, {
 			path: opened.path,
-			id_dir: resolve(dir),
-			filter: to_search_filters_relative(filter, resolve(root), resolve(dir)),
+			id_dir: dir_id,
+			filter: to_search_filters_relative(filter, posix_resolve(project, root), dir_id),
 			file_filter: (path) => FORMATTABLE_MATCHER.test(path)
 		});
 		for (const f of found) {
@@ -323,15 +357,17 @@ const collect_source_files = async (
 			files.push({ id: f.id, dir: opened.dir, path: join_beneath(opened.path, f.path) });
 		}
 	}
-	if (dir === join(root, 'src/')) {
+	if (dir === posix_join(root, 'src/')) {
 		// entries of the root, never followed, so a symlinked root file is skipped like a sweep's
-		const root_dir = await fs_paths.open_dir_path(resolve(root));
+		const root_dir = await fs_paths.open_dir_path(posix_resolve(project, root));
 		if (root_dir !== null) {
 			const root_files = await Promise.all(
 				ROOT_FILES_DEFAULT.map(async (name): Promise<FormatFile | null> => {
 					const path = join_beneath(root_dir.path, name);
 					const info = await root_dir.dir.stat(path, { follow: false });
-					return info?.kind === 'file' ? { id: join(root, name), dir: root_dir.dir, path } : null;
+					return info?.kind === 'file'
+						? { id: posix_join(root, name), dir: root_dir.dir, path }
+						: null;
 				})
 			);
 			for (const f of root_files) if (f !== null) files.push(f);

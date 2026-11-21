@@ -56,7 +56,7 @@ const cli_task_args = (
 
 // resolves through a real `FsPaths` whose project is `root`, the temp project by default
 const resolve = async (task_name: string, root: string = dir) =>
-	resolve_task(await create_project_fs_paths(root), task_name, root);
+	resolve_task(await create_project_fs_paths(root), task_name);
 
 // invokes the CLI with a real `FsPaths` whose project is the cwd when called, as the CLI's is
 const cli = async (

@@ -9,7 +9,7 @@ import { hash_blake3 } from '@fuzdev/fuz_util/hash_blake3.ts';
 import type { GroConfig } from '#lib/gro_config.ts';
 import { create_paths } from '#lib/paths.ts';
 import type { ModuleGraph } from '#lib/module_graph.ts';
-import type { ParsedSvelteConfig } from '#lib/svelte_config.ts';
+import { load_default_svelte_config, type ParsedSvelteConfig } from '#lib/svelte_config.ts';
 import type { TaskContext } from '#lib/task.ts';
 import {
 	create_builtin_host,
@@ -24,6 +24,7 @@ import type { FsPaths } from '#lib/fs_paths.ts';
 import { to_implicit_rest_args, to_raw_rest_args, to_task_args } from '#lib/task_args.ts';
 import type { GroPlatform } from '#lib/invoke_task.ts';
 import type { GroPackage } from '#lib/package_json.ts';
+import { create_node_module_graph } from '#lib/module_graph_node.ts';
 
 /**
  * The paths of the project the tests run in, Gro's own repo, from the working directory.
@@ -61,6 +62,8 @@ export const TEST_GRO_PACKAGE: GroPackage = Object.freeze({
  * The platform a test's tasks run with, the Node Gro's but for `TEST_GRO_PACKAGE`.
  */
 export const create_test_platform = (): GroPlatform => ({
+	create_module_graph: create_node_module_graph,
+	load_svelte_config: load_default_svelte_config,
 	gro: TEST_GRO_PACKAGE
 });
 

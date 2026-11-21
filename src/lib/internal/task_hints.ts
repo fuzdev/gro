@@ -1,7 +1,6 @@
-// on `node:fs` until fgro runs Gro itself: the args parsing that calls it is sync,
-// and no sync boundary opens a path from outside
-import { statSync, type Stats } from 'node:fs';
-
+import type { FileInfo } from '../fs.ts';
+import type { FsPaths } from '../fs_paths.ts';
+import { is_fs_error } from '../fs_error.ts';
 import {
 	is_builtin_task_name,
 	is_task_path,
@@ -45,19 +44,19 @@ export const to_removed_builtin_prefix_message = (input: string): string => {
  * hinting the `gro task` form that runs or lists it.
  * A path without a task suffix gets `to_task_path_hint`, which says what's there.
  * @param input - a task input for which `is_task_path_input` is true
- * @param root - the project root a relative `input` is relative to
+ * @param fs_paths - stats what's at `input`, relative to its project or absolute
  * @param listable - whether the hint may name listing a directory, `false` for a forwarded section
  */
-export const to_task_path_without_verb_message = (
+export const to_task_path_without_verb_message = async (
 	input: string,
-	root: string,
+	fs_paths: FsPaths,
 	listable = true
-): string => {
+): Promise<string> => {
 	if (is_task_path(input)) {
 		return `\`${input}\` is a path: run a task file with \`gro ${TASK_VERB} ${input}\`.`;
 	}
 	const subject = `\`${input}\` is a path, not a builtin name`;
-	const hint = to_task_path_hint(input, root, listable);
+	const hint = await to_task_path_hint(input, fs_paths, listable);
 	return hint === null ? `${subject}: ${TASK_PATH_SUFFIX_RULE}.` : `${subject}. ${hint}`;
 };
 
@@ -73,15 +72,18 @@ const to_task_file_candidates = (input: string): Array<string> =>
 /**
  * Finds the task file an input without a task suffix likely meant, like `src/x/update.task.ts`
  * for `src/x/update`, preferring `.ts`.
- * Only error messages and hints call it, so its synchronous stats never slow a run.
+ * Only error messages and hints call it, so its stats never slow a run.
  * @param input - a task input for which `is_task_path` is false
- * @param root - the project root a relative `input` is relative to
+ * @param fs_paths - stats the candidates, relative to its project or absolute
  * @returns the task file's path as `input` names it, or `null`
  */
-export const find_task_file_for_input = (input: string, root: string): string | null => {
+export const find_task_file_for_input = async (
+	input: string,
+	fs_paths: FsPaths
+): Promise<string | null> => {
 	if (input.endsWith('/')) return null;
 	for (const candidate of to_task_file_candidates(input)) {
-		if (stat_sync_or_null(posix_resolve(root, candidate))?.isFile()) return candidate;
+		if ((await stat_for_hint(fs_paths, candidate))?.kind === 'file') return candidate;
 	}
 	return null;
 };
@@ -96,20 +98,24 @@ export const to_run_task_file_hint = (path: string): string =>
  * Says what's at a task input that isn't a task path, like `src/test/fixtures/update`:
  * the task file it likely meant (`find_task_file_for_input`), which `gro task` runs,
  * and the directory, which it lists, or that nothing is at any of them.
- * Only error messages call it, so its synchronous stats never slow a run.
+ * Only error messages call it, so its stats never slow a run.
  * @param input - a task input for which `is_task_path` is false
- * @param root - the project root a relative `input` is relative to
+ * @param fs_paths - stats what's at `input`, relative to its project or absolute
  * @param listable - whether to name listing a directory, `false` for a forwarded section,
  *   which can only run a task
  * @returns the hint, or `null` when `input` names something else,
  *   like a file without a task suffix, or a directory when not `listable`
  */
-export const to_task_path_hint = (input: string, root: string, listable = true): string | null => {
+export const to_task_path_hint = async (
+	input: string,
+	fs_paths: FsPaths,
+	listable = true
+): Promise<string | null> => {
 	const hints: Array<string> = [];
-	const task_file = find_task_file_for_input(input, root);
+	const task_file = await find_task_file_for_input(input, fs_paths);
 	if (task_file !== null) hints.push(to_run_task_file_hint(task_file));
-	const stats = stat_sync_or_null(posix_resolve(root, input));
-	if (listable && stats?.isDirectory()) {
+	const stats = await stat_for_hint(fs_paths, input);
+	if (listable && stats?.kind === 'directory') {
 		hints.push(`List the directory's tasks with \`gro ${TASK_VERB} ${input}\`.`);
 	}
 	if (hints.length) return hints.join(' ');
@@ -122,13 +128,16 @@ export const to_task_path_hint = (input: string, root: string, listable = true):
 };
 
 /**
- * Stats `path` synchronously for a hint, `null` for any error,
- * like `ENOTDIR` for a path through a file, since then there's nothing to hint.
+ * Stats `path`, relative to the project or absolute, for a hint, its symlinks followed,
+ * `null` when nothing is there or for an fs error, like a path through a file,
+ * since then there's nothing to hint.
  */
-const stat_sync_or_null = (path: string): Stats | null => {
+const stat_for_hint = async (fs_paths: FsPaths, path: string): Promise<FileInfo | null> => {
 	try {
-		return statSync(path, { throwIfNoEntry: false }) ?? null;
-	} catch {
-		return null;
+		const opened = await fs_paths.open_path(posix_resolve(fs_paths.project.path, path));
+		return await opened.dir.stat(opened.path);
+	} catch (error) {
+		if (is_fs_error(error)) return null;
+		throw error;
 	}
 };

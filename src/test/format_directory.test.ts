@@ -16,7 +16,7 @@ import { format_directory, read_format_ignore } from '#lib/format_directory.ts';
 import { create_empty_gro_config } from '#lib/gro_config.ts';
 import { fs } from '#lib/fs.ts';
 import { create_fs_paths } from '#lib/fs_paths.ts';
-import { to_fs_paths_options } from './fs_test_helpers.ts';
+import { create_project_fs_paths, to_fs_paths_options } from './fs_test_helpers.ts';
 
 import { create_mock_logger } from './test_helpers.ts';
 
@@ -126,8 +126,8 @@ test('format_directory tests glob patterns relative to the root, absolute or fro
 	writeFileSync(join(dir, 'src/.hidden/b.ts'), 'const  b=1\n');
 	writeFileSync(join(dir, 'node_modules/x/c.ts'), 'const  c=1\n');
 	const { search_filters } = create_empty_gro_config();
-	const format = (patterns: Array<string>) =>
-		format_directory(fs_paths, {
+	const format = (patterns: Array<string>, paths = fs_paths) =>
+		format_directory(paths, {
 			log: create_mock_logger(),
 			dir: join(dir, 'src'),
 			check: true,
@@ -137,14 +137,12 @@ test('format_directory tests glob patterns relative to the root, absolute or fro
 		});
 	const absolute = await format([join(dir, 'src/lib/*.ts'), join(dir, 'src/.hidden/*.ts')]);
 	expect(absolute.formatted).toEqual([join(dir, 'src/lib/a.ts')]);
-	const cwd = process.cwd();
-	try {
-		process.chdir(join(dir, 'src/lib'));
-		const relative = await format(['../lib/*.ts', '../.hidden/*.ts', '../../node_modules/x/*.ts']);
-		expect(relative.formatted).toEqual([join(dir, 'src/lib/a.ts')]);
-	} finally {
-		process.chdir(cwd);
-	}
+	// relative to the project of the `FsPaths`, the CLI's working directory
+	const relative = await format(
+		['../lib/*.ts', '../.hidden/*.ts', '../../node_modules/x/*.ts'],
+		await create_project_fs_paths(join(dir, 'src/lib'))
+	);
+	expect(relative.formatted).toEqual([join(dir, 'src/lib/a.ts')]);
 });
 
 test('format_directory finds files outside the root under a dot-directory, swept or globbed', async () => {
@@ -164,8 +162,8 @@ test('format_directory finds files outside the root under a dot-directory, swept
 		root: dir
 	});
 	expect(swept.formatted).toEqual([join(other, 'src/lib/a.ts')]);
-	const format = (patterns: Array<string>) =>
-		format_directory(fs_paths, {
+	const format = async (patterns: Array<string>, project: string) =>
+		format_directory(await create_project_fs_paths(project), {
 			log: create_mock_logger(),
 			dir: join(dir, 'src'),
 			check: true,
@@ -173,20 +171,13 @@ test('format_directory finds files outside the root under a dot-directory, swept
 			patterns,
 			root: dir
 		});
-	const cwd = process.cwd();
-	try {
-		// from a cwd under a dot-directory outside both, which an entry's bare name never resolves to
-		const elsewhere = join(root, '.elsewhere');
-		mkdirSync(elsewhere);
-		process.chdir(elsewhere);
-		const absolute = await format([join(other, 'src/**/*.ts')]);
-		expect(absolute.formatted).toEqual([join(other, 'src/lib/a.ts')]);
-		process.chdir(dir);
-		const relative = await format(['../.cache/other/src/**/*.ts']);
-		expect(relative.formatted).toEqual([join(other, 'src/lib/a.ts')]);
-	} finally {
-		process.chdir(cwd);
-	}
+	// from a project under a dot-directory outside both, which an entry's bare name never resolves to
+	const elsewhere = join(root, '.elsewhere');
+	mkdirSync(elsewhere);
+	const absolute = await format([join(other, 'src/**/*.ts')], elsewhere);
+	expect(absolute.formatted).toEqual([join(other, 'src/lib/a.ts')]);
+	const relative = await format(['../.cache/other/src/**/*.ts'], dir);
+	expect(relative.formatted).toEqual([join(other, 'src/lib/a.ts')]);
 });
 
 test('format_directory filters relative to the root, whichever directory it sweeps', async () => {
@@ -313,21 +304,25 @@ test('an existing file is never a glob, even with glob syntax in its name', asyn
 	expect((await format([join(root, 'src/routes/[slug]/+page.ts')])).formatted).toEqual([
 		join(root, 'src/routes/[slug]/+page.ts')
 	]);
-	const cwd = process.cwd();
-	try {
-		process.chdir(root);
-		expect((await format(['src/routes/[slug]/+page.ts'])).formatted).toEqual([
-			join(root, 'src/routes/[slug]/+page.ts')
-		]);
-		// a missing one is a glob
-		expect((await format(['src/routes/[s]/+page.ts'])).formatted).toEqual([
-			join(root, 'src/routes/s/+page.ts')
-		]);
-		// a missing path with no glob syntax names nothing
-		expect((await format(['src/routes/missing.ts'])).formatted).toEqual([]);
-	} finally {
-		process.chdir(cwd);
-	}
+	// relative to the project of the `FsPaths`, the CLI's working directory
+	const project_paths = await create_project_fs_paths(root);
+	const format_in_project = (patterns: Array<string>) =>
+		format_directory(project_paths, {
+			log: create_mock_logger(),
+			dir: join(root, 'src'),
+			check: true,
+			patterns,
+			root
+		});
+	expect((await format_in_project(['src/routes/[slug]/+page.ts'])).formatted).toEqual([
+		join(root, 'src/routes/[slug]/+page.ts')
+	]);
+	// a missing one is a glob
+	expect((await format_in_project(['src/routes/[s]/+page.ts'])).formatted).toEqual([
+		join(root, 'src/routes/s/+page.ts')
+	]);
+	// a missing path with no glob syntax names nothing
+	expect((await format_in_project(['src/routes/missing.ts'])).formatted).toEqual([]);
 });
 
 test("format_directory logs a file it can't read with the OS's detail", async () => {
@@ -347,4 +342,83 @@ test("format_directory logs a file it can't read with the OS's detail", async ()
 	expect(logged).toContain(
 		`${join(root, 'src/lib/locked.ts')}: permission_denied: ${join(root, 'src/lib/locked.ts')} (EACCES`
 	);
+});
+
+test('format_directory refuses a glob whose syntax it does not support, naming it', async () => {
+	await expect(
+		format_directory(fs_paths, {
+			log: create_mock_logger(),
+			dir: join(root, 'src'),
+			check: true,
+			patterns: [join(root, 'src/+(lib|test)/*.ts')],
+			root
+		})
+	).rejects.toThrow('uses an extended glob');
+	await expect(
+		format_directory(fs_paths, {
+			log: create_mock_logger(),
+			dir: join(root, 'src'),
+			check: true,
+			patterns: ['src/@(lib|test)/*.ts'],
+			root
+		})
+	).rejects.toThrow('the glob `src/@(lib|test)/*.ts`');
+});
+
+test('format_directory matches a wildcard case-sensitively', async () => {
+	mkdirSync(join(root, 'src/Routes'), { recursive: true });
+	writeFileSync(join(root, 'src/Routes/Page.ts'), 'const  p=1\n');
+	const format = (patterns: Array<string>) =>
+		format_directory(fs_paths, {
+			log: create_mock_logger(),
+			dir: join(root, 'src'),
+			check: true,
+			patterns,
+			root
+		});
+	expect((await format([join(root, 'src/Routes/P*.ts')])).formatted).toEqual([
+		join(root, 'src/Routes/Page.ts')
+	]);
+	expect((await format([join(root, 'src/Routes/p*.ts')])).formatted).toEqual([]);
+	expect((await format([join(root, 'src/Routes/*.TS')])).formatted).toEqual([]);
+});
+
+test('glob syntax in the directories before the first wildcard is never read as a glob', async () => {
+	// the project's own path and a pattern's leading literal directories open through the fs
+	for (const name of ['p${x}j', 'p}j', 'p{j', 'p{a,{b}}j', 'p[ab]j', 'p{a,b}j']) {
+		const project = join(root, name);
+		mkdirSync(join(project, 'src'), { recursive: true });
+		writeFileSync(join(project, 'src/a.ts'), 'const  x=1\n');
+		const result = await format_directory(await create_project_fs_paths(project), {
+			log: create_mock_logger(),
+			dir: join(project, 'src'),
+			check: true,
+			patterns: ['src/*.ts'],
+			root: project
+		});
+		expect(result.formatted, name).toEqual([join(project, 'src/a.ts')]);
+	}
+});
+
+test('a glob whose `..` climbs above the directory it searches from is refused, saying why', async () => {
+	await expect(
+		format_directory(await create_project_fs_paths(root), {
+			log: create_mock_logger(),
+			dir: join(root, 'src'),
+			check: true,
+			patterns: ['src/*/../../x/*.ts'],
+			root
+		})
+	).rejects.toThrow('the glob `src/*/../../x/*.ts` climbs with `..` above `src`');
+	// one that stays beneath it resolves and searches as written
+	mkdirSync(join(root, 'src/lib2'), { recursive: true });
+	writeFileSync(join(root, 'src/lib2/b.ts'), 'const  b=1\n');
+	const beneath = await format_directory(await create_project_fs_paths(root), {
+		log: create_mock_logger(),
+		dir: join(root, 'src'),
+		check: true,
+		patterns: ['src/*/../lib2/*.ts'],
+		root
+	});
+	expect(beneath.formatted).toEqual([join(root, 'src/lib2/b.ts')]);
 });

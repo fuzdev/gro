@@ -180,7 +180,7 @@ describe('invoke_task forwarded args', () => {
 		expect(vi.mocked(run_task)).not.toHaveBeenCalled();
 		const reasons = vi.mocked(log_error_reasons).mock.calls.map((c) => c[1]);
 		expect(reasons).toEqual([
-			[to_task_path_without_verb_message('src/lib/check.task.ts', process.cwd(), false)],
+			[await to_task_path_without_verb_message('src/lib/check.task.ts', fs_paths, false)],
 			[to_removed_builtin_prefix_message('gro/check')]
 		]);
 	});

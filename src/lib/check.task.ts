@@ -167,7 +167,7 @@ export const run_check = async (
 	if (test) {
 		// forwarded args for the tests ask for them, so the test task decides
 		if (
-			has_forwarded_test_args(raw_rest_args, fs_paths) ||
+			(await has_forwarded_test_args(raw_rest_args, fs_paths)) ||
 			(await project_has_dependency(fs_paths, VITEST_CLI, log))
 		) {
 			await invoke_task('test');
@@ -202,7 +202,7 @@ export const run_check = async (
 	if (lint) {
 		// forwarded args for the linter ask for it, so the lint task decides
 		if (
-			has_forwarded_lint_args(raw_rest_args, fs_paths) ||
+			(await has_forwarded_lint_args(raw_rest_args, fs_paths)) ||
 			(await project_has_dependency(fs_paths, ESLINT_CLI, log))
 		) {
 			await invoke_task('lint');
@@ -259,22 +259,22 @@ export const run_check = async (
 };
 
 // a `-- gro test` section, which can name another `dir`, or args forwarded to vitest
-const has_forwarded_test_args = (
+const has_forwarded_test_args = async (
 	raw_rest_args: ReadonlyArray<string>,
 	fs_paths: FsPaths
-): boolean =>
+): Promise<boolean> =>
 	Object.hasOwn(
-		to_forwarded_args_by_command(raw_rest_args, fs_paths.project.path),
+		await to_forwarded_args_by_command(raw_rest_args, fs_paths),
 		to_task_command('test')
 	) || to_forwarded_argv(VITEST_CLI, raw_rest_args).length > 0;
 
 // a `-- gro lint` section, or args forwarded to ESLint
-const has_forwarded_lint_args = (
+const has_forwarded_lint_args = async (
 	raw_rest_args: ReadonlyArray<string>,
 	fs_paths: FsPaths
-): boolean =>
+): Promise<boolean> =>
 	Object.hasOwn(
-		to_forwarded_args_by_command(raw_rest_args, fs_paths.project.path),
+		await to_forwarded_args_by_command(raw_rest_args, fs_paths),
 		to_task_command('lint')
 	) || to_forwarded_argv(ESLINT_CLI, raw_rest_args).length > 0;
 

@@ -1065,9 +1065,9 @@ Its results are the Node module's, held to them by the differential cases on Gro
   (`resolve_specifier.ts`, `svelte_config.ts`, `sveltekit_shim_app_env_vars.ts`), the Filer family and the Node module graph,
   `spawn.ts`'s `PATH` walk and pin,
   the check of the working directory that `fs.project` and `paths` load from (`internal/cwd.ts`),
-  the bootstrapping that finds the Gro install to spawn `node` with (`gro_helpers.ts`),
-  and the sync stats behind the task-path hints (`internal/task_hints.ts`),
-  which the synchronous args parsing calls, where no sync boundary opens a path from outside.
+  and the bootstrapping that finds the Gro install to spawn `node` with (`gro_helpers.ts`).
+  The task-path hints stat through the `FsPaths` the root passes down, so the forwarded args'
+  parse that names them (`to_forwarded_args_by_command`) is async.
   `spawn.ts` is the one module on `node:child_process`.
   Gro's code formats, reads import requests, and matches ignore files through the tsv host module,
   and the Node loader's type strip (`loader.ts`) is the one module importing `@fuzdev/tsv` itself.

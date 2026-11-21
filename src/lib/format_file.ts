@@ -1,4 +1,4 @@
-import { extname } from 'node:path';
+import { posix_extname } from './internal/posix_path.ts';
 
 import { format_css, format_svelte, format_typescript, type TsvFormatResult } from './tsv.ts';
 
@@ -75,7 +75,7 @@ const format_json = (content: string): string => {
  * `format_file` still formats json when given an explicit `lang: 'json'`.
  */
 const infer_lang = (path: string): FormatLang | null => {
-	switch (extname(path).substring(1)) {
+	switch (posix_extname(path).substring(1)) {
 		case 'ts':
 		case 'mts':
 		case 'cts':

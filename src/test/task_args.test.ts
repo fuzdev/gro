@@ -16,13 +16,16 @@ import {
 	to_task_args
 } from '#lib/task_args.ts';
 import { TaskError } from '#lib/task_error.ts';
+import { create_project_fs_paths } from './fs_test_helpers.ts';
 import {
 	to_removed_builtin_prefix_message,
 	to_task_path_without_verb_message
 } from '#lib/internal/task_hints.ts';
 
+const fs_paths = await create_project_fs_paths(process.cwd());
+
 describe('to_forwarded_args_by_command', () => {
-	test('parses only gro sections, keyed by the task', () => {
+	test('parses only gro sections, keyed by the task', async () => {
 		const raw_rest_args = to_raw_rest_args([
 			'a',
 			'--d',
@@ -63,12 +66,12 @@ describe('to_forwarded_args_by_command', () => {
 			'--c',
 			'5'
 		]);
-		expect(to_forwarded_args_by_command(raw_rest_args, process.cwd())).toEqual({
+		expect(await to_forwarded_args_by_command(raw_rest_args, fs_paths)).toEqual({
 			'gro a': { a: true },
 			'gro b': { '2': 't2a', t: true, t2: 't2b', t222: 2 },
 			'gro d': { b: 'a', c: 5 }
 		});
-		expect(to_forwarded_args('gro b', raw_rest_args, process.cwd())).toEqual({
+		expect(await to_forwarded_args('gro b', raw_rest_args, fs_paths)).toEqual({
 			'2': 't2a',
 			t: true,
 			t2: 't2b',
@@ -76,47 +79,47 @@ describe('to_forwarded_args_by_command', () => {
 		});
 	});
 
-	test('skips sections without a command and tool sections', () => {
+	test('skips sections without a command and tool sections', async () => {
 		const raw_rest_args = to_raw_rest_args('test -- --flag -- eslint --fix'.split(' '));
-		expect(to_forwarded_args_by_command(raw_rest_args, process.cwd())).toEqual({});
+		expect(await to_forwarded_args_by_command(raw_rest_args, fs_paths)).toEqual({});
 	});
 
-	test('throws when gro without taskname', () => {
+	test('throws when gro without taskname', async () => {
 		const raw_rest_args = to_raw_rest_args('test -- gro'.split(' '));
-		expect(() => to_forwarded_args_by_command(raw_rest_args, process.cwd())).toThrow(TaskError);
-		expect(() => to_forwarded_args_by_command(raw_rest_args, process.cwd())).toThrow(
+		await expect(to_forwarded_args_by_command(raw_rest_args, fs_paths)).rejects.toThrow(TaskError);
+		await expect(to_forwarded_args_by_command(raw_rest_args, fs_paths)).rejects.toThrow(
 			'Malformed args following a `--`. Expected gro taskname'
 		);
 	});
 
-	test('keys `gro task` by the normalized path after it', () => {
+	test('keys `gro task` by the normalized path after it', async () => {
 		const raw_rest_args = to_raw_rest_args(
 			'check -- gro task ./src/lib/a.task.ts --b -- gro task src/c.task.ts --d'.split(' ')
 		);
-		expect(to_forwarded_args_by_command(raw_rest_args, process.cwd())).toEqual({
+		expect(await to_forwarded_args_by_command(raw_rest_args, fs_paths)).toEqual({
 			'gro task src/lib/a.task.ts': { b: true },
 			'gro task src/c.task.ts': { d: true }
 		});
 		const absolute = to_raw_rest_args(['check', '--', 'gro', 'task', resolve('x.task.ts')]);
-		expect(Object.keys(to_forwarded_args_by_command(absolute, process.cwd()))).toEqual([
+		expect(Object.keys(await to_forwarded_args_by_command(absolute, fs_paths))).toEqual([
 			'gro task x.task.ts'
 		]);
 		// a path shaped like a builtin name keys `gro task`, never the builtin's args
 		const bare = to_raw_rest_args('check -- gro task test --a'.split(' '));
-		expect(to_forwarded_args_by_command(bare, process.cwd())).toEqual({
+		expect(await to_forwarded_args_by_command(bare, fs_paths)).toEqual({
 			'gro task test': { a: true }
 		});
 	});
 
-	test('throws when `gro task` has no path', () => {
+	test('throws when `gro task` has no path', async () => {
 		const raw_rest_args = to_raw_rest_args('check -- gro task --b'.split(' '));
-		expect(() => to_forwarded_args_by_command(raw_rest_args, process.cwd())).toThrow(TaskError);
-		expect(() => to_forwarded_args_by_command(raw_rest_args, process.cwd())).toThrow(
+		await expect(to_forwarded_args_by_command(raw_rest_args, fs_paths)).rejects.toThrow(TaskError);
+		await expect(to_forwarded_args_by_command(raw_rest_args, fs_paths)).rejects.toThrow(
 			'Malformed args following a `--`. Expected a path after `gro task`'
 		);
 	});
 
-	test('a path without `gro task` throws the CLI hint, naming only a task file to run', () => {
+	test('a path without `gro task` throws the CLI hint, naming only a task file to run', async () => {
 		for (const [input, message] of [
 			[
 				'src/lib/x.task.ts',
@@ -133,35 +136,37 @@ describe('to_forwarded_args_by_command', () => {
 			]
 		] as const) {
 			const raw_rest_args = to_raw_rest_args(['check', '--', 'gro', input, '--a']);
-			expect(() => to_forwarded_args_by_command(raw_rest_args, process.cwd())).toThrow(TaskError);
-			expect(() => to_forwarded_args_by_command(raw_rest_args, process.cwd())).toThrow(message);
+			await expect(to_forwarded_args_by_command(raw_rest_args, fs_paths)).rejects.toThrow(
+				TaskError
+			);
+			await expect(to_forwarded_args_by_command(raw_rest_args, fs_paths)).rejects.toThrow(message);
 		}
-		expect(to_task_path_without_verb_message('src/lib', process.cwd())).toContain(
+		expect(await to_task_path_without_verb_message('src/lib', fs_paths)).toContain(
 			"List the directory's tasks with `gro task src/lib`."
 		);
 	});
 
-	test('the removed `gro/` prefix throws the CLI hint', () => {
+	test('the removed `gro/` prefix throws the CLI hint', async () => {
 		const raw_rest_args = to_raw_rest_args('check -- gro gro/test --a'.split(' '));
-		expect(() => to_forwarded_args_by_command(raw_rest_args, process.cwd())).toThrow(TaskError);
-		expect(() => to_forwarded_args_by_command(raw_rest_args, process.cwd())).toThrow(
+		await expect(to_forwarded_args_by_command(raw_rest_args, fs_paths)).rejects.toThrow(TaskError);
+		await expect(to_forwarded_args_by_command(raw_rest_args, fs_paths)).rejects.toThrow(
 			to_removed_builtin_prefix_message('gro/test')
 		);
 		expect(to_removed_builtin_prefix_message('gro/test')).toContain('use `test`');
 	});
 
-	test('a forwarded flag replacing the positional args is a usage error', () => {
+	test('a forwarded flag replacing the positional args is a usage error', async () => {
 		const raw_rest_args = to_raw_rest_args('check -- gro test --no-_'.split(' '));
-		expect(() => to_forwarded_args_by_command(raw_rest_args, process.cwd())).toThrow(TaskError);
+		await expect(to_forwarded_args_by_command(raw_rest_args, fs_paths)).rejects.toThrow(TaskError);
 		// a tool's section is never parsed
 		expect(
 			to_forwarded_argv('vitest', to_raw_rest_args('test -- vitest --no-_'.split(' ')))
 		).toEqual(['--no-_']);
 	});
 
-	test('throws when gro with only flags', () => {
+	test('throws when gro with only flags', async () => {
 		const raw_rest_args = to_raw_rest_args('test -- gro --flag'.split(' '));
-		expect(() => to_forwarded_args_by_command(raw_rest_args, process.cwd())).toThrow(
+		await expect(to_forwarded_args_by_command(raw_rest_args, fs_paths)).rejects.toThrow(
 			'Malformed args following a `--`. Expected gro taskname'
 		);
 	});
@@ -544,15 +549,15 @@ test("a section's help and version flags reach a project task's tool, never refu
 });
 
 describe('to_forwarded_args', () => {
-	test('returns args for a gro task command', () => {
+	test('returns args for a gro task command', async () => {
 		const raw_rest_args = to_raw_rest_args('check -- gro test --fix'.split(' '));
-		expect(to_forwarded_args('gro test', raw_rest_args, process.cwd())).toEqual({ fix: true });
+		expect(await to_forwarded_args('gro test', raw_rest_args, fs_paths)).toEqual({ fix: true });
 	});
 
-	test('returns empty object for a tool or absent command', () => {
+	test('returns empty object for a tool or absent command', async () => {
 		const raw_rest_args = to_raw_rest_args('check -- eslint --fix'.split(' '));
-		expect(to_forwarded_args('eslint', raw_rest_args, process.cwd())).toEqual({});
-		expect(to_forwarded_args('gro lint', raw_rest_args, process.cwd())).toEqual({});
+		expect(await to_forwarded_args('eslint', raw_rest_args, fs_paths)).toEqual({});
+		expect(await to_forwarded_args('gro lint', raw_rest_args, fs_paths)).toEqual({});
 	});
 });
 
@@ -563,11 +568,11 @@ describe('merge_forwarded_args', () => {
 		'no-color': meta(s.with_default(s.boolean, false), { aliases: ['C'] })
 	});
 
-	test('a forwarded flag wins a no-x pair against a later direct alias', () => {
+	test('a forwarded flag wins a no-x pair against a later direct alias', async () => {
 		// `gro x --color -C -- gro x --color`
 		const argv = 'x --color -C -- gro x --color'.split(' ');
 		const { args } = to_task_args(argv);
-		const forwarded = to_forwarded_args('gro x', to_raw_rest_args(argv), process.cwd());
+		const forwarded = await to_forwarded_args('gro x', to_raw_rest_args(argv), fs_paths);
 		const merged = merge_forwarded_args(args, forwarded);
 		expect(Object.keys(merged)).toEqual(['C', 'color']);
 		const parsed = args_parse(merged, ColorArgs);

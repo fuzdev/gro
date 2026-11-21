@@ -370,7 +370,8 @@ The cache uses BLAKE3 hashing for:
   (see [security considerations](config.md#security-considerations))
 - **cache key stability** - deterministic hashes ensure consistent cache behavior
 
-Hashes are computed with `hash_blake3` from `@fuzdev/fuz_util`.
+Hashes are BLAKE3: the config's through Gro's blake3 host module (`blake3.ts`),
+the rest with `hash_blake3` from `@fuzdev/fuz_util`, the same digest for the same bytes.
 
 ## plugins
 

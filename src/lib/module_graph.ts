@@ -1,4 +1,5 @@
 import type { PathFilter, PathId } from '@fuzdev/fuz_util/path.ts';
+import type { Logger } from '@fuzdev/fuz_util/log.ts';
 
 /**
  * The project's module graph: which files exist under the watched directory
@@ -77,3 +78,26 @@ export interface WatchOptions {
 	 */
 	filter: PathFilter | null;
 }
+
+/**
+ * What a `ModuleGraph` is created with.
+ */
+export interface ModuleGraphOptions {
+	/**
+	 * What the graph watches, usually `GroConfig.watch`.
+	 */
+	watch: WatchOptions;
+	/**
+	 * The logger the graph reports through, like a file whose imports fail to parse,
+	 * which also warns of a watch error, like `EACCES` reading a directory;
+	 * absent, a watch error warns through `console`,
+	 * and so does a failure processing a change, like an unexpected read error.
+	 */
+	log?: Logger;
+}
+
+/**
+ * Creates a `ModuleGraph`, which loads what it reads with on first use,
+ * the root's, `create_node_module_graph` on Node.
+ */
+export type CreateModuleGraph = (options: ModuleGraphOptions) => ModuleGraph;

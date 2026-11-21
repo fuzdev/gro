@@ -38,8 +38,8 @@ import {
 import type { GroPackage } from './package_json.ts';
 import { log_builtin_tasks, log_error_reasons, log_tasks } from './task_logging.ts';
 import type { GroConfig } from './gro_config.ts';
-import { create_node_module_graph } from './module_graph_node.ts';
-import type { ModuleGraph } from './module_graph.ts';
+import type { CreateModuleGraph, ModuleGraph } from './module_graph.ts';
+import type { ParsedSvelteConfig } from './svelte_config.ts';
 import { task_registry_find, type TaskRegistryEntry } from './task_registry.ts';
 import { GRO_BUILTIN_TASK_GRANTS, GRO_BUILTIN_TASK_SUMMARIES } from './gro_builtin_tasks.ts';
 import { GRO_BUILTIN_TASK_IMPORTS } from './gro_builtin_task_imports.ts';
@@ -59,6 +59,15 @@ import { posix_join, posix_resolve } from './internal/posix_path.ts';
  * passed unchanged to nested tasks.
  */
 export interface GroPlatform {
+	/**
+	 * Creates the graph a top-level task's context holds, the Node Gro's `create_node_module_graph`.
+	 */
+	readonly create_module_graph: CreateModuleGraph;
+	/**
+	 * Loads the project's Svelte config, memoized, called only when a task or genfile reads it,
+	 * the Node Gro's `load_default_svelte_config`, which reads it through Vite.
+	 */
+	readonly load_svelte_config: () => Promise<ParsedSvelteConfig>;
 	/**
 	 * The running Gro, every task's context's `gro`.
 	 */
@@ -95,7 +104,8 @@ export interface InvokeTaskOptions {
 	 */
 	host_root: BuiltinHostRoot;
 	/**
-	 * The root's platform, passed to nested tasks.
+	 * The root's platform, which loads the graph and the Svelte config,
+	 * passed to nested tasks.
 	 */
 	platform: GroPlatform;
 	/**
@@ -181,7 +191,7 @@ export const invoke_task = async (
 
 	let forwarded: Args;
 	try {
-		forwarded = to_forwarded_args(to_task_command(task.name), raw_rest_args, root);
+		forwarded = await to_forwarded_args(to_task_command(task.name), raw_rest_args, fs_paths);
 	} catch (error) {
 		if (!is_task_error(error)) throw error;
 		log_error_reasons(log, [error.message]);
@@ -201,7 +211,7 @@ export const invoke_task = async (
 	// the graph loads lazily, so a task that never uses it never loads chokidar
 	const owns_graph = !initial_graph;
 	const graph =
-		initial_graph ?? create_node_module_graph({ watch: config.watch, log: log.child('graph') });
+		initial_graph ?? platform.create_module_graph({ watch: config.watch, log: log.child('graph') });
 
 	const owns_timings = !initial_timings;
 	const timings = initial_timings ?? new Timings();
@@ -266,14 +276,13 @@ export type ResolveTaskResult =
  * Resolves a builtin name or a task path to the task module's id and display name,
  * with no search: a name is a builtin or an error, a path is a task file or an error.
  * @param fs_paths - stats the task file, and for a name that's no builtin, the file it hints
- * @param task_name - a builtin name or a task path
- * @param root - the project root task paths are relative to, defaults to the project of `fs_paths`
+ * @param task_name - a builtin name or a task path, relative to the project of `fs_paths`
  */
 export const resolve_task = async (
 	fs_paths: FsPaths,
-	task_name: string,
-	root: string = fs_paths.project.path
+	task_name: string
 ): Promise<ResolveTaskResult> => {
+	const root = fs_paths.project.path;
 	if (!is_task_path_input(task_name)) {
 		if (task_name === TASK_VERB) {
 			return {
@@ -294,7 +303,7 @@ export const resolve_task = async (
 			return { ok: false, reasons: [to_removed_builtin_prefix_message(task_name)] };
 		}
 		const reasons = [`\`${task_name}\` is not a task path: ${TASK_PATH_SUFFIX_RULE}.`];
-		const hint = to_task_path_hint(task_name, root);
+		const hint = await to_task_path_hint(task_name, fs_paths);
 		if (hint !== null) reasons.push(hint);
 		return { ok: false, reasons };
 	}
@@ -425,7 +434,7 @@ export const invoke_cli = async (
 
 	if (is_task_path_input(task_name) && !is_removed_builtin_prefix(task_name)) {
 		const log = new Logger('gro');
-		log_error_reasons(log, [to_task_path_without_verb_message(task_name, fs_paths.project.path)]);
+		log_error_reasons(log, [await to_task_path_without_verb_message(task_name, fs_paths)]);
 		throw new ReportedError();
 	}
 
@@ -473,7 +482,7 @@ const list_tasks = async (
 		if (is_builtin_task_name(dir)) {
 			reasons.push(`\`${dir}\` is a builtin: run it with \`gro ${dir}\`.`);
 		} else {
-			const hint = to_task_path_hint(dir, fs_paths.project.path);
+			const hint = await to_task_path_hint(dir, fs_paths);
 			if (hint !== null) reasons.push(hint);
 		}
 		log_error_reasons(log, reasons);
@@ -499,7 +508,7 @@ const list_tasks = async (
 		log_tasks(log, modules, print_path(dir_id, fs_paths.project.path));
 	// a directory with no tasks beside a task file of its name, like `update/` and `update.task.ts`
 	if (!modules.length && !reasons.length && dir !== null) {
-		const task_file = find_task_file_for_input(dir, fs_paths.project.path);
+		const task_file = await find_task_file_for_input(dir, fs_paths);
 		if (task_file !== null) log.info(to_run_task_file_hint(task_file));
 	}
 	if (reasons.length) {

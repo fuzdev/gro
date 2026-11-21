@@ -178,6 +178,8 @@ and their changes).
 It loads on first use, so a task that never touches it never starts a watch;
 `config.watch` sets what it watches.
 A task invoked with `invoke_task` shares its invoker's `graph`.
+The root's platform creates it (`create_module_graph`), as it loads `svelte_config`
+(`load_svelte_config`), so neither is imported by the modules that run tasks.
 
 `gro` is the running Gro, a `GroPackage` (`package_json.ts`): its `version` and its package
 directory, `dir`, `null` when it isn't on disk, as the root found them.

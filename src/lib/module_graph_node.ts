@@ -1,29 +1,11 @@
-import type { Logger } from '@fuzdev/fuz_util/log.ts';
 import type { PathId } from '@fuzdev/fuz_util/path.ts';
 
-import type { FileChangeCallback, ModuleGraph, WatchOptions } from './module_graph.ts';
+import type { CreateModuleGraph, FileChangeCallback } from './module_graph.ts';
 import type { Filer, filter_dependents } from './internal/filer.ts';
 
 interface LoadedFiler {
 	filer: Filer;
 	filter_dependents: typeof filter_dependents;
-}
-
-/**
- * Options for `create_node_module_graph`.
- */
-export interface NodeModuleGraphOptions {
-	/**
-	 * What the graph watches, usually `GroConfig.watch`.
-	 */
-	watch: WatchOptions;
-	/**
-	 * The logger the graph reports through, like a file whose imports fail to parse,
-	 * which also warns of a watch error, like `EACCES` reading a directory;
-	 * absent, a watch error warns through `console`,
-	 * and so does a failure processing a change, like an unexpected read error.
-	 */
-	log?: Logger;
 }
 
 /**
@@ -43,7 +25,7 @@ export interface NodeModuleGraphOptions {
  * so one Gro can't resolve is an error through `log` when there is one and no edge,
  * and one it can, like a package both depend on or Gro's own `#lib/*`, is an edge to Gro's file.
  */
-export const create_node_module_graph = (options: NodeModuleGraphOptions): ModuleGraph => {
+export const create_node_module_graph: CreateModuleGraph = (options) => {
 	const { watch, log } = options;
 	let loading: Promise<LoadedFiler> | undefined;
 	let closed = false;

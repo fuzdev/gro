@@ -1,4 +1,4 @@
-import { join } from 'node:path';
+import { posix_join } from './internal/posix_path.ts';
 
 import type { FsPaths } from './fs_paths.ts';
 import type { FsSearchResult } from './fs_search.ts';
@@ -44,16 +44,18 @@ export const find_test_files = async (
 	const searched: Set<string> = new Set();
 
 	const search = async (relative_dir: string, named_test: boolean): Promise<void> => {
-		const opened = relative_dir ? await fs_paths.open_dir_path(join(dir, relative_dir)) : root;
+		const opened = relative_dir
+			? await fs_paths.open_dir_path(posix_join(dir, relative_dir))
+			: root;
 		if (opened === null) return;
-		const key = (named_test ? '1' : '0') + join(opened.dir.path, opened.path);
+		const key = (named_test ? '1' : '0') + posix_join(opened.dir.path, opened.path);
 		if (searched.has(key)) return;
 		searched.add(key);
 		const subdirs: Array<[string, boolean]> = [];
 		const links: Array<[string, string]> = [];
 		const add = (path: string, name: string, kind: FsSearchResult['kind']): void => {
 			if ((named_test || has_test_pattern(name)) && VITEST_INCLUDE_MATCHER.test(name)) {
-				found.push({ path, id: join(dir, path), is_directory: false, kind });
+				found.push({ path, id: posix_join(dir, path), is_directory: false, kind });
 			}
 		};
 		for await (const { name, kind } of opened.dir.list(opened.path)) {
@@ -65,7 +67,7 @@ export const find_test_files = async (
 		}
 		// resolved after the listing, so its handle closes first
 		for (const [path, name] of links) {
-			const target = await fs_paths.open_path(join(dir, path));
+			const target = await fs_paths.open_path(posix_join(dir, path));
 			const info = await target.dir.stat(target.path);
 			if (info === null) continue; // dangling, which Vitest skips
 			if (info.kind === 'directory') subdirs.push([path, named_test || has_test_pattern(name)]);

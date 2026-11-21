@@ -1,4 +1,4 @@
-import { describe, test, assert, afterEach, beforeEach } from 'vitest';
+import { describe, test, assert, afterEach, beforeEach, vi } from 'vitest';
 import { Logger } from '@fuzdev/fuz_util/log.ts';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -11,7 +11,12 @@ import type { TaskContext } from '#lib/task.ts';
 import { ReportedError } from '#lib/task_error.ts';
 import type { FsPaths } from '#lib/fs_paths.ts';
 import { import_module_node } from '#lib/internal/node_import_module.ts';
-import { create_throwing_builtin_host_root, create_test_platform } from './test_helpers.ts';
+import {
+	create_mock_module_graph,
+	create_mock_svelte_config,
+	create_throwing_builtin_host_root,
+	create_test_platform
+} from './test_helpers.ts';
 import { create_project_fs_paths } from './fs_test_helpers.ts';
 
 let dir: string;
@@ -118,5 +123,52 @@ describe('invoke_task finish', () => {
 		} finally {
 			await graph.close(); // idempotent, cleans up on failure
 		}
+	});
+
+	test("the graph, the Svelte config, and the running Gro come from the root's platform", async () => {
+		const task_path = join(dir, 'reads.task.ts');
+		writeFileSync(
+			task_path,
+			`export const task = {run: async (ctx) => {
+	globalThis.gro_invoke_task_finish_ctx = {
+		graph: ctx.graph,
+		svelte_config: await ctx.svelte_config,
+		gro: ctx.gro
+	};
+}};\n`
+		);
+		const graph = create_mock_module_graph();
+		const svelte_config = create_mock_svelte_config();
+		const gro = { version: '5.5.5-test', dir: null };
+		const graph_options: Array<unknown> = [];
+		await invoke_task(
+			task_path,
+			{},
+			{
+				config,
+				fs_paths,
+				raw_rest_args: [],
+				import_module: import_module_node,
+				host_root: create_throwing_builtin_host_root(),
+				platform: {
+					...create_test_platform(),
+					create_module_graph: (options) => {
+						graph_options.push(options);
+						return graph;
+					},
+					load_svelte_config: () => Promise.resolve(svelte_config),
+					gro
+				},
+				parent_log: create_log()
+			}
+		);
+		const read = (globalThis as any).gro_invoke_task_finish_ctx;
+		assert.strictEqual(read.graph, graph);
+		assert.strictEqual(read.svelte_config, svelte_config);
+		assert.strictEqual(read.gro, gro);
+		assert.strictEqual(graph_options.length, 1);
+		assert.strictEqual((graph_options[0] as { watch: unknown }).watch, config.watch);
+		// the task owned it, so it closed it
+		assert.strictEqual(vi.mocked(graph.close).mock.calls.length, 1);
 	});
 });

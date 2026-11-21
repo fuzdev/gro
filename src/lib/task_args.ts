@@ -2,6 +2,7 @@ import { argv_parse, type Args } from '@fuzdev/fuz_util/args.ts';
 
 import { is_task_path, is_task_path_input, TASK_VERB, to_task_path } from './task.ts';
 import { TaskError } from './task_error.ts';
+import type { FsPaths } from './fs_paths.ts';
 import {
 	is_removed_builtin_prefix,
 	to_removed_builtin_prefix_message,
@@ -332,14 +333,14 @@ export const to_forwarded_flag_value = (
  * Outside tools get verbatim args with `to_forwarded_argv` instead.
  * @param command - `gro` and the task name, from `to_task_command`
  * @param raw_rest_args - the CLI args from the first `--` on, from `to_raw_rest_args`
- * @param root - the project root a section's task path is relative to
+ * @param fs_paths - its project is the root a section's task path is relative to
  * @throws TaskError when a `gro` section is malformed, see `to_forwarded_args_by_command`
  */
-export const to_forwarded_args = (
+export const to_forwarded_args = async (
 	command: string,
 	raw_rest_args: ReadonlyArray<string>,
-	root: string
-): Args => to_forwarded_args_by_command(raw_rest_args, root)[command] ?? {};
+	fs_paths: FsPaths
+): Promise<Args> => (await to_forwarded_args_by_command(raw_rest_args, fs_paths))[command] ?? {};
 
 /**
  * Merges `forwarded` args over `args`, moving each forwarded key after every key of `args`.
@@ -367,16 +368,18 @@ export const merge_forwarded_args = (args: Args | undefined, forwarded: Args): A
  * Other sections are left verbatim for outside tools, see `to_forwarded_argv`.
  * When a task has several sections, the last one wins.
  * @param raw_rest_args - the CLI args from the first `--` on, from `to_raw_rest_args`
- * @param root - the project root a section's task path is relative to
+ * @param fs_paths - its project is the root a section's task path is relative to,
+ *   and it stats a path given without `gro task` for the error's hint
  * @returns the forwarded args of each Gro task command
  * @throws TaskError when a `gro` section names no task, a `gro task` section no path,
  *   a section names a path without `gro task` or a task with the removed `gro/` prefix,
  *   or a flag replaces a section's positional args
  */
-export const to_forwarded_args_by_command = (
+export const to_forwarded_args_by_command = async (
 	raw_rest_args: ReadonlyArray<string>,
-	root: string
-): Record<string, Args | undefined> => {
+	fs_paths: FsPaths
+): Promise<Record<string, Args | undefined>> => {
+	const root = fs_paths.project.path;
 	const forwarded_args_by_command: Record<string, Args> = {};
 	for (const argv of to_forwarded_sections(raw_rest_args)) {
 		if (argv[0] !== GRO_COMMAND) continue;
@@ -401,7 +404,7 @@ export const to_forwarded_args_by_command = (
 			throw new TaskError(to_removed_builtin_prefix_message(task_name));
 		} else if (is_task_path_input(task_name)) {
 			// a forwarded section can run a task but not list one
-			throw new TaskError(to_task_path_without_verb_message(task_name, root, false));
+			throw new TaskError(await to_task_path_without_verb_message(task_name, fs_paths, false));
 		}
 		if (!positionals.length) delete (args as Args)._;
 		forwarded_args_by_command[command] = args;

@@ -22,9 +22,8 @@ so no closure here follows that table into the builtins it imports:
 a builtin with grants is in `BUILTIN_TASKS`, and one with none in `NODE_BUILTIN_TASKS`.
 
 A builtin task takes what it reaches from its `host`, so the root's handles are all it holds:
-each one in `BUILTIN_TASKS` imports no `node:` builtin itself, and its closure reaches no granted
-host module, neither Node's project loader nor its module graph, no `node:` builtin outside
-`BUILTIN_TASK_FREE_NODE_BUILTINS` but through a module in `BUILTIN_TASK_NODE_EXCEPTIONS`,
+the closure of each one in `BUILTIN_TASKS` reaches no `node:` builtin and no granted
+host module, neither Node's project loader nor its module graph,
 and no package outside `BUILTIN_TASK_PACKAGES`; loading it reads nothing of the process.
 The grant-free host modules, the ones `fgro` builds with no grant, lend no authority,
 so a builtin may reach them.
@@ -60,13 +59,29 @@ const PACKAGE_MODULES = [
 	'internal/fs_handles.ts',
 	'internal/posix_path.ts',
 	'internal/records.ts',
+	'internal/task_hints.ts',
+	'invoke_task.ts',
 	'modules.ts',
+	'package_json.ts',
 	'paths.ts',
+	'run_task.ts',
+	// its lazy import of `typescript`, a CommonJS package the runtime refuses, which the parse sees
+	// and `createRequire` resolves, is called only by `library_load`, which no check command reaches
+	'sveltekit_helpers.ts',
 	'task.ts',
+	'task_args.ts',
 	'task_error.ts',
 	'task_logging.ts',
 	'task_registry.ts'
 ];
+
+// the package modules that read the process when they load, each with what it reads,
+// so the test of each fails once it reads nothing
+const PACKAGE_MODULE_LOAD_READS: ReadonlyMap<string, ReadonlyArray<string>> = new Map([
+	// fuz_util's `log.ts`, imported for `Logger` as a value, reads `PUBLIC_LOG_LEVEL` and `VITEST`
+	// from a `process` global when it loads, which the runtime has none of
+	['invoke_task.ts', ['env', 'process']]
+]);
 
 // the builtin tasks that take their handles from their `host`
 const BUILTIN_TASKS = [
@@ -130,6 +145,8 @@ const NODE_ONLY = [
 	'internal/node_import_module.ts',
 	// the Node Gro's platform, which the runtime's entry hands in instead
 	'internal/node_platform.ts',
+	// the Svelte config, read through Vite, a package on `node:*`, which the runtime hands in
+	'svelte_config.ts',
 	// the Node module graph and the Filer family it imports when first used
 	'module_graph_node.ts',
 	'internal/filer.ts',
@@ -143,18 +160,8 @@ const EXCEPTIONS = [
 	// the tsv host module, whose Node file a relative import loads
 	'dist_rewrite_imports.ts',
 	'gen_helpers.ts',
-	// the Svelte config, read through Vite, a package on `node:*`
-	'svelte_config.ts',
-	'run_task.ts',
-	// sync stats for the hints of arg parsing, which no sync boundary opens
-	'internal/task_hints.ts',
-	'task_args.ts',
-	'sveltekit_helpers.ts',
-	'package_json.ts',
 	// the default config, a root, reached when loading the config
-	'gro_config.ts',
-	// the Node module graph, the task hints, and `package_json.ts`
-	'invoke_task.ts'
+	'gro_config.ts'
 ];
 
 // the host modules, whose Node files a relative import from `src/lib` loads, granted or not;
@@ -194,10 +201,6 @@ const BUILTIN_TASK_FORBIDDEN: ReadonlySet<string> = new Set([
 	)
 ]);
 
-// the `node:` builtins a builtin's closure may reach anywhere but in the builtin itself,
-// text operations that hold no authority; any other only through `BUILTIN_TASK_NODE_EXCEPTIONS`
-const BUILTIN_TASK_FREE_NODE_BUILTINS: ReadonlySet<string> = new Set(['path', 'url']);
-
 // the packages a builtin's closure may reach, each with why and what of it the parse can't see
 const BUILTIN_TASK_PACKAGES: ReadonlyMap<string, string> = new Map([
 	['@fuzdev/fuz_util', 'ES modules, every import parsed'],
@@ -218,13 +221,6 @@ const to_package_name = (id: string): string | null => {
 	const segments = id.slice(at + '/node_modules/'.length).split('/');
 	return segments[0]!.startsWith('@') ? segments[0] + '/' + segments[1] : segments[0]!;
 };
-
-// the modules a builtin's closure may reach any other `node:` builtin through,
-// each with what it reaches
-const BUILTIN_TASK_NODE_EXCEPTIONS = [
-	// `node:fs`, the sync stats behind the task-path hints of arg parsing
-	'internal/task_hints.ts'
-];
 
 /**
  * The value import specifiers of the module at `id`, failing on a parse error.
@@ -282,13 +278,10 @@ const to_closure_violations = (entry: string): Array<string> => {
 
 /**
  * What the static import closure of the builtin task at `entry` reaches that it can't,
- * each with the chain from `entry` that reaches it: a `node:` builtin `entry` imports itself,
- * a module in `BUILTIN_TASK_FORBIDDEN`, a `node:` builtin outside `BUILTIN_TASK_FREE_NODE_BUILTINS`
- * reached other than through `BUILTIN_TASK_NODE_EXCEPTIONS`, or a package outside
- * `BUILTIN_TASK_PACKAGES`.
+ * each with the chain from `entry` that reaches it: a `node:` builtin,
+ * a module in `BUILTIN_TASK_FORBIDDEN`, or a package outside `BUILTIN_TASK_PACKAGES`.
  */
 const to_builtin_task_violations = (entry: string): Array<string> => {
-	const exceptions = new Set(BUILTIN_TASK_NODE_EXCEPTIONS.map((name) => join(paths.lib, name)));
 	const parents: Map<string, string | null> = new Map([[entry, null]]);
 	const queue = [entry];
 	const violations: Array<string> = [];
@@ -303,10 +296,7 @@ const to_builtin_task_violations = (entry: string): Array<string> => {
 		if (id === BUILTIN_TASK_IMPORTS_ID) continue;
 		for (const specifier of to_specifiers(id)) {
 			if (specifier.startsWith('node:') || isBuiltin(specifier)) {
-				const name = specifier.replace(/^node:/, '');
-				if (id === entry || (!BUILTIN_TASK_FREE_NODE_BUILTINS.has(name) && !exceptions.has(id))) {
-					violations.push(`${specifier} <- ${to_chain(id)}`);
-				}
+				violations.push(`${specifier} <- ${to_chain(id)}`);
 				continue;
 			}
 			let target: string;
@@ -368,25 +358,14 @@ describe('library modules a package imports on the runtime', () => {
 			assert.deepEqual(to_closure_violations(join(paths.lib, name)), []);
 		});
 
-		test(`${name} reads nothing of the process when it loads`, () => {
-			assert.deepEqual(to_load_reads(name), []);
+		const reads = PACKAGE_MODULE_LOAD_READS.get(name) ?? [];
+		test(`${name} reads ${reads.length ? reads.join(', ') : 'nothing'} of the process when it loads`, () => {
+			assert.deepEqual(to_load_reads(name), reads);
 		});
 	}
 });
 
 describe('builtin tasks that take their handles from their `host`', () => {
-	for (const name of BUILTIN_TASK_NODE_EXCEPTIONS) {
-		test(`${name} still imports a \`node:\` builtin a builtin can't reach freely`, () => {
-			assert.ok(
-				to_specifiers(join(paths.lib, name)).some(
-					(specifier) =>
-						(specifier.startsWith('node:') || isBuiltin(specifier)) &&
-						!BUILTIN_TASK_FREE_NODE_BUILTINS.has(specifier.replace(/^node:/, ''))
-				)
-			);
-		});
-	}
-
 	for (const name of BUILTIN_TASKS) {
 		test(`${name} reaches no granted host module, project loader, module graph, or Node authority`, () => {
 			assert.deepEqual(to_builtin_task_violations(join(paths.lib, name)), []);
