@@ -134,7 +134,8 @@ pub enum Refusal {
     )]
     NoneLeft,
     /// A seccomp filter on the process refuses `unshare`, as a container
-    /// runtime's profile does.
+    /// runtime's profile does: the call failed with an error a filter
+    /// answers (`EPERM`, `EACCES`, or `ENOSYS`) and the process has one.
     #[error("a seccomp filter on the process refuses unshare")]
     Filtered,
     /// None of the above shows: the call's error says what it can.
@@ -414,7 +415,12 @@ fn refusal(errno: Option<libc::c_int>, settings: &Settings) -> Refusal {
             Refusal::AppArmor
         }
         Some(libc::EPERM) if settings.userns_clone == Some(false) => Refusal::Disabled,
-        _ if settings.filtered == Some(true) => Refusal::Filtered,
+        // what a filter answers for a call it refuses; another error under
+        // one (a container's `EINVAL` for a shared `fs_struct`) is the
+        // kernel's
+        Some(libc::EPERM | libc::EACCES | libc::ENOSYS) if settings.filtered == Some(true) => {
+            Refusal::Filtered
+        }
         _ => Refusal::Other,
     }
 }
@@ -567,6 +573,8 @@ mod tests {
             (libc::EPERM, clone_on, Refusal::Other),
             (libc::EPERM, filtered, Refusal::Filtered),
             (libc::ENOSYS, filtered, Refusal::Filtered),
+            (libc::EACCES, filtered, Refusal::Filtered),
+            (libc::EINVAL, filtered, Refusal::Other),
             (libc::ENOSYS, none, Refusal::Other),
             (libc::EPERM, both, Refusal::AppArmor),
             (libc::EPERM, none, Refusal::Other),

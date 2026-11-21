@@ -828,13 +828,18 @@ pub const THREAD_COUNT_READS: usize = 1000;
 ///
 /// As [`thread_count`]'s.
 pub fn settled_thread_count() -> io::Result<u64> {
-    let mut count = thread_count()?;
+    settle(thread_count)
+}
+
+/// [`settled_thread_count`] over `read`, the thread count's reader.
+fn settle(mut read: impl FnMut() -> io::Result<u64>) -> io::Result<u64> {
+    let mut count = read()?;
     for _ in 1..THREAD_COUNT_READS {
         if count == 1 {
             break;
         }
         std::thread::yield_now();
-        count = thread_count()?;
+        count = read()?;
     }
     Ok(count)
 }
@@ -1781,6 +1786,36 @@ fn context(what: &str, error: &io::Error) -> io::Error {
 #[cfg(test)]
 mod tests {
     use std::ffi::OsString;
+
+    /// A count above 1 is read again until it's 1, or until
+    /// `THREAD_COUNT_READS` reads have all been above it; a read's error
+    /// is returned.
+    #[test]
+    fn a_thread_still_counted_is_read_past() {
+        use super::{THREAD_COUNT_READS, settle};
+
+        let mut counts = [2, 2, 1, 3].into_iter();
+        let mut reads = 0;
+        let settled = settle(|| {
+            reads += 1;
+            Ok(counts.next().unwrap())
+        });
+        assert_eq!((settled.unwrap(), reads), (1, 3));
+        let mut reads = 0;
+        let settled = settle(|| {
+            reads += 1;
+            Ok(2)
+        });
+        assert_eq!((settled.unwrap(), reads), (2, THREAD_COUNT_READS));
+        let mut counts = [2, 0].into_iter();
+        let failed = settle(|| {
+            counts
+                .next()
+                .filter(|&count| count > 0)
+                .ok_or_else(|| std::io::Error::other("unread"))
+        });
+        assert!(failed.is_err());
+    }
 
     /// Each table's slots are reserved until it's full, then none is,
     /// until one is freed; a slot reserved and not armed holds what the
