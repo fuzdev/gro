@@ -13,8 +13,9 @@ use crate::BINARY_NAME;
 use crate::file_id::FileId;
 use crate::resolver::test_tree::MemoryTree;
 use crate::resolver::{
-    BUILTINS, Capability, Entry, Origin, Reserved, ResolveErrorKind, Resolved, Root, SPLIT_MODULES,
-    SourceTree, UNBUILT_HOST_MODULES, find_builtin, find_reserved,
+    BUILTINS, Capability, Entry, HostModule, Origin, Reserved, ResolveErrorKind, Resolved, Root,
+    SPLIT_MODULES, SourceTree, UNBUILT_HOST_MODULES, find_builtin, find_host_module_file,
+    find_reserved, gro_module_path, host_modules,
 };
 
 /// The table's rows, pinned: a row added, removed, or regranted fails here
@@ -447,6 +448,46 @@ fn the_reserved_specifiers_are_pinned() {
                 "{module}"
             );
         }
+    }
+}
+
+/// Each host module's file is its specifier's path in `src/lib`, a file
+/// there, and found by that path alone: a row's, an unbuilt one's, and no
+/// other module's of Gro's.
+#[test]
+fn a_host_module_is_found_by_its_file() {
+    let lib = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../src/lib");
+    let modules: Vec<HostModule> = host_modules().collect();
+    assert_eq!(modules.len(), BUILTINS.len() + UNBUILT_HOST_MODULES.len());
+    for module in &modules {
+        let file = module.file();
+        assert!(lib.join(&*file).is_file(), "{file}");
+        assert_eq!(find_host_module_file(&file), Some(*module), "{file}");
+    }
+    assert_eq!(
+        find_host_module_file("fs.ts"),
+        find_builtin("@fuzdev/gro/fs.ts").map(HostModule::Builtin)
+    );
+    assert_eq!(
+        find_host_module_file("net.ts"),
+        Some(HostModule::Unbuilt("@fuzdev/gro/net"))
+    );
+    for path in [
+        "fs.js",
+        "net.js",
+        "net",
+        "fs_paths.ts",
+        "./fs.ts",
+        "internal/fs.ts",
+        "@fuzdev/gro/fs.ts",
+        "",
+    ] {
+        assert_eq!(find_host_module_file(path), None, "{path}");
+    }
+    assert_eq!(gro_module_path("@fuzdev/gro/fs.ts"), Some("fs.ts"));
+    assert_eq!(gro_module_path("@fuzdev/gro/"), Some(""));
+    for specifier in ["@fuzdev/gro", "@fuzdev/grox/fs.ts", "fs.ts", "./fs.ts"] {
+        assert_eq!(gro_module_path(specifier), None, "{specifier}");
     }
 }
 

@@ -24,9 +24,21 @@
 //! ([`ResolveErrorKind::UnsupportedScheme`](super::ResolveErrorKind::UnsupportedScheme)),
 //! so only the bare specifier reaches one, and only through the table.
 
+use std::borrow::Cow;
 use std::fmt;
 
 use super::specifier::to_plain_spelling;
+
+/// The name of Gro's package. A specifier of it past `@fuzdev/gro/` is a
+/// module's path in Gro's `src/lib`, as a host module's specifier is its
+/// file's ([`HostModule::file`]).
+pub const GRO_PACKAGE: &str = "@fuzdev/gro";
+
+/// The path in Gro's `src/lib` that a specifier of Gro's package names past
+/// `@fuzdev/gro/`, or `None` for any other specifier.
+pub fn gro_module_path(specifier: &str) -> Option<&str> {
+    specifier.strip_prefix(GRO_PACKAGE)?.strip_prefix('/')
+}
 
 /// A host capability a builtin needs its importer to be granted.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -211,6 +223,62 @@ pub fn find_builtin(specifier: &str) -> Option<&'static Builtin> {
 pub const UNBUILT_HOST_MODULES: &[&str] =
     &["@fuzdev/gro/net", "@fuzdev/gro/watch", "@fuzdev/gro/stdin"];
 
+/// A host module: a row of the table, or one it reserves unbuilt.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HostModule {
+    /// A builtin, a row of the table.
+    Builtin(&'static Builtin),
+    /// A host module not built yet, by its specifier without the extension
+    /// ([`UNBUILT_HOST_MODULES`]).
+    Unbuilt(&'static str),
+}
+
+impl HostModule {
+    /// Its file's path in Gro's `src/lib`: its `.ts` specifier past
+    /// `@fuzdev/gro/`, which an unbuilt one's stem takes `.ts` for. A
+    /// specifier outside Gro's package, which no row has, stays whole, so
+    /// it names no file of `src/lib`.
+    pub fn file(self) -> Cow<'static, str> {
+        match self {
+            Self::Builtin(builtin) => {
+                Cow::Borrowed(gro_module_path(builtin.specifier).unwrap_or(builtin.specifier))
+            }
+            Self::Unbuilt(stem) => {
+                Cow::Owned(format!("{}.ts", gro_module_path(stem).unwrap_or(stem)))
+            }
+        }
+    }
+
+    /// Whether `path` is its [`HostModule::file`], compared without making
+    /// the file's path, as a resolution from Gro's library asks for each
+    /// relative import.
+    fn is_file(self, path: &str) -> bool {
+        match self {
+            Self::Builtin(builtin) => {
+                gro_module_path(builtin.specifier).unwrap_or(builtin.specifier) == path
+            }
+            Self::Unbuilt(stem) => {
+                path.strip_suffix(".ts") == Some(gro_module_path(stem).unwrap_or(stem))
+            }
+        }
+    }
+}
+
+/// Every host module: the table's rows in its order, then the unbuilt ones.
+pub fn host_modules() -> impl Iterator<Item = HostModule> {
+    BUILTINS.iter().map(HostModule::Builtin).chain(
+        UNBUILT_HOST_MODULES
+            .iter()
+            .map(|stem| HostModule::Unbuilt(stem)),
+    )
+}
+
+/// The host module whose file is `path` in Gro's `src/lib`, if any
+/// ([`HostModule::file`]).
+pub fn find_host_module_file(path: &str) -> Option<HostModule> {
+    host_modules().find(|module| module.is_file(path))
+}
+
 /// A module Gro has none of, whose members are modules of their own.
 #[derive(Debug, PartialEq, Eq)]
 pub struct SplitModule {
@@ -272,9 +340,7 @@ pub enum Reserved {
 /// target takes, whatever the package's patterns.
 pub fn find_reserved(specifier: &str) -> Option<Reserved> {
     // every reserved specifier is one of gro's, which most bare ones aren't
-    if !specifier.starts_with("@fuzdev/gro/") {
-        return None;
-    }
+    gro_module_path(specifier)?;
     if let Some(reserved) = find_reserved_exact(specifier) {
         return Some(reserved);
     }

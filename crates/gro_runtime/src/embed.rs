@@ -13,7 +13,9 @@
 //! ([`crate::resolver::BUILTINS`], [`crate::resolver::UNBUILT_HOST_MODULES`]).
 //! So a builtin that lands, or a host module added to Gro, fails the build
 //! until the data names it, and the embed never holds a host module's Node
-//! file, which the runtime serves as its builtin. Each module is stripped by
+//! file, which the runtime serves as its builtin: a host module's file is
+//! the builtin table's ([`crate::resolver::HostModule::file`]), the one
+//! mapping the resolver reads too. Each module is stripped by
 //! the loader's own strip, which blanks the types in place, every line
 //! keeping its length in UTF-16 units, so a frame's line and column point
 //! into the source as written; a module the strip refuses fails the build
@@ -47,7 +49,7 @@ use thiserror::Error;
 use url::Url;
 
 use crate::loader::strip::strip_module;
-use crate::resolver::{BUILTINS, UNBUILT_HOST_MODULES};
+use crate::resolver::host_modules;
 
 /// The name of the blob's file, which the binary's build includes.
 pub const EMBED_FILE: &str = "embed.bin";
@@ -58,10 +60,6 @@ const SORT_FILE: &str = "embed.json";
 /// The directory of Gro's library in the `src/` directory [`make_embed`]
 /// reads, which the paths in [`SORT_FILE`] are relative to.
 const LIB_DIR: &str = "lib";
-
-/// What a host module's specifier begins with: the rest is its file's path
-/// in `lib/`.
-const HOST_MODULE_PREFIX: &str = "@fuzdev/gro/";
 
 /// Why the embed couldn't be made, or a blob doesn't decode.
 #[derive(Debug, Error)]
@@ -308,20 +306,12 @@ fn check_sort(file: &Path, sort: &SortJson) -> Result<(), EmbedError> {
 }
 
 /// The runtime's host modules, each by its file's path in `lib/`: every
-/// row of the builtin table, and each module it reserves unbuilt, as its
-/// `.ts` file. A specifier outside Gro's package, which no row has, stays
-/// whole, so it can't match a path and fails the check naming itself.
+/// row of the builtin table, and each module it reserves unbuilt. A
+/// specifier outside Gro's package, which no row has, stays whole, so it
+/// can't match a path and fails the check naming itself.
 fn host_module_paths() -> BTreeSet<String> {
-    BUILTINS
-        .iter()
-        .map(|builtin| builtin.specifier.to_owned())
-        // each is reserved under `.ts` and `.js`, and its file is the `.ts`
-        .chain(UNBUILT_HOST_MODULES.iter().map(|stem| format!("{stem}.ts")))
-        .map(|specifier| {
-            specifier
-                .strip_prefix(HOST_MODULE_PREFIX)
-                .map_or_else(|| specifier.clone(), str::to_owned)
-        })
+    host_modules()
+        .map(|module| module.file().into_owned())
         .collect()
 }
 
@@ -504,6 +494,7 @@ impl<'a> Embed<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::resolver::{BUILTINS, UNBUILT_HOST_MODULES};
 
     fn modules(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
         pairs
