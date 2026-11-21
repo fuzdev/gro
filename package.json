@@ -53,8 +53,7 @@
   ],
   "dependencies": {
     "@fuzdev/tsv": "^0.8.1",
-    "chokidar": "^6.0.0",
-    "dotenv": "^17.2.3"
+    "chokidar": "^6.0.0"
   },
   "peerDependencies": {
     "@fuzdev/blake3-wasm": "^0.2.0",
