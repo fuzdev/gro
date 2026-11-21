@@ -26,12 +26,14 @@
 //!
 //! Features (the binary that ships never enables `phases` or `prices`):
 //!
-//! - `snapshot` embeds a startup snapshot read from `GRO_SNAPSHOT_DIR`, the
-//!   commit from `GRO_COMMIT`, and the version from `GRO_VERSION`;
-//!   `cargo xtask build` makes it in two stages, the first running the
-//!   internal `fgro make-snapshot <dir>`. Without it, `fgro` evaluates the
-//!   runtime's sources at startup, reading the web extensions' JS from the
-//!   build tree, and names Cargo's version
+//! - `snapshot` embeds a startup snapshot and the embed of Gro's own library
+//!   (`embed`), both read from `GRO_SNAPSHOT_DIR`, the commit from
+//!   `GRO_COMMIT`, and the version from `GRO_VERSION`; `cargo xtask build`
+//!   makes it in two stages, the first running the internal
+//!   `fgro make-snapshot <dir>` and `fgro make-embed <src> <dir>`.
+//!   Without it, `fgro` evaluates the runtime's sources at startup, reading
+//!   the web extensions' JS from the build tree, embeds no library, and
+//!   names Cargo's version
 //! - `phases` writes a timestamp at each phase boundary to the file
 //!   `GRO_PHASES_FILE` names (`gro_runtime::phases`), for
 //!   `cargo xtask bench --phases`
@@ -48,6 +50,7 @@ compile_error!("gro_cli is Linux-only, as the gro_runtime it embeds is");
 
 mod cli;
 mod color;
+mod embed;
 mod error;
 mod eval;
 mod harden;
@@ -62,6 +65,7 @@ use std::ffi::OsString;
 use gro_runtime::{BINARY_NAME, phases, prices};
 
 use crate::cli::{Invocation, Task};
+use crate::embed::make_embed;
 use crate::error::CliError;
 use crate::print::stdout_line;
 use crate::snapshot::make_snapshot;
@@ -169,6 +173,7 @@ fn run(task: &Task) -> u8 {
         Task::Version => stdout_line(version::version_line()).map_err(CliError::Stdout),
         Task::Help(text) => stdout_line(text.trim_end()).map_err(CliError::Stdout),
         Task::MakeSnapshot(dir) => make_snapshot(dir),
+        Task::MakeEmbed(src, dir) => make_embed(src, dir),
         // it prints its own failure, before the imports it was refused
         Task::Run(invocation) => return run::run_module(invocation),
     };
@@ -216,6 +221,7 @@ mod tests {
             &["eval", "--help"],
             &["--version", "eval", "a.js"],
             &["make-snapshot", "eval"],
+            &["make-embed", "eval", "a.js"],
             &[],
         ] {
             assert!(!on_main(args), "{args:?}");
@@ -238,6 +244,11 @@ mod tests {
         assert_eq!(code(&["make-snapshot", "a", "b"]), EXIT_USAGE);
         assert_eq!(code(&["make-snapshot", "--help"]), EXIT_USAGE);
         assert_eq!(code(&["make-snapshot", "-x"]), EXIT_USAGE);
+        assert_eq!(code(&["make-embed"]), EXIT_USAGE);
+        assert_eq!(code(&["make-embed", "src"]), EXIT_USAGE);
+        assert_eq!(code(&["make-embed", "src", "a", "b"]), EXIT_USAGE);
+        assert_eq!(code(&["make-embed", "src", "--help"]), EXIT_USAGE);
+        assert_eq!(code(&["make-embed", "-x", "dir"]), EXIT_USAGE);
         assert_eq!(code(&["eval"]), EXIT_USAGE);
         assert_eq!(code(&["eval", "a.js", "b.js"]), EXIT_USAGE);
         assert_eq!(code(&["eval", "a.js", "--driver", "d.js"]), EXIT_USAGE);
@@ -269,6 +280,20 @@ mod tests {
             message(&["make-snapshot", "-x"]),
             (
                 format!("usage: {BINARY_NAME} make-snapshot <dir> (it takes no flags)"),
+                EXIT_USAGE
+            )
+        );
+        assert_eq!(
+            message(&["make-embed", "src"]),
+            (
+                format!("usage: {BINARY_NAME} make-embed <src> <dir>"),
+                EXIT_USAGE
+            )
+        );
+        assert_eq!(
+            message(&["make-embed", "src", "--help"]),
+            (
+                format!("usage: {BINARY_NAME} make-embed <src> <dir> (it takes no flags)"),
                 EXIT_USAGE
             )
         );

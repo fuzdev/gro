@@ -30,12 +30,12 @@
 //!    so the clone's own toolchain pin decides, into the clone's own target
 //!    directory, cold.
 //! 4. Both builds' `rustc --version` must agree, then the two binaries and
-//!    the snapshot files each embeds are compared. A difference fails naming
-//!    the region of the first differing byte (an ELF section, or a header),
-//!    every section whose bytes differ (the first is often the build-id
-//!    note, a hash of the rest, so the list says where the change is), the
-//!    snapshot files that differ, and each binary's `--version`; the clone
-//!    is kept for inspection. A pass removes the clone.
+//!    the snapshot files and the embed each embeds are compared. A
+//!    difference fails naming the region of the first differing byte (an
+//!    ELF section, or a header), every section whose bytes differ (the first
+//!    is often the build-id note, a hash of the rest, so the list says where
+//!    the change is), the files that differ, and each binary's `--version`;
+//!    the clone is kept for inspection. A pass removes the clone.
 //!
 //! Both builds, and every cargo that compiles for them (the clone's xtask's
 //! included), run with [`BUILD_ENV`]: no rustc wrapper a cargo config's
@@ -82,7 +82,7 @@ use crate::bench::base::{
 };
 use crate::cmd::{StepResult, run};
 use crate::error::XtaskError;
-use crate::snapshot::{self, Measurement, SNAPSHOT_FILES};
+use crate::snapshot::{self, EMBED_FILE, Measurement, SNAPSHOT_FILES};
 
 /// Checks that the release `fgro` builds byte for byte from a second clone
 /// of the checkout's commit, cloned and built under `dir`; `env` is the
@@ -534,8 +534,8 @@ fn clone(
     Ok(src)
 }
 
-/// Compares the binary `first` with `second`, and the snapshot files beside
-/// each, failing with what [`describe`] finds when they differ, which names
+/// Compares the binary `first` with `second`, and the snapshot files and
+/// the embed beside each, failing with what [`describe`] finds when they differ, which names
 /// `kept`, the clone left for inspection.
 fn compare(first: &Path, second: &Path, kept: &Path) -> StepResult {
     let read = |path: &Path| fs::read(path).map_err(|error| XtaskError::io("read", path, error));
@@ -548,7 +548,7 @@ fn compare(first: &Path, second: &Path, kept: &Path) -> StepResult {
     );
     let (a, b) = (read(first)?, read(second)?);
     let mut differing_files = Vec::new();
-    for file in SNAPSHOT_FILES {
+    for file in SNAPSHOT_FILES.into_iter().chain([EMBED_FILE]) {
         if read(&first.with_file_name(file))? != read(&second.with_file_name(file))? {
             differing_files.push(file);
         }
@@ -564,10 +564,10 @@ fn compare(first: &Path, second: &Path, kept: &Path) -> StepResult {
         )
     };
     let snapshot = if differing_files.is_empty() {
-        "the snapshot files are identical".to_owned()
+        "the snapshot files and the embed are identical".to_owned()
     } else {
         format!(
-            "the snapshot files that differ: {}",
+            "the snapshot files or embed that differ: {}",
             differing_files.join(", ")
         )
     };

@@ -236,8 +236,9 @@ Each bullet marks what's built; anything unmarked past the omissions is designed
   so a run pays for the ones it imports.
   A run or an eval that is over exits without tearing its runtime down (built), leaving the OS to reclaim it.
   A code cache entry is code to V8, so who writes the cache is the whole defense,
-  and confined runs read none: Gro's own surface is designed to start from the snapshot instead,
-  so its largest consumer needs no cache, and `gro eval` and hermetic runs never read one.
+  and confined runs read none: Gro's own code is embedded in the binary, its types stripped when the binary is built,
+  and compiled from that copy as a command starts (the copy built, its loading designed),
+  and `gro eval` and hermetic runs never read a cache.
   A writer outside the box, compiling from source itself, is the route if a measurement on third-party graphs shows a cache worth it,
   and a cache for unconfined runs is undecided ([backstop](backstop.md#open)).
 - **Fewer platform-isms** (designed). URL resolution with no path separators (built) and argv-only spawn
@@ -369,8 +370,8 @@ where the host modules and grants land with their first consumer.
       with probes for a symlink and a hard link out of the roots, each killed syscall, a same-realm `then` patch,
       an escape sequence in confined output, and a child reaching a unix socket,
       with the type strip fuzzed over real packages, since it runs on `node_modules`
-- [ ] startup: a tuned snapshot carrying Gro's own surface, and lazy host init
-      (built for the builtin modules, each run on its first import), with no code cache for confined runs
+- [ ] startup: Gro's own code embedded in the binary, stripped at build time (built), and loaded as a command starts,
+      and lazy host init (built for the builtin modules, each run on its first import), with no code cache for confined runs
 - [ ] the seal on the global object, with named exceptions, and a free `fetch`'s error naming the import
 - [ ] the host modules (fs, spawn, watch, net, and the process modules), the grants
       (built so far: the link-time check, the modules [host modules](host_modules.md#the-modules) marks built, and the flags [run](run.md#usage) lists),
@@ -425,7 +426,7 @@ and see [crates/CHANGELOG.md](../../crates/CHANGELOG.md) for what the binary bui
 `fgro eval` needs Linux 6.12 or later too ([eval](eval.md#usage)).
 
 ```bash
-cargo xtask build --release   # makes target/gro_snapshot/release/fgro, its startup snapshot embedded
+cargo xtask build --release   # makes target/gro_snapshot/release/fgro, its startup snapshot and Gro's own code embedded
 ```
 
 Install it to a path you update deliberately, since a caller that pins the binary

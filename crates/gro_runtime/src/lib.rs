@@ -72,6 +72,10 @@
 //!   unconfined
 //! - [`snapshot`]: the startup snapshot, built in a process of its own and
 //!   embedded by the binary that starts from it
+//! - [`embed`]: Gro's own library as the binary carries it, the modules of
+//!   `src/lib` that `src/embed.json` lists, stripped of their types at build
+//!   time and stored as one blob of offsets and text, which no command loads
+//!   yet
 //! - [`phases`]: a timestamp at each phase boundary of a run, for the
 //!   measurement harness, recorded only under the `phases` feature
 //! - [`prices`]: switches that each turn off one of eval's defaults, for the
@@ -113,6 +117,7 @@ compile_error!(
 
 mod bootstrap;
 pub mod confine;
+pub mod embed;
 pub mod engine;
 pub mod eval;
 pub mod file_id;

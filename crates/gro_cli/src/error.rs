@@ -4,15 +4,14 @@
 use std::ffi::OsString;
 use std::path::PathBuf;
 
+use gro_runtime::embed::EmbedError;
 use gro_runtime::engine::EngineError;
 use gro_runtime::prices::PricesError;
 use gro_runtime::snapshot::SnapshotError;
 use gro_runtime::{BINARY_NAME, RunError};
 use thiserror::Error;
 
-use crate::cli::{
-    DirFlag, DirFlagFault, EnvFlagFault, MAKE_SNAPSHOT, RunEnvFlagFault, RunFlagFault,
-};
+use crate::cli::{DirFlag, DirFlagFault, EnvFlagFault, RunEnvFlagFault, RunFlagFault};
 use crate::print::{echo_argument, escape_controls, stderr_line};
 use crate::{EXIT_FAILURE, EXIT_USAGE};
 
@@ -174,16 +173,18 @@ pub enum CliError {
          isn't supported yet"
     )]
     DriverPath(String),
-    /// `make-snapshot` without exactly one argument.
-    #[error("usage: {} {} <dir>", BINARY_NAME, MAKE_SNAPSHOT)]
-    SnapshotUsage,
-    /// `make-snapshot` with a flag, so `--help` can't become a directory's
-    /// name.
-    #[error("usage: {} {} <dir> (it takes no flags)", BINARY_NAME, MAKE_SNAPSHOT)]
-    SnapshotFlag,
-    /// The snapshot's directory couldn't be created.
-    #[error("failed to create the snapshot directory {}: {source}", path.display())]
-    SnapshotDir {
+    /// An internal subcommand (`make-snapshot`, `make-embed`) without the
+    /// arguments it takes: its name and their usage.
+    #[error("usage: {} {} {}", BINARY_NAME, .0, .1)]
+    InternalUsage(&'static str, &'static str),
+    /// An internal subcommand with a flag, so `--help` can't become a
+    /// directory's name: its name and its arguments' usage.
+    #[error("usage: {} {} {} (it takes no flags)", BINARY_NAME, .0, .1)]
+    InternalFlag(&'static str, &'static str),
+    /// The directory an internal subcommand writes into couldn't be
+    /// created.
+    #[error("failed to create the directory {}: {source}", path.display())]
+    OutputDir {
         /// The directory.
         path: PathBuf,
         /// The failure creating it.
@@ -192,6 +193,28 @@ pub enum CliError {
     /// The snapshot couldn't be made or written.
     #[error(transparent)]
     Snapshot(#[from] SnapshotError),
+    /// The embed couldn't be made, or a blob didn't decode.
+    #[error(transparent)]
+    Embed(#[from] EmbedError),
+    /// The embed's file couldn't be written.
+    #[error("failed to write {}: {source}", path.display())]
+    EmbedWrite {
+        /// The file.
+        path: PathBuf,
+        /// The failure writing it.
+        source: std::io::Error,
+    },
+    /// The binary's own embed differs from the one `make-embed` made, so it
+    /// was built from other sources than the directory holds now.
+    #[error(
+        "this binary's embed differs from the one the sources make now, first at {path:?}: \
+         it was built from other sources"
+    )]
+    EmbedStale {
+        /// The first module's path, relative to `src/lib`, that differs, or
+        /// that one holds and the other doesn't.
+        path: String,
+    },
     /// The engine couldn't be set up.
     #[error(transparent)]
     Engine(#[from] EngineError),
@@ -271,11 +294,14 @@ impl CliError {
             | Self::TimeoutZero
             | Self::DriverWithExport
             | Self::DriverPath(_)
-            | Self::SnapshotUsage
-            | Self::SnapshotFlag => EXIT_USAGE,
+            | Self::InternalUsage(..)
+            | Self::InternalFlag(..) => EXIT_USAGE,
             Self::Run(RunError::Entry(error)) if error.kind.is_refusal() => EXIT_USAGE,
-            Self::SnapshotDir { .. }
+            Self::OutputDir { .. }
             | Self::Snapshot(_)
+            | Self::Embed(_)
+            | Self::EmbedWrite { .. }
+            | Self::EmbedStale { .. }
             | Self::Engine(_)
             | Self::Cwd(_)
             | Self::SpawnReady(_)
@@ -284,10 +310,10 @@ impl CliError {
         }
     }
 
-    /// Whether the message prints as it is, with no `error:` label:
-    /// `make-snapshot`'s usage line, which carries its own.
+    /// Whether the message prints as it is, with no `error:` label: an
+    /// internal subcommand's usage line, which carries its own.
     const fn is_unlabeled(&self) -> bool {
-        matches!(self, Self::SnapshotUsage | Self::SnapshotFlag)
+        matches!(self, Self::InternalUsage(..) | Self::InternalFlag(..))
     }
 
     /// Prints the error to stderr, labeled `error:` unless

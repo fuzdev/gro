@@ -33,7 +33,7 @@ pub const STARTUP_SNAPSHOT: Option<StartupSnapshot> = None;
 ///
 /// Returns why the directory, the engine, or the snapshot failed.
 pub fn make_snapshot(dir: &Path) -> Result<(), CliError> {
-    std::fs::create_dir_all(dir).map_err(|source| CliError::SnapshotDir {
+    std::fs::create_dir_all(dir).map_err(|source| CliError::OutputDir {
         path: dir.to_owned(),
         source,
     })?;

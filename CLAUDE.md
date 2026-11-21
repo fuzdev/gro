@@ -367,9 +367,10 @@ lists them).
   JS/TS under `crates/`, which `gro check` doesn't reach), then `gro check`;
   CI runs the first two as jobs of their own
 - `cargo xtask build [--release] [--verify]` - the snapshot `fgro`, at
-  `<target>/gro_snapshot/<profile>/fgro`, with `package.json`'s version
-  stamped; a plain `cargo build` makes an `fgro` with no snapshot that runs
-  only from its build tree, can't `eval`, and names Cargo's `0.0.0`
+  `<target>/gro_snapshot/<profile>/fgro`, with Gro's own code embedded and
+  `package.json`'s version stamped; a plain `cargo build` makes an
+  `fgro` with no snapshot that runs only from its build tree, can't
+  `eval`, and names Cargo's `0.0.0`
 - `cargo xtask check-reproducible` - two release builds and a clone, so
   `check` leaves it to CI
 
@@ -458,14 +459,14 @@ Key utilities:
   (`matchesGlob`'s reading, refusing extended globs), and color through fuz_util's `st`, which
   `invoke.ts` configures. The same test sorts every module `invoke.ts` reaches into those, the
   exceptions still reaching a host module, and the embed's excluded groups
-- The embed: `src/embed.json`, the data the binary's build reads for its copy of Gro's own
-  `src/lib` (designed, not built), sorts every file of `src/lib` into the modules it takes and
-  the ones it leaves out, by group, each group with its reason: the host modules and their error
-  modules (the runtime's builtins), the Node roots, the Node loader and its `$app` shims, the
-  Node-only machinery, the builtins with no grants, the genfiles, and the library modules that
-  still reach Node. `src/test/package_module_closure.test.ts` fails on a file in no list, and
-  holds that each embedded module's static closure reaches no `node:` builtin, no granted host
-  module, and no file the embed leaves out, linking only the grant-free host modules and error
+- The embed: `src/embed.json`, the data the binary's build reads for its copy of Gro's own `src/lib`
+  (`gro_runtime::embed`: built, loaded by no command yet), sorts every file of `src/lib` into the
+  modules it takes and the ones it leaves out, by group, each group with its reason: the host
+  modules and their error modules (the runtime's builtins), the Node roots, the Node loader and its
+  `$app` shims, the Node-only machinery, the builtins with no grants, the genfiles, and the library
+  modules that still reach Node. `src/test/package_module_closure.test.ts` fails on a file in no
+  list, and holds that each embedded module's static closure reaches no `node:` builtin, no granted
+  host module, and no file the embed leaves out, linking only the grant-free host modules and error
   modules, and that it reads nothing of the process when it loads, but `invoke_task.ts` and
   `gro_main.ts`, whose fuz_util `Logger` reads it (`EMBED_LOAD_READS`)
 - Git: `git.ts`, library code over a `git` `SpawnProgram` a root builds with `to_git_program`;

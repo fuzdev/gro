@@ -1,7 +1,7 @@
 //! The command line's shape: the argh types for `fgro`'s flags and
 //! subcommands, `run`'s arguments, which argh routes but never parses, the
-//! internal `make-snapshot` name argh never sees, and [`parse`], which reads
-//! them once into an [`Invocation`].
+//! internal `make-snapshot` and `make-embed` names argh never sees, and
+//! [`parse`], which reads them once into an [`Invocation`].
 
 use std::collections::BTreeSet;
 use std::path::PathBuf;
@@ -17,6 +17,10 @@ use crate::print::{echo_argument, escape_controls};
 /// The internal subcommand that writes the snapshot, handled before argh so
 /// it stays out of `--help`.
 pub const MAKE_SNAPSHOT: &str = "make-snapshot";
+
+/// The internal subcommand that writes the embed, handled before argh so it
+/// stays out of `--help`.
+pub const MAKE_EMBED: &str = "make-embed";
 
 /// gro on its own JS runtime (experimental)
 #[derive(FromArgs)]
@@ -746,12 +750,39 @@ pub enum Task {
     Help(String),
     /// `make-snapshot <dir>`.
     MakeSnapshot(PathBuf),
+    /// `make-embed <src> <dir>`: the checkout's `src/` and the directory
+    /// to write into.
+    MakeEmbed(PathBuf, PathBuf),
     /// `run <file> [<args...>]`.
     Run(RunInvocation),
 }
 
-/// Parses `args` (the program name excluded): `make-snapshot` by hand, so
-/// it stays out of `--help`, and everything else by argh, whose early exits
+/// The `N` paths an internal subcommand takes, `args` its name and them,
+/// `usage` naming them.
+///
+/// # Errors
+///
+/// Returns [`CliError::InternalUsage`] without exactly `N`, and
+/// [`CliError::InternalFlag`] for a flag, so `--help` can't become a
+/// directory's name.
+fn internal_args<const N: usize>(
+    args: &[&str],
+    name: &'static str,
+    usage: &'static str,
+) -> Result<[PathBuf; N], CliError> {
+    let paths: &[&str; N] = args
+        .get(1..)
+        .and_then(|paths| paths.try_into().ok())
+        .ok_or(CliError::InternalUsage(name, usage))?;
+    if paths.iter().any(|path| path.starts_with('-')) {
+        return Err(CliError::InternalFlag(name, usage));
+    }
+    Ok(paths.map(PathBuf::from))
+}
+
+/// Parses `args` (the program name excluded): `make-snapshot` and
+/// `make-embed` by hand, so they stay out of `--help`, and everything else
+/// by argh, whose early exits
 /// are mapped by hand, since its `from_env` exits `1` on a usage error. Of
 /// argh's text only its help is printed, made of the commands' own names
 /// and docs; a refusal is [`invalid_arguments`], made of the arguments.
@@ -765,14 +796,12 @@ pub enum Task {
 /// arguments included ([`RunInvocation::check`], [`EvalInvocation::check`]).
 pub fn parse(args: &[&str]) -> Result<Invocation, CliError> {
     if args.first() == Some(&MAKE_SNAPSHOT) {
-        // no flags, so `--help` can't become a directory's name
-        let [_, dir] = args else {
-            return Err(CliError::SnapshotUsage);
-        };
-        if dir.starts_with('-') {
-            return Err(CliError::SnapshotFlag);
-        }
-        return Ok(Invocation::Sized(Task::MakeSnapshot(PathBuf::from(dir))));
+        let [dir] = internal_args(args, MAKE_SNAPSHOT, "<dir>")?;
+        return Ok(Invocation::Sized(Task::MakeSnapshot(dir)));
+    }
+    if args.first() == Some(&MAKE_EMBED) {
+        let [src, dir] = internal_args(args, MAKE_EMBED, "<src> <dir>")?;
+        return Ok(Invocation::Sized(Task::MakeEmbed(src, dir)));
     }
     match Args::from_args(&[BINARY_NAME], args) {
         Ok(Args {

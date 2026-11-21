@@ -14,17 +14,25 @@
 //!    reads are immutable per version. The same sources make the same
 //!    snapshot, byte for byte (gro patches `deno_core` for it, see
 //!    `vendor/README.md`), and a rerun leaves identical files untouched, so
-//!    it relinks stage two only when the snapshot changed.
+//!    it relinks stage two only when the snapshot changed. Then, on every
+//!    build and outside the stamp, the plain `fgro` runs
+//!    `fgro make-embed <checkout>/src <target>/gro_snapshot/<profile>/`,
+//!    which writes `embed.bin`, the modules of `src/lib` that
+//!    `src/embed.json` embeds, stripped (`gro_runtime::embed`): `src/lib`
+//!    changes with nearly every commit, so a stamp would ship a stale embed,
+//!    and making it costs milliseconds. It too leaves an identical file
+//!    untouched.
 //! 2. `cargo build -p gro_cli --features snapshot`, with `GRO_SNAPSHOT_DIR`
-//!    naming that directory, embeds them, and the binary is hard-linked to
-//!    `<target>/gro_snapshot/<profile>/fgro`, so later plain builds, which
-//!    replace `<target>/<profile>/fgro`, leave it alone. The build also
+//!    naming that directory, embeds the three, and the binary is hard-linked
+//!    to `<target>/gro_snapshot/<profile>/fgro`, so later plain builds,
+//!    which replace `<target>/<profile>/fgro`, leave it alone. The build also
 //!    embeds the checkout's commit through `GRO_COMMIT` ([`commit`]) and
 //!    gro's version, `package.json`'s `version`, through `GRO_VERSION`
 //!    ([`package_version`]), both read right before it, which
 //!    `fgro --version` prints and a script's `runtime_version` carries; cargo
 //!    tracks the variables, so a new commit, a change to the tree's
-//!    dirtiness, or a new version rebuilds `gro_cli`.
+//!    dirtiness, or a new version rebuilds `gro_cli`, as a changed
+//!    `embed.bin` does.
 //!
 //! Between the stage-one build and `make-snapshot`, the V8 library copy is
 //! checked against the pin ([`crate::v8_archive::verify_linked`]), before any
@@ -43,16 +51,18 @@
 //! `--verify` then checks the result: the baseline suite's `fgro` size
 //! budgets (the executable's in a release build only, the snapshot's in
 //! both), that the snapshot `fgro`'s own `make-snapshot` reproduces the
-//! snapshot it embeds byte for byte ([`reproduce`]), clippy over the
+//! snapshot it embeds byte for byte ([`reproduce`]), that its own
+//! `make-embed` makes the embed it holds from the checkout's `src` now,
+//! module by module ([`check_embed`]), clippy over the
 //! `snapshot` feature's code, alone and with `prices`, `gro_runtime`'s
 //! tests of its runtimes built with the build's profile, the one that
 //! starts them from the build's snapshot among them, `fgro`'s integration
 //! tests against the snapshot build, its phases and prices tests against
 //! builds with each feature too ([`INTEGRATION_TESTS`]), and a fixture run
 //! with the cargo registry's sources (`$CARGO_HOME/registry/src`), the
-//! vendored `deno_core`, and gro's own extension sources hidden (tmpfs
-//! mounts in a private user and mount namespace, `unshare -rm`), its output
-//! compared with a run that can see them. The fixture is TypeScript, so the
+//! vendored `deno_core`, gro's own extension sources, and `src/lib` hidden
+//! (tmpfs mounts in a private user and mount namespace, `unshare -rm`), its
+//! output compared with a run that can see them. The fixture is TypeScript, so the
 //! strip runs off the build tree too. A machine without unprivileged user
 //! namespaces fails that check rather than skipping it.
 
@@ -107,6 +117,10 @@ const COMMIT_ENV: &str = "GRO_COMMIT";
 /// The variable stage two embeds the version from, which `gro_cli` reads
 /// with `env!`, requiring it in a snapshot build.
 const VERSION_ENV: &str = "GRO_VERSION";
+
+/// The file `fgro make-embed` writes beside the snapshot's, which stage two
+/// embeds (`gro_runtime::embed::EMBED_FILE`).
+pub const EMBED_FILE: &str = "embed.bin";
 
 /// A snapshot build of `fgro`: the binary, and the `GRO_COMMIT` and
 /// `GRO_VERSION` it was built with, which [`verify`]'s builds repeat so they
@@ -214,6 +228,9 @@ pub fn build(
         // identical outputs aren't rewritten, so the stamp records when it ran
         fs::write(&stamp, b"").map_err(|error| XtaskError::io("write", &stamp, error))?;
     }
+    // every build, outside the stamp: the embed follows `src/lib`, which
+    // the plain binary doesn't
+    make_embed(root, &plain, &dir)?;
 
     let features = measurement.features();
     let mut stage_two = vec![
@@ -262,6 +279,22 @@ pub fn build(
     })
 }
 
+/// Runs `binary`'s `make-embed` on the checkout's `src` into `dir`.
+fn make_embed(root: &Path, binary: &Path, dir: &Path) -> StepResult {
+    let src = root.join("src");
+    crate::cmd::run_program(
+        root,
+        &[],
+        binary,
+        &crate::cmd::relative(root, binary),
+        &[
+            "make-embed",
+            &src.display().to_string(),
+            &dir.display().to_string(),
+        ],
+    )
+}
+
 /// The files `make-snapshot` writes, which stage two embeds.
 pub const SNAPSHOT_FILES: [&str; 2] = ["snapshot.bin", "residual.rs"];
 
@@ -303,6 +336,7 @@ pub fn verify(root: &Path, release: bool, build: &SnapshotBuild) -> StepResult {
     let binary = &build.binary;
     check_budgets(root, release, binary)?;
     reproduce(root, binary)?;
+    check_embed(root, binary)?;
     let dir = binary.parent().unwrap_or(root).display().to_string();
     // the stage-two environment, so these builds reuse its gro_cli
     let env = [
@@ -460,6 +494,34 @@ fn reproduce(root: &Path, binary: &Path) -> StepResult {
     Ok(())
 }
 
+/// Runs `binary`'s `make-embed` on the checkout's `src` into a fresh
+/// directory beside it: a binary that embeds a blob fails there unless its
+/// own decodes, module by module, to the one the sources make now, so a
+/// build that included a stale `embed.bin` fails here. The made file must
+/// also be the one beside `binary`, byte for byte, which the next build
+/// would embed.
+fn check_embed(root: &Path, binary: &Path) -> StepResult {
+    let embedded = binary.parent().unwrap_or(root);
+    let fresh = embedded.join("embed_check");
+    let _ = fs::remove_dir_all(&fresh);
+    make_embed(root, binary, &fresh)?;
+    let read = |path: &Path| fs::read(path).map_err(|error| XtaskError::io("read", path, error));
+    let (expected, made) = (embedded.join(EMBED_FILE), fresh.join(EMBED_FILE));
+    if read(&expected)? != read(&made)? {
+        return Err(XtaskError::Failed(format!(
+            "{} differs from {}, which the sources make now; the made file is kept",
+            expected.display(),
+            made.display()
+        )));
+    }
+    let _ = fs::remove_dir_all(&fresh);
+    println!(
+        "[xtask] {} embeds the modules src/lib holds now",
+        crate::cmd::relative(root, binary)
+    );
+    Ok(())
+}
+
 /// Runs the smoke fixture with `binary` twice, once seeing the build tree and
 /// once with the registry's sources, the vendored `deno_core`, and gro's
 /// extension sources hidden, and fails unless both succeed with the same
@@ -467,6 +529,8 @@ fn reproduce(root: &Path, binary: &Path) -> StepResult {
 fn off_build_tree(root: &Path, binary: &Path) -> StepResult {
     let fixtures = root.join("crates/gro_cli/tests/fixtures/run");
     let gro_js = root.join("crates/gro_runtime/js");
+    // the embed's sources, which a snapshot build never reads from disk
+    let gro_lib = root.join("src/lib");
     // the patched deno_core, a path dependency, so its sources sit in the checkout
     let deno_core = root.join("vendor/deno_core");
     // every crate's sources, the `deno_web` and `deno_webidl` JS among them
@@ -504,28 +568,33 @@ fn off_build_tree(root: &Path, binary: &Path) -> StepResult {
     }
 
     println!(
-        "\n[xtask] {} run {SMOKE_FIXTURE}, seeing the build tree and then with {}, {}, and {} hidden",
+        "\n[xtask] {} run {SMOKE_FIXTURE}, seeing the build tree and then with {}, {}, {}, and \
+         {} hidden",
         crate::cmd::relative(root, binary),
         registry.display(),
         crate::cmd::relative(root, &deno_core),
-        crate::cmd::relative(root, &gro_js)
+        crate::cmd::relative(root, &gro_js),
+        crate::cmd::relative(root, &gro_lib)
     );
     let seen = Command::new(binary)
         .args(["run", SMOKE_FIXTURE])
         .current_dir(&fixtures)
         .output();
-    // tmpfs over all three, then prove the files are gone before running
+    // tmpfs over all four, then prove the files are gone, and `src/lib`
+    // empty, before running
     let script = "mount -t tmpfs tmpfs \"$1\" && mount -t tmpfs tmpfs \"$2\" \
-                  && mount -t tmpfs tmpfs \"$3\" || exit 90\n\
-                  for hidden in \"$4\" \"$5\" \"$6\"; do\n\
+                  && mount -t tmpfs tmpfs \"$3\" && mount -t tmpfs tmpfs \"$4\" || exit 90\n\
+                  for hidden in \"$5\" \"$6\" \"$7\"; do\n\
                   if [ -e \"$hidden\" ]; then echo \"still visible: $hidden\" >&2; exit 91; fi\n\
                   done\n\
-                  exec \"$7\" run \"$8\"";
+                  if [ -n \"$(ls -A \"$4\")\" ]; then echo \"still visible: $4\" >&2; exit 91; fi\n\
+                  exec \"$8\" run \"$9\"";
     let hidden = Command::new("unshare")
         .args(["-rm", "sh", "-c", script, "sh"])
         .arg(&registry)
         .arg(&deno_core)
         .arg(&gro_js)
+        .arg(&gro_lib)
         .arg(&probe_source)
         .arg(deno_core.join("lib.rs"))
         .arg(gro_js.join("bootstrap.js"))

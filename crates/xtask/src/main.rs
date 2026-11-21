@@ -7,8 +7,8 @@
 //!   in `.cargo/config.toml`, so a fresh checkout runs this (or any xtask
 //!   that builds) first
 //! - `build [--release] [--verify]` builds `fgro` with an embedded startup
-//!   snapshot and `package.json`'s version, at
-//!   `<target>/gro_snapshot/<profile>/fgro` ([`snapshot`])
+//!   snapshot and embed of Gro's own library, and `package.json`'s version,
+//!   at `<target>/gro_snapshot/<profile>/fgro` ([`snapshot`])
 //! - `check`, `check-rust`, `check-js`: the repo's gates ([`check`])
 //! - `check-reproducible [--dir <dir>]` builds the release `fgro` again in a
 //!   clone of the checkout's commit at another path and fails unless the two
