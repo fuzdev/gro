@@ -87,7 +87,8 @@
 //!   and time limited, written by a strict host serializer into one
 //!   envelope that reports success or the kind of failure
 //! - [`verb`]: the verb's pre-pass, read before any JS runs: the grants
-//!   table the binary carries, `src/builtin_grants.json`
+//!   table the binary carries, `src/builtin_grants.json`, and a command
+//!   line's closure, the builtins it runs and the union of their grants
 //!
 //! `deno_core`'s types stay out of this crate's public API, and the crate
 //! reads no environment variable (but the `phases` feature's file,
