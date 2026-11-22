@@ -240,11 +240,11 @@ so a module re-exporting the `task` carries them:
   so a [command's closure](glossary.md#commands-closure) holds the invoked builtin only when its args set it,
   like `check`'s `build: {when: 'build'}` and `sync: {when: 'install'}`,
   a plain `gro check` holding neither;
-  `check: true` marks an invoke in check mode, writing no source, so the closure holds the invoked
+  `check: true` marks an invoke run with its `check` arg set, writing no source, so the closure holds the invoked
   builtin, and the builtins it invokes in turn, without their writes to the project,
   like `check`'s `gen` and `format`, run with `check: true`,
   and a builtin some invoke marks `check: true`, run as the command itself with `--check`
-  (`gro gen --check`, `gro format --check`), takes the same check mode; it's data for a runtime
+  (`gro gen --check`, `gro format --check`), has its writes dropped the same way; it's data for a runtime
   that holds a command to its closure, which nothing enforces on Node
 
 The genfile that writes the builtin summaries also writes them as `GRO_BUILTIN_TASK_GRANTS`
@@ -289,7 +289,7 @@ On the binary (built, without the box), a command runs under one grant set, its 
 the CLI's row and the grants of every builtin the command invokes, directly or in turn, as its `invokes` mark them, beside the grant flags,
 and the cut gives each builtin its own part of that set.
 The project's code shares the realm. On the binary no project task runs (`gro task <path>` runs on the Node Gro),
-but the config and genfiles run at the [generated entry](glossary.md#generated-entry)'s origin, the project's, and import any host module the set holds,
+but the config and genfiles run as the project's own modules, at its [origin](glossary.md#origin) by their paths, imported through the [generated entry](glossary.md#generated-entry), and import any host module the set holds,
 and a package they import, granted nothing itself, can patch a shared prototype a builtin's handles pass through,
 so that code holds the whole set, which only the native checks bound, until the box is installed
 ([threat model](authority.md#threat-model)).

@@ -234,7 +234,7 @@ Under `gro <cmd>` on the binary (built, without the box), the invocation's grant
 the CLI's own grants, every builtin in the command's closure with its programs and variables, and the grant flags.
 Each builtin's `host` is cut from that set by the builtin's own grants, a guardrail against Gro's own mistakes.
 The project's code shares the realm. On the binary no project task runs (`gro task <path>` runs on the Node Gro),
-but the config and genfiles run at the [generated entry](glossary.md#generated-entry)'s origin, the project's, and import any host module the set holds,
+but the config and genfiles run as the project's own modules, at its [origin](glossary.md#origin) by their paths, imported through the [generated entry](glossary.md#generated-entry), and import any host module the set holds,
 and a package they import, granted nothing itself, can patch a shared prototype a builtin's handles pass through,
 so that code holds the command's whole set ([task](task.md#a-builtins-host-and-grants)).
 The Node tools a command spawns, until they leave the loop at the distant end of the [roadmap](runtime.md#roadmap),
@@ -255,11 +255,11 @@ What a command writes into the project is code the next unconfined command may r
 like `gro dev`, an npm script, git's hooks, or the editor,
 so a write grant on the project is as wide as that command's reach.
 A plain `gro check`, without `--install` or `--build`, writes no source on either runtime.
-It runs `gen` and `format` in check mode, and verifies the install and `package.json` without writing them, failing with the fix
+It runs `gen` and `format` with `--check`, and verifies the install and `package.json` without writing them, failing with the fix
 ([task](task.md#a-builtins-host-and-grants)).
 `gro gen --check` and `gro format --check` write none either.
 On Node that's what Gro's own code does, not a protection, since the config, a genfile, or a test it runs can write anything your user can.
-On the binary the check mode is data the box is designed to take its write roots from.
+On the binary the `check` marks are data the box is designed to take its write roots from.
 The [command's closure](glossary.md#commands-closure), read natively before any JS runs (built, and `fgro <command>`'s grants, unboxed),
 drops the writes on the project of `check`'s `gen` and `format`, and of a `gen --check` or `format --check` run on its own,
 so in the project a boxed `check` could write only `.svelte-kit`, fuz_css's `.fuz/cache`, and the tool directories in `node_modules` named below,

@@ -136,7 +136,8 @@ the value, or an error with its kind, which a caller branches on.
 ## escape hatch
 
 `-A` (Deno's `--allow-all`, which `fgro run` spells only `-A`), which makes a run [unconfined](#unconfined):
-built on `fgro run`, where it grants every builtin module to every module of the run, `env` with every variable, `fs` with every directory, `spawn` with any program.
+built on `fgro run`, where it grants every builtin module to every module of the run, `env` with every variable, `fs` with every directory, `spawn` with any program,
+and among a command's grant flags, where it makes the run of `fgro <command>` unconfined.
 It's the one flag that widens everything but the always-on [deny overlay](#deny-overlays) (designed), never a default; some grants are as strong (any program until children are boxed, a child's whole environment) and are shown that way.
 Narrower ways to widen sit beside each default, like a blanket net grant and the JIT flag for `gro eval`.
 
@@ -177,7 +178,7 @@ and each path it went past finding nothing there, so a cache can tell when any c
 ## Gro's library
 
 The modules of Gro's own `src/lib` that run on `fgro`, which the binary carries, stripped of their types when it's built:
-a specifier of `@fuzdev/gro` that isn't a [builtin module](#builtin-modules)'s resolves to one, never to a package,
+a specifier of `@fuzdev/gro` that isn't a [builtin module](#builtin-module)'s resolves to one, never to a package,
 at its `gro:lib/` URL, its [origin](#origin) holding no grant by its own imports,
 its packages taken from the project root's `node_modules` at the ranges of Gro's peer dependencies.
 [resolver](resolver.md#gros-library) has the rules.
@@ -290,7 +291,8 @@ and one rewritten in place, which keeps its identity, is refused, as is one whos
 short of a change within the filesystem clock's tick of the file's last change before the pin.
 On Node a script's pin holds its identity alone, so one rewritten in place runs as rewritten,
 and a native binary replaced at its path runs the new file ([host modules](host_modules.md#the-node-implementations-gaps)).
-`fgro run` pins each program `--allow-run=` names as the run starts, before any module evaluates, a name that finds nothing included;
+`fgro run` pins each program `--allow-run=` names as the run starts, before any module evaluates, a name that finds nothing included,
+and `fgro <command>` those and each program its [command's closure](#commands-closure) grants;
 under `-A`, and on Node, a name is pinned when a handle is made of it ([host modules](host_modules.md#spawn-on-fgro)).
 It isn't a release binary's hash pin, the hash a caller checks an `fgro` file against ([eval](eval.md#the-envelope)).
 

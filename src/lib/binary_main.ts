@@ -1,6 +1,6 @@
 /**
  * The body of the binary's CLI root, as `invoke.ts` is the Node Gro's: made for the entry the
- * binary generates for a command to call with the host modules the command's closure grants.
+ * binary generates for a command to call with the host modules every command's run grants.
  *
  * Such an entry imports those rows and this module and makes one call. This module is Gro's
  * embedded code, whose origin holds no grant, so it imports no granted host module itself:

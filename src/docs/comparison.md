@@ -300,7 +300,7 @@ Gro's cells here name the Node Gro's command where the runtime has none yet.
 | bundler                | none                              | `deno bundle`                 | `bun build`           | planned, with bundled dev and build              |
 | code cache             | opt-in, `NODE_COMPILE_CACHE`      | yes                           | yes                   | none for confined runs; undecided for `-A`       |
 | single-file executable | `--build-sea`, experimental | `deno compile`                | `bun build --compile` | no                                               |
-| task runner            | npm scripts, `node --run`         | `deno task`                   | `bun run`             | built on the Node Gro: `gro task <path>` with the builtins as subcommands; the builtins also on `fgro`, unboxed, a project task falling back to Node |
+| task runner            | npm scripts, `node --run`         | `deno task`                   | `bun run`             | built on the Node Gro: `gro task <path>` with the builtins as subcommands; the builtins also on `fgro`, unboxed, unless the command needs a [fallback](glossary.md#fallback) to Node, as a project task does |
 | TypeScript types for the host API | `@types/node`          | from the binary               | `bun-types`           | planned, from the binary; the npm package until then |
 
 ## Measured

@@ -1092,8 +1092,8 @@ Its results are the Node module's, held to them by the differential cases on Gro
   and resolves beneath a handle only what it got from that handle, like a listing's entries,
   so confinement applies to those.
   Every library module that reaches the filesystem takes an `FsPaths` or a narrow handle as a parameter,
-  and only roots import `fs` and build one: the CLI's entry (`invoke.ts`), the builtin tasks that declare no grants,
-  and genfiles. The default config and Gro's plugins take theirs from the plugin context's `host`,
+  and only roots import `fs` and build one: the CLI's entry (`invoke.ts`),
+  the builtin tasks that declare no grants, and genfiles, while the [generated entry](glossary.md#generated-entry) of `fgro <command>` imports `fs` and hands it to `binary_main`, which builds the run's. The default config and Gro's plugins take theirs from the plugin context's `host`,
   which `gro dev` and `gro build` open ([plugin.md](plugin.md)), so loading the config imports none.
   A builtin whose task declares `grants` is no root: it imports no host module, as Gro's tasks are exported
   and a granted import would lend its grant to every importer,

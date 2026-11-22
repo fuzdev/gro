@@ -31,7 +31,8 @@ The runtime grew out of the loader Gro already uses to run tasks, config, and co
 and makes a clean break from Node toward web standards.
 Its model, authority by import with nothing ambient, is why it's a new runtime and not Deno with other defaults.
 It's an in-progress design, and of the confinement `fgro eval`'s kernel box and the link-time grant check of `fgro run` and `fgro <command>` are built so far.
-The experimental build runs modules with little API to the OS (fs reads beneath the project's root and the directories `--allow-read=` names, and writes, renames, and removes beneath those `--allow-write=` names, or everywhere under `-A`, the programs `--allow-run=` names and those beneath the directories `--allow-run-in=` names, started outside any box, so granting one is close to `-A`, no network, and the environment only as `--allow-env=` or `-A` grants it),
+The experimental build runs modules with little API to the OS (fs reads beneath the project's root and the directories `--allow-read=` names, and writes, renames, and removes beneath those `--allow-write=` names, or everywhere under `-A`, the programs `--allow-run=` names and those beneath the directories `--allow-run-in=` names, started outside any box, so granting one is close to `-A`, no network, and the environment only as `--allow-env=` or `-A` grants it,
+and under `fgro <command>` also what the command's closure grants, tools given the whole environment among it),
 though neither `fgro run`'s process nor `fgro <command>`'s is sandboxed yet - see
 [the runtime docs](/src/docs/runtime.md) for why it exists, the model in a page, the design, and the roadmap,
 and feedback is invited in [discussions](https://github.com/fuzdev/gro/discussions).

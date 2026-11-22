@@ -24,9 +24,9 @@ so a builtin that loads the project's modules takes it from its `host` rather th
 The cut is a guardrail on either runtime, against a builtin's own mistakes, never a boundary.
 On the Node Gro `env` is narrowed and `programs` refuses a role the grants don't list,
 but `fs_paths` is the root's whole `FsPaths`, and any module can still import a host module.
-On the binary the cut sits inside the run's grant set, the grants of every builtin in the command's closure
+On the binary the cut sits inside the run's grant set, the CLI's row and the grants of every builtin in the command's closure
 beside the grant flags. The project's code shares the realm, and though no project task runs there,
-the config and genfiles run at the generated entry's origin, the project's, and import any host module the set holds,
+the config and genfiles run as the project's own modules, at its origin by their paths, imported through the generated entry, and import any host module the set holds,
 and a package they import, granted nothing itself, can patch a shared prototype the builtins' handles pass through,
 so that code holds the whole set, which only the native checks bound until the run's box is installed.
 `Object.freeze` and `Object.hasOwn` are copied when this module loads, the host and its
@@ -127,7 +127,7 @@ export interface BuiltinInvokeGrant {
 	 */
 	readonly when?: string;
 	/**
-	 * The invoke runs in check mode, writing no source, so the closure holds the invoked
+	 * The invoke runs with its `check` arg set, writing no source, so the closure holds the invoked
 	 * builtin's grants without their writes to the project, its programs' tool directories aside,
 	 * and the same for the builtins it invokes in turn:
 	 * `check`'s `gen` and `format`, invoked with `check: true`.
