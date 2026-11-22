@@ -8,6 +8,7 @@ use landlock::{AccessFs, BitFlags, make_bitflags};
 
 use super::Scratch;
 use crate::confine::Prepared;
+use crate::confine::plan::RuleSource;
 use crate::confine::rules::{BoxRules, Kind, Need, RealRights, Rights, RuleError};
 
 /// The path the kernel names `rule`'s handle by.
@@ -106,6 +107,7 @@ fn a_rule_beneath_never_passes_through_a_symlink() {
                 Path::new("node_modules/.vite"),
                 Rights::READ | Rights::WRITE,
                 need,
+                RuleSource::Project,
             )
             .unwrap_err();
         let RuleError::Symlink { path } = &error else {
@@ -133,6 +135,7 @@ fn a_rule_beneath_never_passes_through_a_symlink() {
             Path::new("node_modules/.vite"),
             Rights::WRITE,
             Need::Optional,
+            RuleSource::Project,
         )
         .unwrap_err();
     assert!(matches!(error, RuleError::Symlink { .. }), "{error:?}");
@@ -148,6 +151,7 @@ fn a_rule_beneath_never_passes_through_a_symlink() {
             Path::new("node_modules/.vite-temp"),
             Rights::READ | Rights::WRITE,
             Need::Required,
+            RuleSource::Project,
         )
         .unwrap();
     rules
@@ -157,6 +161,7 @@ fn a_rule_beneath_never_passes_through_a_symlink() {
             Path::new("package.json"),
             Rights::READ | Rights::WRITE,
             Need::Required,
+            RuleSource::Project,
         )
         .unwrap();
     let [temp, json] = rules.rules() else {
@@ -197,6 +202,7 @@ fn a_rule_beneath_refuses_a_symlink_that_stays_inside() {
                 Path::new(path),
                 Rights::WRITE,
                 Need::Optional,
+                RuleSource::Project,
             )
             .unwrap_err();
         assert!(
@@ -225,6 +231,7 @@ fn a_rule_beneath_never_leaves_its_directory() {
                 Path::new(path),
                 Rights::READ,
                 Need::Optional,
+                RuleSource::Project,
             )
             .unwrap_err();
         assert!(
@@ -251,6 +258,7 @@ fn only_an_optional_rule_may_have_nothing_to_name() {
             missing,
             Rights::WRITE,
             Need::Optional,
+            RuleSource::Project,
         )
         .unwrap();
     rules
@@ -258,6 +266,7 @@ fn only_an_optional_rule_may_have_nothing_to_name() {
             &scratch.path().join("absent"),
             RealRights::Read,
             Need::Optional,
+            RuleSource::Project,
         )
         .unwrap();
     assert!(rules.rules().is_empty());
@@ -272,6 +281,7 @@ fn only_an_optional_rule_may_have_nothing_to_name() {
             missing,
             Rights::WRITE,
             Need::Required,
+            RuleSource::Project,
         )
         .unwrap_err();
     assert!(matches!(error, RuleError::Missing { .. }), "{error:?}");
@@ -280,6 +290,7 @@ fn only_an_optional_rule_may_have_nothing_to_name() {
             &scratch.path().join("absent"),
             RealRights::Read,
             Need::Required,
+            RuleSource::Project,
         )
         .unwrap_err();
     assert!(matches!(error, RuleError::Missing { .. }), "{error:?}");
@@ -299,10 +310,20 @@ fn a_rule_by_real_path_names_only_a_real_path() {
     scratch.link(&scratch.path().join("usr"), "alias");
     let mut rules = BoxRules::new();
     rules
-        .real(&bin, RealRights::ReadExecute, Need::Required)
+        .real(
+            &bin,
+            RealRights::ReadExecute,
+            Need::Required,
+            RuleSource::Project,
+        )
         .unwrap();
     rules
-        .real(&bin.join("tool"), RealRights::Read, Need::Required)
+        .real(
+            &bin.join("tool"),
+            RealRights::Read,
+            Need::Required,
+            RuleSource::Project,
+        )
         .unwrap();
     let [dir, file] = rules.rules() else {
         panic!("{:?}", rules.rules());
@@ -314,7 +335,7 @@ fn a_rule_by_real_path_names_only_a_real_path() {
     assert_eq!(file.access(), BitFlags::from(AccessFs::ReadFile));
     let link = scratch.path().join("linked_tool");
     let error = rules
-        .real(&link, RealRights::Read, Need::Optional)
+        .real(&link, RealRights::Read, Need::Optional, RuleSource::Project)
         .unwrap_err();
     assert!(
         matches!(&error, RuleError::Symlink { path } if path == &link),
@@ -322,7 +343,12 @@ fn a_rule_by_real_path_names_only_a_real_path() {
     );
     let through = scratch.path().join("alias/bin");
     let error = rules
-        .real(&through, RealRights::Read, Need::Optional)
+        .real(
+            &through,
+            RealRights::Read,
+            Need::Optional,
+            RuleSource::Project,
+        )
         .unwrap_err();
     let RuleError::NotReal { path, opened } = &error else {
         panic!("{error:?}");
@@ -347,12 +373,18 @@ fn a_rule_s_path_of_no_form_is_refused_not_absent() {
             Path::new(""),
             Rights::READ,
             Need::Optional,
+            RuleSource::Project,
         )
         .unwrap_err();
     assert!(matches!(error, RuleError::Open { .. }), "{error:?}");
     for path in ["", "relative/missing", "."] {
         let error = rules
-            .real(Path::new(path), RealRights::Read, Need::Optional)
+            .real(
+                Path::new(path),
+                RealRights::Read,
+                Need::Optional,
+                RuleSource::Project,
+            )
             .unwrap_err();
         assert!(
             matches!(error, RuleError::Open { .. }),

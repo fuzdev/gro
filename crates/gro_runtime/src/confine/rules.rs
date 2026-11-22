@@ -6,7 +6,7 @@
 //! changes nothing the box admits. Its handle is opened one of two ways, and
 //! the way decides what it may grant.
 //!
-//! - **By its real path** ([`BoxRules::real`]): `O_PATH | O_NOFOLLOW`, then
+//! - **By its real path** (`BoxRules::real`): `O_PATH | O_NOFOLLOW`, then
 //!   the kernel's name for the handle checked against the path, so a path
 //!   that isn't real (a symlink on it) or a directory on it swapped since it
 //!   was read is refused rather than admitted where it now leads. It grants
@@ -14,7 +14,7 @@
 //!   project's and the link closure's, open the same way as directories
 //!   (`open_real_dir`, with `O_DIRECTORY`) and read beneath them
 //!   (`BoxRules::read_dirs`).
-//! - **Beneath a directory's descriptor** ([`BoxRules::beneath`]): one
+//! - **Beneath a directory's descriptor** (`BoxRules::beneath`): one
 //!   `openat2` with every symlink on the path refused
 //!   (`gro_sys::beneath::Links::Refused`), decided by the kernel in the call
 //!   that opens it, so a rule never passes through a symlink, whether it
@@ -60,6 +60,7 @@ use gro_sys::beneath::{self, Links, OpenAs};
 use landlock::{AccessFs, BitFlags, make_bitflags};
 
 use super::landlock::LANDLOCK_ABI;
+use super::plan::RuleSource;
 
 /// What a rule grants beneath its handle: any of reading, writing, and
 /// executing, joined by `|`.
@@ -143,7 +144,7 @@ const WRITE_ACCESS: BitFlags<AccessFs> = make_bitflags!(AccessFs::{
 
 /// What a rule opened by its real path grants, which never writes: a rule
 /// that writes is opened beneath a directory's descriptor, every symlink
-/// refused ([`BoxRules::beneath`]).
+/// refused (`BoxRules::beneath`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RealRights {
     /// [`Rights::READ`].
@@ -193,6 +194,8 @@ pub struct Rule {
     kind: Kind,
     /// What it grants.
     rights: Rights,
+    /// Why it's there.
+    source: RuleSource,
 }
 
 impl Rule {
@@ -209,6 +212,11 @@ impl Rule {
     /// What it grants.
     pub const fn rights(&self) -> Rights {
         self.rights
+    }
+
+    /// Why it's there.
+    pub const fn source(&self) -> RuleSource {
+        self.source
     }
 
     /// The Landlock rights it grants (`Rights::access`).
@@ -232,6 +240,8 @@ pub struct InstalledRule {
     kind: Kind,
     /// What it grants.
     rights: Rights,
+    /// Why it's there.
+    source: RuleSource,
 }
 
 impl InstalledRule {
@@ -249,6 +259,11 @@ impl InstalledRule {
     pub const fn rights(&self) -> Rights {
         self.rights
     }
+
+    /// Why it's there.
+    pub const fn source(&self) -> RuleSource {
+        self.source
+    }
 }
 
 /// The box's rules, in the order they were added, and the optional ones
@@ -262,23 +277,30 @@ pub struct BoxRules {
 }
 
 impl BoxRules {
-    /// No rules.
-    pub fn new() -> Self {
+    /// No rules: the run's, which only its opener adds to, once the
+    /// process is hardened (`run::RunHardened::prepare`).
+    pub(super) fn new() -> Self {
         Self::default()
     }
 
     /// The read rules on directories already opened by their real paths
     /// ([`open_real_dir`]), each with its path, in order: the roots of
-    /// eval's box.
+    /// eval's box, the project's first, then each linked package's.
     pub(super) fn read_dirs(dirs: impl IntoIterator<Item = (PathBuf, OwnedFd)>) -> Self {
         Self {
             rules: dirs
                 .into_iter()
-                .map(|(path, handle)| Rule {
+                .enumerate()
+                .map(|(at, (path, handle))| Rule {
                     handle,
                     path,
                     kind: Kind::Directory,
                     rights: Rights::READ,
+                    source: if at == 0 {
+                        RuleSource::Project
+                    } else {
+                        RuleSource::Linked
+                    },
                 })
                 .collect(),
             absent: Vec::new(),
@@ -286,7 +308,7 @@ impl BoxRules {
     }
 
     /// Adds a rule granting `rights` on what the absolute real path `path`
-    /// names, opened by that path: `O_PATH | O_NOFOLLOW`, kept only when it
+    /// names, for `source`, opened by that path: `O_PATH | O_NOFOLLOW`, kept only when it
     /// isn't a symlink and the kernel names the handle by `path`.
     ///
     /// # Errors
@@ -298,7 +320,13 @@ impl BoxRules {
     /// it was read); [`RuleError::Open`] when `path` isn't absolute, which
     /// is refused before any call, or when the open or the reads of what it
     /// opened fail otherwise.
-    pub fn real(&mut self, path: &Path, rights: RealRights, need: Need) -> Result<(), RuleError> {
+    pub(super) fn real(
+        &mut self,
+        path: &Path,
+        rights: RealRights,
+        need: Need,
+        source: RuleSource,
+    ) -> Result<(), RuleError> {
         let opened = if path.is_absolute() {
             open_real(path, libc::O_PATH | libc::O_NOFOLLOW)
                 .map_err(Unopened::from)
@@ -309,11 +337,11 @@ impl BoxRules {
                 "a rule's real path is absolute",
             )))
         };
-        self.add(path.to_owned(), opened, rights.into(), need)
+        self.add(path.to_owned(), opened, rights.into(), need, source)
     }
 
     /// Adds a rule granting `rights` on what `path` names beneath the
-    /// directory `dir`, whose absolute path is `dir_path`, opened by one
+    /// directory `dir`, whose absolute path is `dir_path`, for `source`, opened by one
     /// `openat2` beneath it with every symlink on the path refused, the last
     /// component's included.
     ///
@@ -325,13 +353,14 @@ impl BoxRules {
     /// absolute, or a `..` climbs above it); [`RuleError::Open`] when `path`
     /// is empty, which is refused before any call, or when the open or the
     /// read of what it opened fail otherwise.
-    pub fn beneath(
+    pub(super) fn beneath(
         &mut self,
         dir: BorrowedFd<'_>,
         dir_path: &Path,
         path: &Path,
         rights: Rights,
         need: Need,
+        source: RuleSource,
     ) -> Result<(), RuleError> {
         let opened = if path.as_os_str().is_empty() {
             Err(Unopened::Io(io::Error::new(
@@ -343,7 +372,7 @@ impl BoxRules {
                 .map_err(Unopened::Io)
                 .and_then(kind_of)
         };
-        self.add(dir_path.join(path), opened, rights, need)
+        self.add(dir_path.join(path), opened, rights, need, source)
     }
 
     /// The rules, in the order they were added.
@@ -368,6 +397,7 @@ impl BoxRules {
                 path: rule.path,
                 kind: rule.kind,
                 rights: rule.rights,
+                source: rule.source,
             })
             .collect();
         (rules, self.absent)
@@ -381,6 +411,7 @@ impl BoxRules {
         opened: Result<(OwnedFd, Kind), Unopened>,
         rights: Rights,
         need: Need,
+        source: RuleSource,
     ) -> Result<(), RuleError> {
         match opened {
             Ok((handle, kind)) => {
@@ -389,6 +420,7 @@ impl BoxRules {
                     path,
                     kind,
                     rights,
+                    source,
                 });
                 Ok(())
             }
@@ -453,6 +485,28 @@ pub enum RuleError {
         path: PathBuf,
         /// The path the kernel names its handle by.
         opened: PathBuf,
+    },
+    /// The rule opens beneath the run's private directory, and none was
+    /// made.
+    #[error(
+        "the box's rule for {} is refused: it opens beneath the run's private directory, and none \
+         was made",
+        path.display()
+    )]
+    NoPrivateDir {
+        /// Its path beneath the private directory.
+        path: PathBuf,
+    },
+    /// The run's private directory's descriptor no longer names the
+    /// directory made for the run.
+    #[error(
+        "the box's rule for {} is refused: the run's private directory's descriptor no longer \
+         names the directory made for it",
+        path.display()
+    )]
+    PrivateDirChanged {
+        /// The private directory's path.
+        path: PathBuf,
     },
     /// The rule's open, or a read of what it opened, failed otherwise.
     #[error("failed to open the box's rule for {}: {source}", path.display())]

@@ -10,6 +10,7 @@ use std::path::Path;
 use gro_sys::namespace::{MapStep, NamespaceError, Refusal};
 
 use super::Scratch;
+use crate::confine::plan::{RuleSource, ToolDir};
 use crate::confine::rules::{BoxRules, Kind, Need, Rights};
 use crate::confine::run::{RunNetwork, RunStepError, network_refused};
 use crate::confine::{ConfineError, NetForm};
@@ -50,8 +51,8 @@ fn each_network_builds_its_form_s_walls() {
     }
 }
 
-/// The rules a box keeps once installed are its rules' paths, kinds, and
-/// rights, in order, and the absent ones' paths.
+/// The rules a box keeps once installed are its rules' paths, kinds,
+/// rights, and sources, in order, and the absent ones' paths.
 #[test]
 fn an_installed_box_keeps_its_rules_as_data() {
     let scratch = Scratch::new("installed");
@@ -59,34 +60,66 @@ fn an_installed_box_keeps_its_rules_as_data() {
     scratch.file("package.json");
     let root = std::fs::File::open(scratch.path()).unwrap();
     let mut rules = BoxRules::new();
-    for (path, rights, need) in [
-        (".", Rights::READ, Need::Required),
-        ("out", Rights::READ | Rights::WRITE, Need::Required),
-        ("package.json", Rights::READ, Need::Required),
-        ("missing", Rights::READ, Need::Optional),
+    let tool_dir = RuleSource::ToolDir(ToolDir::SvelteKit);
+    for (path, rights, need, source) in [
+        (".", Rights::READ, Need::Required, RuleSource::Project),
+        (
+            "out",
+            Rights::READ | Rights::WRITE,
+            Need::Required,
+            tool_dir,
+        ),
+        (
+            "package.json",
+            Rights::READ,
+            Need::Required,
+            RuleSource::Entry,
+        ),
+        ("missing", Rights::READ, Need::Optional, RuleSource::Project),
     ] {
         rules
-            .beneath(root.as_fd(), scratch.path(), Path::new(path), rights, need)
+            .beneath(
+                root.as_fd(),
+                scratch.path(),
+                Path::new(path),
+                rights,
+                need,
+                source,
+            )
             .unwrap();
     }
     let (installed, absent) = rules.into_installed();
     let kept: Vec<_> = installed
         .iter()
-        .map(|rule| (rule.path().to_owned(), rule.kind(), rule.rights()))
+        .map(|rule| {
+            (
+                rule.path().to_owned(),
+                rule.kind(),
+                rule.rights(),
+                rule.source(),
+            )
+        })
         .collect();
     assert_eq!(
         kept,
         [
-            (scratch.path().join("."), Kind::Directory, Rights::READ),
+            (
+                scratch.path().join("."),
+                Kind::Directory,
+                Rights::READ,
+                RuleSource::Project
+            ),
             (
                 scratch.path().join("out"),
                 Kind::Directory,
-                Rights::READ | Rights::WRITE
+                Rights::READ | Rights::WRITE,
+                tool_dir
             ),
             (
                 scratch.path().join("package.json"),
                 Kind::File,
-                Rights::READ
+                Rights::READ,
+                RuleSource::Entry
             ),
         ]
     );

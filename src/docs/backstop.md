@@ -93,8 +93,8 @@ installed from the process's one thread before V8 starts, and every program the 
 A narrower box for each program inside the run's is designed after it, and when `fgro run` gets the run's box is open.
 What's built: the rules as data, each a handle opened before the box goes up, a rule that writes opened beneath a directory the run holds open,
 with every symlink on its path refused; the denylist; the steps before the box; and the type state that takes them in order,
-held from inside the box by a test; and the box's plan, which derives the rules from what a run grants and what the disk holds.
-Nothing installs the box yet. The rules:
+held from inside the box by a test; and the box's plan, which derives the rules from what a run grants and what the disk holds,
+with the steps that make the tool directories and the run's private directory before the box. Nothing installs the box yet. The rules:
 
 - **Reads:** the project root and the packages linked into it, the pinned programs, the system files below,
   git's directories outside the project (a linked worktree's or a submodule's, or the repository's that holds the project),

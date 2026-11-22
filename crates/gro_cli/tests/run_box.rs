@@ -1,7 +1,7 @@
 //! The run's box from inside a process holding it: each case runs in a
 //! child, this binary run again with the case's name, which takes the run's
 //! steps from its main thread, its only one, as a run takes them
-//! (`gro_runtime::confine::run`), with rules of the test's own, then prints
+//! (`gro_runtime::confine::run`), with a plan of the test's own, then prints
 //! what it could and couldn't do, and what its programs could. Once boxed
 //! it prints `inspect` and waits on stdin while the parent reads it from
 //! outside (`/proc/<pid>`: its seccomp mode, capabilities, maps, limits,
@@ -54,8 +54,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
-use gro_runtime::confine::plan::{BoxFacts, BoxInputs, BoxPlan};
-use gro_runtime::confine::rules::{BoxRules, Need, RealRights, Rights};
+use gro_runtime::confine::plan::{BoxFacts, BoxInputs, BoxPlan, ProgramFile};
+use gro_runtime::confine::rules::InstalledRule;
 use gro_runtime::confine::run::{RunClosed, RunHardened, RunNetwork, RunPrepared};
 use gro_runtime::confine::tool_dirs::ToolDirError;
 
@@ -92,6 +92,9 @@ const CASES: &[&str] = &[
     "stdout_stream",
     "tool_dirs",
     "tool_dirs_planted",
+    "planned",
+    "planned_check",
+    "private_dir_reused",
     #[cfg(feature = "snapshot")]
     "v8",
 ];
@@ -377,6 +380,7 @@ fn expected(case: &str) -> String {
             );
             line("the one made before: kept");
             line("a file at .svelte-kit: NotADirectory");
+            line("prepared with no private directory: NoPrivateDir");
         }
         "tool_dirs_planted" => {
             line(&format!("network: {network}"));
@@ -386,6 +390,31 @@ fn expected(case: &str) -> String {
             line("made where it leads: false");
             line("node_modules swapped for a link to .git: Symlink");
             line("made in .git: false");
+        }
+        "private_dir_reused" => {
+            line(&format!("network: {network}"));
+            line("prepared with a reused descriptor: PrivateDirChanged");
+        }
+        "planned" | "planned_check" => {
+            let writes = if case == "planned" { "ok" } else { "denied" };
+            line(&format!("network: {network}"));
+            line("confined");
+            line("installed as planned: true");
+            line("write .git/hooks: denied");
+            line("write node_modules/x: denied");
+            line("write a new top-level file: denied");
+            line(&format!("write src: {writes}"));
+            line("write node_modules/.vite: ok");
+            line(&format!("write a nested node_modules: {writes}"));
+            line("write the private directory: ok");
+            line("the private directory held by the box: true");
+            line("/dev/null: read ok, write ok");
+            line("a program runs: exit 3");
+            line("read a linked package: ok");
+            line("read /proc/self/status: ok");
+            line("read git's home config: ok");
+            line("read the home directory: denied");
+            line("node runs: node ok");
         }
         "v8" => {
             line(&format!("network: {network}"));
@@ -702,39 +731,28 @@ fn say(line: &str) {
     stdout.flush().unwrap();
 }
 
-/// The rules the cases' box installs: reading the project, writing its
-/// `out` directory, reading and executing `/usr`, reading `/etc`.
-fn rules(project: &Path) -> BoxRules {
-    let dir = std::fs::File::open(project).unwrap();
-    let mut rules = BoxRules::new();
-    for (path, rights) in [(".", Rights::READ), ("out", Rights::READ | Rights::WRITE)] {
-        rules
-            .beneath(
-                dir.as_fd(),
-                project,
-                Path::new(path),
-                rights,
-                Need::Required,
-            )
-            .unwrap();
-    }
-    rules
-        .real(Path::new("/usr"), RealRights::ReadExecute, Need::Required)
-        .unwrap();
-    rules
-        .real(Path::new("/etc"), RealRights::Read, Need::Required)
-        .unwrap();
-    rules
+/// The plan of the cases' box: a run of the project that writes its
+/// root and starts no program, so the project is read, its top-level
+/// entries written (`out` among them), and the system's directories read,
+/// `/usr` executed too.
+fn plan(project: &Path) -> BoxPlan {
+    let inputs = BoxInputs {
+        root: std::fs::canonicalize(project).unwrap(),
+        writes_root: true,
+        ..BoxInputs::default()
+    };
+    BoxPlan::for_run(&inputs, &BoxFacts::read(&inputs).unwrap()).unwrap()
 }
 
-/// The run's steps up to its box, prepared with [`rules`].
+/// The run's steps up to its box, prepared from [`plan`].
 fn prepared(project: &Path) -> RunPrepared {
+    let plan = plan(project);
     let networked = RunClosed::close_inherited()
         .unwrap()
         .enter_network()
         .unwrap();
     say(&network_line(networked.network()));
-    networked.harden().unwrap().prepare(rules(project))
+    networked.harden().unwrap().prepare(&plan, None).unwrap()
 }
 
 /// Starts a thread that waits until the returned sender sends, for a step
@@ -848,6 +866,9 @@ fn child(case: &str, scratch: &Path, port: u16) {
         },
         "tool_dirs" => tool_dirs(scratch),
         "tool_dirs_planted" => tool_dirs_planted(scratch),
+        "planned" => planned(scratch, true),
+        "private_dir_reused" => private_dir_reused(scratch),
+        "planned_check" => planned(scratch, false),
         #[cfg(feature = "snapshot")]
         "v8" => v8::run(&project, &outside),
         _ => panic!("no case {case}"),
@@ -911,6 +932,13 @@ fn tool_dirs(scratch: &Path) {
     let filed = tools_project(scratch, "tools_file");
     std::fs::write(filed.join(".svelte-kit"), "").unwrap();
     let file_plan = tools_plan(&filed, &["vitest"], &["@sveltejs/kit"]);
+    let spawning_inputs = BoxInputs {
+        root: project.clone(),
+        spawns: true,
+        ..BoxInputs::default()
+    };
+    let spawning =
+        BoxPlan::for_run(&spawning_inputs, &BoxFacts::read(&spawning_inputs).unwrap()).unwrap();
     let hardened = hardened();
     hardened.make_tool_dirs(&plan).unwrap();
     say("made: ok");
@@ -938,6 +966,14 @@ fn tool_dirs(scratch: &Path) {
     say(&format!(
         "a file at .svelte-kit: {}",
         tool_dir_refusal(hardened.make_tool_dirs(&file_plan))
+    ));
+    say(&format!(
+        "prepared with no private directory: {}",
+        match hardened.prepare(&spawning, None) {
+            Err(gro_runtime::confine::rules::RuleError::NoPrivateDir { .. }) => "NoPrivateDir",
+            Err(_) => "another refusal",
+            Ok(_) => "prepared",
+        }
     ));
 }
 
@@ -978,6 +1014,210 @@ fn tool_dirs_planted(scratch: &Path) {
     ));
 }
 
+/// A run of a project of its own as `gen` (`writing`) or `check` plans it:
+/// `svelte-kit` granted, the project declaring `@sveltejs/kit` and `vite`,
+/// the `node` on `PATH` pinned, a package linked from outside, a nested
+/// `node_modules`, and git's home config in a home of its own; its tool
+/// directories and private directory made, its box up, then what it and
+/// the programs it starts reach.
+fn planned(scratch: &Path, writing: bool) {
+    let case = if writing {
+        "planned_write"
+    } else {
+        "planned_check"
+    };
+    let made = |path: &str| std::fs::create_dir_all(scratch.join(case).join(path)).unwrap();
+    for dir in [
+        "project/src",
+        "project/.git/hooks",
+        "project/node_modules/x",
+        "project/examples/app/node_modules",
+        "linked",
+        "home",
+        "tmp",
+    ] {
+        made(dir);
+    }
+    let at = |path: &str| {
+        std::fs::canonicalize(scratch.join(case))
+            .unwrap()
+            .join(path)
+    };
+    let project = at("project");
+    for (path, text) in [
+        ("project/package.json", "{}"),
+        ("project/CLAUDE.md", ""),
+        ("linked/package.json", "{}"),
+        ("home/.gitconfig", ""),
+        ("home/secret.txt", ""),
+    ] {
+        std::fs::write(at(path), text).unwrap();
+    }
+    std::os::unix::fs::symlink("CLAUDE.md", project.join("AGENTS.md")).unwrap();
+    std::os::unix::fs::symlink(at("linked"), project.join("node_modules/linked")).unwrap();
+    let path = std::env::var("PATH").unwrap();
+    let found = PathBuf::from(
+        gro_runtime::find_on_path("node", Some(&path))
+            .unwrap()
+            .unwrap(),
+    );
+    let node = std::fs::canonicalize(&found).unwrap();
+    let inputs = BoxInputs {
+        root: project.clone(),
+        writes_root: writing,
+        tools: ["svelte-kit".to_owned()].into(),
+        spawns: true,
+        declared: ["@sveltejs/kit".to_owned(), "vite".to_owned()].into(),
+        programs: vec![ProgramFile::Node {
+            script: {
+                let mut first = [0u8; 2];
+                std::io::Read::read_exact(&mut std::fs::File::open(&node).unwrap(), &mut first)
+                    .unwrap();
+                &first == b"#!"
+            },
+            found,
+            real: node.clone(),
+        }],
+        home: Some(at("home")),
+        ..BoxInputs::default()
+    };
+    let plan = BoxPlan::for_run(&inputs, &BoxFacts::read(&inputs).unwrap()).unwrap();
+    let hardened = hardened();
+    let parent: std::os::fd::OwnedFd = std::fs::File::open(at("tmp")).unwrap().into();
+    let private = hardened
+        .make_private_dir(parent.as_fd(), &at("tmp"))
+        .unwrap();
+    drop(parent);
+    hardened.make_tool_dirs(&plan).unwrap();
+    let private_path = private.path().to_owned();
+    let prepared = hardened.prepare(&plan, Some(private)).unwrap();
+    let confined = prepared.confine().unwrap();
+    say("confined");
+    let planned: Vec<_> = plan.rules().iter().map(|rule| rule.source).collect();
+    let installed: Vec<_> = confined.rules().iter().map(InstalledRule::source).collect();
+    say(&format!(
+        "installed as planned: {}",
+        confined.absent().is_empty() && installed == planned
+    ));
+    let write = |path: PathBuf| outcome(std::fs::write(path, ""));
+    say(&format!(
+        "write .git/hooks: {}",
+        write(project.join(".git/hooks/x"))
+    ));
+    say(&format!(
+        "write node_modules/x: {}",
+        write(project.join("node_modules/x/y"))
+    ));
+    say(&format!(
+        "write a new top-level file: {}",
+        write(project.join("new.txt"))
+    ));
+    say(&format!("write src: {}", write(project.join("src/a.txt"))));
+    say(&format!(
+        "write node_modules/.vite: {}",
+        write(project.join("node_modules/.vite/x"))
+    ));
+    say(&format!(
+        "write a nested node_modules: {}",
+        write(project.join("examples/app/node_modules/x"))
+    ));
+    say(&format!(
+        "write the private directory: {}",
+        write(private_path.join("x"))
+    ));
+    // its lock lives in the box, past `prepare`: a sweep's exclusive lock
+    // waits
+    say(&format!(
+        "the private directory held by the box: {}",
+        std::fs::File::open(&private_path)
+            .is_ok_and(|dir| matches!(dir.try_lock(), Err(std::fs::TryLockError::WouldBlock)))
+    ));
+    let null = Path::new("/dev/null");
+    say(&format!(
+        "/dev/null: read {}, write {}",
+        outcome(std::fs::read(null)),
+        outcome(std::fs::OpenOptions::new().write(true).open(null))
+    ));
+    say(&format!(
+        "a program runs: {}",
+        program("exit 3", &[]).map_or_else(|error| error, |code| format!("exit {code}"))
+    ));
+    say(&format!(
+        "read a linked package: {}",
+        outcome(std::fs::read(
+            project.join("node_modules/linked/package.json")
+        ))
+    ));
+    say(&format!(
+        "read /proc/self/status: {}",
+        outcome(std::fs::read("/proc/self/status"))
+    ));
+    say(&format!(
+        "read git's home config: {}",
+        outcome(std::fs::read(at("home/.gitconfig")))
+    ));
+    say(&format!(
+        "read the home directory: {}",
+        outcome(std::fs::read(at("home/secret.txt")))
+    ));
+    let ran = Command::new(&node)
+        .args(["-e", "process.memoryUsage(); console.log('node ok')"])
+        .stdin(Stdio::piped())
+        .output()
+        .map_or_else(
+            |error| format!("didn't start: {error}"),
+            |output| {
+                format!(
+                    "{}{}",
+                    String::from_utf8_lossy(&output.stdout).trim(),
+                    String::from_utf8_lossy(&output.stderr)
+                        .lines()
+                        .next()
+                        .unwrap_or_default()
+                )
+            },
+        );
+    say(&format!("node runs: {ran}"));
+}
+
+/// A private directory whose descriptor numbers a second chain of the
+/// run's steps closed and the next opens reused: `prepare` refuses it, held
+/// to the directory it made.
+fn private_dir_reused(scratch: &Path) {
+    let project = tools_project(scratch, "private_reused");
+    let tmp = scratch.join("private_reused_tmp");
+    std::fs::create_dir_all(&tmp).unwrap();
+    let inputs = BoxInputs {
+        root: project.clone(),
+        temp: true,
+        ..BoxInputs::default()
+    };
+    let plan = BoxPlan::for_run(&inputs, &BoxFacts::read(&inputs).unwrap()).unwrap();
+    let hardened = hardened();
+    let parent: std::os::fd::OwnedFd = std::fs::File::open(&tmp).unwrap().into();
+    let private = hardened.make_private_dir(parent.as_fd(), &tmp).unwrap();
+    drop(parent);
+    // gro's own bug, a second chain: its first step closes every
+    // descriptor above stderr by number, the private directory's among them
+    let _second = RunClosed::close_inherited().unwrap();
+    let reused: Vec<std::fs::File> = (0..4)
+        .map(|_| std::fs::File::open(&project).unwrap())
+        .collect();
+    say(&format!(
+        "prepared with a reused descriptor: {}",
+        match hardened.prepare(&plan, Some(private)) {
+            Err(gro_runtime::confine::rules::RuleError::PrivateDirChanged { .. }) => {
+                "PrivateDirChanged"
+            }
+            Err(_) => "another refusal",
+            Ok(_) => "prepared",
+        }
+    ));
+    // the descriptors the directory held are the reused ones now: end here
+    std::mem::forget(reused);
+    std::process::exit(0);
+}
+
 /// The process's capability sets, as `/proc/self/status` shows them.
 fn capabilities() -> Vec<String> {
     let status = std::fs::read_to_string("/proc/self/status").unwrap();
@@ -997,6 +1237,7 @@ fn wait_for_inspection() {
 /// The walls case: the run's steps, each seen where it can be, the box,
 /// then what this process and the programs it starts can reach.
 fn walls(project: &Path, scratch: &Path, port: u16) {
+    let plan = plan(project);
     let closed = RunClosed::close_inherited().unwrap();
     // descriptor 3, which `/bin/sh` opened on a file outside the box
     say(&format!(
@@ -1015,7 +1256,7 @@ fn walls(project: &Path, scratch: &Path, port: u16) {
             setting("/proc/sys/user/max_user_namespaces")
         ));
     }
-    let prepared = networked.harden().unwrap().prepare(rules(project));
+    let prepared = networked.harden().unwrap().prepare(&plan, None).unwrap();
     let _confined = prepared.confine().unwrap();
     say("confined");
     let outside = scratch.join("outside");

@@ -27,9 +27,16 @@
 //!    write; its `core` hard limit lowered to 0; and its open-files soft
 //!    limit raised to the hard one where it can be, as Node raises it,
 //!    which a program the run starts inherits.
-//! 4. [`RunHardened::prepare`]: the Landlock rules ([`BoxRules`]), opened
-//!    by the caller once the process is hardened, after whatever it makes
-//!    for the run beneath the project, so each rule names what it made.
+//! 4. [`RunHardened::prepare`]: the Landlock rules ([`BoxRules`]) opened
+//!    from the run's plan (`plan::BoxPlan`) once the process is hardened,
+//!    after what the run makes for itself (its tool directories,
+//!    [`RunHardened::make_tool_dirs`], and its private directory,
+//!    [`RunHardened::make_private_dir`]), so each rule names what was made.
+//!    The token is the only way a run's rules open, so none can open before
+//!    the first step closes the inherited descriptors by number, which would
+//!    close a rule's handle under it: a guardrail against gro's own bug,
+//!    held by the compiler. The box then owns the private directory, its
+//!    lock with it, for as long as the box lasts.
 //! 5. [`RunPrepared::confine`]: the thread count checked, then the
 //!    process's descriptors (`gro_sys::unboxed_descriptors`), then
 //!    Landlock, then the seccomp denylist (`seccomp::denylist`), each
@@ -107,13 +114,18 @@
 //! availability, no wall, and best-effort, as `fgro run`'s is.
 
 use std::io;
-use std::path::PathBuf;
+use std::os::fd::{AsFd as _, BorrowedFd};
+use std::os::unix::fs::MetadataExt as _;
+use std::path::{Path, PathBuf};
 
+use gro_sys::beneath;
 use gro_sys::capabilities::{self, CapabilityError};
 use gro_sys::namespace::{self, MapStep, NamespaceError, NamespaceRefused, Refusal};
+use gro_sys::private_dir::{self, PrivateDir, PrivateDirError};
 
 use super::landlock::{self, TcpWall};
-use super::rules::{BoxRules, InstalledRule};
+use super::plan::{Anchor, BoxPlan, Opening};
+use super::rules::{BoxRules, InstalledRule, RuleError};
 use super::{ConfineError, NetForm, alone};
 
 /// The process with every descriptor it inherited above stderr closed:
@@ -148,6 +160,9 @@ pub struct RunPrepared {
     rules: BoxRules,
     /// The network the box is for.
     network: RunNetwork,
+    /// The run's private directory, if it has one, held, its lock with it,
+    /// as long as the box is.
+    private: Option<RunPrivateDir>,
 }
 
 /// The process confined to the run's box, from the thread that installed
@@ -160,6 +175,10 @@ pub struct RunConfined {
     absent: Vec<PathBuf>,
     /// The network it's in.
     network: RunNetwork,
+    /// The run's private directory, if it has one, held, its lock with it,
+    /// as long as the box is: a sweep by another run removes it only once
+    /// this process is gone.
+    private: Option<RunPrivateDir>,
 }
 
 /// The network a run's box holds it in, which decides its TCP wall and its
@@ -342,14 +361,132 @@ impl RunNetworked {
     }
 }
 
+/// The run's private directory, made only once the process is hardened.
+///
+/// [`RunHardened::make_private_dir`] makes it, so its descriptor is never
+/// one the first step closes under it, and it's the only anchor
+/// [`RunHardened::prepare`] opens the private directory's rule beneath.
+#[derive(Debug)]
+pub struct RunPrivateDir {
+    /// The directory, held by its shared lock.
+    dir: PrivateDir,
+    /// Its absolute path, for messages.
+    path: PathBuf,
+}
+
+impl RunPrivateDir {
+    /// Its absolute path, as made.
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
+/// Equal as the same directory made at the same path, the lock aside.
+impl PartialEq for RunPrivateDir {
+    fn eq(&self, other: &Self) -> bool {
+        self.path == other.path && self.dir.id() == other.dir.id()
+    }
+}
+
+impl Eq for RunPrivateDir {}
+
 impl RunHardened {
-    /// The box with the Landlock rules `rules`, opened since the process
-    /// was hardened, for the network it's in.
-    pub const fn prepare(self, rules: BoxRules) -> RunPrepared {
-        RunPrepared {
+    /// Makes the run's private directory beneath `parent`, whose absolute
+    /// path is `parent_path` (`gro_sys::private_dir::make_private_dir`),
+    /// once the process is hardened.
+    ///
+    /// # Errors
+    ///
+    /// Returns why it couldn't be made, as `gro_sys` names it.
+    pub fn make_private_dir(
+        &self,
+        parent: BorrowedFd<'_>,
+        parent_path: &Path,
+    ) -> Result<RunPrivateDir, PrivateDirError> {
+        let dir = private_dir::make_private_dir(parent)?;
+        let path = parent_path.join(dir.name());
+        Ok(RunPrivateDir { dir, path })
+    }
+
+    /// The box `plan` plans, its rules opened now, once the process is
+    /// hardened, for the network it's in: each in the plan's order, by its
+    /// real path or beneath its anchor, the project's root and `/` each
+    /// opened by its real path with every symlink refused, the private
+    /// directory by `private`'s descriptor, which only this token makes,
+    /// held to the directory it made by its device and inode numbers. The
+    /// box then owns `private`, so its lock lasts as long as the box. The
+    /// token is the only way a run's rules open, so none opens before the
+    /// inherited descriptors close, which would close it under its owner: a
+    /// guardrail against gro's own bug.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first rule refused ([`RuleError`]): one that can't open
+    /// as the [rules' module doc](super::rules) says, an anchor that can't
+    /// open, refused as the rules beneath it, or a rule beneath the private
+    /// directory when `private` is none.
+    pub fn prepare(
+        self,
+        plan: &BoxPlan,
+        private: Option<RunPrivateDir>,
+    ) -> Result<RunPrepared, RuleError> {
+        let root = Path::new("/");
+        let open_anchor = |path: &Path| {
+            beneath::open_root(path).map_err(|source| RuleError::Open {
+                path: path.to_owned(),
+                source,
+            })
+        };
+        let project = open_anchor(plan.root())?;
+        let slash = open_anchor(root)?;
+        let mut rules = BoxRules::new();
+        for rule in plan.rules() {
+            match &rule.opening {
+                Opening::Real { path, rights } => {
+                    rules.real(path, *rights, rule.need, rule.source)?;
+                }
+                Opening::Beneath {
+                    anchor,
+                    path,
+                    rights,
+                } => {
+                    let (dir, dir_path) = match (anchor, private.as_ref()) {
+                        (Anchor::Project, _) => (project.as_fd(), plan.root()),
+                        (Anchor::Slash, _) => (slash.as_fd(), root),
+                        (Anchor::PrivateTemp, Some(private)) => {
+                            held_private(private)?;
+                            (private.dir.dir(), private.path.as_path())
+                        }
+                        (Anchor::PrivateTemp, None) => {
+                            return Err(RuleError::NoPrivateDir { path: path.clone() });
+                        }
+                    };
+                    rules.beneath(dir, dir_path, path, *rights, rule.need, rule.source)?;
+                }
+            }
+        }
+        Ok(RunPrepared {
             rules,
             network: self.network,
-        }
+            private,
+        })
+    }
+}
+
+/// That `private`'s descriptor still names the directory made for the run:
+/// a second chain of tokens closes descriptors by number, and a number
+/// reused since would name another directory.
+fn held_private(private: &RunPrivateDir) -> Result<(), RuleError> {
+    let named = private
+        .dir
+        .dir()
+        .try_clone_to_owned()
+        .and_then(|handle| std::fs::File::from(handle).metadata());
+    match named {
+        Ok(metadata) if (metadata.dev(), metadata.ino()) == private.dir.id() => Ok(()),
+        _ => Err(RuleError::PrivateDirChanged {
+            path: private.path.clone(),
+        }),
     }
 }
 
@@ -403,6 +540,7 @@ impl RunPrepared {
             rules,
             absent,
             network: self.network,
+            private: self.private,
         })
     }
 }
@@ -422,6 +560,11 @@ fn denylist(_form: NetForm) -> Result<seccompiler::BpfProgram, ConfineError> {
 }
 
 impl RunConfined {
+    /// The run's private directory, if it has one.
+    pub const fn private_dir(&self) -> Option<&RunPrivateDir> {
+        self.private.as_ref()
+    }
+
     /// The rules the box installed, in order.
     pub fn rules(&self) -> &[InstalledRule] {
         &self.rules

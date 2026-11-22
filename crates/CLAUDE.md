@@ -200,7 +200,10 @@ and the contracts no one module doc owns.
   A rule opens by real path (reading and executing only) or beneath a
   directory's descriptor with every symlink on the path refused (any right,
   the only way to write), and each is required or optional, its absence
-  alone allowed, never dropped.
+  alone allowed, never dropped. A run's rules open only from its plan
+  (`confine/plan.rs`, derived purely from the run and the disk's facts),
+  by `RunHardened::prepare`, so none opens before the inherited
+  descriptors close.
 - One thread until the box: `fgro eval` keeps its process single-threaded
   until it's confined, in the step order written once, in `confine_eval`'s
   doc in `crates/gro_cli/src/eval.rs`; the run's box takes its steps on one

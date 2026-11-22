@@ -65,6 +65,8 @@ pub struct PrivateDir {
     name: String,
     /// The directory, opened to read, holding its shared lock.
     _lock: File,
+    /// Its device and inode numbers as made.
+    id: (u64, u64),
 }
 
 impl PrivateDir {
@@ -76,6 +78,12 @@ impl PrivateDir {
     /// Its name in the directory it was made in.
     pub fn name(&self) -> &str {
         &self.name
+    }
+
+    /// Its device and inode numbers as made, which what its descriptor
+    /// names now can be held to.
+    pub const fn id(&self) -> (u64, u64) {
+        self.id
     }
 }
 
@@ -208,6 +216,7 @@ pub fn make_private_dir(parent: BorrowedFd<'_>) -> Result<PrivateDir, PrivateDir
         dir: dir.into(),
         name,
         _lock: lock,
+        id: (metadata.dev(), metadata.ino()),
     })
 }
 
