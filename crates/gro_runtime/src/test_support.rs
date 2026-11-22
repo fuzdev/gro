@@ -36,7 +36,13 @@ pub fn run_authority() -> Authority {
         }),
         fs: Some(FsGrant::default()),
         spawn: Some(SpawnGrant {
-            programs: [("gro_test_program".to_owned(), ProgramGrant::default())].into(),
+            programs: [(
+                "gro_test_program".to_owned(),
+                ProgramGrant::Flag {
+                    forward: Vec::new(),
+                },
+            )]
+            .into(),
             exec_roots: BTreeMap::new(),
         }),
     })

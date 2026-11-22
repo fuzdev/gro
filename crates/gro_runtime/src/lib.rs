@@ -239,8 +239,9 @@ pub struct RuntimeOptions {
     /// made of them where its handle is made, by the rules of the run's
     /// `spawn` grant ([`SpawnGrant`]): the base set every child gets, and
     /// what a program's `pass_env` names and its grant forwards, every
-    /// variable in an unconfined run. So an embedder passes no more than
-    /// those: none for a run that grants no program.
+    /// variable for a program granted the whole environment
+    /// ([`PassEnvGrant::All`]) and in an unconfined run. So an embedder
+    /// passes no more than those: none for a run that grants no program.
     ///
     /// An embedder that runs a program granting one makes its process
     /// ready first, as `fgro` does, since the runtime changes no
@@ -481,19 +482,65 @@ pub struct SpawnGrant {
 pub struct ExecRootGrant {
     /// The directory, by its real path and identity then.
     pub dir: GrantedDir,
-    /// What each program found beneath it may be passed, as a granted
-    /// program's grant says ([`ProgramGrant::forward`]).
+    /// What each program found beneath it may be passed, as a flag's
+    /// program may be ([`ProgramGrant::Flag`]); it may be set any value.
     pub forward: Vec<EnvPattern>,
 }
 
-/// What one granted program may be passed of the environment beyond the
-/// base set every child gets.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct ProgramGrant {
-    /// The variables a program's `pass_env` may name: an exact name
-    /// passes itself, and a `PREFIX_*` glob every name it covers, or a
-    /// glob within it.
-    pub forward: Vec<EnvPattern>,
+/// What one granted program may be given of the environment beyond the
+/// base set every child gets: a flag's grant, or the grants table's
+/// policy, each its own shape, so neither can be read as the other.
+///
+/// A call asking for more than its grant is `not_granted`. One asking for
+/// a narrower list is made as it asks, its child given the base set and
+/// `LC_ALL=C` as every list's child is, under a whole-environment grant
+/// too, so long as that passes no name the grant omits. One leaving out a
+/// value the table sets is made too, and its child then gets the host's
+/// own value of that variable where its `pass_env` passes it, the base
+/// set's `FORCE_COLOR` among them: a call can't add a value, but it can
+/// drop the table's.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProgramGrant {
+    /// A program `fgro run`'s flags grant: its `pass_env` may name what
+    /// `--allow-run-env=` forwards, never `'all'`, and its `env` may set
+    /// any value.
+    Flag {
+        /// The variables its `pass_env` may name: an exact name passes
+        /// itself, and a `PREFIX_*` glob every name it covers, or a glob
+        /// within it.
+        forward: Vec<EnvPattern>,
+    },
+    /// A program the grants table grants, by the fields of Gro's
+    /// `BuiltinProgramGrant`. A program both a flag and the table grant
+    /// takes the table's policy, the flag's forwards joining a list, which
+    /// the embedder joins into [`PassEnvGrant::Names`] as it makes the
+    /// grant.
+    Table {
+        /// What its `pass_env` may pass.
+        pass_env: PassEnvGrant,
+        /// The only values its `env` may set, each to its value here: an
+        /// `env` setting another variable, or one of these to another
+        /// value, is refused.
+        env: BTreeMap<String, String>,
+    },
+}
+
+/// The host variables a program the grants table grants may be passed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PassEnvGrant {
+    /// These names and globs: an exact name passes itself, and a
+    /// `PREFIX_*` glob every name it covers, or a glob within it; `'all'`
+    /// is refused.
+    Names(Vec<EnvPattern>),
+    /// The whole environment the embedder read for children, `'all'`,
+    /// but the names `omit_env` lists: `'all'` with an `omit_env` that
+    /// lists each of them, or a list, whose child gets the base set and
+    /// `LC_ALL=C` as every list's does, that passes none of them, by the
+    /// base set, `LC_ALL`, a name, or a glob.
+    All {
+        /// The exact names left out.
+        omit_env: BTreeSet<String>,
+    },
 }
 
 /// A variable, or the variables of a prefix, that a spawn grant forwards

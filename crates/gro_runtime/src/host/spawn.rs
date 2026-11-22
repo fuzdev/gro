@@ -7,16 +7,18 @@
 //! value of the row's namespace, which names the project's scope, the one a
 //! run has; and a frozen null-prototype record of names for each root
 //! `narrow` makes, which names its parent's scope. A scope is what its
-//! roots may make: in a confined run, the programs `--allow-run=` granted,
-//! each pinned as the run started ([`pins`]), with the variables
-//! `--allow-run-env=` forwards to it; in an unconfined one, any program,
-//! found when it's asked for, passed any variable. Every method decides
-//! from the root it's called on, reading the scope its state names, never
-//! the run's as a whole: a narrowed root holds names its scope held when it
-//! was narrowed, and refuses what the Node module's narrowed root refuses
-//! (`env`, `pass_env: 'all'`, a `pass_env` glob, and `program_in`). A
-//! scope's exec roots are its own too ([`exec_roots`]), opened as the run
-//! starts, beside the pins.
+//! roots may make: in a confined run, the programs its grant names, each
+//! pinned as the run started ([`pins`]), with what each may be given of the
+//! environment ([`ProgramGrant`]): the variables `--allow-run-env=`
+//! forwards to a program `--allow-run=` granted, or a program's policy in
+//! the grants table; in an unconfined one, any program, found when it's
+//! asked for, passed any variable. Every method decides from the root it's
+//! called on, reading the scope its state names, never the run's as a
+//! whole: a narrowed root holds names its scope held when it was narrowed,
+//! and refuses what the Node module's narrowed root refuses (`env`,
+//! `pass_env: 'all'`, a `pass_env` glob, and `program_in`). A scope's exec
+//! roots are its own too ([`exec_roots`]), opened as the run starts, beside
+//! the pins.
 //!
 //! A program is a handle of [`SPAWN_PROGRAM`]'s kind, holding the name it
 //! was asked for and its pin's real path as its `name` and `path`, and, as
@@ -35,11 +37,17 @@
 //! well-formed, not empty), the options, read once (`pass_env`'s names and
 //! globs, `omit_env` only with `'all'`, `env`'s names and values), a
 //! narrowed root's refusals, the root's set, then, in a confined run, that
-//! the program's grant forwards each variable `pass_env` names, a name of
-//! the base set, which every child is given, held without one, a glob only
-//! within a glob it grants, and `'all'` never; then the pin. An argument is
-//! read as the value it is, converting nothing: an options record's fields
-//! are its own data, and an array's elements their own data, so a getter or
+//! the program's grant gives what the options ask: under a list, each
+//! variable `pass_env` names forwarded, a name of the base set, which every
+//! child is given, held without one, a glob only within a glob it grants,
+//! and `'all'` never; under the whole environment, every name its
+//! `omit_env` lists left out, by `omit_env` beside `'all'`, or by a list,
+//! whose child gets the base set and `LC_ALL=C` as every list's does, that
+//! passes none of them, by the base set, a name, or a glob; and, for a
+//! program the grants table grants, each value `env` sets one the table
+//! sets; then the pin. An argument is read as the value it is, converting
+//! nothing: an options record's fields are its own data, and an array's
+//! elements their own data, so a getter or
 //! a proxy is a `TypeError` where the Node module would run it, and an
 //! element given through a getter is none.
 //!
@@ -87,7 +95,10 @@ use super::{
 };
 use crate::loader::RefusalLog;
 use crate::loader::refused::{NOT_GRANTED, NotGranted, SpawnNeed};
-use crate::{Authority, CHILD_BASE_ENV, EnvPattern, EnvPatternFault, EnvVars, Grants};
+use crate::{
+    Authority, CHILD_BASE_ENV, EnvPattern, EnvPatternFault, EnvVars, Grants, PassEnvGrant,
+    ProgramGrant,
+};
 use exec_roots::ExecRoot;
 use pins::{Fault, Pin};
 use watch::Children;
@@ -178,8 +189,8 @@ enum Programs {
 struct GrantedProgram {
     /// Its pin's place in the run's table, or why it pinned nothing.
     pin: Result<usize, Fault>,
-    /// What its `pass_env` may name.
-    forward: Vec<EnvPattern>,
+    /// What it may be given of the environment.
+    grant: ProgramGrant,
 }
 
 impl SpawnRun {
@@ -218,7 +229,7 @@ impl SpawnRun {
                             });
                             let granted = GrantedProgram {
                                 pin,
-                                forward: program.forward.clone(),
+                                grant: program.clone(),
                             };
                             (name.clone(), granted)
                         })
@@ -638,7 +649,7 @@ pub fn program<'s>(
         let granted = allowed(scope, run, &root, &name, Reach::Program)?;
         let pin = match granted {
             Some(granted) => {
-                check_forwarding(&name, &options, &granted.forward)?;
+                check_forwarding(&name, &options, &granted.grant)?;
                 granted.pin.clone()
             }
             None => run.pin_now(&name),
@@ -709,7 +720,7 @@ pub fn program_in<'s>(
             });
         };
         if let Some(forward) = &exec_root.forward {
-            check_forwarding(&name, &options, forward)?;
+            check_forwarded_names(&name, &options, forward)?;
         }
         match exec_root.resolve(&name, &dir_path) {
             Ok(Some(found)) => {
@@ -1145,15 +1156,39 @@ fn check_narrowed_options(
     }
 }
 
-/// Refuses what a confined scope's grant of `name`, the patterns it
-/// forwards, `forward`, doesn't: `pass_env: 'all'`, which only an
-/// unconfined run passes, and each name or glob none of its patterns
-/// holds but an exact name of the base set, which every child is given,
-/// `not_granted`, needing the variable, which `--allow-run-env=` grants
-/// whichever root the call was made on: a narrowed root passes on only
-/// exact names, each one its program's grant decides. A program found
-/// beneath an exec root is granted what the exec root forwards.
+/// Refuses what a confined scope's grant of `name` doesn't give it: for
+/// a flag's program, what `pass_env` names beyond its forwards
+/// ([`check_forwarded_names`]); for the grants table's, what `pass_env`
+/// passes beyond the table's list ([`check_forwarded_names`]) or whole
+/// environment ([`check_omitted_names`]), then a value `env` sets that the
+/// table doesn't ([`check_env_values`]).
 fn check_forwarding(
+    name: &str,
+    options: &ProgramOptions,
+    grant: &ProgramGrant,
+) -> Result<(), Failure> {
+    match grant {
+        ProgramGrant::Flag { forward } => check_forwarded_names(name, options, forward),
+        ProgramGrant::Table { pass_env, env } => {
+            match pass_env {
+                PassEnvGrant::Names(forward) => check_forwarded_names(name, options, forward)?,
+                PassEnvGrant::All { omit_env } => check_omitted_names(name, options, omit_env)?,
+            }
+            check_env_values(name, options, env)
+        }
+    }
+}
+
+/// Refuses what a grant of `name` that forwards the patterns `forward`
+/// doesn't: `pass_env: 'all'`, which only a run granted everything, or a
+/// program the grants table passes it, passes, and each name or glob none
+/// of its patterns holds but an exact name of the base set, which every
+/// child is given, `not_granted`, needing the variable, which
+/// `--allow-run-env=` grants whichever root the call was made on: a
+/// narrowed root passes on only exact names, each one its program's grant
+/// decides. A program found beneath an exec root is granted what the exec
+/// root forwards.
+fn check_forwarded_names(
     name: &str,
     options: &ProgramOptions,
     forward: &[EnvPattern],
@@ -1183,6 +1218,63 @@ fn check_forwarding(
                 })
             }),
     }
+}
+
+/// Refuses what a grant of `name` passing the whole environment but the
+/// names `omitted` doesn't: `pass_env: 'all'` whose `omit_env` lacks one
+/// of them, and a list that would pass one, its child given the base set
+/// and `LC_ALL=C` as every list's child is, then what the list names: an
+/// omitted name of the base set, `LC_ALL`, or one the list names or a glob
+/// of it covers. Each is `not_granted`, naming the omitted name, the table's
+/// data, needing nothing, since no flag widens the policy.
+fn check_omitted_names(
+    name: &str,
+    options: &ProgramOptions,
+    omitted: &BTreeSet<String>,
+) -> Result<(), Failure> {
+    let passed = match &options.pass {
+        PassEnv::All(asked) => omitted.iter().find(|variable| !asked.contains(*variable)),
+        PassEnv::Patterns(patterns) => omitted.iter().find(|variable| {
+            variable.as_str() == "LC_ALL"
+                || CHILD_BASE_ENV.contains(&variable.as_str())
+                || patterns.iter().any(|pattern| pattern.covers(variable))
+        }),
+    };
+    passed.map_or(Ok(()), |variable| {
+        Err(Failure::NotGranted {
+            program: name.to_owned(),
+            cause: format!(
+                "{name} can't be passed {variable}: its grant passes the whole environment \
+                 without it"
+            ),
+            needed: None,
+        })
+    })
+}
+
+/// Refuses a value `env` sets for `name` that `held`, the table's values,
+/// doesn't: a variable it doesn't hold, or one set to another value,
+/// `not_granted`, needing nothing, the value never named.
+fn check_env_values(
+    name: &str,
+    options: &ProgramOptions,
+    held: &BTreeMap<String, String>,
+) -> Result<(), Failure> {
+    options
+        .values
+        .iter()
+        .flatten()
+        .find(|(variable, value)| held.get(variable) != Some(value))
+        .map_or(Ok(()), |(variable, _)| {
+            Err(Failure::NotGranted {
+                program: name.to_owned(),
+                cause: format!(
+                    "{name} can't be set {variable} to that value: its grant sets only the \
+                     values it holds"
+                ),
+                needed: None,
+            })
+        })
 }
 
 /// Whether `pattern` names a variable of the base set exactly, which
@@ -1302,12 +1394,13 @@ pub fn run_of_scopes(scopes: Vec<TestScope<'_>>) -> SpawnRun {
                 programs
                     .iter()
                     .map(|(name, forward)| {
+                        let forward = forward
+                            .iter()
+                            .map(|pattern| EnvPattern::parse(pattern).unwrap())
+                            .collect();
                         let granted = GrantedProgram {
                             pin: Err(Fault::NotFound),
-                            forward: forward
-                                .iter()
-                                .map(|pattern| EnvPattern::parse(pattern).unwrap())
-                                .collect(),
+                            grant: ProgramGrant::Flag { forward },
                         };
                         ((*name).to_owned(), granted)
                     })

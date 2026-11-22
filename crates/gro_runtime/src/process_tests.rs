@@ -10,6 +10,7 @@
 
 use std::borrow::Cow;
 use std::cell::Cell;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -22,7 +23,10 @@ use crate::engine::{Engine, EngineError, EngineOptions, init_engine};
 use crate::resolver::BUILTINS;
 use crate::snapshot::{OpFunction, ResidualCode, SnapshotError, make_snapshot, make_snapshot_of};
 use crate::test_support::TestDir;
-use crate::{ConsoleOptions, ConsoleRouting, RuntimeOptions, STACK_SIZE, run_main};
+use crate::{
+    Authority, ConsoleOptions, ConsoleRouting, Grants, PassEnvGrant, ProgramGrant, RuntimeOptions,
+    STACK_SIZE, SpawnGrant, run_main,
+};
 
 /// The full path of [`child`] in the test binary, which libtest's `--exact`
 /// filter matches.
@@ -64,6 +68,52 @@ fn run_source(engine: Engine, name: &str, source: &str, options: RuntimeOptions)
     result.unwrap();
 }
 
+/// Runs `env` granted the whole environment but `GRO_OMITTED`, its policy
+/// fixing no value, asking for the whole environment but that one, and
+/// prints what its child was given, a line per variable; then made with no
+/// options, a list of none, and prints what that child was given, after a
+/// line of `---`.
+const SPAWN_ALL_SOURCE: &str = "import { spawn } from '@fuzdev/gro/spawn.ts';
+const env = spawn.program('env', { pass_env: 'all', omit_env: ['GRO_OMITTED'] });
+const result = await env.out([]);
+if (result.code !== 0) throw new Error(`env exited ${result.code}`);
+console.log(result.stdout);
+const bare = await spawn.program('env').out([]);
+if (bare.code !== 0) throw new Error(`env exited ${bare.code}`);
+console.log(`---\\n${bare.stdout}`);
+";
+
+/// A run granting `env` as the grants table grants a program the whole
+/// environment, handed `vars` for children.
+fn spawn_all_case() {
+    let grant = ProgramGrant::Table {
+        pass_env: PassEnvGrant::All {
+            omit_env: BTreeSet::from(["GRO_OMITTED".to_owned()]),
+        },
+        env: BTreeMap::new(),
+    };
+    let options = RuntimeOptions {
+        authority: Authority::Confined(Grants {
+            spawn: Some(SpawnGrant {
+                programs: BTreeMap::from([("env".to_owned(), grant)]),
+                exec_roots: BTreeMap::new(),
+            }),
+            ..Grants::default()
+        }),
+        spawn_env: [
+            ("PATH", "/usr/bin:/bin"),
+            ("GRO_UNLISTED", "passed"),
+            ("GRO_OMITTED", "left out"),
+        ]
+        .into_iter()
+        .map(|(name, value)| (name.to_owned(), value.to_owned()))
+        .collect(),
+        ..RuntimeOptions::default()
+    };
+    let engine = init_engine(Confinement::Unconfined, &EngineOptions::default()).unwrap();
+    run_source(engine, "spawn_all", SPAWN_ALL_SOURCE, options);
+}
+
 fn console_case(console: ConsoleOptions) {
     let options = RuntimeOptions {
         console,
@@ -95,6 +145,7 @@ fn child() {
             color_stderr: true,
             color_stdout: false,
         }),
+        "spawn_all" => spawn_all_case(),
         "locale" => {
             let options = EngineOptions {
                 locale: Some(LOCALE),
@@ -348,6 +399,30 @@ fn the_console_can_write_every_level_to_stderr() {
     assert!(stdout.is_empty(), "{stdout:?}");
     let colored: Vec<String> = (1001..=1005).map(|n| number(n, true)).collect();
     assert_eq!(stderr, colored);
+}
+
+/// A program granted the whole environment is passed it, a variable its
+/// grant names nowhere among it, but what its grant omits, and nothing
+/// the base set would add (`LC_ALL=C`); made with no options, it's given
+/// the base set and `LC_ALL=C`, as any list's child is, and nothing else.
+#[test]
+fn a_program_granted_the_whole_environment_is_passed_it() {
+    let output = run_child("spawn_all");
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let (all, bare) = stdout.split_once("---\n").unwrap();
+    let lines: Vec<&str> = all.lines().collect();
+    assert!(lines.contains(&"GRO_UNLISTED=passed"), "{stdout}");
+    assert!(lines.contains(&"PATH=/usr/bin:/bin"), "{stdout}");
+    assert!(
+        !lines
+            .iter()
+            .any(|line| line.starts_with("GRO_OMITTED=") || line.starts_with("LC_ALL=")),
+        "{stdout}"
+    );
+    // the harness's own lines hold no `=`
+    let mut bare: Vec<&str> = bare.lines().filter(|line| line.contains('=')).collect();
+    bare.sort_unstable();
+    assert_eq!(bare, ["LC_ALL=C", "PATH=/usr/bin:/bin"], "{stdout}");
 }
 
 #[test]

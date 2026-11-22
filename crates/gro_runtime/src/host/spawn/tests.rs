@@ -1,10 +1,10 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use super::{
     Failure, Fault, GrantedProgram, PassEnv, ProgramOptions, SpawnNeed, check_forwarding,
     program_env,
 };
-use crate::{CHILD_BASE_ENV, EnvPattern, EnvPatternFault, EnvVars};
+use crate::{CHILD_BASE_ENV, EnvPattern, EnvPatternFault, EnvVars, PassEnvGrant, ProgramGrant};
 
 /// What the embedder read for children, in order.
 fn read(vars: &[(&str, &str)]) -> EnvVars {
@@ -146,7 +146,9 @@ fn a_pattern_covers_and_holds_only_what_its_prefix_starts() {
 fn a_base_set_name_is_held_and_any_other_needs_its_forwarding() {
     let granted = GrantedProgram {
         pin: Err(Fault::NotFound),
-        forward: vec![EnvPattern::parse("CARGO_*").unwrap()],
+        grant: ProgramGrant::Flag {
+            forward: vec![EnvPattern::parse("CARGO_*").unwrap()],
+        },
     };
     let asking = |names: &[&str]| {
         let patterns = names
@@ -156,7 +158,7 @@ fn a_base_set_name_is_held_and_any_other_needs_its_forwarding() {
         check_forwarding(
             "tool",
             &options(PassEnv::Patterns(patterns), None),
-            &granted.forward,
+            &granted.grant,
         )
     };
     for base in CHILD_BASE_ENV {
@@ -176,12 +178,192 @@ fn a_base_set_name_is_held_and_any_other_needs_its_forwarding() {
             _ => panic!("{refused} isn't refused needing itself"),
         }
     }
-    assert!(matches!(
+    match check_forwarding(
+        "tool",
+        &options(PassEnv::All(BTreeSet::new()), None),
+        &granted.grant,
+    ) {
+        Err(Failure::NotGranted {
+            cause,
+            needed: None,
+            ..
+        }) => assert_eq!(
+            cause,
+            "tool can't be passed the whole environment: only a run granted everything passes it"
+        ),
+        _ => panic!("'all' isn't refused a program granted a list"),
+    }
+}
+
+/// The cause of a refusal that needs no grant, or a panic naming `what`.
+fn refused_needing_nothing(result: Result<(), Failure>, what: &str) -> String {
+    match result {
+        Err(Failure::NotGranted {
+            program,
+            cause,
+            needed: None,
+        }) => {
+            assert_eq!(program, "tool", "{what}");
+            cause
+        }
+        _ => panic!("{what} isn't refused needing nothing"),
+    }
+}
+
+/// A program granted the whole environment but what its grant omits may
+/// be passed `'all'` with an `omit_env` leaving each of those out, more
+/// beside them included, or a list passing none of them, its child given
+/// the base set and `LC_ALL=C` as every list's is; anything passing an
+/// omitted name, by `'all'`, the base set, a name, or a glob, is refused,
+/// naming it, needing nothing, since no flag widens the policy; and its
+/// `env` may set only the table's values, under `'all'` too.
+#[test]
+fn the_whole_environment_is_passed_but_what_the_grant_omits() {
+    let all_but = |omit_env: &[&str]| ProgramGrant::Table {
+        pass_env: PassEnvGrant::All {
+            omit_env: omit_env.iter().map(|&name| name.to_owned()).collect(),
+        },
+        env: BTreeMap::new(),
+    };
+    let grant = all_but(&["NODE_ENV", "npm_config_omit"]);
+    let all = |omitted: &[&str]| {
+        let omitted = omitted.iter().map(|&name| name.to_owned()).collect();
+        check_forwarding("tool", &options(PassEnv::All(omitted), None), &grant)
+    };
+    let listing_for = |grant: &ProgramGrant, names: &[&str]| {
+        let patterns = names
+            .iter()
+            .map(|name| EnvPattern::parse(name).unwrap())
+            .collect();
+        check_forwarding("tool", &options(PassEnv::Patterns(patterns), None), grant)
+    };
+    let listing = |names: &[&str]| listing_for(&grant, names);
+    let refusal = |variable: &str| {
+        format!(
+            "tool can't be passed {variable}: its grant passes the whole environment without it"
+        )
+    };
+    assert!(all(&["NODE_ENV", "npm_config_omit"]).is_ok());
+    assert!(all(&["npm_config_omit", "SECRET", "NODE_ENV"]).is_ok());
+    assert!(listing(&[]).is_ok());
+    assert!(listing(&["HOME", "SECRET", "GIT_*", "npm_config_o", "NODE_ENVX"]).is_ok());
+    for omitted in [&[][..], &["NODE_ENV"], &["npm_config_omit", "node_env"]] {
+        let cause = refused_needing_nothing(all(omitted), &format!("'all' omitting {omitted:?}"));
+        assert!(
+            cause.starts_with("tool can't be passed ")
+                && cause.ends_with(": its grant passes the whole environment without it"),
+            "{cause}"
+        );
+    }
+    assert_eq!(
+        refused_needing_nothing(all(&["npm_config_omit"]), "'all' passing NODE_ENV"),
+        refusal("NODE_ENV")
+    );
+    for (names, passed) in [
+        (&["NODE_ENV"][..], "NODE_ENV"),
+        (&["SECRET", "npm_config_*"], "npm_config_omit"),
+        (&["npm_*"], "npm_config_omit"),
+        (&["NODE_*", "HOME"], "NODE_ENV"),
+    ] {
+        assert_eq!(
+            refused_needing_nothing(listing(names), &format!("{names:?}")),
+            refusal(passed)
+        );
+    }
+    // a list's child is given the base set, so a grant omitting one of it
+    // refuses every list, the default call's empty one included
+    let no_home = all_but(&["HOME"]);
+    for names in [&[][..], &["SECRET"]] {
+        assert_eq!(
+            refused_needing_nothing(listing_for(&no_home, names), &format!("{names:?}")),
+            refusal("HOME")
+        );
+    }
+    // as does a grant omitting any one of them, or `LC_ALL`, which every
+    // list's child is set to `C`
+    for omitted in CHILD_BASE_ENV.into_iter().chain(["LC_ALL"]) {
+        assert_eq!(
+            refused_needing_nothing(
+                listing_for(&all_but(&[omitted]), &[]),
+                &format!("a list omitting {omitted}")
+            ),
+            refusal(omitted)
+        );
+    }
+    let no_omit = all_but(&[]);
+    assert!(listing_for(&no_omit, &[]).is_ok());
+    assert!(listing_for(&no_omit, &["HOME", "GIT_*"]).is_ok());
+    let setting = |values: &[(&str, &str)]| {
+        let omitted = BTreeSet::from(["NODE_ENV".to_owned(), "npm_config_omit".to_owned()]);
         check_forwarding(
             "tool",
-            &options(PassEnv::All(BTreeSet::new()), None),
-            &granted.forward
+            &options(PassEnv::All(omitted), Some(values)),
+            &grant,
+        )
+    };
+    assert_eq!(
+        refused_needing_nothing(
+            setting(&[("NODE_ENV", "production")]),
+            "'all' setting NODE_ENV"
         ),
-        Err(Failure::NotGranted { needed: None, .. })
-    ));
+        "tool can't be set NODE_ENV to that value: its grant sets only the values it holds"
+    );
+}
+
+/// A program whose grant fixes its values may be set only those, each to
+/// its own value, or fewer, and one that doesn't may be set any; a value
+/// refused is named by its variable alone, needing nothing.
+#[test]
+fn a_program_s_env_values_are_only_those_its_grant_sets() {
+    let only = |held: &[(&str, &str)]| ProgramGrant::Table {
+        pass_env: PassEnvGrant::Names(Vec::new()),
+        env: held
+            .iter()
+            .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
+            .collect(),
+    };
+    let setting = |grant: &ProgramGrant, values: Option<&[(&str, &str)]>| {
+        check_forwarding(
+            "tool",
+            &options(PassEnv::Patterns(Vec::new()), values),
+            grant,
+        )
+    };
+    let color = only(&[("FORCE_COLOR", "1")]);
+    assert!(setting(&color, None).is_ok());
+    assert!(setting(&color, Some(&[])).is_ok());
+    assert!(setting(&color, Some(&[("FORCE_COLOR", "1")])).is_ok());
+    for (values, variable) in [
+        (&[("FORCE_COLOR", "0")][..], "FORCE_COLOR"),
+        (
+            &[("FORCE_COLOR", "1"), ("LD_PRELOAD", "/x.so")],
+            "LD_PRELOAD",
+        ),
+        (&[("force_color", "1")], "force_color"),
+    ] {
+        let cause = refused_needing_nothing(setting(&color, Some(values)), &format!("{values:?}"));
+        assert_eq!(
+            cause,
+            format!(
+                "tool can't be set {variable} to that value: its grant sets only the values it \
+                 holds"
+            )
+        );
+    }
+    let none = only(&[]);
+    assert!(setting(&none, None).is_ok());
+    refused_needing_nothing(
+        setting(&none, Some(&[("NODE_OPTIONS", "--require=x")])),
+        "a value under a grant that sets none",
+    );
+    let any = ProgramGrant::Flag {
+        forward: Vec::new(),
+    };
+    assert!(
+        setting(
+            &any,
+            Some(&[("NODE_OPTIONS", "--require=x"), ("FORCE_COLOR", "0")])
+        )
+        .is_ok()
+    );
 }

@@ -552,6 +552,15 @@ How it's built is in the module docs of `crates/gro_runtime/src/host/spawn.rs` a
   and an exact name of the base set, which every child is given anyway.
   Anything else, `pass_env: 'all'` among it, is `not_granted`; under `-A` any variable passes, `'all'` included.
   `env`'s values are set at the run's root, as on Node, and a narrowed root refuses them.
+- A program the grants table grants takes the table's policy natively, when a run is started with it (`gro_runtime::ProgramGrant`; `fgro run`'s flags grant none):
+  granted `pass_env: 'all'`, it may be passed `'all'` with an `omit_env` leaving out at least the names the table's does, the whole environment `fgro` read then passed but those,
+  or a list, whose child gets the base set and `LC_ALL=C` as every list's child does, on Node too, so long as it passes no name the table omits, by the base set, `LC_ALL`, a name, or a glob;
+  granted a list, what the list names, as for a flag's program, the list being the table's joined by what `--allow-run-env=` forwards to that program, which the embedder joins as it makes the grant;
+  and its `env` may set only the table's variables, each to the table's value, or fewer of them,
+  though a value it leaves unset lets the host's own value of that variable through where `pass_env` passes it, the base set's `FORCE_COLOR` among them.
+  A call asking for more is `not_granted`, with no hint, since no flag widens the table's policy, and the refusal names a variable but never a value.
+  This bounds what the run's code can hand a child against code built to defeat it, a native check; a granted tool's arguments and config are still code,
+  and before the child is boxed it can read its parent's environment from `/proc`.
 - A child is started by `posix_spawn`, no code run between its fork and its exec: a native binary by its pin's descriptor, a script by its path,
   so a native child's process name, which `ps` and `pkill` read, is that descriptor's number, where Node's is the binary's name;
   its working directory by a descriptor too, the `cwd` handle's directory opened beneath its root, or the project's, opened as the run started,

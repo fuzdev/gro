@@ -549,7 +549,7 @@ fn authority(grant: &RunGrant, dirs: GrantedDirs) -> Authority {
                 programs: run
                     .iter()
                     .map(|name| {
-                        let program = ProgramGrant {
+                        let program = ProgramGrant::Flag {
                             forward: run_env.iter().cloned().collect(),
                         };
                         (name.clone(), program)
@@ -1318,7 +1318,7 @@ mod tests {
             EnvPattern::Exact("TOKEN".to_owned()),
             EnvPattern::Exact("UNSET".to_owned()),
         ];
-        let program = ProgramGrant { forward };
+        let program = ProgramGrant::Flag { forward };
         let gro_runtime::Authority::Confined(grants) = options.authority else {
             panic!("a run without -A is confined");
         };
