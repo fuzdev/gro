@@ -3,11 +3,11 @@
 use std::path::{Path, PathBuf};
 
 use super::{Scratch, set_mode};
-use crate::confine::Prepared;
+use crate::confine::EvalPrepared;
 
 /// The roots of the box for `project`.
 fn closure(project: &Path) -> Vec<PathBuf> {
-    Prepared::for_project(project.to_owned())
+    EvalPrepared::for_project(project.to_owned())
         .unwrap()
         .roots()
         .as_slice()
@@ -207,7 +207,7 @@ fn each_root_is_opened_as_the_directory_found() {
     scratch.file("lib/package.json");
     scratch.dir("project/node_modules");
     scratch.link(&lib, "project/node_modules/lib");
-    let prepared = Prepared::for_project(project.clone()).unwrap();
+    let prepared = EvalPrepared::for_project(project.clone()).unwrap();
     assert_eq!(prepared.roots().as_slice(), [project, lib]);
     let named: Vec<PathBuf> = prepared
         .rules
@@ -229,10 +229,10 @@ fn a_project_that_is_not_its_real_directory_is_refused() {
     let project = scratch.dir("real/project");
     scratch.link(&project, "linked");
     scratch.link(&scratch.path().join("real"), "alias");
-    assert!(Prepared::for_project(scratch.path().join("linked")).is_err());
-    assert!(Prepared::for_project(scratch.path().join("alias/project")).is_err());
-    assert!(Prepared::for_project(scratch.path().join("absent")).is_err());
-    assert!(Prepared::for_project(project).is_ok());
+    assert!(EvalPrepared::for_project(scratch.path().join("linked")).is_err());
+    assert!(EvalPrepared::for_project(scratch.path().join("alias/project")).is_err());
+    assert!(EvalPrepared::for_project(scratch.path().join("absent")).is_err());
+    assert!(EvalPrepared::for_project(project).is_ok());
 }
 
 /// A project with no `node_modules` is its own box.
@@ -240,7 +240,7 @@ fn a_project_that_is_not_its_real_directory_is_refused() {
 fn a_project_with_no_node_modules_is_its_own_box() {
     let scratch = Scratch::new("bare");
     let project = scratch.dir("project");
-    let prepared = Prepared::for_project(project.clone()).unwrap();
+    let prepared = EvalPrepared::for_project(project.clone()).unwrap();
     assert_eq!(prepared.roots().as_slice(), std::slice::from_ref(&project));
     assert!(prepared.roots().holds(&project.join("a/b.ts")));
     assert!(

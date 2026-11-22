@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 use std::os::unix::fs::PermissionsExt as _;
 
-use super::{BoxRoots, ConfineError, Jit, Prepared};
+use super::{BoxRoots, ConfineError, EvalPrepared, Jit};
 use crate::test_support::TestDir;
 
 mod bpf;
@@ -79,7 +79,7 @@ fn confining_with_another_thread_alive_is_refused() {
     let (stop, wait) = std::sync::mpsc::channel::<()>();
     let other = std::thread::spawn(move || wait.recv());
     let scratch = Scratch::new("threads");
-    let prepared = Prepared::for_project(scratch.path().to_owned()).unwrap();
+    let prepared = EvalPrepared::for_project(scratch.path().to_owned()).unwrap();
     match prepared.confine(Jit::Off) {
         Err(ConfineError::Threads(super::Threads { count, .. })) => assert!(count >= 2, "{count}"),
         other => panic!("expected a refusal by the thread count, got {other:?}"),

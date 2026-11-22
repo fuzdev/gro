@@ -8,8 +8,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use gro_runtime::BINARY_NAME;
-use gro_runtime::confine::{BoxRoots, Confined};
-use gro_runtime::engine::init_confined_engine;
+use gro_runtime::confine::{BoxRoots, EvalConfined};
+use gro_runtime::engine::init_eval_engine;
 use gro_runtime::eval::{
     Envelope, ErrorKind, EvalError, EvalOptions, Prepass, PrepassError, RuntimeInfo,
 };
@@ -40,7 +40,7 @@ pub fn eval(args: EvalInvocation) -> u8 {
     let evaluated = on_sized_thread(BINARY_NAME.to_owned(), move || {
         // the JIT the box was installed for, as the engine must have it
         let options = gro_runtime::eval::engine_options(confined.jit());
-        match init_confined_engine(confined, &options) {
+        match init_eval_engine(confined, &options) {
             Ok(engine) => {
                 phases::mark(Phase::Engine);
                 let (envelope, runtime) = gro_runtime::eval::eval(engine, prepass);
@@ -94,7 +94,7 @@ pub fn eval(args: EvalInvocation) -> u8 {
 ///
 /// Returns the exit code of a failure, after printing its envelope on
 /// stdout.
-fn confine_eval(args: EvalInvocation) -> Result<(Prepass<BoxRoots>, Confined), u8> {
+fn confine_eval(args: EvalInvocation) -> Result<(Prepass<BoxRoots>, EvalConfined), u8> {
     let EvalInvocation {
         module,
         value,

@@ -8,11 +8,11 @@
 //! the run's, which spawns and writes, whose states are [`run`]'s. Eval's
 //! states:
 //!
-//! - [`Prepared`]: the box's roots, computed before anything is confined
-//!   ([`Prepared::for_project`]): the project's real directory, and the link
+//! - [`EvalPrepared`]: the box's roots, computed before anything is confined
+//!   ([`EvalPrepared::for_project`]): the project's real directory, and the link
 //!   closure below it, each opened as it is found, so the box goes up on the
 //!   directories found, not on whatever their paths name later.
-//! - [`Confined`]: the process passed through [`Prepared::confine`], made only
+//! - [`EvalConfined`]: the process passed through [`EvalPrepared::confine`], made only
 //!   there, on the process's one thread, for an engine with the JIT on or
 //!   off ([`Jit`]), which the box records and the engine is checked against.
 //!
@@ -25,11 +25,11 @@
 //! The rest of this doc is eval's box; [`run`]'s module doc has the run's.
 //! A box must hold every thread the process has, so it is installed while
 //! the process has one: what resolves eval's roots runs on a thread joined
-//! before [`Prepared::confine`], which checks the count first and refuses
+//! before [`EvalPrepared::confine`], which checks the count first and refuses
 //! otherwise, and every thread the engine starts comes after it, spawned from
 //! the thread that installed it.
 //!
-//! The box, installed by [`Prepared::confine`] in this order on the
+//! The box, installed by [`EvalPrepared::confine`] in this order on the
 //! calling thread, after the thread count is checked:
 //!
 //! 1. **`no_new_privs`**: nothing the process executes can gain privileges.
@@ -149,7 +149,7 @@ impl BoxRoots {
 
 /// The box, computed: its roots, before anything is confined, each opened.
 #[derive(Debug)]
-pub struct Prepared {
+pub struct EvalPrepared {
     /// What the box admits.
     roots: BoxRoots,
     /// Landlock's rules: reading beneath each root, in the roots' order, on
@@ -158,7 +158,7 @@ pub struct Prepared {
     rules: BoxRules,
 }
 
-impl Prepared {
+impl EvalPrepared {
     /// The box for the project whose real directory is `project`: it and the
     /// link closure below it, read from the disk now, each root opened as it
     /// is found. A `node_modules` or scope directory that can't be listed,
@@ -198,10 +198,10 @@ impl Prepared {
     /// kernel can't hold (checked before any is installed) or that failed to
     /// install, after which the process may hold part of the box and must run
     /// nothing it was to confine.
-    pub fn confine(self, jit: Jit) -> Result<Confined, ConfineError> {
+    pub fn confine(self, jit: Jit) -> Result<EvalConfined, ConfineError> {
         alone()?;
         install(&self, jit)?;
-        Ok(Confined {
+        Ok(EvalConfined {
             roots: self.roots,
             jit,
         })
@@ -226,16 +226,16 @@ pub enum Jit {
 }
 
 /// The process confined to its box, from the thread that installed it.
-/// Made only by [`Prepared::confine`].
+/// Made only by [`EvalPrepared::confine`].
 #[derive(Debug, PartialEq, Eq)]
-pub struct Confined {
+pub struct EvalConfined {
     /// What the box admits.
     roots: BoxRoots,
     /// Whether the box was installed for an engine with the JIT on.
     jit: Jit,
 }
 
-impl Confined {
+impl EvalConfined {
     /// A confinement no box backs, for a test of what checks one.
     #[cfg(test)]
     pub(crate) const fn for_test(roots: BoxRoots, jit: Jit) -> Self {
@@ -300,14 +300,14 @@ pub struct Threads {
 #[derive(Debug, PartialEq, Eq)]
 pub enum Confinement {
     /// Held in eval's box.
-    Eval(Confined),
+    Eval(EvalConfined),
     /// Held in the run's box.
     Run(run::RunConfined),
     /// Held in no box, by the caller's choice.
     Unconfined,
 }
 
-/// Why a box couldn't go up: eval's ([`Prepared::confine`]) or the run's
+/// Why a box couldn't go up: eval's ([`EvalPrepared::confine`]) or the run's
 /// ([`run::RunPrepared::confine`]).
 #[derive(Debug, thiserror::Error)]
 pub enum ConfineError {
@@ -475,7 +475,7 @@ const REQUIRED_LANDLOCK_ABI: u32 = landlock::LANDLOCK_ABI as u32;
 
 /// Installs the box `prepared`, for an engine whose JIT is `jit`, on the
 /// calling thread, the process's only one.
-fn install(prepared: &Prepared, jit: Jit) -> Result<(), ConfineError> {
+fn install(prepared: &EvalPrepared, jit: Jit) -> Result<(), ConfineError> {
     use crate::prices::{self, EvalDefault};
     // a priced build can leave either wall out, to time it (`prices`)
     //

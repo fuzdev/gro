@@ -12,11 +12,11 @@
 //! chose, and the token names the options the engine has and its process's
 //! [`Confinement`]: the engine starts only once the process is confined or
 //! named unconfined, since V8's worker threads start with it and a box
-//! installed after them would leave them outside. [`init_confined_engine`]
-//! returns a [`ConfinedEngine`], the token [`crate::eval::eval`] takes, which
+//! installed after them would leave them outside. [`init_eval_engine`]
+//! returns an [`EvalEngine`], the token [`crate::eval::eval`] takes, which
 //! only an engine in eval's box has, so no caller can evaluate a module
 //! outside the box. An engine in eval's box must run the JIT its box was
-//! installed for ([`Confined::jit`]), since a jitless box refuses the
+//! installed for ([`EvalConfined::jit`]), since a jitless box refuses the
 //! executable mappings the JIT makes: [`init_engine`] refuses a disagreement
 //! before V8 starts. The run's box polices no executable mapping, so it
 //! takes either.
@@ -45,7 +45,7 @@ use std::sync::OnceLock;
 
 use deno_core::v8;
 
-use crate::confine::{Confined, Confinement, Jit};
+use crate::confine::{Confinement, EvalConfined, Jit};
 
 /// The engine's process-wide options. The default is what `fgro run` uses:
 /// the JIT on, code generation from strings allowed, and ICU's own locale.
@@ -178,17 +178,17 @@ impl Engine {
 /// An [`Engine`] set up in a process held in its box.
 ///
 /// The token [`crate::eval::eval`] takes: made only by
-/// [`init_confined_engine`], from a [`Confined`] that only the box's
+/// [`init_eval_engine`], from an [`EvalConfined`] that only the box's
 /// installation makes, so an engine set up unconfined never has one.
 #[derive(Debug, Clone, Copy)]
-pub struct ConfinedEngine {
+pub struct EvalEngine {
     /// The engine.
     engine: Engine,
     /// The box its process is held in.
-    confined: &'static Confined,
+    confined: &'static EvalConfined,
 }
 
-impl ConfinedEngine {
+impl EvalEngine {
     /// The engine, for what any engine's token answers.
     #[must_use]
     pub const fn engine(self) -> Engine {
@@ -197,7 +197,7 @@ impl ConfinedEngine {
 
     /// The box the engine's process is held in.
     #[must_use]
-    pub const fn confined(self) -> &'static Confined {
+    pub const fn confined(self) -> &'static EvalConfined {
         self.confined
     }
 }
@@ -210,13 +210,13 @@ impl ConfinedEngine {
 /// As [`init_engine`]: the box was installed for another JIT than
 /// `options` make, or the engine was set up already with other options, or
 /// confined otherwise (unconfined among them).
-pub fn init_confined_engine(
-    confined: Confined,
+pub fn init_eval_engine(
+    confined: EvalConfined,
     options: &EngineOptions,
-) -> Result<ConfinedEngine, EngineError> {
+) -> Result<EvalEngine, EngineError> {
     let engine = init_engine(Confinement::Eval(confined), options)?;
     match engine.confinement() {
-        Confinement::Eval(confined) => Ok(ConfinedEngine { engine, confined }),
+        Confinement::Eval(confined) => Ok(EvalEngine { engine, confined }),
         // `init_engine` returns only an engine confined as asked
         confinement => Err(EngineError::ConfinementConflict {
             set_up: SetUpConfinement::of(confinement),
@@ -335,7 +335,7 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use super::{EngineError, EngineOptions, init_engine};
-    use crate::confine::{BoxRoots, Confined, Confinement, Jit};
+    use crate::confine::{BoxRoots, Confinement, EvalConfined, Jit};
     use crate::test_support::TestDir;
     use crate::{RuntimeOptions, STACK_SIZE, run_main};
 
@@ -384,7 +384,7 @@ mod tests {
     #[test]
     fn a_box_for_another_jit_is_refused() {
         for (box_jit, jit) in [(Jit::Off, Jit::On), (Jit::On, Jit::Off)] {
-            let confined = Confined::for_test(BoxRoots::for_test(Vec::new()), box_jit);
+            let confined = EvalConfined::for_test(BoxRoots::for_test(Vec::new()), box_jit);
             let options = EngineOptions {
                 jit,
                 ..EngineOptions::default()

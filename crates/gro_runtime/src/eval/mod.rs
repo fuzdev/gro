@@ -7,7 +7,7 @@
 //! An eval runs in two steps, so that its process can be confined between them
 //! ([`crate::confine`]): [`prepass()`] resolves the entry and computes the
 //! box's roots, before any runtime exists, and [`eval`] runs the rest on an
-//! engine started after the box. [`eval`] takes a [`ConfinedEngine`], which
+//! engine started after the box. [`eval`] takes an [`EvalEngine`], which
 //! only a process held in its box has, checks it against [`engine_options`] and
 //! against the eval's box, and refuses a build with no startup snapshot as
 //! `internal` before the runtime starts. Eval reads no environment variable.
@@ -66,7 +66,7 @@ use self::limits::{HeapReach, Stopped, format_size};
 pub use self::prepass::{Prepass, PrepassError, prepass};
 use self::run::evaluate;
 use crate::confine::{BoxRoots, Jit};
-use crate::engine::{ConfinedEngine, EngineOptions};
+use crate::engine::{EngineOptions, EvalEngine};
 use crate::loader::graph::Recording;
 use crate::loader::{Loader, Rules};
 use crate::phases;
@@ -167,10 +167,7 @@ pub struct EvalOptions {
 ///
 /// Runs on the calling thread, which must reserve
 /// [`STACK_SIZE`](crate::STACK_SIZE), as [`crate::run_main`] requires.
-pub fn eval(
-    engine: ConfinedEngine,
-    prepass: Prepass<BoxRoots>,
-) -> (Envelope, Option<SpentRuntime>) {
+pub fn eval(engine: EvalEngine, prepass: Prepass<BoxRoots>) -> (Envelope, Option<SpentRuntime>) {
     let Prepass {
         options,
         entry,
@@ -260,7 +257,7 @@ pub fn eval(
 /// a process confined to the eval's own box, a startup snapshot, and an
 /// engine set up with [`engine_options`].
 fn check_preconditions(
-    engine: ConfinedEngine,
+    engine: EvalEngine,
     options: &EvalOptions,
     box_roots: &BoxRoots,
 ) -> Result<Url, Box<EvalError>> {

@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use landlock::{AccessFs, BitFlags, make_bitflags};
 
 use super::Scratch;
-use crate::confine::Prepared;
+use crate::confine::EvalPrepared;
 use crate::confine::plan::RuleSource;
 use crate::confine::rules::{BoxRules, Kind, Need, RealRights, Rights, RuleError};
 
@@ -65,7 +65,7 @@ fn eval_s_rules_read_each_root() {
     scratch.file("lib/package.json");
     scratch.dir("project/node_modules");
     scratch.link(&lib, "project/node_modules/lib");
-    let prepared = Prepared::for_project(project.clone()).unwrap();
+    let prepared = EvalPrepared::for_project(project.clone()).unwrap();
     assert_eq!(prepared.roots().as_slice(), [project.clone(), lib.clone()]);
     let rules = prepared.rules.rules();
     assert_eq!(rules.len(), 2);

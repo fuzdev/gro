@@ -11,12 +11,12 @@ use crate::resolver::{self, DiskTree, EntryBound, Resolution, Roots};
 
 /// An eval resolved, its box computed, before any runtime.
 ///
-/// [`prepass`] returns one whose box `B` is the [`confine::Prepared`] roots,
+/// [`prepass`] returns one whose box `B` is the [`confine::EvalPrepared`] roots,
 /// opened; once [`Prepass::confine`] has held the process in that box,
 /// [`eval`](super::eval) runs one whose box is the [`confine::BoxRoots`] it
 /// admits.
 #[derive(Debug)]
-pub struct Prepass<B = confine::Prepared> {
+pub struct Prepass<B = confine::EvalPrepared> {
     /// What to evaluate, and how.
     pub(super) options: EvalOptions,
     /// The entry, resolved.
@@ -32,7 +32,7 @@ pub struct Prepass<B = confine::Prepared> {
 }
 
 impl Prepass {
-    /// Confines the process to the eval's box ([`confine::Prepared::confine`]),
+    /// Confines the process to the eval's box ([`confine::EvalPrepared::confine`]),
     /// installed for the JIT its options name, the one
     /// [`engine_options`](super::engine_options) gives the engine: jitless,
     /// the box refuses executable mappings. Returns the eval, its box the
@@ -40,10 +40,12 @@ impl Prepass {
     ///
     /// # Errors
     ///
-    /// Returns the envelope of the eval failed by [`confine::Prepared::confine`]'s
+    /// Returns the envelope of the eval failed by [`confine::EvalPrepared::confine`]'s
     /// error: an `environment` when the host can't hold the box, an `internal`
     /// when the process broke the order the box needs.
-    pub fn confine(self) -> Result<(Prepass<confine::BoxRoots>, confine::Confined), Box<Envelope>> {
+    pub fn confine(
+        self,
+    ) -> Result<(Prepass<confine::BoxRoots>, confine::EvalConfined), Box<Envelope>> {
         let Self {
             options,
             entry,
@@ -112,7 +114,7 @@ impl PrepassError {
 /// a [`PrepassError::Usage`]), an `internal` when the resolution failed on
 /// the host's side (a read that failed or changed, a symlink loop), and an
 /// `internal` when the project's directory can't be opened as the one
-/// resolved ([`confine::Prepared::for_project`]).
+/// resolved ([`confine::EvalPrepared::for_project`]).
 pub fn prepass(options: EvalOptions) -> Result<Prepass, PrepassError> {
     let refused = |options: &EvalOptions, kind: ErrorKind, message: String| {
         let mut failure = EvalError::new(kind, message);
@@ -166,7 +168,7 @@ pub fn prepass(options: EvalOptions) -> Result<Prepass, PrepassError> {
             &options, &entry, failure,
         ))));
     }
-    let box_roots = match confine::Prepared::for_project(project) {
+    let box_roots = match confine::EvalPrepared::for_project(project) {
         Ok(box_roots) => box_roots,
         Err(error) => {
             let failure = EvalError::new(

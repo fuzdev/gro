@@ -182,17 +182,17 @@ and the contracts no one module doc owns.
     (`ResolveErrorKind::PackageImportsProject`); the loader's refusals of a
     string-compiled `import()` and of attributes, and their order, are
     `loader/mod.rs`'s.
-- Type state: eval's box, `confine::Prepared` → `Prepared::confine` →
-  `Confined`, named `Confinement::Eval`; the run's, `confine::run`'s tokens
-  in its order (`probe_floor`'s `LandlockFloor` → `RunClosed` →
-  `RunNetworked` → `RunHardened` → `RunPrepared` → `RunPrepared::confine`
-  → `RunConfined`), named
+- Type state: eval's box, `confine::EvalPrepared` →
+  `EvalPrepared::confine` → `EvalConfined`, named `Confinement::Eval`; the
+  run's, `confine::run`'s tokens in its order (`probe_floor`'s
+  `LandlockFloor` → `RunClosed` → `RunNetworked` → `RunHardened` →
+  `RunPrepared` → `RunPrepared::confine` → `RunConfined`), named
   `Confinement::Run`, which no command installs yet; or
   `Confinement::Unconfined` named by `fgro run`, a command of Gro's,
   `make-snapshot`, and unit tests. `engine::init_engine` takes a
   `Confinement` and returns an `Engine`, which `run_main` and
-  `make_snapshot` require, and `init_confined_engine`
-  takes a `Confined` and returns the `ConfinedEngine` `eval::eval` requires.
+  `make_snapshot` require, and `init_eval_engine` takes an `EvalConfined`
+  and returns the `EvalEngine` `eval::eval` requires.
   No runtime starts before the process is confined or named unconfined; an
   engine in eval's box whose JIT disagrees with the box's is
   `EngineError::JitConflict`; the run's box takes either.

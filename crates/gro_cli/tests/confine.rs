@@ -46,8 +46,8 @@ mod confined {
     use std::time::Duration;
 
     use gro_runtime::STACK_SIZE;
-    use gro_runtime::confine::{ConfineError, Confinement, Jit, Prepared, Threads};
-    use gro_runtime::engine::init_confined_engine;
+    use gro_runtime::confine::{ConfineError, Confinement, EvalPrepared, Jit, Threads};
+    use gro_runtime::engine::init_eval_engine;
     use gro_runtime::eval::{EvalOptions, RuntimeInfo, engine_options};
     use gro_runtime::snapshot::StartupSnapshot;
 
@@ -303,12 +303,12 @@ mod confined {
     /// Confines this process to `project`, for an engine whose JIT is `jit`,
     /// or prints why it can't and exits.
     fn confine(project: &Path, jit: Jit) -> Confinement {
-        confine_prepared(Prepared::for_project(project.to_owned()).unwrap(), jit)
+        confine_prepared(EvalPrepared::for_project(project.to_owned()).unwrap(), jit)
     }
 
     /// Confines this process to the roots `prepared` opened, for an engine
     /// whose JIT is `jit`, or prints why it can't and exits.
-    fn confine_prepared(prepared: Prepared, jit: Jit) -> Confinement {
+    fn confine_prepared(prepared: EvalPrepared, jit: Jit) -> Confinement {
         match prepared.confine(jit) {
             Ok(confined) => {
                 println!("confined");
@@ -474,7 +474,7 @@ mod confined {
             "swapped" => {
                 let root = scratch.join("swapped/project");
                 let moved = scratch.join("swapped/moved");
-                let prepared = Prepared::for_project(root.clone()).unwrap();
+                let prepared = EvalPrepared::for_project(root.clone()).unwrap();
                 std::fs::rename(&root, &moved).unwrap();
                 std::fs::create_dir(&root).unwrap();
                 std::fs::write(root.join("planted.txt"), "planted\n").unwrap();
@@ -679,7 +679,10 @@ mod confined {
             "threads" => {
                 let (stop, wait) = std::sync::mpsc::channel::<()>();
                 let other = std::thread::spawn(move || wait.recv());
-                match Prepared::for_project(project).unwrap().confine(Jit::Off) {
+                match EvalPrepared::for_project(project)
+                    .unwrap()
+                    .confine(Jit::Off)
+                {
                     Ok(_) => println!("confined with another thread alive"),
                     Err(ConfineError::Threads(Threads { count, .. })) => {
                         println!("refused: {count} threads");
@@ -794,7 +797,7 @@ mod confined {
         let sized = std::thread::Builder::new().stack_size(STACK_SIZE);
         sized
             .spawn(move || {
-                let engine = init_confined_engine(confined, &engine_options(Jit::Off)).unwrap();
+                let engine = init_eval_engine(confined, &engine_options(Jit::Off)).unwrap();
                 let (envelope, _runtime) = gro_runtime::eval::eval(engine, prepass);
                 let value = envelope.result.map_err(|error| error.message).unwrap();
                 println!("value: {value}");
