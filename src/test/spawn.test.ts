@@ -64,6 +64,29 @@ const assert_throws_type = (fn: () => unknown): void => {
 const env_program = (s: Spawn = spawn, options?: Parameters<Spawn['program']>[1]): SpawnProgram =>
 	s.program('env', options);
 
+/**
+ * Why a private user and mount namespace can't mount a tmpfs here, by trying it with `unshare`,
+ * `null` when it can. AppArmor's policy restricting user namespaces refuses it,
+ * as does a sandbox that refuses nested ones.
+ */
+const to_tmpfs_unavailable_reason = (): string | null => {
+	if (process.platform !== 'linux') return `this case needs Linux, and this is ${process.platform}`;
+	const result = spawnSync('unshare', ['-rm', 'mount', '-t', 'tmpfs', 'none', '/tmp'], {
+		encoding: 'utf8',
+		stdio: ['ignore', 'ignore', 'pipe']
+	});
+	if (result.status === 0) return null;
+	let cause: string;
+	if (result.error) {
+		cause = result.error.message;
+	} else {
+		const stderr = result.stderr.trim();
+		cause = result.signal ? `signal ${result.signal}` : `exit ${result.status}`;
+		if (stderr) cause += `: ${stderr}`;
+	}
+	return `this case needs a private user and mount namespace that can mount a tmpfs, and \`unshare -rm mount -t tmpfs\` failed (${cause})`;
+};
+
 const read_env = async (program: SpawnProgram): Promise<Map<string, string>> => {
 	const output = await program.out([]);
 	assert.strictEqual(output.kind, 'exited');
@@ -263,18 +286,20 @@ describe('resolution', () => {
 	});
 
 	// fresh tmpfs mounts number their files from the same inode, so only the device tells them apart
-	const can_mount_tmpfs =
-		process.platform === 'linux' &&
-		spawnSync('unshare', ['-rm', 'mount', '-t', 'tmpfs', 'none', '/tmp'], { stdio: 'ignore' })
-			.status === 0;
+	const tmpfs_unavailable = to_tmpfs_unavailable_reason();
 
-	test.skipIf(!can_mount_tmpfs)(
-		'a script whose link now leads to a file on another device with the same inode is refused',
-		() => {
-			mkdirSync(join(sandbox.root, 'a'));
-			mkdirSync(join(sandbox.root, 'b'));
-			const module_url = new URL('../lib/spawn.ts', import.meta.url).href;
-			const probe = `
+	test('a script whose link now leads to a file on another device with the same inode is refused', (ctx) => {
+		if (tmpfs_unavailable !== null) {
+			// a skip's note shows only in a verbose or one-file run, so the reason is also logged,
+			// which the default reporter shows
+			// eslint-disable-next-line no-console
+			console.warn(`skipped: ${tmpfs_unavailable}`);
+			ctx.skip(tmpfs_unavailable);
+		}
+		mkdirSync(join(sandbox.root, 'a'));
+		mkdirSync(join(sandbox.root, 'b'));
+		const module_url = new URL('../lib/spawn.ts', import.meta.url).href;
+		const probe = `
 				const { symlinkSync, rmSync, statSync } = await import('node:fs');
 				const [a, b, link] = process.argv.slice(1);
 				if (statSync(a).ino !== statSync(b).ino) throw new Error('no inode collision');
@@ -289,21 +314,20 @@ describe('resolution', () => {
 					(error) => console.log(error.kind)
 				);
 			`;
-			const a = join(sandbox.root, 'a');
-			const b = join(sandbox.root, 'b');
-			const script = `mount -t tmpfs none "$1" && mount -t tmpfs none "$2" &&
+		const a = join(sandbox.root, 'a');
+		const b = join(sandbox.root, 'b');
+		const script = `mount -t tmpfs none "$1" && mount -t tmpfs none "$2" &&
 				printf '#!/bin/sh\\necho a\\n' > "$1/s" && printf '#!/bin/sh\\necho b\\n' > "$2/s" &&
 				chmod 755 "$1/s" "$2/s" &&
 				exec "$3" --input-type=module -e "$4" "$1/s" "$2/s" "$5"`;
-			const result = spawnSync(
-				'unshare',
-				['-rm', 'sh', '-c', script, 'sh', a, b, process.execPath, probe, join(bin, 'tool')],
-				{ encoding: 'utf8' }
-			);
-			assert.strictEqual(result.stderr, '');
-			assert.strictEqual(result.stdout, 'launch_failed\n');
-		}
-	);
+		const result = spawnSync(
+			'unshare',
+			['-rm', 'sh', '-c', script, 'sh', a, b, process.execPath, probe, join(bin, 'tool')],
+			{ encoding: 'utf8' }
+		);
+		assert.strictEqual(result.stderr, '');
+		assert.strictEqual(result.stdout, 'launch_failed\n');
+	});
 
 	test('a name with / resolves against the project root', () => {
 		const tsc = spawn.find('node_modules/.bin/tsc');
