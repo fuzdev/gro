@@ -24,10 +24,11 @@ so a builtin that loads the project's modules takes it from its `host` rather th
 The cut is a guardrail on either runtime, against a builtin's own mistakes, never a boundary.
 On the Node Gro `env` is narrowed and `programs` refuses a role the grants don't list,
 but `fs_paths` is the root's whole `FsPaths`, and any module can still import a host module.
-On the binary, as designed, the cut sits inside the run's grant set, which holds the grants of every builtin
-in the command's closure, and the project's code shares the realm, where a project task can invoke
-any of them and any project module can patch a shared prototype their handles pass through,
-so it holds that whole set, which only the native checks and the box bound.
+On the binary the cut sits inside the run's grant set, the grants of every builtin in the command's closure
+beside the grant flags. The project's code shares the realm, and though no project task runs there,
+the config and genfiles run at the generated entry's origin, the project's, and import any host module the set holds,
+and a package they import, granted nothing itself, can patch a shared prototype the builtins' handles pass through,
+so that code holds the whole set, which only the native checks bound until the run's box is installed.
 `Object.freeze` and `Object.hasOwn` are copied when this module loads, the host and its
 `programs` are null-prototype records, and `GRO_BUILTIN_TASK_GRANTS` is deep-frozen with
 null-prototype objects, so a property added to `Object.prototype` widens no host:

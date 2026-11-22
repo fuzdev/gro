@@ -158,8 +158,8 @@ The module's TSDoc has each op's contract.
 ### fs on fgro
 
 On `fgro`, `@fuzdev/gro/fs.ts` is a builtin module with the Node module's members, each of the same `length`, its records and functions frozen.
-It needs the `fs` grant, which `fgro run` gives the project's own modules, `-A` every module,
-and its roots are the directories the run's flags grant ([run](run.md#usage)).
+It needs the `fs` grant, which `fgro run` and `fgro <command>` give the project's own modules, `-A` every module,
+and its roots are the directories the run's flags grant ([run](run.md#usage)), and under `fgro <command>` its closure's too.
 Every member is built.
 How each part is built is in the module docs of `crates/gro_runtime/src/host/fs.rs` and its children.
 
@@ -523,6 +523,7 @@ On `fgro`, `@fuzdev/gro/spawn.ts` is a builtin module with the Node module's mem
 and `@fuzdev/gro/spawn_error.ts` is a grant-free one, `SpawnError` and `is_spawn_error` the runtime's own ([error classes](#error-classes-on-fgro)).
 `spawn` needs the `spawn` grant, which `fgro run --allow-run=` gives the project's own modules for the programs it names, `--allow-run-in=` for the programs found beneath the directories it names,
 and `-A` gives every module for every program ([run](run.md#usage)).
+Under `fgro <command>` the project's own modules also get the programs its closure grants, each with the grants table's environment policy.
 Built: every member, the root and its narrowed roots, `program`, `find`, `program_in`, `find_in`, and `narrow`, program handles with their `name` and `path`,
 a program's `run`, `out`, `out_bytes`, and `start`, and a started child's `SpawnChild`, its `stdin`, and its output streams.
 Not built: a call's `signal` option, which, given, rejects with a plain `Error`.
@@ -532,7 +533,7 @@ How it's built is in the module docs of `crates/gro_runtime/src/host/spawn.rs` a
   most programs can be made to run code by their arguments or environment, a shell, git, and cargo among them,
   and the root's `env` values set any variable for a program, `LD_PRELOAD` and `PATH` among them.
   Hand library code a narrowed root, which refuses `env` values.
-- The run's root makes only the programs `--allow-run=` names, each by the name a program asks for, and any other name is `not_granted`, where Node's root makes any;
+- The run's root makes only the programs `--allow-run=` names, and in a run of `fgro <command>` those its closure grants, each by the name a program asks for, and any other name is `not_granted`, where Node's root makes any;
   under `-A` it makes any, as Node's does.
 - Each granted name is pinned as the run starts, once the entry has resolved and before any module evaluates, by the Node module's rules,
   a bare name walked on the `PATH` `fgro` read for children, a name holding `/` beneath the project's root,
@@ -733,7 +734,8 @@ Each module's TSDoc has its contract.
 ### The process modules on fgro
 
 On `fgro`, the process modules [the table](#the-modules) marks built are builtin modules, each exporting what its Node module does:
-`@fuzdev/gro/args.ts`, whose `args` is a frozen array of strings, the script's arguments, every one after the file `fgro run` was given, as written;
+`@fuzdev/gro/args.ts`, whose `args` is a frozen array of strings, the script's arguments, every one after the file `fgro run` was given, as written,
+or, under `fgro <command>`, the command line without its grant flags;
 `@fuzdev/gro/exit.ts`, whose `exit` ends the run and whose `set_exit_code` sets the code a run that ends on its own exits with ([below](#exit-on-fgro));
 `@fuzdev/gro/env.ts`, whose `env` reads the variables `--allow-env=` grants ([below](#env-on-fgro));
 `@fuzdev/gro/stdout.ts` and `@fuzdev/gro/stderr.ts`, whose handles write the process's standard output and error ([below](#stdout-and-stderr-on-fgro));
@@ -821,6 +823,7 @@ A closed descriptor 1 or 2 is open on `/dev/null` by the time a run starts, so w
 #### env on fgro
 
 `env` needs the `env` grant, which `fgro run --allow-env=A,B` gives the project's own modules, for exactly those variables,
+and `fgro <command>` its closure's variables joined to the flag's,
 and `-A` gives every module, for every variable ([run](run.md#usage)); a package is refused it otherwise, as for `args`.
 `fgro` reads the granted variables once, as the run starts, so `env` is the environment then, fixed.
 The root `env` reads only the granted names, where Node's reads every variable: an unset one is `undefined`,
@@ -1271,7 +1274,8 @@ Gro's tooling, not the module, guards what it removes and writes:
   The first removal or emptying reads `$HOME`'s real path through `fs.real_path`,
   and a failure to read it, but for a missing `$HOME`, fails that removal and every later one
   through that `FsPaths` before it acts.
-  So on `fgro`, building an `FsPaths` with `env.get('HOME')` takes `--allow-env=HOME`,
+  So on `fgro run`, building an `FsPaths` with `env.get('HOME')` takes `--allow-env=HOME`
+  (`fgro <command>` reads `HOME` natively and hands it to Gro's CLI),
   and a confined removal through it takes `--allow-read` on `$HOME`, or on its nearest existing ancestor
   when it's missing: a `$HOME` outside every grant is refused, missing or not.
 - `gro clean` empties a symlinked `.gro/`'s target only when it holds the marker Gro writes

@@ -40,12 +40,13 @@
 //! closure is the command's as though the args were valid, no more than the
 //! valid command would get, and more than a refusal needs.
 //!
-//! Kind: the boundary for what grants a run gets, once a run is held to its
-//! closure. The adversary is the project's code (its config, genfiles, and
-//! the modules its tools load), which runs inside the run; the asset is
-//! everything outside the union. It holds against deliberate code because
-//! it's computed natively before any of that code runs; what it can't bound
-//! is the union itself, which the command line chose.
+//! Kind: the boundary for what grants a run gets, the verb's run held to
+//! its closure joined to the grant flags. The adversary is the project's
+//! code (its config, genfiles, and the modules its tools load), which runs
+//! inside the run; the asset is everything outside the union. It holds
+//! against deliberate code because it's computed natively before any of
+//! that code runs; what it can't bound is the union itself, which the
+//! command line chose.
 
 use std::collections::BTreeSet;
 

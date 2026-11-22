@@ -3,14 +3,16 @@
  * the Node Gro's entry, `invoke.ts`, and `binary_main`, the body of the binary's CLI root,
  * made for the entry the binary generates for a command.
  *
- * It splits off the grant flags, warning that they confine nothing here, parses the CLI args,
- * loads the project's config, and invokes what the args name, the CLI's primary concept,
- * a task; to learn more about them, see `src/docs/task.md`.
+ * It splits off the grant flags, warning that they confine nothing, which is Node's case alone,
+ * since on the binary the pre-pass splits them off before any JS runs,
+ * then parses the CLI args, loads the project's config, and invokes what the args name,
+ * the CLI's primary concept, a task; to learn more about them, see `src/docs/task.md`.
  * It imports no host module itself, reads nothing of the process itself,
  * and configures nothing global:
  * the root opens the handles, picks the project loader and the platform, and configures
  * fuz_util's print colors, if it colors at all, before it calls `gro_main`, and it reports what
- * `gro_main` throws with `log_cli_error` and exits with `to_exit_code`.
+ * `gro_main` throws with `log_cli_error`, taking the exit code from `to_exit_code`:
+ * `invoke.ts` exits with it, and `binary_main` sets it, so the run ends on its own.
  *
  * @module
  */

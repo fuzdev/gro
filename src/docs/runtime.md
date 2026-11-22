@@ -11,14 +11,18 @@
 > - `fgro eval <module>` evaluates one to JSON data, jitless, with the clock and randomness denied,
 >   its heap, memory, and time limited, and its process in a kernel box read-only to its project
 >   ([eval](eval.md))
+> - `fgro <command>` runs a command of Gro's, like `fgro check`, from Gro's own code embedded in the binary,
+>   its grants read natively from the command's closure, unboxed, or runs the project's Node Gro and says why
+>   ([Gro's workflow](#gros-workflow-on-the-runtime))
 >
 > Designed, not built: the host modules not marked built in [host modules](host_modules.md#the-modules) (`net`, `watch`, and the standard streams among them;
 > every host module exists as its Node implementation), the grant flags beyond those listed in [run](run.md#usage), the policy file,
-> the seal on the global object, and the kernel backstop for `run`.
+> the seal on the global object, and the kernel backstop for `run` and a command of Gro's.
 > Until they land, `fgro run` gives code no API past its own module graph, the console, and the builtin modules [host modules](host_modules.md#the-modules) marks built,
 > but the process itself isn't confined or limited: against code that exploits V8 it's an ordinary process with your user's authority,
 > the same class as Deno with no permissions granted;
-> and with no exploit at all, a run that `--allow-run=` or `--allow-run-in=` grants a program is close to `-A`, as Deno's `--allow-run` is.
+> and with no exploit at all, a run that `--allow-run=` or `--allow-run-in=` grants a program is close to `-A`, as Deno's `--allow-run` is,
+> and so is a command of Gro's whose closure grants a tool.
 > The [roadmap](#roadmap) marks what's built, the design doesn't have every answer yet
 > ([open questions](#open-questions)), and feedback is welcome in [discussions](https://github.com/fuzdev/gro/discussions).
 
@@ -183,7 +187,7 @@ Each bullet marks what's built; anything unmarked past the omissions is designed
 - **Strict ESM resolution, no legacy algorithm** (built). Relative and absolute specifiers
   resolve as URLs with mandatory extensions, with no probing, no directory index, and no `main`.
   Bare specifiers resolve through a package's `exports` with a fixed condition set
-  (`gro`, `import`, `default`), walking `node_modules`, and `#` specifiers through the nearest `package.json`'s `imports`,
+  (`gro`, `import`, `default`, and `development` in a run of `fgro <command>` unless `NODE_ENV` is `production`), walking `node_modules`, and `#` specifiers through the nearest `package.json`'s `imports`,
   to files only.
   A package without `exports`, or one that's CommonJS, fails loudly with the reason and the fix.
   Code comes from files on disk only, never `https:`, `jsr:`, or `npm:` imports,
@@ -322,7 +326,7 @@ As designed, except where marked built:
 
 - `gro task <path>` is the workflow layer that carries the original TS Gro API forward,
   running project tasks by full path for explicit resolution,
-  while the builtins stay first-class subcommands (`gro check`, `gro dev`) (built on the Node Gro).
+  while the builtins stay first-class subcommands (`gro check`, `gro dev`) (built on the Node Gro, and for the builtins on `fgro`).
 - A task runs under the union of what the invocation reaches,
   its own graph plus the tasks it invokes by a literal name (`invoke_task`), since every task holds the shared context (config, `invoke_task`).
   Each builtin's `host` is cut from that union by its own grants, a [guardrail](glossary.md#guardrail) against Gro's own mistakes,
@@ -339,18 +343,27 @@ As designed, except where marked built:
   and reads into a [command's closure](glossary.md#commands-closure) before any JS runs
   (built; [task](task.md#a-builtins-host-and-grants)).
 - `fgro <command>` runs a command of Gro's on the binary (built, without the box):
-  every first argument but the binary's own (`run`, `eval`, `--version`, `--help` and `help`) is one,
+  every first argument but the binary's own (`run`, `eval`, `--version`, `--help` and `help`, and the internal `make-snapshot` and `make-embed`) is one,
   bare `fgro` lists them, and `fgro -v` prints Gro's version while `fgro --version` keeps the binary's line.
   Its pre-pass reads the command's closure, the grant flags after the command word, and the project at the working directory,
   which must hold a project's `package.json`, before any thread starts,
   then runs Gro's CLI from an entry it generates at `gro:main`, the project's origin,
   with the closure's grants joined to the flags' and packages matching the `development` condition unless `NODE_ENV` is `production`.
   Until the run's box is installed, the tools those grants pass the whole environment
-  (svelte-kit, vitest, eslint, svelte-check, tsc) run the project's code unconfined,
+  (svelte-kit, vitest, eslint, svelte-check, tsc, and npm under `sync`) run the project's code unconfined,
   so of the commands that load the project's code only `format --check` holds it to read-only grants:
   `gen --check` grants svelte-kit, which a genfile can start, synced or not, and which loads the project's `vite.config.ts`.
-  Declared differences from the Node Gro: Gro's logger colors its output even under `NO_COLOR` or when piped,
-  and `fgro --help` and `fgro help` print the binary's own help, where `gro --help` lists the builtins.
+  The declared differences from the Node Gro follow.
+  Gro's logger colors its output even under `NO_COLOR` or when piped.
+  `fgro --help` and `fgro help` print the binary's own help, where `gro --help` lists the builtins.
+  The console prints a string inside an array or object with double quotes, where Node's prints single ones,
+  so a list Gro logs, like `gen`'s files, reads differently.
+  A forwarded section that turns off a check its command runs, like `fgro check -- gro gen --no-check`,
+  is refused at its first write, failing the run, where the Node Gro writes,
+  since the closure keeps an invoke's `check` mark whatever the command line forwards.
+  A project's typecheck reads the types of the Gro it installed while the command runs the binary's embedded code.
+  Another installed version falls back, so the two can differ when the installed Gro has the binary's version but not its code,
+  like a build of a later commit before the version moves, or when the project installed no Gro, whose typecheck then finds no Gro types.
   A run that fails after the resolver refused a `node:` specifier, caught or not, ends with a hint naming the cause
   and the whole command on the Node Gro, which confines nothing (`node_modules/.bin/gro` and the command line, its grant flags stripped),
   a [review signal](glossary.md#review-signal) the run's code controls: project code can print it at will by catching a `node:` import and failing.
@@ -424,7 +437,8 @@ where the host modules and grants land with their first consumer.
 - [x] the Deno exit: config eval is on `fgro eval`, and the stack's other Deno uses moved to Node,
       `deno task` becoming npm scripts or gro tasks
 - [ ] Gro on Gro, with tasks, gen, and check running on the runtime and enforcing the policy file
-      (until then the CLI passes every host module)
+      (built so far, `fgro <command>` runs the builtins on the runtime, held to their closure's grants, unboxed,
+      with a project task falling back to Node; until the policy file the CLI passes every host module)
 - [ ] bundled dev and build on the same host, and Vite leaves the loop
 - [ ] a test runner on the runtime, and with serving, Node leaves the stack's toolchain
 

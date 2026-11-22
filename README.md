@@ -30,9 +30,9 @@ an unconfined run (`-A`) is the escape hatch when you need it.
 The runtime grew out of the loader Gro already uses to run tasks, config, and codegen,
 and makes a clean break from Node toward web standards.
 Its model, authority by import with nothing ambient, is why it's a new runtime and not Deno with other defaults.
-It's an in-progress design, and of the confinement `fgro eval`'s kernel box and `fgro run`'s link-time grant check are built so far.
+It's an in-progress design, and of the confinement `fgro eval`'s kernel box and the link-time grant check of `fgro run` and `fgro <command>` are built so far.
 The experimental build runs modules with little API to the OS (fs reads beneath the project's root and the directories `--allow-read=` names, and writes, renames, and removes beneath those `--allow-write=` names, or everywhere under `-A`, the programs `--allow-run=` names and those beneath the directories `--allow-run-in=` names, started outside any box, so granting one is close to `-A`, no network, and the environment only as `--allow-env=` or `-A` grants it),
-though `fgro run`'s process itself isn't sandboxed yet - see
+though neither `fgro run`'s process nor `fgro <command>`'s is sandboxed yet - see
 [the runtime docs](/src/docs/runtime.md) for why it exists, the model in a page, the design, and the roadmap,
 and feedback is invited in [discussions](https://github.com/fuzdev/gro/discussions).
 
@@ -80,7 +80,8 @@ AI disclosure: much of this codebase is LLM-generated with uneven human review.
   - builtin [tasks](/src/docs/tasks.md) list
 - [testing](/src/docs/test.md) with [`vitest`](https://github.com/vitest-dev/vitest)
 - [`gen`](/src/docs/gen.md) code generation
-- the experimental [runtime](/src/docs/runtime.md), what [`fgro run`](/src/docs/run.md) and [`fgro eval`](/src/docs/eval.md) do today,
+- the experimental [runtime](/src/docs/runtime.md), what [`fgro run`](/src/docs/run.md), [`fgro eval`](/src/docs/eval.md),
+  and [`fgro <command>`](/src/docs/runtime.md#gros-workflow-on-the-runtime) do today,
   its [security model](/src/docs/authority.md) and the [kernel backstop](/src/docs/backstop.md) under it,
   how it [resolves modules](/src/docs/resolver.md) and [strips types](/src/docs/typescript.md),
   and how it [compares](/src/docs/comparison.md) to Node, Deno, and Bun

@@ -19,8 +19,9 @@ arm (a `cfg` on the architecture or the C library is fine).
   protocol (`eval/`), and the verb's pre-pass (`verb/`: the grants table
   `src/builtin_grants.json`, carried by `include_str!`, and a command's
   closure). Start at its `lib.rs`
-- `gro_cli` - the `fgro` binary (`run`, `eval`, `--version`, and a command
-  of Gro's for every other first argument, bare `fgro` included); its `main.rs`
+- `gro_cli` - the `fgro` binary (`run`, `eval`, `--version`, `--help` and
+  `help`, the internal `make-snapshot` and `make-embed`, and a command of
+  Gro's for every other first argument, bare `fgro` included); its `main.rs`
   maps the commands to their docs. The name it prints, in help, hints,
   errors, the version line, and `runtime_version`, is
   `gro_runtime::BINARY_NAME`, never a literal, and `main.rs` fails the
@@ -185,9 +186,10 @@ and the contracts no one module doc owns.
   in its order (`RunClosed` → `RunNetworked` → `RunHardened` →
   `RunPrepared` → `RunPrepared::confine` → `RunConfined`), named
   `Confinement::Run`, which no command installs yet; or
-  `Confinement::Unconfined` named by `fgro run`, `make-snapshot`, and unit
-  tests. `engine::init_engine` takes a `Confinement` and returns an `Engine`,
-  which `run_main` and `make_snapshot` require, and `init_confined_engine`
+  `Confinement::Unconfined` named by `fgro run`, a command of Gro's,
+  `make-snapshot`, and unit tests. `engine::init_engine` takes a
+  `Confinement` and returns an `Engine`, which `run_main` and
+  `make_snapshot` require, and `init_confined_engine`
   takes a `Confined` and returns the `ConfinedEngine` `eval::eval` requires.
   No runtime starts before the process is confined or named unconfined; an
   engine in eval's box whose JIT disagrees with the box's is

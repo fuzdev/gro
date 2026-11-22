@@ -24,8 +24,8 @@
 //! A flag's list is checked only for a run: a fallback passes the command
 //! line to the Node Gro as written, which takes the flags and warns.
 //!
-//! Kinds: the grants a run gets are a boundary once the run is held to
-//! them, computed natively before any project code runs (the closure's
+//! Kinds: the grants a run gets are a boundary, held natively from the
+//! run's first module, computed before any project code runs (the closure's
 //! module doc names the adversary and the asset), whose bound is their
 //! union with the flags, which the command line chose; the root check and
 //! the refusal of a table [`table_programs`] can't read are guardrails

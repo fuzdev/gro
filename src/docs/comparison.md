@@ -162,7 +162,7 @@ What changes for a script that runs on Deno today, as designed, except where a c
 | dependencies         | `npm:`, `jsr:`, and `https:` specifiers, fetched and cached by Deno                    | built: `node_modules` from npm and a `package.json`; a package without `exports`, or one that's CommonJS, is refused with the reason  |
 | TypeScript           | the full language, transpiled, `.tsx` included                                         | built: erasable syntax only, so an `enum` or a parameter property is refused with a fix; no `.tsx`, and no `tsconfig.json` read      |
 | `node:*` built-ins   | a compatibility layer                                                                  | none; the web globals and the host modules instead                                                                                   |
-| tools in the binary  | `deno fmt`, `lint`, `test`, `compile`, and a package manager                           | none yet; `gro format` and `gro lint` on the Node Gro, a test runner planned, no `compile`                                           |
+| tools in the binary  | `deno fmt`, `lint`, `test`, `compile`, and a package manager                           | built: `gro format` on tsv's crates in `fgro`, `gro lint` and `gro test` on ESLint and Vitest as Node children; no `compile`         |
 | startup              | slower than Gro on every row of the bench                                              | built: faster than Deno on every row ([measured](#measured))                                                                         |
 
 The shape of the move: a script that's already strict ESM over npm packages with `exports`,
@@ -300,7 +300,7 @@ Gro's cells here name the Node Gro's command where the runtime has none yet.
 | bundler                | none                              | `deno bundle`                 | `bun build`           | planned, with bundled dev and build              |
 | code cache             | opt-in, `NODE_COMPILE_CACHE`      | yes                           | yes                   | none for confined runs; undecided for `-A`       |
 | single-file executable | `--build-sea`, experimental | `deno compile`                | `bun build --compile` | no                                               |
-| task runner            | npm scripts, `node --run`         | `deno task`                   | `bun run`             | built on the Node Gro: `gro task <path>` with the builtins as subcommands |
+| task runner            | npm scripts, `node --run`         | `deno task`                   | `bun run`             | built on the Node Gro: `gro task <path>` with the builtins as subcommands; the builtins also on `fgro`, unboxed, a project task falling back to Node |
 | TypeScript types for the host API | `@types/node`          | from the binary               | `bun-types`           | planned, from the binary; the npm package until then |
 
 ## Measured

@@ -276,7 +276,7 @@ the condition set can pick another target than Node's, and `.ts` inside `node_mo
 - **A `.ts` file is always an ES module,** where Node reads `"type"` and the code and may run it as CommonJS;
   `.cts` is refused.
 - **A scoped name with an empty, `.`, or `..` segment is refused,** where Node accepts it.
-- **No other condition matches:** not `node`, `module-sync`, or `require` (Node's), nor `browser` or `svelte`,
+- **No other condition matches** but `development` in a run of `fgro <command>` (above): not `node`, `module-sync`, or `require` (Node's), nor `browser` or `svelte`,
   so where a target lists `node` or `module-sync` ahead of `gro`, `import`, and `default`, or `gro` ahead of Node's,
   `fgro` picks another file than Node does;
   the set grows only by a decision.

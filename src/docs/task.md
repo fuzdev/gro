@@ -288,9 +288,10 @@ but `fs_paths` is the root's whole `FsPaths`.
 On the binary (built, without the box), a command runs under one grant set, its closure's,
 the CLI's row and the grants of every builtin the command invokes, directly or in turn, as its `invokes` mark them, beside the grant flags,
 and the cut gives each builtin its own part of that set.
-The project's code shares the realm: on the binary no project task runs (`gro task <path>` runs on the Node Gro),
-and the config or a genfile can patch a shared prototype a builtin's handles pass through,
-so it holds the whole set, which only the native checks bound, until the box is installed
+The project's code shares the realm. On the binary no project task runs (`gro task <path>` runs on the Node Gro),
+but the config and genfiles run at the [generated entry](glossary.md#generated-entry)'s origin, the project's, and import any host module the set holds,
+and a package they import, granted nothing itself, can patch a shared prototype a builtin's handles pass through,
+so that code holds the whole set, which only the native checks bound, until the box is installed
 ([threat model](authority.md#threat-model)).
 `GRO_BUILTIN_TASK_GRANTS` is deep-frozen with null-prototype objects,
 and the cut copies `Object.hasOwn` when it loads,

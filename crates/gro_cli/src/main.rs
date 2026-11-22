@@ -9,6 +9,8 @@
 //!   one envelope on stdout; the reference is `src/docs/eval.md`
 //! - `fgro --version` prints one line naming the version, the commit, the
 //!   V8 version, and whether a snapshot is embedded (`version`)
+//! - `fgro --help` and `fgro help` print the binary's own help, its commands
+//!   and their descriptions
 //! - `fgro <command> [<args...>]`, for every other first argument and for
 //!   none, runs a command of Gro's (`gro check`, the listing): its
 //!   pre-pass (`verb::prepass`) decides on the main thread, before any
@@ -34,10 +36,12 @@
 //! exit host module (`run::exit_code` has the rules). A command of Gro's
 //! exits as `run` does on the binary, its code Gro's; with `2` when its
 //! pre-pass refuses it (its grant flags, `GRO_FALLBACK`'s value, a working
-//! directory with no project's `package.json`, a fallback
-//! `GRO_FALLBACK=command` refuses, or one with no built Node Gro or no
-//! `node` to run it), `1` when the grants table can't be read or `node`
-//! fails to start; and with the Node Gro's code when it falls back.
+//! directory with no project's `package.json`, a project's `package.json`
+//! or installed Gro's that can't be read, a fallback `GRO_FALLBACK=command`
+//! refuses, or a fallback with no installed or built Node Gro or no `node`
+//! to run it), `1` when the grants table or the working directory can't be
+//! read or `node` fails to start; and with the Node Gro's code when it
+//! falls back.
 //!
 //! Features (the binary that ships never enables `phases` or `prices`):
 //!

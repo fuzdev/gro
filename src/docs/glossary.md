@@ -80,7 +80,7 @@ and the union of their grants with the CLI's own row,
 or why the command runs on the Node Gro instead, like a builtin that declares no grants, an install, or a project task.
 The grant flags sit beside it.
 The binary reads it natively from the grants table it carries (`gro_runtime::verb`) for `fgro <command>`,
-as the [boundary](#boundary) for what grants a run of the command gets, once a run is held to it;
+as the [boundary](#boundary) for what grants a run of the command gets, the run held to it joined to the grant flags;
 what it can't bound is the union itself, which the command line chose.
 Not the [link closure](#link-closure). [task](task.md#a-builtins-host-and-grants) has the marks.
 
@@ -94,7 +94,7 @@ It's where host modules are best imported, since inference proposes a grant for 
 
 The default [run kind](#run-kinds), bounded by its grants and not replayable.
 It's a policy property, not by itself an OS sandbox: the [kernel backstop](#kernel-backstop) is what makes it hold
-against code that escapes the engine. For `fgro run` its link-time grant check is built, and the kernel backstop isn't yet.
+against code that escapes the engine. For `fgro run` and `fgro <command>` its link-time grant check is built, and the kernel backstop isn't yet.
 
 ## declared
 
@@ -150,7 +150,7 @@ The kernel's `EXECUTE` rule on one is designed ([backstop](backstop.md#the-box-f
 
 A command of Gro's that `fgro <command>` runs on the Node Gro the project installed instead of on the binary,
 after one `note:` line saying why: its [command's closure](#commands-closure) holds a builtin that declares no grants, an install, or a project task,
-the binary leaves a builtin to Node by policy (`clean`), or the project installed another version of Gro.
+the command is `task` listing the project's tasks, the binary leaves a builtin to Node by policy (`clean`), or the project installed another version of Gro.
 Each reason is decided by the command line or by the project's files, and `GRO_FALLBACK=command` refuses the second kind
 ([authority](authority.md#what-the-first-release-is-for)).
 The line is a [review signal](#review-signal); what runs is the Node Gro, which confines nothing.

@@ -337,8 +337,9 @@ box live there and in each crate's module docs.
 Crates (detail in [crates/CLAUDE.md](crates/CLAUDE.md#crates)):
 
 - `gro_runtime` - the JS host over a patched `deno_core`; start at its `lib.rs`
-- `gro_cli` - the `fgro` binary (`run`, `eval`, `--version`, and every other first
-  argument a command of Gro's: `fgro check`, bare `fgro` listing, `GRO_FALLBACK`)
+- `gro_cli` - the `fgro` binary (`run`, `eval`, `--version`, `--help` and `help`, the internal
+  `make-snapshot` and `make-embed`, and every other first argument a command of Gro's,
+  like `fgro check`; bare `fgro` lists them, and `GRO_FALLBACK` governs a fallback)
 - `gro_sys` - the raw system calls the safe std API lacks, behind a safe API
 - `gro_v8` - the V8 calls rusty_v8 exposes only as `unsafe`, behind a safe API
 - `gro_bench` - the measurement harness

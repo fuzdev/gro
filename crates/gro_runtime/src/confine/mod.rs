@@ -19,7 +19,8 @@
 //! The run's ends in [`run::RunConfined`], made only by
 //! [`run::RunPrepared::confine`]. [`Confinement`] names one of the two, or
 //! [`Confinement::Unconfined`]: named by the caller, for a process that
-//! holds no box (`fgro run`, the snapshot builder, and tests).
+//! holds no box (`fgro run`, a command of Gro's, the snapshot builder, and
+//! tests).
 //!
 //! The rest of this doc is eval's box; [`run`]'s module doc has the run's.
 //! A box must hold every thread the process has, so it is installed while

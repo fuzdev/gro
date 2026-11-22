@@ -133,7 +133,8 @@ export interface FsPathsOptions {
 	 * `$HOME`, `env.get('HOME')` from the env host module, protected as given and as its real path,
 	 * which the first removal or emptying resolves through `fs.real_path`.
 	 * `undefined`, empty, or relative, as an unset or malformed `HOME` reads, protects nothing.
-	 * On `fgro`, reading `HOME` takes `--allow-env=HOME`, and resolving its real path takes
+	 * On `fgro run`, reading `HOME` takes `--allow-env=HOME`, while `fgro <command>` reads it natively
+	 * and hands it in. On either, resolving its real path takes
 	 * `--allow-read` on `$HOME`, or on its nearest existing ancestor when it's missing,
 	 * without which the read is refused and the removal fails before it acts.
 	 */

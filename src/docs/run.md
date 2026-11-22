@@ -38,7 +38,7 @@ with control characters, the line and paragraph separators, and format character
 so what follows a `=`, which could be a value, never reaches the terminal, and neither does a raw control character
 (a name `--allow-env=` or `--allow-run-env=` can't grant is echoed only for a `*`, escaped, and never when it holds a `=`;
 a name `--allow-run=` can't grant is a program's, echoed escaped).
-Arguments the command-line parser refuses before `run` reads its own, an unknown flag of `fgro` or of `eval` among them, print as
+Arguments the command-line parser refuses before `run` reads its own, an unknown flag of `eval` or one after `fgro --version`, `--help`, or `help` among them, print as
 `error: invalid arguments to fgro eval: <the arguments>` (or `to fgro:`) and `Run fgro eval --help for more information.`,
 the first 16 arguments each printed by that rule and cut past 80 characters, then a count of the rest, and no other text, so the message doesn't say which argument was wrong;
 a file whose name starts with `-` goes after `--`.
@@ -362,7 +362,15 @@ Whether a stream is colored is decided once per process, in order:
 | 0              | the module ran to completion with no code set, or called `exit()` with none set, or `--help` or `--version`                                                  |
 | the program's  | the code given to `exit(code)`, or the one `set_exit_code` set when the module then ran to completion or called `exit()` with none: an integer from 0 to 255 |
 | 1              | the module threw, rejected a promise no one handled, left a top-level `await` unsettled, an import failed to resolve, load, or strip, or the runtime failed to start, or a run that grants a program couldn't make ready to start one, whatever code `set_exit_code` set; or an `import()` was refused by one of gro's rules, or a call for a grant its handle lacks, caught or not, in a run that would have exited 0 |
-| 2              | a usage error (no arguments, an unknown subcommand or flag, a flag before `run`'s file other than `--help`, `--allow-env=`, `--allow-read=`, `--allow-write=`, `--allow-temp`, `--allow-run=`, `--allow-run-in=`, `--allow-run-env=`, or `-A`, a bare one of these or a name it can't grant, `--allow-temp` given a value, `--allow-run-env=` without `--allow-run=` or `--allow-run-in=`, a directory missing, no directory, or one that can't be looked at, no file, an extra argument to `eval`, a non-UTF-8 argument, the script's included, `--version` with a subcommand), or an entry that doesn't resolve (missing, the wrong extension, a `.js` file not under `"type": "module"`) |
+| 2              | a usage error (an unknown flag of `eval`, or one after `--version`, `--help`, or `help`, a flag before `run`'s file other than `--help`, `--allow-env=`, `--allow-read=`, `--allow-write=`, `--allow-temp`, `--allow-run=`, `--allow-run-in=`, `--allow-run-env=`, or `-A`, a bare one of these or a name it can't grant, `--allow-temp` given a value, `--allow-run-env=` without `--allow-run=` or `--allow-run-in=`, a directory missing, no directory, or one that can't be looked at, no file, an extra argument to `eval`, a non-UTF-8 argument, the script's included, `--version` with a subcommand), or an entry that doesn't resolve (missing, the wrong extension, a `.js` file not under `"type": "module"`) |
+
+Every other first argument, a flag among them, and none run a command of Gro's ([runtime](runtime.md#gros-workflow-on-the-runtime)),
+which exits with Gro's code as a run does, `2` when its pre-pass refuses it
+(its grant flags, `GRO_FALLBACK`'s value, a working directory with no project's `package.json`,
+a project's `package.json` or installed Gro's that can't be read,
+a fallback `GRO_FALLBACK=command` refuses, or a fallback with no installed or built Node Gro or no `node` to run it),
+`1` when the grants table or the working directory can't be read or `node` fails to start,
+and the Node Gro's code when it falls back.
 
 An entry that fails to resolve on an I/O error or a symlink loop exits 1, not 2.
 A program's code passes as it is, so `1` and `2` are shared between the program and `fgro`'s own failures.

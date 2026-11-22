@@ -16,7 +16,11 @@
 > (a shell, git, and cargo among them) and the root's `env` values set any variable: hand library code a narrowed root, which refuses them;
 > an exec root that is also a write root runs whatever the run writes there, so a run granted both can write a program and run it, and holds what that program can reach;
 > and a refused `import()`, `env` name, `fs` reach, or `spawn` program fails the run, caught or not ([run](run.md#errors-and-exit-codes)).
-> Not built for `fgro run`: a child's box, `net`, `watch`, the standard streams, the policy file, the deny overlays, the seal, and the kernel backstop;
+> `fgro <command>` runs Gro's own commands under the same check.
+> Its grants are the command's closure, read natively and joined to the grant flags, and each program the closure grants gets the grants table's environment policy.
+> The tools that pass the whole environment (svelte-kit, vitest, eslint, svelte-check, tsc, and npm) run the project's code unboxed ([runtime](runtime.md#gros-workflow-on-the-runtime)),
+> so a command whose closure grants a program is close to `-A`, as a run `--allow-run=` grants one is.
+> Not built for `fgro run` or `fgro <command>`: the run's box (built in parts and installed by no command) and a child's, `net`, `watch`, the standard streams, the policy file, the deny overlays, and the seal;
 > the [roadmap](runtime.md#roadmap) says when, and [backstop](backstop.md) has the kernel layer under all of it.
 
 These terms carry this doc, and the [glossary](glossary.md) defines them and the others:
@@ -37,7 +41,9 @@ These terms carry this doc, and the [glossary](glossary.md) defines them and the
 - every run is one of three **kinds** by what it reaches and depends on,
   hermetic (replayable), confined (bounded), or unconfined
 - the **kernel backstop** is a coarsening of the grant set enforced as Linux kernel rules (Landlock, seccomp),
-  under the runtime's own checks
+  under the runtime's own checks,
+  built as `fgro eval`'s [box](glossary.md#box), the kernel rules one process is held in;
+  the run's box is built in parts and installed by no command
 
 ## Secure by default
 
@@ -177,10 +183,10 @@ and no global carries authority, so a package that reaches the network only thro
 
 ## Threat model
 
-Built today: `fgro eval`'s box, and for `fgro run` the link-time grant check over the builtin modules built so far,
+Built today: `fgro eval`'s box, and for `fgro run` and `fgro <command>` the link-time grant check over the builtin modules built so far,
 each handle's scope, and the pinned programs.
-`fgro run` has no box yet, so an engine exploit in a run isn't contained,
-and Gro's commands (`gro check` and the rest) run on the Node Gro, which confines nothing.
+Neither has a box yet, so an engine exploit in either isn't contained,
+and a command run on the Node Gro (`gro check` there, or a [fallback](glossary.md#fallback)) confines nothing.
 The rest of this section is the model as designed, with what's built marked.
 
 ### Three kinds of protection
@@ -211,10 +217,10 @@ and whoever accepts the policy file.
 - Gro's own bug is caught first by guardrails, like a builtin's `host` and the test that holds what Gro's own modules may import,
   and then by whatever bounds the adversaries below.
 - Careless code, a dependency, task, genfile, or agent-written module that reaches further than it should without evading,
-  is refused at link time or at the call (built for `fgro run`), its widening attributed in the policy diff (designed),
+  is refused at link time or at the call (built for `fgro run` and `fgro <command>`), its widening attributed in the policy diff (designed),
   and guardrails catch it too.
 - A dependency built to steal holds only what it's handed, since its origin is granted nothing unless accepted
-  (built for `fgro run`, where a package is granted nothing short of `-A`).
+  (built for `fgro run` and `fgro <command>`, where a package is granted nothing short of `-A`).
   While the shared prototypes stay mutable it can patch one and catch a capability passing through project code,
   and then its bound is the invocation's whole grant set.
 - Deliberate code in the project holds the invocation's whole grant set.
@@ -222,14 +228,15 @@ and whoever accepts the policy file.
 - A child process, whose arguments and config files are code, is bounded by its box (designed).
   Until then a program a run is granted is close to `-A`.
 - An engine exploit is bounded by the box of the process it lands in, built for `fgro eval` and designed for runs and their children,
-  so today an exploit in `fgro run` reaches what your user can.
+  so today an exploit in `fgro run` or `fgro <command>` reaches what your user can.
 
 Under `gro <cmd>` on the binary (built, without the box), the invocation's grant set is the command's,
 the CLI's own grants, every builtin in the command's closure with its programs and variables, and the grant flags.
 Each builtin's `host` is cut from that set by the builtin's own grants, a guardrail against Gro's own mistakes.
-The project's code shares the realm: on the binary no project task runs (`gro task <path>` runs on the Node Gro),
-and the config or a genfile can patch a shared prototype a builtin's handles pass through,
-so it holds the command's whole set ([task](task.md#a-builtins-host-and-grants)).
+The project's code shares the realm. On the binary no project task runs (`gro task <path>` runs on the Node Gro),
+but the config and genfiles run at the [generated entry](glossary.md#generated-entry)'s origin, the project's, and import any host module the set holds,
+and a package they import, granted nothing itself, can patch a shared prototype a builtin's handles pass through,
+so that code holds the command's whole set ([task](task.md#a-builtins-host-and-grants)).
 The Node tools a command spawns, until they leave the loop at the distant end of the [roadmap](runtime.md#roadmap),
 are designed to be held by the box, by paths and the network rather than the grant set,
 so the native checks' finer claims describe `fgro run` and a dependency's own graph,
@@ -266,8 +273,8 @@ Designed, not built: the first release of Gro on its runtime is for local and ag
 (`check`, `test`, `typecheck`, `lint`, `format`, `gen`, and `sync`) on a Linux workstation,
 for people and agents running code they haven't vetted.
 Every other command, like `dev`, `build`, and `clean`, keeps running on the Node Gro, and so does `check --build`, which CI's workflows run,
-and install runs outside any run, so an asset one of those gives away isn't one the release protects.
-When the project's installed Gro is a different version from the binary's, the binary runs the project's Node Gro and says why.
+and install runs outside any run (built), so an asset one of those gives away isn't one the release protects.
+When the project's installed Gro is a different version from the binary's, the binary runs the project's Node Gro and says why (built).
 The project's own files decide that fallback, so a project can leave the box by pinning another version.
 `GRO_FALLBACK=command` refuses it, and every other fallback the project's files decide, before anything runs (built), for an agent's sandbox to set:
 read from the process's environment alone, never the project's files, it's a [boundary](glossary.md#boundary) against a project pinning its way out,

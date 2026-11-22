@@ -61,6 +61,9 @@ for Linux x86_64 only, built from source ([install](../src/docs/runtime.md#insta
     `kill` sends a signal by name, and a disposal stops it, and the kill at the run's end, the guards, the drain bound, and `timeout_ms` cover it as they do `run`'s.
     `fgro run --allow-run-in=target <file>` grants exec roots, each held as the run starts: `program_in` and `find_in` find a program beneath an fs handle's directory within one,
     resolved beneath the exec root's own descriptor, so an absolute name, a `..` above the directory, and a symlink leaving it are refused, and pinned as a granted program is.
+    A script at a `node_modules/.bin` name never runs by its path.
+    Its `#!` line must name `node` through `/usr/bin/env`, giving only `node`'s flags,
+    and it runs under a `node` found as a bare name is, with every `node_modules/.bin` entry skipped, pinned along with the script.
     An exec root that is also a write root runs what the run writes there.
     A run that grants a program raises its soft limit on open descriptors to the hard one as it starts, as Node does, and goes on when the kernel refuses the raise.
     A call's `signal` option isn't built: given, it rejects saying so.
@@ -126,3 +129,14 @@ for Linux x86_64 only, built from source ([install](../src/docs/runtime.md#insta
   It needs Linux 6.12 or later (Landlock ABI 6) and `TZ=UTC`, and refuses to run without them.
 - `fgro --version` prints Gro's version, `package.json`'s, the commit it was built from, the V8 version,
   and that the startup snapshot is embedded.
+- `fgro --help` and `fgro help` print the binary's own help.
+- `fgro <command> [<args>]`, for every other first argument and for none, runs a command of Gro's
+  (`fgro check`, `fgro gen --check`; bare `fgro` lists them, and `fgro -v` prints Gro's version)
+  from Gro's own code embedded in the binary, with no kernel box.
+  Before any JS runs it reads the command's grants from the grants table it carries, joins the grant flags right after the command word,
+  and starts from an entry it generates, packages matching the `development` condition unless `NODE_ENV` is `production`.
+  A program the table grants takes the table's environment policy, and the tools given the whole environment
+  (svelte-kit, vitest, eslint, svelte-check, tsc, and npm under `sync`) run the project's code unconfined, so such a run is close to `-A`.
+  A command left to Node (like `dev`, `build`, `clean`, an install, a project task, or `task`'s listing),
+  or any command in a project that installed another version of Gro, runs the project's Node Gro after one `note:` line saying why;
+  `GRO_FALLBACK=command` refuses a fallback the project's files decide.
