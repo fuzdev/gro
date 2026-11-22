@@ -14,6 +14,7 @@ mod bpf;
 mod closure;
 #[cfg(target_arch = "x86_64")]
 mod denylist;
+mod facts;
 mod landlock;
 mod plan;
 mod rules;

@@ -109,6 +109,8 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 mod closure;
+mod facts;
+pub mod git;
 mod landlock;
 pub mod plan;
 pub mod rules;
@@ -169,7 +171,7 @@ impl Prepared {
     /// `project` (a directory on its path swapped since it was read).
     pub fn for_project(project: PathBuf) -> io::Result<Self> {
         let pinned = open_real_dir(&project)?;
-        let (roots, pins) = link_closure(project, pinned);
+        let (roots, pins) = link_closure(vec![(project, pinned)]);
         let rules = BoxRules::read_dirs(roots.iter().cloned().zip(pins));
         Ok(Self {
             roots: BoxRoots(roots),

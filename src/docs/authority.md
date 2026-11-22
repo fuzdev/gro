@@ -287,7 +287,7 @@ The `note:` line a fallback prints is a [review signal](glossary.md#review-signa
 None of what the release is designed to claim holds today.
 Each check command the binary runs would run in a kernel box covering Gro's code, the project's config and genfiles,
 and the tools it spawns, which inherit it.
-The home directory is unreadable but for git's global config, `~/.gitconfig` and the `~/.config/git` directory.
+The home directory is unreadable but for what git reads there: its global config, the files it includes and its `core.excludesFile` and `core.attributesFile`, and its ignore and attributes files, never its credential store.
 The network is a private one with only loopback, so a test that binds `127.0.0.1` still passes.
 Where the system restricts unprivileged user namespaces, the box refuses internet sockets instead, loopback's included, so such a test fails there.
 The project is read-only but for the command's write roots, `.svelte-kit` and fuz_css's `.fuz/cache` among them.

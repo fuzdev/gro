@@ -31,9 +31,11 @@
 //!
 //! A run that may start a program also gets each pinned program's real
 //! file read and executed (for a `node_modules/.bin` script, the `node` it
-//! runs under), `node_modules` read and executed, git's home config read
-//! by its real paths, and a directory private to the run, read, written,
-//! and executed, which `--allow-temp` alone grants too.
+//! runs under), `node_modules` read and executed, what git reads from its
+//! home config and the project's git directories outside the root, each by
+//! its real path (`git.rs`, which refuses what it can't read), and a
+//! directory private to the run, read, written, and executed, which
+//! `--allow-temp` alone grants too.
 //!
 //! A run whose closure grants a local tool gets the tool directories the
 //! project's declared dependencies call for ([`ToolDir`]), each written,
@@ -55,14 +57,15 @@
 //! refusal the caller exits 2 for: `-A`; a write flag naming a directory
 //! that holds the root, beneath which no rule can leave `.git` out; a
 //! `node` that is a script, a version manager's shim, which can't read its
-//! manager's directory inside the box, unless a run-in flag admits it; and
-//! a `node_modules` symlink to anything but a directory named
-//! `node_modules` outside the project, neither in it nor holding it, so a
-//! committed link to `~/.ssh` or to `.git` gets no rule. Another
-//! checkout's `node_modules` is followed, read and executed, and the plan
-//! carries a note naming where it leads ([`BoxPlan::note`]); its tool
-//! directories are made there only when a write flag names it, since that
-//! checkout's own unconfined commands run what a test writes there.
+//! manager's directory inside the box, unless a run-in flag admits it;
+//! for a run that may start a program, git's files `git.rs` can't read
+//! (a [`GitFault`]); and a `node_modules` symlink to anything but a
+//! directory named `node_modules` outside the project, neither in it nor
+//! holding it, so a committed link to `~/.ssh` or to `.git` gets no rule.
+//! Another checkout's `node_modules` is followed, read and executed, and
+//! the plan carries a note naming where it leads ([`BoxPlan::note`]); its
+//! tool directories are made there only when a write flag names it, since
+//! that checkout's own unconfined commands run what a test writes there.
 //!
 //! Kinds: the plan is the input of a boundary, the kernel's rules, whose
 //! adversary is the project's code and tests, the tools and their
@@ -79,6 +82,7 @@ use std::collections::BTreeSet;
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 
+use super::git::GitFault;
 use super::rules::{Need, RealRights, Rights};
 
 /// What a run is, as its box is derived from it: built from the verb's plan
@@ -195,9 +199,17 @@ pub struct BoxFacts {
     /// The link closure's roots beyond the project and its `node_modules`:
     /// each a package linked from outside them, by its real path.
     pub linked: Vec<PathBuf>,
-    /// Git's home config that exists, each by its real path: the files
-    /// and the directory git reads from the home directory.
+    /// What git reads from its home config that exists, each by its real
+    /// path: the config files, the files they name, and the defaults of
+    /// `core.excludesFile` and `core.attributesFile` (`git::home_files`).
     pub git_home: Vec<PathBuf>,
+    /// The project's git directories outside its root, each by its real
+    /// path: an ancestor's `.git`, or a linked worktree's git directory and
+    /// common directory (`git::git_dirs`).
+    pub git_dirs: Vec<PathBuf>,
+    /// Why git's home config or directories can't be read for the box, if
+    /// they can't.
+    pub git_fault: Option<GitFault>,
 }
 
 /// A top-level entry of the project's root.
@@ -302,6 +314,15 @@ pub enum Opening {
     },
 }
 
+impl Opening {
+    /// Its path: real, or beneath its anchor.
+    pub fn path(&self) -> &Path {
+        match self {
+            Self::Real { path, .. } | Self::Beneath { path, .. } => path,
+        }
+    }
+}
+
 /// A directory a rule opens beneath.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Anchor {
@@ -338,6 +359,8 @@ pub enum RuleSource {
     Program,
     /// Git's home config.
     GitHome,
+    /// The project's git directory outside its root.
+    GitDir,
     /// The run's private directory.
     PrivateTemp,
     /// A grant flag.
@@ -441,6 +464,14 @@ pub enum PlanRefusal {
         /// Where it was found.
         found: PathBuf,
     },
+    /// Git's home config or the project's git directories can't be read
+    /// for a run that may start a program, whose tools run git.
+    #[error(
+        "the kernel box can't read git's files ({0}): it grants git what its config and the \
+         project's .git name, so it refuses a run that may start a program when it can't read \
+         them"
+    )]
+    Git(GitFault),
     /// `node_modules` is a symlink to anything but another checkout's
     /// `node_modules`: a directory named otherwise (`~/.ssh`), one inside
     /// the project (`.git`), or one that holds it, which a rule there would
@@ -733,6 +764,9 @@ impl BoxPlan {
         for git in &facts.git_home {
             self.real(git, RealRights::Read, Need::Optional, RuleSource::GitHome);
         }
+        for dir in &facts.git_dirs {
+            self.real(dir, RealRights::Read, Need::Optional, RuleSource::GitDir);
+        }
     }
 
     /// The tool directories the declared dependencies call for.
@@ -831,6 +865,11 @@ fn refuse(inputs: &BoxInputs, facts: &BoxFacts) -> Result<(), PlanRefusal> {
             && !inputs.root.starts_with(real))
     {
         return Err(PlanRefusal::NodeModulesLink { real: real.clone() });
+    }
+    if inputs.spawns
+        && let Some(fault) = &facts.git_fault
+    {
+        return Err(PlanRefusal::Git(fault.clone()));
     }
     let run_in = |real: &Path| {
         inputs

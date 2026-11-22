@@ -93,11 +93,14 @@ installed from the process's one thread before V8 starts, and every program the 
 A narrower box for each program inside the run's is designed after it, and when `fgro run` gets the run's box is open.
 What's built: the rules as data, each a handle opened before the box goes up, a rule that writes opened beneath a directory the run holds open,
 with every symlink on its path refused; the denylist; the steps before the box; and the type state that takes them in order,
-held from inside the box by a test. Nothing derives the rules or installs the box yet. The rules:
+held from inside the box by a test; and the box's plan, which derives the rules from what a run grants and what the disk holds.
+Nothing installs the box yet. The rules:
 
 - **Reads:** the project root and the packages linked into it, the pinned programs, the system files below,
-  and in the home directory only git's global config, `~/.gitconfig` and the `~/.config/git` directory,
-  with any credential or token kept there.
+  git's directories outside the project (a linked worktree's or a submodule's, or the repository's that holds the project),
+  and in the home directory only what git reads: `~/.gitconfig`, and `config`, `ignore`, and `attributes` in its directory
+  under `XDG_CONFIG_HOME` (or `~/.config/git`), with the files the configs include and their `core.excludesFile`
+  and `core.attributesFile`, never git's `credentials` store.
 - **Writes:** only the command's write roots, each a rule of its own, never the project root.
   A write grant on the project, like `gen`'s or `format`'s, becomes a rule per entry,
   leaving out `.git`, `node_modules`, `.env*`, and the other dot-entries,

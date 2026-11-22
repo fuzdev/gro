@@ -7,12 +7,17 @@ use std::path::{Path, PathBuf};
 use super::rules::open_real_dir;
 use crate::resolver::{DiskTree, SourceTree};
 
-/// The link closure of the project at `project`, opened as `pinned`: it
-/// first, then each `node_modules` entry's real path that is neither under a
-/// root so far nor holding one, is a package directory ([`is_package`]), is
-/// held by no world-writable directory ([`held_by_world_writable`]), and
-/// opens as found ([`open_real_dir`]), read in turn to a fixed point.
-/// Returns the roots and their handles, in the same order.
+/// The link closure from `seeds`, each a real directory and its handle,
+/// the project's first: the seeds, then each `node_modules` entry's real
+/// path that is neither under a root so far nor holding one, is a package
+/// directory ([`is_package`]), is held by no world-writable directory
+/// ([`held_by_world_writable`]), and opens as found ([`open_real_dir`]),
+/// read in turn to a fixed point. Returns the roots and their handles, in
+/// the same order.
+///
+/// A seed beside the project is where a `node_modules` that is a symlink
+/// leads, so the packages installed there are inside a root, not each a
+/// root of its own.
 ///
 /// An entry the listing says isn't a symlink has its holder's real path,
 /// read once per holder, joined with its name as its own
@@ -20,9 +25,8 @@ use crate::resolver::{DiskTree, SourceTree};
 /// from the disk, comes first: every package installed under a root is
 /// skipped with no path resolved, and only a link, or an entry whose holder
 /// is real outside the roots, is read further.
-pub(super) fn link_closure(project: PathBuf, pinned: OwnedFd) -> (Vec<PathBuf>, Vec<OwnedFd>) {
-    let mut roots = vec![project];
-    let mut pins = vec![pinned];
+pub(super) fn link_closure(seeds: Vec<(PathBuf, OwnedFd)>) -> (Vec<PathBuf>, Vec<OwnedFd>) {
+    let (mut roots, mut pins): (Vec<PathBuf>, Vec<OwnedFd>) = seeds.into_iter().unzip();
     let mut next = 0;
     while let Some(root) = roots.get(next) {
         let listing = package_entries(root.join("node_modules"));

@@ -45,6 +45,8 @@ fn facts() -> BoxFacts {
         ],
         linked: vec!["/elsewhere/pkg".into()],
         git_home: vec!["/h/.gitconfig".into()],
+        git_dirs: vec!["/m/.git".into()],
+        git_fault: None,
     }
 }
 
@@ -166,6 +168,7 @@ const ENTRIES: &[&str] = &[
 const SPAWNING: &[&str] = &[
     "project node_modules rx opt NodeModules",
     "real /h/.gitconfig r opt GitHome",
+    "real /m/.git r opt GitDir",
     "temp . rwx req PrivateTemp",
 ];
 
