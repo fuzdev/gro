@@ -106,12 +106,11 @@
 //! the scan before the box refuses a socket and a descriptor that hides files,
 //! never a file opened for writing, and stdio, which the launcher chose (a
 //! socket there only as a connected unix stream). Marking the process not
-//! dumpable is a second layer against a program the run starts reading the
-//! run's own `/proc` files (its environment, its memory), behind Landlock,
-//! which refuses those reads while `/proc` stays outside the rules, and the
-//! denylist, which refuses `ptrace` and `process_vm_*`: rules that granted
-//! `/proc` would let a program in the same domain read them, and the mark alone
-//! would hold. Dropping the capabilities is defense in depth against an exploit
+//! dumpable keeps a program the run starts from reading the run's own `/proc`
+//! files (its environment, its memory): the plan grants `/proc` read, and
+//! Landlock refuses those reads only to a process outside the domain, so the
+//! mark holds them here, with the denylist refusing `ptrace` and
+//! `process_vm_*`. Dropping the capabilities is defense in depth against an exploit
 //! of the process itself, since a program it starts holds none after `exec`
 //! anyway. The `core` limit is a guardrail against an accident, a crash writing
 //! the process's memory and environment to disk, not a wall: deliberate code
