@@ -59,6 +59,7 @@ fn a_project_declares_what_its_direct_dependencies_set() {
         ["@s/b", "a", "list", "one", "yes"]
     );
     assert!(package.declares("a") && !package.declares("empty") && !package.declares("peer"));
+    assert!(!package.type_marker);
 }
 
 #[test]
@@ -69,6 +70,8 @@ fn a_project_s_package_json_is_read_as_resolution_reads_it() {
         .unwrap()
         .unwrap();
     assert!(marker.declared.is_empty());
+    // only `"type"` and `"sideEffects"`, or none at all, marks a type
+    assert!(marker.type_marker);
     assert!(matches!(
         read_project_package(&tree, Path::new("/w/bad")),
         Err(ResolveErrorKind::InvalidPackageJson { .. })

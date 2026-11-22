@@ -49,7 +49,7 @@
 
 use std::collections::BTreeSet;
 
-use super::argv::{ArgvKeys, parse_argv};
+use super::argv::{ArgvKeys, ParsedArgv, parse_argv};
 use super::table::{BuiltinGrantsTable, BuiltinProgramGrant, BuiltinTaskGrants};
 
 /// The command word that runs a project task by its path, or lists them.
@@ -246,16 +246,12 @@ fn to_command(cli_args: &[String]) -> Command {
             args: ArgvKeys::default(),
         };
     }
-    let forwarded_index = cli_args.iter().position(|arg| arg == "--");
-    let (direct, rest) = cli_args.split_at(forwarded_index.unwrap_or(cli_args.len()));
+    let (direct, rest) = split_direct(cli_args);
     let direct = parse_argv(direct);
-    if direct.replaced {
-        return Command::None;
-    }
-    let mut positionals = direct.positionals.into_iter();
-    let Some(name) = positionals.next() else {
+    let Some(name) = first_positional(&direct) else {
         return Command::None;
     };
+    let mut positionals = direct.positionals.into_iter().skip(1);
     if name == TASK_VERB {
         return match positionals.next() {
             Some(path) if is_task_path(&path) => Command::ProjectTask,
@@ -267,6 +263,32 @@ fn to_command(cli_args: &[String]) -> Command {
         args: direct.keys.merge(&forwarded),
         name,
     }
+}
+
+/// The command word of `cli_args`, as the closure reads it.
+///
+/// `cli_args` are the args after the CLI's own path with the grant flags
+/// split off. The word is the first positional of the args before the first
+/// `--`, as Node's parse reads them, none when there's none or a flag keyed
+/// `_` replaced them. It may be a path, which names no builtin.
+pub fn command_word(cli_args: &[String]) -> Option<String> {
+    first_positional(&parse_argv(split_direct(cli_args).0))
+}
+
+/// `cli_args` split at the first `--`: the direct args, and the rest from
+/// it on.
+fn split_direct(cli_args: &[String]) -> (&[String], &[String]) {
+    let forwarded_index = cli_args.iter().position(|arg| arg == "--");
+    cli_args.split_at(forwarded_index.unwrap_or(cli_args.len()))
+}
+
+/// The first positional of `direct`, none when a flag keyed `_` replaced
+/// the positionals.
+fn first_positional(direct: &ParsedArgv) -> Option<String> {
+    if direct.replaced {
+        return None;
+    }
+    direct.positionals.first().cloned()
 }
 
 /// The keys of the last section of `rest`, the args from the first `--`,

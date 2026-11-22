@@ -14,14 +14,77 @@
 //! one line of `package.json` and so run the project's code unconfined, the
 //! line the only sign. So each reason says who decided it, and a strict
 //! mode refuses every fallback the project's files decide
-//! ([`FallbackReason::is_refused_when_strict`]).
+//! ([`FallbackReason::is_refused_when_strict`]), `GRO_FALLBACK=command`
+//! ([`FallbackPolicy`]).
+//!
+//! Kind of the strict mode: a boundary, a native check before anything
+//! runs, read from the process's environment alone, never the project's
+//! files. The adversary is a project that pins another Gro to leave the
+//! binary; the asset, what the binary confines. Unsetting the variable
+//! defeats it, and so does running the project's own Gro some other way
+//! (a package script's `gro`, `node_modules/.bin/gro`), each the user's
+//! choice, not the project's.
 
+use std::ffi::OsStr;
 use std::fmt;
 
 use gro_runtime::resolver::{GRO_PACKAGE, InstalledPackage};
 use gro_runtime::verb::closure::{ClosureFallback, CommandClosure};
+use thiserror::Error;
 
 use crate::print::escape_controls;
+
+/// The environment variable naming which fallbacks to the Node Gro the
+/// binary takes ([`FallbackPolicy`]).
+pub const GRO_FALLBACK: &str = "GRO_FALLBACK";
+
+/// Which fallbacks to the Node Gro the binary takes, as [`GRO_FALLBACK`]
+/// names them.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum FallbackPolicy {
+    /// `all`, and the variable unset: every fallback runs the Node Gro.
+    #[default]
+    All,
+    /// `command`: only the fallbacks the command line decides; one the
+    /// project's files decide is refused, and nothing runs.
+    Command,
+}
+
+impl FallbackPolicy {
+    /// The policy `value`, [`GRO_FALLBACK`]'s value, names: unset is
+    /// [`FallbackPolicy::All`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`FallbackPolicyError`] for any value but `all` and
+    /// `command`, the empty one included, so a misspelled strict mode never
+    /// runs as the default.
+    pub fn read(value: Option<&OsStr>) -> Result<Self, FallbackPolicyError> {
+        match value.map(|value| value.to_str()) {
+            None | Some(Some("all")) => Ok(Self::All),
+            Some(Some("command")) => Ok(Self::Command),
+            Some(_) => Err(FallbackPolicyError(
+                value.unwrap_or_default().to_string_lossy().into_owned(),
+            )),
+        }
+    }
+
+    /// Whether it refuses the fallback `reasons` make: under
+    /// [`FallbackPolicy::Command`], when any is one the project's files
+    /// decide.
+    pub fn refuses(self, reasons: &[FallbackReason]) -> bool {
+        self == Self::Command && reasons.iter().any(FallbackReason::is_refused_when_strict)
+    }
+}
+
+/// [`GRO_FALLBACK`] set to a value it doesn't take, held as read, with
+/// U+FFFD for each sequence that isn't UTF-8.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[error(
+    "{GRO_FALLBACK} is \"{}\", and it takes all or command",
+    escape_controls(.0)
+)]
+pub struct FallbackPolicyError(pub String);
 
 /// What decides that a builtin runs where it does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -129,6 +192,9 @@ pub enum FallbackReason {
     Install,
     /// The command runs a project task, whose grants no table holds.
     ProjectTask,
+    /// The command is `task` with no task's path: it lists the project's
+    /// tasks, importing each, whose grants no table holds.
+    TaskListing,
 }
 
 impl FallbackReason {
@@ -136,9 +202,11 @@ impl FallbackReason {
     pub const fn decided_by(&self) -> DecidedBy {
         match self {
             Self::VersionMismatch { .. } => DecidedBy::ProjectFiles,
-            Self::Ungranted { .. } | Self::Policy(_) | Self::Install | Self::ProjectTask => {
-                DecidedBy::Command
-            }
+            Self::Ungranted { .. }
+            | Self::Policy(_)
+            | Self::Install
+            | Self::ProjectTask
+            | Self::TaskListing => DecidedBy::Command,
         }
     }
 
@@ -172,6 +240,10 @@ impl fmt::Display for FallbackReason {
             Self::ProjectTask => {
                 f.write_str("a project task's grants are in no table, so the Node Gro runs it")
             }
+            Self::TaskListing => f.write_str(
+                "`task` lists the project's tasks by importing each, and their grants are in no \
+                 table",
+            ),
         }
     }
 }

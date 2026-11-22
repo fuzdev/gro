@@ -159,7 +159,7 @@ impl PackageJson {
 
     /// Whether it only marks its directory's module type: every key is
     /// `"type"` or `"sideEffects"`, which the empty object satisfies.
-    fn is_type_marker(&self, consulted: &mut Consulted) -> bool {
+    pub(super) fn is_type_marker(&self, consulted: &mut Consulted) -> bool {
         consulted.add(&self.path, PackageField::Keys);
         self.fields
             .keys()

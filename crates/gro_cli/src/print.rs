@@ -54,6 +54,39 @@ pub fn echo_argument(argument: &str) -> String {
     }
 }
 
+/// `argument` as a POSIX shell and fish both read it back as one word, for a
+/// command a message tells someone to run: as it is when it's not empty,
+/// doesn't start with `=`, and holds only letters, digits, and
+/// `_ . / , : @ % + - =`, else in single quotes, each `'` in it written
+/// `'\''` and each `\` written `'\\'`, outside the quotes, since fish
+/// reads `\'` and `\\` inside them as escapes; then escaped
+/// ([`escape_controls`]). An argument holding a character
+/// [`escape_controls`] escapes prints that escape, which a shell reads back
+/// as its literal text, not the character, so the character never reaches
+/// the terminal.
+pub fn shell_quote(argument: &str) -> String {
+    let plain = !argument.is_empty()
+        && !argument.starts_with('=')
+        && argument
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"_./,:@%+-=".contains(&byte));
+    let quoted = if plain {
+        argument.to_owned()
+    } else {
+        let mut quoted = String::from("'");
+        for c in argument.chars() {
+            match c {
+                '\'' => quoted.push_str("'\\''"),
+                '\\' => quoted.push_str("'\\\\'"),
+                c => quoted.push(c),
+            }
+        }
+        quoted.push('\'');
+        quoted
+    };
+    escape_controls(&quoted).into_owned()
+}
+
 /// Whether [`escape_controls`] escapes `c`: a C0 or C1 control or DEL
 /// (Unicode's `Cc`), the line or the paragraph separator (`Zl`, `Zp`), or a
 /// format character (`Cf`: the soft hyphen, the zero-width characters, the
@@ -98,7 +131,47 @@ pub const fn is_escaped(c: char) -> bool {
 mod tests {
     use std::borrow::Cow;
 
-    use super::{echo_argument, escape_controls, is_escaped};
+    use super::{echo_argument, escape_controls, is_escaped, shell_quote};
+
+    /// An argument a shell reads back whole prints as it is; any other is
+    /// single-quoted, a `'` in it closed, escaped, and reopened, and a
+    /// control character escaped.
+    #[test]
+    fn an_argument_is_quoted_as_a_shell_reads_it_back() {
+        for plain in [
+            "check",
+            "--check",
+            "-A",
+            "a/b.task.ts",
+            "--allow-read=.",
+            "x,y:z@1%+",
+        ] {
+            assert_eq!(shell_quote(plain), plain);
+        }
+        for (argument, quoted) in [
+            ("", "''"),
+            ("a b", "'a b'"),
+            ("it's", "'it'\\''s'"),
+            ("$HOME", "'$HOME'"),
+            ("a;b", "'a;b'"),
+            ("*", "'*'"),
+            ("~", "'~'"),
+            ("=x", "'=x'"),
+            ("\"q\"", "'\"q\"'"),
+            // a backslash outside the quotes, where fish reads it as POSIX
+            // shells do
+            ("a\\'", "'a'\\\\''\\'''"),
+            ("a\\b", "'a'\\\\'b'"),
+            ("a\\", "'a'\\\\''"),
+            ("\\\\", "''\\\\''\\\\''"),
+            ("\\'", "''\\\\''\\'''"),
+            ("a\tb", "'a\\u{9}b'"),
+            ("x\u{1b}[2J", "'x\\u{1b}[2J'"),
+            ("\u{e9}", "'\u{e9}'"),
+        ] {
+            assert_eq!(shell_quote(argument), quoted, "{argument:?}");
+        }
+    }
 
     /// An argument a usage error names prints up to its first `=`, escaped,
     /// and whole, escaped, when it holds none.
