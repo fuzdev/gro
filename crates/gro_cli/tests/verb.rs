@@ -387,11 +387,11 @@ fn the_node_hint_follows_only_a_failed_command() {
     let script = Scratch::new(
         "run_node_hint",
         &[(
-            "a.js",
+            "a.mjs",
             "try { await import('node:fs'); } catch {}\nthrow new Error('x');\n",
         )],
     );
-    let (code, stdout, stderr) = run(fgro_in(&script.0, &["run", "a.js"]));
+    let (code, stdout, stderr) = run(fgro_in(&script.0, &["run", "a.mjs"]));
     assert_eq!(code, Some(1), "{stdout}{stderr}");
     assert!(!stderr.contains("hint:"), "{stderr}");
 }
