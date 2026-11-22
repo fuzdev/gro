@@ -2,7 +2,7 @@ import * as s from '@fuzdev/fuz_schema/schema.ts';
 import { meta } from '@fuzdev/fuz_schema/meta.ts';
 import type { Logger } from '@fuzdev/fuz_util/log.ts';
 
-import { to_forwarded_argv } from './task_args.ts';
+import { has_forwarded_flag, to_forwarded_argv } from './task_args.ts';
 import { assert_no_forwarded_info_flag } from './internal/forwarded_info_flags.ts';
 import { spawn_cli, spawn_result_is_ok, to_spawn_result_message } from './cli.ts';
 import { VITEST_CLI } from './constants.ts';
@@ -81,7 +81,8 @@ export interface TestDeps {
 }
 
 /**
- * Runs the project's tests with vitest, `gro test`'s body.
+ * Runs the project's tests with vitest, `gro test`'s body,
+ * Vitest's module cache off unless a forwarded flag names it.
  * @param args - the task's parsed args
  * @param options - the forwarded args
  * @param deps - the project's boundary, vitest, and the log
@@ -117,7 +118,16 @@ export const run_test = async (args: Args, options: TestOptions, deps: TestDeps)
 	if (t) {
 		vitest_args.push('-t', t);
 	}
-	vitest_args.push(...implicit_argv, ...forwarded_argv);
+	const user_argv = [...implicit_argv, ...forwarded_argv];
+	// Vitest runs a cached module's code as read in later runs, so a test could plant code there;
+	// a forwarded flag decides instead, in camel or kebab case, as Vitest reads both
+	if (
+		!has_forwarded_flag(user_argv, 'fsModuleCache') &&
+		!has_forwarded_flag(user_argv, 'fs-module-cache')
+	) {
+		vitest_args.push('--fsModuleCache=false');
+	}
+	vitest_args.push(...user_argv);
 
 	const result = await spawn_cli(vitest, vitest_args);
 	if (!spawn_result_is_ok(result)) {

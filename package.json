@@ -64,7 +64,7 @@
     "svelte-docinfo": ">=0.18.1",
     "typescript": "^6",
     "vite": "^5.0.3 || ^6.0.0 || ^7.0.0 || ^8.0.0",
-    "vitest": "^3 || ^4 || ^5"
+    "vitest": "^5"
   },
   "peerDependenciesMeta": {
     "@sveltejs/kit": {
@@ -81,7 +81,7 @@
     }
   },
   "optionalDependencies": {
-    "vitest": "^3 || ^4 || ^5"
+    "vitest": "^5"
   },
   "devDependencies": {
     "@changesets/changelog-git": "^0.2.1",

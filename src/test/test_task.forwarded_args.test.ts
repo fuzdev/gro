@@ -26,6 +26,9 @@ afterEach(async () => {
 	(await get_mock_spawn()).reset();
 });
 
+// the flag turning off Vitest's module cache, passed unless a forwarded flag names it
+const CACHE_OFF = '--fsModuleCache=false';
+
 // the vitest args after the ones the test task always passes
 const run_test = async (cli: Array<string>): Promise<Array<string>> => {
 	await task.run(
@@ -66,21 +69,24 @@ describe('test task forwarded args', () => {
 	test('implicit: the first section verbatim when the CLI invoked `test`', async () => {
 		expect(
 			await run_test(['test', '--', '--no-cache', '--testTimeout', '0123', '-t', '-foo', '--x='])
-		).toEqual(['--no-cache', '--testTimeout', '0123', '-t', '-foo', '--x=']);
+		).toEqual([CACHE_OFF, '--no-cache', '--testTimeout', '0123', '-t', '-foo', '--x=']);
 	});
 
 	test('implicit: only the first section', async () => {
-		expect(await run_test(['test', '--', '--watch', '--', 'eslint', '--fix'])).toEqual(['--watch']);
+		expect(await run_test(['test', '--', '--watch', '--', 'eslint', '--fix'])).toEqual([
+			CACHE_OFF,
+			'--watch'
+		]);
 	});
 
 	test('implicit: none for a nested `test`', async () => {
-		expect(await run_test(['check', '--', '--watch'])).toEqual([]);
+		expect(await run_test(['check', '--', '--watch'])).toEqual([CACHE_OFF]);
 		(await get_mock_spawn()).reset();
-		expect(await run_test(['check', '--', 'gro', 'test', '--coverage'])).toEqual([]);
+		expect(await run_test(['check', '--', 'gro', 'test', '--coverage'])).toEqual([CACHE_OFF]);
 	});
 
 	test('implicit: none for a first section of a gro task', async () => {
-		expect(await run_test(['test', '--', 'gro', 'test', '--coverage'])).toEqual([]);
+		expect(await run_test(['test', '--', 'gro', 'test', '--coverage'])).toEqual([CACHE_OFF]);
 	});
 
 	test('implicit: what a caller passes, but for a section naming `vitest`, the explicit one', async () => {
@@ -96,21 +102,76 @@ describe('test task forwarded args', () => {
 			await task.run({ ...ctx, implicit_rest_args });
 			return mock_spawn.calls[0]!.args.slice(4);
 		};
-		expect(await run_given(['gro', '--x'])).toEqual(['gro', '--x']);
-		expect(await run_given(['vitest', '--x'])).toEqual([]);
-		expect(await run_given(['--x', 'vitest'])).toEqual(['--x', 'vitest']);
+		expect(await run_given(['gro', '--x'])).toEqual([CACHE_OFF, 'gro', '--x']);
+		expect(await run_given(['vitest', '--x'])).toEqual([CACHE_OFF]);
+		expect(await run_given(['--x', 'vitest'])).toEqual([CACHE_OFF, '--x', 'vitest']);
 	});
 
 	test('explicit `vitest` sections at any depth, after the implicit section', async () => {
-		expect(await run_test(['test', '--', 'vitest', '--watch'])).toEqual(['--watch']);
+		expect(await run_test(['test', '--', 'vitest', '--watch'])).toEqual([CACHE_OFF, '--watch']);
 		(await get_mock_spawn()).reset();
-		expect(await run_test(['check', '--', 'vitest', '--bail', '01'])).toEqual(['--bail', '01']);
+		expect(await run_test(['check', '--', 'vitest', '--bail', '01'])).toEqual([
+			CACHE_OFF,
+			'--bail',
+			'01'
+		]);
 		(await get_mock_spawn()).reset();
 		expect(await run_test(['test', '--', '--watch', '--', 'vitest', '--bail', '1'])).toEqual([
+			CACHE_OFF,
 			'--watch',
 			'--bail',
 			'1'
 		]);
+	});
+});
+
+describe("test task and vitest's module cache", () => {
+	test("a plain run turns vitest's module cache off", async () => {
+		expect(await run_test(['test'])).toEqual([CACHE_OFF]);
+	});
+
+	test("the flag goes before the forwarded args, which don't name it", async () => {
+		expect(await run_test(['test', '--', '--watch', '--', 'vitest', '--bail', '1'])).toEqual([
+			CACHE_OFF,
+			'--watch',
+			'--bail',
+			'1'
+		]);
+	});
+
+	test('a forwarded flag in camel or kebab case replaces it, in either section', async () => {
+		for (const flag of [
+			'--fsModuleCache',
+			'--fsModuleCache=true',
+			'--fsModuleCache=false',
+			'--no-fsModuleCache',
+			'--fs-module-cache',
+			'--fs-module-cache=true',
+			'--no-fs-module-cache'
+		]) {
+			for (const cli of [
+				['test', '--', flag],
+				['test', '--', 'vitest', flag],
+				['check', '--', 'vitest', flag]
+			]) {
+				(await get_mock_spawn()).reset();
+				expect(await run_test(cli), cli.join(' ')).toEqual([flag]);
+			}
+		}
+	});
+
+	test("a flag vitest doesn't read as `fsModuleCache` keeps Gro's", async () => {
+		for (const flag of [
+			// vitest's flags are case-sensitive
+			'--fsmodulecache',
+			// deprecated, and its `=false` would turn the cache on
+			'--experimental.fsModuleCache=true',
+			// a path alone doesn't turn the cache on
+			'--fsModuleCachePath=x'
+		]) {
+			(await get_mock_spawn()).reset();
+			expect(await run_test(['test', '--', flag]), flag).toEqual([CACHE_OFF, flag]);
+		}
 	});
 });
 
@@ -143,8 +204,8 @@ describe('test task help and version flags', () => {
 	});
 
 	test('a version flag after `run` is left to vitest, which ignores it and runs the tests', async () => {
-		expect(await run_test(['test', '--', 'vitest', '--version'])).toEqual(['--version']);
+		expect(await run_test(['test', '--', 'vitest', '--version'])).toEqual([CACHE_OFF, '--version']);
 		(await get_mock_spawn()).reset();
-		expect(await run_test(['test', '--', '-v'])).toEqual(['-v']);
+		expect(await run_test(['test', '--', '-v'])).toEqual([CACHE_OFF, '-v']);
 	});
 });

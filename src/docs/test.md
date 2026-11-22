@@ -56,6 +56,24 @@ test('the thing', async () => {
 
 See [the Vitest docs](https://vitest.dev/) for more.
 
+Gro supports Vitest 5, the range `^5` of its `vitest` peer dependency.
+
+## Vitest's module cache
+
+`gro test` passes Vitest `--fsModuleCache=false`, turning off its `fsModuleCache`,
+on in later Vitest 5 releases by default, which keeps transformed modules in `node_modules/.vitest-cache` between runs.
+Vitest runs a cached module's code as read in every later run,
+until the module's source, the config, or the lockfile changes,
+so code a test wrote into the cache would run in the next Vitest run, an unconfined one included.
+On the Fuz stack's suites, a warm cache measured no faster than a cold one, within the runs' noise.
+The flag is not a protection: it keeps `gro test` from reading or making the cache,
+and test code can still write one, which a plain `vitest` run, like an editor's, would read.
+
+A forwarded `fsModuleCache` flag decides instead, in camel or kebab case,
+like `gro test -- --fsModuleCache` or `--no-fs-module-cache`.
+In Vitest 5, `--fs-module-cache=false` turns the cache on, and `--no-fs-module-cache` turns it off.
+The deprecated `--experimental.fsModuleCache` isn't one, and Gro's flag overrides it.
+
 ## When Vitest isn't declared
 
 Gro detects Vitest from the project's `dependencies` and `devDependencies`.
