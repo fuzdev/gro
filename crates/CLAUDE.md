@@ -184,8 +184,9 @@ and the contracts no one module doc owns.
     `loader/mod.rs`'s.
 - Type state: eval's box, `confine::Prepared` → `Prepared::confine` →
   `Confined`, named `Confinement::Eval`; the run's, `confine::run`'s tokens
-  in its order (`RunClosed` → `RunNetworked` → `RunHardened` →
-  `RunPrepared` → `RunPrepared::confine` → `RunConfined`), named
+  in its order (`probe_floor`'s `LandlockFloor` → `RunClosed` →
+  `RunNetworked` → `RunHardened` → `RunPrepared` → `RunPrepared::confine`
+  → `RunConfined`), named
   `Confinement::Run`, which no command installs yet; or
   `Confinement::Unconfined` named by `fgro run`, a command of Gro's,
   `make-snapshot`, and unit tests. `engine::init_engine` takes a

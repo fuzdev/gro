@@ -7,6 +7,11 @@
 //! ([`Confinement::Run`](super::Confinement::Run)). On the process's main
 //! thread, its only one:
 //!
+//! 0. Before any step, nothing changed: [`probe_floor`], the kernel's
+//!    Landlock held to the floor the box needs, whose [`LandlockFloor`] the
+//!    first step takes, and [`check_stdio`], stdin, stdout, and stderr held
+//!    to what the box allows, so a refusal of either leaves the process as
+//!    it started.
 //! 1. [`RunClosed::close_inherited`]: every descriptor above stderr the
 //!    process inherited is closed, since Landlock gates only what's opened
 //!    after it, and a socket made before the namespace keeps the network it
@@ -126,14 +131,54 @@ use gro_sys::private_dir::{self, PrivateDir, PrivateDirError};
 use super::landlock::{self, TcpWall};
 use super::plan::{Anchor, BoxPlan, Opening};
 use super::rules::{BoxRules, InstalledRule, RuleError};
-use super::{ConfineError, NetForm, alone};
+use super::{ConfineError, NetForm, Threads, alone};
+
+/// The kernel's Landlock, probed and found at the floor the box needs, with
+/// nothing changed: what the run's first step takes, made only by
+/// [`probe_floor`].
+#[derive(Debug)]
+pub struct LandlockFloor {
+    /// Made only there, so a value is the proof.
+    _probed: (),
+}
+
+/// The kernel's Landlock probed, changing nothing: the status read with no
+/// flag set, so no `restrict_self` call is made and `no_new_privs` is left
+/// as it was, then held to the floor the box needs.
+///
+/// # Errors
+///
+/// Returns [`ConfineError::NoLandlock`] or [`ConfineError::LandlockAbi`]
+/// for a kernel below the floor, or [`ConfineError::Landlock`] when the
+/// status can't be read.
+pub fn probe_floor() -> Result<LandlockFloor, ConfineError> {
+    landlock::probe_floor()?;
+    Ok(LandlockFloor { _probed: () })
+}
+
+/// Checks stdin, stdout, and stderr as the box will, before anything
+/// changes: each that is a socket must be a connected unix stream, which
+/// reaches its peer alone. [`RunPrepared::confine`] checks them again.
+///
+/// # Errors
+///
+/// Returns [`ConfineError::StdioSocket`] naming each that isn't, or
+/// [`ConfineError::DescriptorsUnread`] when one can't be read.
+pub fn check_stdio() -> Result<(), ConfineError> {
+    let fds = gro_sys::unboxed_stdio().map_err(ConfineError::DescriptorsUnread)?;
+    if fds.is_empty() {
+        Ok(())
+    } else {
+        Err(ConfineError::StdioSocket { fds })
+    }
+}
 
 /// The process with every descriptor it inherited above stderr closed:
 /// the run's first step, made only by [`RunClosed::close_inherited`].
 #[derive(Debug)]
 pub struct RunClosed {
-    /// Made only here, so a value is the proof.
-    _closed: (),
+    /// The floor probed before it, carried so a value is the proof of both.
+    _floor: LandlockFloor,
 }
 
 /// The process in its network: its own namespace, or the host's with
@@ -225,17 +270,11 @@ pub enum RunStepError {
     /// The inherited descriptors couldn't be closed.
     #[error("failed to close the descriptors the process inherited")]
     Descriptors(#[source] io::Error),
-    /// The process has another thread, a caller's bug: a user namespace
-    /// takes a process of one thread, and capabilities are each thread's
-    /// own.
-    #[error(
-        "the process has {count} threads, and the run's box is made on its one thread, before \
-         any other starts"
-    )]
-    Threads {
-        /// How many it has.
-        count: u64,
-    },
+    /// The process has another thread: the inherited descriptors close by
+    /// number, a user namespace takes a process of one thread, and
+    /// capabilities are each thread's own.
+    #[error(transparent)]
+    Threads(#[from] Threads),
     /// The thread count couldn't be read.
     #[error("failed to read the thread count")]
     ThreadsUnread(#[source] io::Error),
@@ -283,13 +322,28 @@ impl RunClosed {
     /// on the calling thread isn't, as `gro_sys::close_inherited_fds`'s doc
     /// says.
     ///
+    /// It takes the [`LandlockFloor`] [`probe_floor`] made, so the floor is
+    /// known before anything changes: a kernel below it is told while the
+    /// process is still as it started, when running the Node gro in its
+    /// place hands that the process a Node gro would have.
+    ///
     /// # Errors
     ///
-    /// Returns [`RunStepError::Descriptors`] when the process has another
-    /// thread, whose count is read once, or the close fails.
-    pub fn close_inherited() -> Result<Self, RunStepError> {
+    /// Returns [`RunStepError::Threads`] or [`RunStepError::ThreadsUnread`]
+    /// for a thread count other than 1 or unread, settled
+    /// (`gro_sys::settled_thread_count`), with nothing closed, or
+    /// [`RunStepError::Descriptors`] when the close fails.
+    pub fn close_inherited(floor: LandlockFloor) -> Result<Self, RunStepError> {
+        let count = gro_sys::settled_thread_count().map_err(RunStepError::ThreadsUnread)?;
+        if count != 1 {
+            return Err(Threads {
+                count,
+                first_step: true,
+            }
+            .into());
+        }
         gro_sys::close_inherited_fds().map_err(RunStepError::Descriptors)?;
-        Ok(Self { _closed: () })
+        Ok(Self { _floor: floor })
     }
 
     /// Enters the run's network, as the [module doc](self) says: its own
@@ -324,7 +378,11 @@ impl RunClosed {
 pub(super) fn network_refused(error: NamespaceError) -> Result<RunNetwork, RunStepError> {
     match error {
         NamespaceError::Refused(refused) => Ok(inet_refused(&refused)),
-        NamespaceError::Threads { count } => Err(RunStepError::Threads { count }),
+        NamespaceError::Threads { count } => Err(Threads {
+            count,
+            first_step: false,
+        }
+        .into()),
         NamespaceError::Stranded { step, source } => Err(RunStepError::Stranded { step, source }),
     }
 }
@@ -346,7 +404,11 @@ impl RunNetworked {
     /// the step that failed after it.
     pub fn harden(self) -> Result<RunHardened, RunStepError> {
         capabilities::drop_capabilities().map_err(|error| match error {
-            CapabilityError::Threads { count } => RunStepError::Threads { count },
+            CapabilityError::Threads { count } => Threads {
+                count,
+                first_step: false,
+            }
+            .into(),
             CapabilityError::ThreadsUnread(source) => RunStepError::ThreadsUnread(source),
             error => RunStepError::Capabilities(error),
         })?;

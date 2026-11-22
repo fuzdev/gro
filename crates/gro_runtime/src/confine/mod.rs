@@ -269,6 +269,32 @@ pub enum NetForm {
     InetRefused,
 }
 
+/// The process has more than one thread where a step of a box needs it.
+///
+/// It's the one shape of that refusal, at every step of either box that
+/// checks, which a caller exits 1 for, a failed step of the box.
+///
+/// Only at the run's first step (`run::RunClosed::close_inherited`) does
+/// the message name a library preloaded into the process as a likely
+/// cause: past it, another thread is one not yet gone after its join, or
+/// gro's own bug.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error(
+    "the process has {count} threads, and a kernel box goes up only while it has one, since it \
+     would leave the others outside{}",
+    if *.first_step {
+        ": a library preloaded into the process (LD_PRELOAD) may have started one"
+    } else {
+        ""
+    }
+)]
+pub struct Threads {
+    /// How many threads it has.
+    pub count: u64,
+    /// Whether it's the run's first step that found them.
+    pub first_step: bool,
+}
+
 /// Whether a process is confined, and in which box, which the engine
 /// takes to start.
 #[derive(Debug, PartialEq, Eq)]
@@ -287,14 +313,8 @@ pub enum Confinement {
 pub enum ConfineError {
     /// The process has more than one thread, so a box installed now would
     /// leave the others outside it.
-    #[error(
-        "the process has {count} threads, so a box installed now would leave all but one \
-         outside it: the box is installed while the process has one"
-    )]
-    Threads {
-        /// How many threads it has.
-        count: u64,
-    },
+    #[error(transparent)]
+    Threads(Threads),
     /// The process's thread count couldn't be read.
     #[error(transparent)]
     ThreadsUnread(io::Error),
@@ -317,7 +337,7 @@ pub enum ConfineError {
     /// path, past the run's box.
     #[error(
         "{}, which reaches past the box's walls: the run's box takes only a connected unix \
-         stream on stdio, which reaches its peer alone",
+         stream on stdio, which reaches its peer alone; give it a file, a pipe, or /dev/null",
         stdio(.fds)
     )]
     StdioSocket {
@@ -398,7 +418,7 @@ impl ConfineError {
             Self::Landlock(_)
             | Self::SeccompFilter(_)
             | Self::Denylist(_)
-            | Self::Threads { .. }
+            | Self::Threads(_)
             | Self::ThreadsUnread(_)
             | Self::SocketHeld { .. }
             | Self::StdioSocket { .. }
@@ -485,6 +505,9 @@ fn alone() -> Result<(), ConfineError> {
     if count == 1 {
         Ok(())
     } else {
-        Err(ConfineError::Threads { count })
+        Err(ConfineError::Threads(Threads {
+            count,
+            first_step: false,
+        }))
     }
 }

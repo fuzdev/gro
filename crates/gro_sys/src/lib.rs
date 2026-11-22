@@ -11,7 +11,9 @@
 //!   ones a process inherits from its parent, which a kernel box that gates
 //!   only new opens doesn't reach.
 //! - [`clear_env_except`] clears the process's environment but the
-//!   variables it names, so no library the process runs later reads one.
+//!   variables it names, so no library the process runs later reads one;
+//!   [`set_env`] sets one variable and [`remove_env`] removes one, each
+//!   while the process has one thread.
 //! - [`limit_data`] caps the process's data segment (`RLIMIT_DATA`), its
 //!   soft and hard limits alike, so it can't be raised again.
 //! - [`set_default_thread_stack`] lowers the stack size of a thread started
@@ -365,6 +367,109 @@ pub fn clear_env_except(kept: &[&str]) -> io::Result<()> {
         // was checked to hold no `=` or NUL and isn't empty, and the value,
         // from the environment, holds no NUL, so std's checks pass
         unsafe { std::env::set_var(name, value) };
+    }
+    Ok(())
+}
+
+/// Sets the environment variable `name` to `value` in the process's
+/// environment, which every library and every program the process starts
+/// afterward reads.
+///
+/// # Precondition
+///
+/// Nothing in the process holds a pointer into the environment, such as a
+/// string `getenv` returned, which a set may leave dangling: a C library
+/// may free the string it replaces (musl does; glibc never frees them, but
+/// may move the array that holds them). That holds on the main thread
+/// before the process has started a library that keeps one: std copies
+/// what it reads.
+///
+/// The function is safe, not `unsafe`, with the precondition documented
+/// rather than typed, as [`clear_env_except`]'s: its caller, the run's
+/// start, is in a crate that forbids `unsafe`. Changing the environment
+/// races with any other thread that reads or writes it, so before changing
+/// anything it reads the process's thread count, once a thread just joined
+/// has left it ([`settled_thread_count`]), and refuses unless it's 1; a
+/// thread can only start from this one, which is in this call. The check
+/// can't see a pointer the calling thread kept from an earlier read.
+///
+/// # Errors
+///
+/// Returns an error, with nothing changed, when the thread count can't be
+/// read or isn't 1, when `name` is empty or holds a `=` or a NUL, or when
+/// `value` holds a NUL.
+#[expect(
+    unsafe_code,
+    reason = "changing the environment is `unsafe`: another thread may read it"
+)]
+pub fn set_env(name: &str, value: &std::ffi::OsStr) -> io::Result<()> {
+    use std::os::unix::ffi::OsStrExt as _;
+    check_env_name(name)?;
+    if value.as_bytes().contains(&0) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("{name}'s value holds a NUL, which no environment variable's can"),
+        ));
+    }
+    alone_with_environment()?;
+    // SAFETY: the process's one thread is this call's (the settled count
+    // above is 1, and only this thread could start another), so no other
+    // reads or writes the environment while it changes; the name was
+    // checked to be non-empty and to hold no `=` or NUL, and the value no
+    // NUL, so std's checks pass; that nothing holds a pointer into the
+    // environment is this function's precondition
+    unsafe { std::env::set_var(name, value) };
+    Ok(())
+}
+
+/// Removes the environment variable `name` from the process's environment,
+/// if it's set, so no library or program the process starts afterward reads
+/// it.
+///
+/// # Precondition
+///
+/// As [`set_env`]'s: nothing in the process holds a pointer into the
+/// environment.
+///
+/// # Errors
+///
+/// Returns an error, with nothing changed, when the thread count can't be
+/// read or isn't 1, once settled, or when `name` is empty or holds a `=` or
+/// a NUL.
+#[expect(
+    unsafe_code,
+    reason = "changing the environment is `unsafe`: another thread may read it"
+)]
+pub fn remove_env(name: &str) -> io::Result<()> {
+    check_env_name(name)?;
+    alone_with_environment()?;
+    // SAFETY: as in `set_env`: the process's one thread is this call's, and
+    // the name was checked, so std's checks pass; nothing holding a pointer
+    // into the environment is the precondition
+    unsafe { std::env::remove_var(name) };
+    Ok(())
+}
+
+/// Refuses an environment variable's `name` that is empty or holds a `=`
+/// or a NUL, which no variable's can, before any change.
+fn check_env_name(name: &str) -> io::Result<()> {
+    if name.is_empty() || name.contains(['=', '\0']) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("{name:?} can't name an environment variable"),
+        ));
+    }
+    Ok(())
+}
+
+/// Refuses a change to the environment unless the process has one thread,
+/// once a thread just joined has left the count.
+fn alone_with_environment() -> io::Result<()> {
+    let threads = settled_thread_count()?;
+    if threads != 1 {
+        return Err(io::Error::other(format!(
+            "the process has {threads} threads, not 1, so another may read the environment"
+        )));
     }
     Ok(())
 }
@@ -989,13 +1094,51 @@ pub fn unboxed_descriptors() -> io::Result<UnboxedDescriptors> {
         }
         if fd > libc::STDERR_FILENO {
             unboxed.sockets.push(fd);
-        } else if !socket_is_connected_unix_stream(fd)
-            .map_err(|error| context(&format!("failed to read socket {fd}"), &error))?
-        {
+        } else if stdio_socket_unboxed(fd)? {
             unboxed.stdio_sockets.push(fd);
         }
     }
     Ok(unboxed)
+}
+
+/// The descriptors of stdin, stdout, and stderr a box would leave past its
+/// walls, in ascending order.
+///
+/// Each is a socket but not a connected unix stream
+/// ([`socket_is_connected_unix_stream`]), as
+/// [`UnboxedDescriptors::stdio_sockets`] lists them. One that is closed, or
+/// isn't a socket, isn't listed.
+///
+/// For a check made before anything changes, where the descriptors above
+/// stderr are still the inherited ones, which the first step closes.
+///
+/// # Errors
+///
+/// Returns an error when a descriptor can't be read other than for being
+/// closed.
+pub fn unboxed_stdio() -> io::Result<Vec<libc::c_int>> {
+    let mut fds = Vec::new();
+    for fd in [libc::STDIN_FILENO, libc::STDOUT_FILENO, libc::STDERR_FILENO] {
+        match is_socket(fd) {
+            Ok(false) => {}
+            Err(error) if error.raw_os_error() == Some(libc::EBADF) => {}
+            Err(error) => return Err(context(&format!("failed to fstat descriptor {fd}"), &error)),
+            Ok(true) => {
+                if stdio_socket_unboxed(fd)? {
+                    fds.push(fd);
+                }
+            }
+        }
+    }
+    Ok(fds)
+}
+
+/// Whether the socket `fd`, on stdin, stdout, or stderr, reaches past a
+/// box's walls: one [`unboxed_descriptors`] and [`unboxed_stdio`] list.
+fn stdio_socket_unboxed(fd: libc::c_int) -> io::Result<bool> {
+    socket_is_connected_unix_stream(fd)
+        .map(|connected| !connected)
+        .map_err(|error| context(&format!("failed to read socket {fd}"), &error))
 }
 
 /// Whether the socket `fd` reaches only its peer, whatever code holding it

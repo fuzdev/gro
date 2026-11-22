@@ -25,16 +25,10 @@ pub(super) enum TcpWall {
 /// which the kernel requires first and Landlock sets.
 pub(super) fn landlock(rules: &BoxRules, tcp: TcpWall) -> Result<(), ConfineError> {
     use landlock::{
-        Access, AccessFs, AccessNet, CompatLevel, Compatible, PathBeneath, RestrictSelf, Ruleset,
-        RulesetAttr, RulesetCreatedAttr, RulesetError, RulesetStatus, Scope,
+        Access, AccessFs, AccessNet, CompatLevel, Compatible, PathBeneath, Ruleset, RulesetAttr,
+        RulesetCreatedAttr, RulesetError, RulesetStatus, Scope,
     };
-    // the kernel's status, read with nothing installed: no flags, and
-    // `no_new_privs` left to the ruleset
-    let status = RestrictSelf::default()
-        .no_new_privs(false)
-        .apply()
-        .map_err(ConfineError::Landlock)?;
-    landlock_floor(status.landlock)?;
+    probe_floor()?;
     let path_rules = rules
         .rules()
         .iter()
@@ -57,6 +51,17 @@ pub(super) fn landlock(rules: &BoxRules, tcp: TcpWall) -> Result<(), ConfineErro
         return Err(ConfineError::LandlockPartial);
     }
     Ok(())
+}
+
+/// Reads the kernel's Landlock status with nothing installed (no flags, so
+/// no `restrict_self` call, and `no_new_privs` left to the ruleset) and
+/// refuses one below the floor ([`landlock_floor`]).
+pub(super) fn probe_floor() -> Result<(), ConfineError> {
+    let status = ::landlock::RestrictSelf::default()
+        .no_new_privs(false)
+        .apply()
+        .map_err(ConfineError::Landlock)?;
+    landlock_floor(status.landlock)
 }
 
 /// The Landlock ABI the box's rules are written for, and the least the

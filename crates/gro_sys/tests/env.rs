@@ -1,6 +1,7 @@
-//! `clear_env_except` from inside a child process: each case runs this binary
-//! again, the child, with an environment the parent sets, and the child
-//! reports the environment it then has. Changing the environment is only
+//! `clear_env_except`, `set_env`, and `remove_env` from inside a child
+//! process: each case runs this binary again, the child, with an
+//! environment the parent sets, and the child reports the environment it
+//! then has. Changing the environment is only
 //! sound with one thread, so it never happens in this process, nor under
 //! libtest's harness, whose threads would race it.
 
@@ -8,6 +9,7 @@
 
 mod support;
 
+use std::ffi::OsStr;
 use std::process::Command;
 
 fn main() {
@@ -30,6 +32,27 @@ fn parent() {
             &set[..],
             "refused: the process has 2 threads, not 1, so another may read the \
              environment\nafter: DENO_STARTUP_PHASES=1 LC_ALL=tr_TR.UTF-8 TZ=UTC\n",
+        ),
+        (
+            "sets",
+            &set[..],
+            "set: ok\nafter: DENO_STARTUP_PHASES=1 LC_ALL=tr_TR.UTF-8 TMPDIR=/private TZ=UTC\n\
+             removed: ok\nafter: LC_ALL=tr_TR.UTF-8 TMPDIR=/private TZ=UTC\nremoved again: ok\n",
+        ),
+        (
+            "sets_threads",
+            &set[..],
+            "refused: the process has 2 threads, not 1, so another may read the \
+             environment\nrefused: the process has 2 threads, not 1, so another may read the \
+             environment\nafter: DENO_STARTUP_PHASES=1 LC_ALL=tr_TR.UTF-8 TZ=UTC\n",
+        ),
+        (
+            "sets_names",
+            &set[..],
+            "refused: \"\" can't name an environment variable\nrefused: \"A=B\" can't name an \
+             environment variable\nrefused: \"A\\0\" can't name an environment variable\n\
+             refused: TZ's value holds a NUL, which no environment variable's can\nafter: \
+             DENO_STARTUP_PHASES=1 LC_ALL=tr_TR.UTF-8 TZ=UTC\n",
         ),
         (
             "names",
@@ -71,6 +94,40 @@ fn child(case: &str) {
             println!("refused: {refused}");
             stop.send(()).unwrap();
             other.join().unwrap().unwrap();
+            println!("after: {}", environment());
+        }
+        "sets" => {
+            gro_sys::set_env("TMPDIR", OsStr::new("/private")).unwrap();
+            println!("set: ok");
+            println!("after: {}", environment());
+            gro_sys::remove_env("DENO_STARTUP_PHASES").unwrap();
+            println!("removed: ok");
+            println!("after: {}", environment());
+            gro_sys::remove_env("DENO_STARTUP_PHASES").unwrap();
+            println!("removed again: ok");
+        }
+        "sets_threads" => {
+            let (stop, wait) = std::sync::mpsc::channel::<()>();
+            let other = std::thread::spawn(move || wait.recv());
+            let refused = gro_sys::set_env("TMPDIR", OsStr::new("/private")).unwrap_err();
+            println!("refused: {refused}");
+            let refused = gro_sys::remove_env("TZ").unwrap_err();
+            println!("refused: {refused}");
+            stop.send(()).unwrap();
+            other.join().unwrap().unwrap();
+            println!("after: {}", environment());
+        }
+        "sets_names" => {
+            for name in ["", "A=B", "A\0"] {
+                let refused = gro_sys::set_env(name, OsStr::new("x")).unwrap_err();
+                println!("refused: {refused}");
+                assert_eq!(
+                    gro_sys::remove_env(name).unwrap_err().to_string(),
+                    refused.to_string()
+                );
+            }
+            let refused = gro_sys::set_env("TZ", OsStr::new("a\0b")).unwrap_err();
+            println!("refused: {refused}");
             println!("after: {}", environment());
         }
         "names" => {

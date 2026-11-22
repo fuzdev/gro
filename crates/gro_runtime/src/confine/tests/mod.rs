@@ -81,7 +81,7 @@ fn confining_with_another_thread_alive_is_refused() {
     let scratch = Scratch::new("threads");
     let prepared = Prepared::for_project(scratch.path().to_owned()).unwrap();
     match prepared.confine(Jit::Off) {
-        Err(ConfineError::Threads { count }) => assert!(count >= 2, "{count}"),
+        Err(ConfineError::Threads(super::Threads { count, .. })) => assert!(count >= 2, "{count}"),
         other => panic!("expected a refusal by the thread count, got {other:?}"),
     }
     stop.send(()).unwrap();

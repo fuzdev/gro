@@ -13,7 +13,7 @@ use super::Scratch;
 use crate::confine::plan::{RuleSource, ToolDir};
 use crate::confine::rules::{BoxRules, Kind, Need, Rights};
 use crate::confine::run::{RunNetwork, RunStepError, network_refused};
-use crate::confine::{ConfineError, NetForm};
+use crate::confine::{ConfineError, NetForm, Threads};
 
 /// A namespace failed for another thread fails the run as the caller's
 /// bug, and one whose maps failed fails it stranded, naming the write;
@@ -21,7 +21,10 @@ use crate::confine::{ConfineError, NetForm};
 #[test]
 fn a_failed_namespace_falls_back_only_when_refused() {
     match network_refused(NamespaceError::Threads { count: 2 }) {
-        Err(RunStepError::Threads { count: 2 }) => {}
+        Err(RunStepError::Threads(Threads {
+            count: 2,
+            first_step: false,
+        })) => {}
         other => panic!("not refused for its threads: {other:?}"),
     }
     let stranded = NamespaceError::Stranded {
@@ -150,6 +153,10 @@ fn a_held_descriptor_s_refusal_names_it() {
         (
             ConfineError::StdioSocket { fds: vec![1, 2] },
             "stdout and stderr are sockets that aren't connected unix streams,",
+        ),
+        (
+            ConfineError::StdioSocket { fds: vec![0] },
+            "; give it a file, a pipe, or /dev/null",
         ),
     ] {
         let message = error.to_string();

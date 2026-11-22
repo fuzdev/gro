@@ -46,7 +46,7 @@ mod confined {
     use std::time::Duration;
 
     use gro_runtime::STACK_SIZE;
-    use gro_runtime::confine::{ConfineError, Confinement, Jit, Prepared};
+    use gro_runtime::confine::{ConfineError, Confinement, Jit, Prepared, Threads};
     use gro_runtime::engine::init_confined_engine;
     use gro_runtime::eval::{EvalOptions, RuntimeInfo, engine_options};
     use gro_runtime::snapshot::StartupSnapshot;
@@ -681,7 +681,9 @@ mod confined {
                 let other = std::thread::spawn(move || wait.recv());
                 match Prepared::for_project(project).unwrap().confine(Jit::Off) {
                     Ok(_) => println!("confined with another thread alive"),
-                    Err(ConfineError::Threads { count }) => println!("refused: {count} threads"),
+                    Err(ConfineError::Threads(Threads { count, .. })) => {
+                        println!("refused: {count} threads");
+                    }
                     Err(error) => println!("refused otherwise: {error}"),
                 }
                 stop.send(()).unwrap();

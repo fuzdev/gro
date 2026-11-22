@@ -31,7 +31,18 @@
 //! of the parent's (which code holding it could disconnect, then connect
 //! elsewhere or listen), a UDP socket, a unix datagram socket, and an
 //! `io_uring` instance. A connected unix stream pair on stdout, which
-//! reaches only its peer, the parent, is allowed.
+//! reaches only its peer, the parent, is allowed. Before any step, the
+//! Landlock floor's probe changes nothing, and a socket on stdin is refused
+//! by the stdio check with the process as it started.
+//!
+//! The plan's cases: the tool directories made once the run is hardened,
+//! one planted as a symlink refused with nothing made where it leads; and
+//! a run planned as `gen` and as `check` on a project of its own, its box
+//! up, reaching what the plan admits (its write set, a tool directory,
+//! `/dev/null`, `/proc`, a linked package, git's home config, `/bin/sh` on
+//! a merged `/usr`, the `node` on `PATH` under a rule on its file alone)
+//! and refused the rest (`.git`, `node_modules`, a new top-level file, the
+//! home directory).
 //!
 //! The case that starts V8 under the box, and shows each of its threads in
 //! it, needs a snapshot build, so it runs from `cargo xtask build
@@ -54,9 +65,12 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
+use gro_runtime::confine::Threads;
 use gro_runtime::confine::plan::{BoxFacts, BoxInputs, BoxPlan, ProgramFile};
 use gro_runtime::confine::rules::InstalledRule;
-use gro_runtime::confine::run::{RunClosed, RunHardened, RunNetwork, RunPrepared};
+use gro_runtime::confine::run::{
+    RunClosed, RunHardened, RunNetwork, RunPrepared, check_stdio, probe_floor,
+};
 use gro_runtime::confine::tool_dirs::ToolDirError;
 
 use support::{DEADLINE, KillOnDrop, Scratch};
@@ -80,6 +94,7 @@ const REMOTE: &str = "192.0.2.1:9";
 const CASES: &[&str] = &[
     "walls",
     "walls_inet_refused",
+    "threads_close",
     "threads_network",
     "threads_harden",
     "threads_confine",
@@ -90,6 +105,7 @@ const CASES: &[&str] = &[
     "stdin_unix_datagram",
     "stdin_ring",
     "stdout_stream",
+    "stdin_checked_first",
     "tool_dirs",
     "tool_dirs_planted",
     "planned",
@@ -338,19 +354,29 @@ fn expected(case: &str) -> String {
             line("from outside: open files at the hard limit");
             line("from outside: environ denied");
         }
+        "threads_close" => {
+            line("no_new_privs after the probe: 0");
+            line("refused: 2 threads, naming a preload: true");
+            line("inherited descriptor: open");
+        }
+        "stdin_checked_first" => {
+            line("refused before any step: [0, 2]");
+            line("uid_map: 0 0 4294967295");
+            line("dumpable: true");
+        }
         "threads_network" => {
-            line("refused: 2 threads");
+            line("refused: 2 threads, naming a preload: false");
             line("uid_map: 0 0 4294967295");
         }
         "threads_harden" => {
             line(&format!("network: {network}"));
-            line("refused: 2 threads");
+            line("refused: 2 threads, naming a preload: false");
             line("capabilities unchanged: true");
             line("dumpable: true");
         }
         "threads_confine" => {
             line(&format!("network: {network}"));
-            line("refused: 2 threads");
+            line("refused: 2 threads, naming a preload: false");
             line("read outside: ok");
             line("seccomp: 0");
         }
@@ -535,13 +561,22 @@ fn run_stdio_case(
             held = Some(accepting);
             OwnedFd::from(stream).into()
         }
-        "stdin_udp" => OwnedFd::from(std::net::UdpSocket::bind("127.0.0.1:0").unwrap()).into(),
+        "stdin_udp" | "stdin_checked_first" => {
+            OwnedFd::from(std::net::UdpSocket::bind("127.0.0.1:0").unwrap()).into()
+        }
         "stdin_unix_datagram" => {
             OwnedFd::from(std::os::unix::net::UnixDatagram::unbound().unwrap()).into()
         }
         _ => Stdio::piped(),
     };
     command.stdin(stdin);
+    // stderr a socket too, so the early check is seen to read past stdin
+    let stderr_drained = case != "stdin_checked_first";
+    if !stderr_drained {
+        command.stderr(OwnedFd::from(
+            std::net::UdpSocket::bind("127.0.0.1:0").unwrap(),
+        ));
+    }
     let reader = if case == "stdout_stream" {
         let (ours, theirs) = std::os::unix::net::UnixStream::pair().unwrap();
         command.stdout(OwnedFd::from(theirs));
@@ -557,11 +592,13 @@ fn run_stdio_case(
         || support::drain(child.stdout.take().unwrap()),
         support::drain,
     );
-    let stderr = support::drain(child.stderr.take().unwrap());
+    let stderr = stderr_drained.then(|| support::drain(child.stderr.take().unwrap()));
     let status = support::wait_bounded(case, &mut child);
     drop(held);
     let stdout = String::from_utf8_lossy(&stdout.join().unwrap()).into_owned();
-    let stderr = String::from_utf8_lossy(&stderr.join().unwrap()).into_owned();
+    let stderr = stderr.map_or_else(String::new, |stderr| {
+        String::from_utf8_lossy(&stderr.join().unwrap()).into_owned()
+    });
     (status, stdout, stderr, Vec::new())
 }
 
@@ -747,7 +784,7 @@ fn plan(project: &Path) -> BoxPlan {
 /// The run's steps up to its box, prepared from [`plan`].
 fn prepared(project: &Path) -> RunPrepared {
     let plan = plan(project);
-    let networked = RunClosed::close_inherited()
+    let networked = RunClosed::close_inherited(probe_floor().unwrap())
         .unwrap()
         .enter_network()
         .unwrap();
@@ -771,12 +808,62 @@ fn child(case: &str, scratch: &Path, port: u16) {
     let outside = scratch.join("outside/secret.txt");
     match case {
         "walls" | "walls_inet_refused" => walls(&project, scratch, port),
+        "threads_close" => {
+            let floor = probe_floor().unwrap();
+            let status = std::fs::read_to_string("/proc/self/status").unwrap();
+            say(&format!(
+                "no_new_privs after the probe: {}",
+                status_field(&status, "NoNewPrivs:")
+            ));
+            let (stop, other) = another_thread();
+            match RunClosed::close_inherited(floor) {
+                Err(gro_runtime::confine::run::RunStepError::Threads(
+                    threads @ Threads { count, .. },
+                )) => {
+                    say(&format!(
+                        "refused: {count} threads, naming a preload: {}",
+                        threads.to_string().contains("LD_PRELOAD")
+                    ));
+                }
+                other => panic!("not refused for its threads: {other:?}"),
+            }
+            stop.send(()).unwrap();
+            other.join().unwrap();
+            say(&format!(
+                "inherited descriptor: {}",
+                if Path::new("/proc/self/fd/3").exists() {
+                    "open"
+                } else {
+                    "closed"
+                }
+            ));
+        }
+        "stdin_checked_first" => {
+            probe_floor().unwrap();
+            match check_stdio() {
+                Err(gro_runtime::confine::ConfineError::StdioSocket { fds }) => {
+                    say(&format!("refused before any step: {fds:?}"));
+                }
+                other => panic!("not refused for stdin: {other:?}"),
+            }
+            let uid_map = std::fs::read_to_string("/proc/self/uid_map").unwrap();
+            say(&format!(
+                "uid_map: {}",
+                uid_map.split_whitespace().collect::<Vec<_>>().join(" ")
+            ));
+            say(&format!("dumpable: {}", gro_sys::is_dumpable().unwrap()));
+        }
         "threads_network" => {
-            let closed = RunClosed::close_inherited().unwrap();
+            let closed = RunClosed::close_inherited(probe_floor().unwrap()).unwrap();
             let (stop, other) = another_thread();
             match closed.enter_network() {
-                Err(gro_runtime::confine::run::RunStepError::Threads { count }) => {
-                    say(&format!("refused: {count} threads"));
+                Err(gro_runtime::confine::run::RunStepError::Threads(
+                    threads @ Threads { count, .. },
+                )) => {
+                    say(&format!(
+                        "refused: {count} threads, naming a preload: {}",
+                        threads.to_string().contains("LD_PRELOAD")
+                    ));
                 }
                 other => panic!("not refused for its threads: {other:?}"),
             }
@@ -789,7 +876,7 @@ fn child(case: &str, scratch: &Path, port: u16) {
             ));
         }
         "threads_harden" => {
-            let networked = RunClosed::close_inherited()
+            let networked = RunClosed::close_inherited(probe_floor().unwrap())
                 .unwrap()
                 .enter_network()
                 .unwrap();
@@ -797,8 +884,13 @@ fn child(case: &str, scratch: &Path, port: u16) {
             let before = capabilities();
             let (stop, other) = another_thread();
             match networked.harden() {
-                Err(gro_runtime::confine::run::RunStepError::Threads { count }) => {
-                    say(&format!("refused: {count} threads"));
+                Err(gro_runtime::confine::run::RunStepError::Threads(
+                    threads @ Threads { count, .. },
+                )) => {
+                    say(&format!(
+                        "refused: {count} threads, naming a preload: {}",
+                        threads.to_string().contains("LD_PRELOAD")
+                    ));
                 }
                 other => panic!("not refused for its threads: {other:?}"),
             }
@@ -814,8 +906,13 @@ fn child(case: &str, scratch: &Path, port: u16) {
             let prepared = prepared(&project);
             let (stop, other) = another_thread();
             match prepared.confine() {
-                Err(gro_runtime::confine::ConfineError::Threads { count }) => {
-                    say(&format!("refused: {count} threads"));
+                Err(gro_runtime::confine::ConfineError::Threads(
+                    threads @ Threads { count, .. },
+                )) => {
+                    say(&format!(
+                        "refused: {count} threads, naming a preload: {}",
+                        threads.to_string().contains("LD_PRELOAD")
+                    ));
                 }
                 other => panic!("not refused for its threads: {other:?}"),
             }
@@ -899,7 +996,7 @@ fn tools_plan(project: &Path, tools: &[&str], declared: &[&str]) -> BoxPlan {
 
 /// The hardened run's steps, the network printed.
 fn hardened() -> RunHardened {
-    let networked = RunClosed::close_inherited()
+    let networked = RunClosed::close_inherited(probe_floor().unwrap())
         .unwrap()
         .enter_network()
         .unwrap();
@@ -1199,7 +1296,7 @@ fn private_dir_reused(scratch: &Path) {
     drop(parent);
     // gro's own bug, a second chain: its first step closes every
     // descriptor above stderr by number, the private directory's among them
-    let _second = RunClosed::close_inherited().unwrap();
+    let _second = RunClosed::close_inherited(probe_floor().unwrap()).unwrap();
     let reused: Vec<std::fs::File> = (0..4)
         .map(|_| std::fs::File::open(&project).unwrap())
         .collect();
@@ -1238,7 +1335,7 @@ fn wait_for_inspection() {
 /// then what this process and the programs it starts can reach.
 fn walls(project: &Path, scratch: &Path, port: u16) {
     let plan = plan(project);
-    let closed = RunClosed::close_inherited().unwrap();
+    let closed = RunClosed::close_inherited(probe_floor().unwrap()).unwrap();
     // descriptor 3, which `/bin/sh` opened on a file outside the box
     say(&format!(
         "inherited descriptor: {}",
