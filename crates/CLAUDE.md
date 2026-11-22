@@ -19,14 +19,18 @@ arm (a `cfg` on the architecture or the C library is fine).
   protocol (`eval/`), and the verb's pre-pass (`verb/`: the grants table
   `src/builtin_grants.json`, carried by `include_str!`, and a command's
   closure). Start at its `lib.rs`
-- `gro_cli` - the `fgro` binary (`run`, `eval`, `--version`); its `main.rs`
+- `gro_cli` - the `fgro` binary (`run`, `eval`, `--version`, and a command
+  of Gro's for every other first argument, bare `fgro` included); its `main.rs`
   maps the commands to their docs. The name it prints, in help, hints,
   errors, the version line, and `runtime_version`, is
   `gro_runtime::BINARY_NAME`, never a literal, and `main.rs` fails the
   build when the `[[bin]]` name differs from it; paths naming the built
   file (xtask, `gro_bench`, `CARGO_BIN_EXE_fgro`) name the file instead;
-  its `verb/` holds the verb's grant flags, split as `fgro run` spells
-  them, and why a command runs on the Node Gro
+  its `verb/` holds the verb's pre-pass (`prepass.rs`: the grant flags,
+  split as `fgro run` spells them, the closure's grants joined to theirs,
+  the generated entry, and why a command runs on the Node Gro, run
+  before any thread starts so the run's box can follow it) and the
+  fallback's exec of the project's Node Gro
 - `gro_sys` - the raw system calls the safe std API lacks (descriptors, the
   environment, `RLIMIT_DATA` and `RLIMIT_NOFILE`, a hard limit lowered, the
   thread count once settled, the default thread stack, a thread's stack

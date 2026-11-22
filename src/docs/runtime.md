@@ -237,7 +237,7 @@ Each bullet marks what's built; anything unmarked past the omissions is designed
   A run or an eval that is over exits without tearing its runtime down (built), leaving the OS to reclaim it.
   A code cache entry is code to V8, so who writes the cache is the whole defense,
   and confined runs read none: Gro's own code is embedded in the binary, its types stripped when the binary is built,
-  and compiled from that copy when a run first imports one of its modules (built for `fgro run`; the verb's start designed),
+  and compiled from that copy when a run first imports one of its modules (built for `fgro run` and `fgro <command>`),
   and `gro eval` and hermetic runs never read a cache.
   A writer outside the box, compiling from source itself, is the route if a measurement on third-party graphs shows a cache worth it,
   and a cache for unconfined runs is undecided ([backstop](backstop.md#open)).
@@ -337,7 +337,30 @@ As designed, except where marked built:
 - `publish`, `deploy`, `commit`, and `changeset` push and use credentials, so they're named unconfined phases.
 - The builtins' grants live in Gro: each builtin's `task.grants`, generated into a table the binary carries
   and reads into a [command's closure](glossary.md#commands-closure) before any JS runs
-  (built, run by no command yet; [task](task.md#a-builtins-host-and-grants)).
+  (built; [task](task.md#a-builtins-host-and-grants)).
+- `fgro <command>` runs a command of Gro's on the binary (built, without the box):
+  every first argument but the binary's own (`run`, `eval`, `--version`, `--help` and `help`) is one,
+  bare `fgro` lists them, and `fgro -v` prints Gro's version while `fgro --version` keeps the binary's line.
+  Its pre-pass reads the command's closure, the grant flags after the command word, and the project at the working directory,
+  which must hold a project's `package.json`, before any thread starts,
+  then runs Gro's CLI from an entry it generates at `gro:main`, the project's origin,
+  with the closure's grants joined to the flags' and packages matching the `development` condition unless `NODE_ENV` is `production`.
+  Until the run's box is installed, the tools those grants pass the whole environment
+  (svelte-kit, vitest, eslint, svelte-check, tsc) run the project's code unconfined,
+  so of the commands that load the project's code only `format --check` holds it to read-only grants:
+  `gen --check` grants svelte-kit, which a genfile can start, synced or not, and which loads the project's `vite.config.ts`.
+  Declared differences from the Node Gro: Gro's logger colors its output even under `NO_COLOR` or when piped,
+  and `fgro --help` and `fgro help` print the binary's own help, where `gro --help` lists the builtins.
+  A run that fails after the resolver refused a `node:` specifier, caught or not, ends with a hint naming the cause
+  and the whole command on the Node Gro, which confines nothing (`node_modules/.bin/gro` and the command line, its grant flags stripped),
+  a [review signal](glossary.md#review-signal) the run's code controls: project code can print it at will by catching a `node:` import and failing.
+- A command the binary leaves to Node, like `dev`, `build`, `clean`, `check --build`, a project task, or `task`'s listing,
+  or one in a project that installed another version of Gro, runs on the Node Gro the project installed (built):
+  one `note:` line says why, then `node`, found on `PATH` with `node_modules/.bin` entries skipped,
+  replaces the process, running `node_modules/@fuzdev/gro/dist/invoke.js` with the command line as written.
+  `GRO_FALLBACK=command` refuses a fallback the project's files decide, the version;
+  a fallback the command decides still runs the project's installed `dist`, which confines nothing
+  ([authority](authority.md#what-the-first-release-is-for)).
   So a project's policy file is designed to hold its own tasks alone,
   and `gro check`, which spawns Node tools through Gro's own tasks, leaves the project nothing to declare for them.
 
@@ -373,7 +396,7 @@ where the host modules and grants land with their first consumer.
       with probes for a symlink and a hard link out of the roots, each killed syscall, a same-realm `then` patch,
       an escape sequence in confined output, and a child reaching a unix socket,
       with the type strip fuzzed over real packages, since it runs on `node_modules`
-- [ ] startup: Gro's own code embedded in the binary, stripped at build time and loaded when a run first imports it (built for `fgro run`; the verb's start designed),
+- [ ] startup: Gro's own code embedded in the binary, stripped at build time and loaded when a run first imports it (built for `fgro run` and `fgro <command>`),
       and lazy host init (built for the builtin modules, each run on its first import), with no code cache for confined runs
 - [ ] the seal on the global object, with named exceptions, and a free `fetch`'s error naming the import
 - [ ] the host modules (fs, spawn, watch, net, and the process modules), the grants

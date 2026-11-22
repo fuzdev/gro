@@ -9,12 +9,21 @@
 //!   one envelope on stdout; the reference is `src/docs/eval.md`
 //! - `fgro --version` prints one line naming the version, the commit, the
 //!   V8 version, and whether a snapshot is embedded (`version`)
+//! - `fgro <command> [<args...>]`, for every other first argument and for
+//!   none, runs a command of Gro's (`gro check`, the listing): its
+//!   pre-pass (`verb::prepass`) decides on the main thread, before any
+//!   thread starts, whether it runs on the binary from a generated entry,
+//!   held to its closure's grants and the grant flags right after the
+//!   command word, or on the Node Gro the project installed, which it execs
+//!   after one line saying why (`verb::fallback`), or neither; the
+//!   reference is `src/docs/runtime.md` (§Gro's workflow on the runtime)
 //!
-//! Every command but `eval` runs on one thread with [`gro_runtime::STACK_SIZE`]
-//! reserved, not on the main thread, so a debug build stays inside the stack
-//! tsv's TypeScript strip is sized for, whatever the platform's main thread
-//! has. `eval` keeps its process at one thread until it is confined; the
-//! order of its steps is `eval::confine_eval`'s.
+//! Every command but `eval` and a command of Gro's pre-pass runs on one
+//! thread with [`gro_runtime::STACK_SIZE`] reserved, not on the main
+//! thread, so a debug build stays inside the stack tsv's TypeScript strip
+//! is sized for, whatever the platform's main thread has. `eval` keeps its
+//! process at one thread until it is confined; the order of its steps is
+//! `eval::confine_eval`'s.
 //!
 //! Exit codes, the same for `run` and `eval`: `0` success, `1` a run that
 //! fails, `2` a usage error, an entry the resolver refuses included (one
@@ -22,7 +31,13 @@
 //! An entry whose resolution fails reading the tree, on an I/O error or a
 //! symlink loop, exits `1`: no change to the command line fixes it. A
 //! program under `run` can exit with a code of its own, 0 to 255, by the
-//! exit host module (`run::exit_code` has the rules).
+//! exit host module (`run::exit_code` has the rules). A command of Gro's
+//! exits as `run` does on the binary, its code Gro's; with `2` when its
+//! pre-pass refuses it (its grant flags, `GRO_FALLBACK`'s value, a working
+//! directory with no project's `package.json`, a fallback
+//! `GRO_FALLBACK=command` refuses, or one with no built Node Gro or no
+//! `node` to run it), `1` when the grants table can't be read or `node`
+//! fails to start; and with the Node Gro's code when it falls back.
 //!
 //! Features (the binary that ships never enables `phases` or `prices`):
 //!
@@ -59,12 +74,6 @@ mod print;
 mod run;
 mod snapshot;
 mod thread;
-// the verb's pre-pass, which no command runs until the verb routes to it;
-// its tests hold it to Gro's TS
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "no command runs the verb's pre-pass yet")
-)]
 mod verb;
 mod version;
 
@@ -142,6 +151,9 @@ fn main_code() -> u8 {
         // eval's process must keep one thread until it is confined, so it
         // runs here and starts its own
         Ok(Invocation::Eval(args)) => eval::eval(args),
+        // its pre-pass runs here, before any thread starts, and a fallback
+        // execs the Node Gro from here
+        Ok(Invocation::Verb(args)) => run::verb(&args),
         Ok(Invocation::Sized(task)) => run_on_sized_stack(&task),
         Err(error) => error.report(),
     }
@@ -182,8 +194,9 @@ fn run(task: &Task) -> u8 {
         Task::Help(text) => stdout_line(text.trim_end()).map_err(CliError::Stdout),
         Task::MakeSnapshot(dir) => make_snapshot(dir),
         Task::MakeEmbed(src, dir) => make_embed(src, dir),
-        // it prints its own failure, before the imports it was refused
+        // each prints its own failure, before the imports it was refused
         Task::Run(invocation) => return run::run_module(invocation),
+        Task::Verb(plan) => return run::run_verb(plan),
     };
     result.map_or_else(|error| error.report(), |()| 0)
 }
@@ -198,7 +211,47 @@ mod tests {
         match cli::parse(args) {
             Ok(Invocation::Eval(args)) => eval::eval(args),
             Ok(Invocation::Sized(task)) => run(&task),
+            Ok(Invocation::Verb(args)) => panic!("{args:?} is a command of gro's"),
             Err(error) => error.report(),
+        }
+    }
+
+    /// Every first argument but the binary's own commands, version, help,
+    /// and internal subcommands is a command of gro's, and so is none,
+    /// every argument kept as written.
+    #[test]
+    fn every_other_first_argument_is_a_command_of_gro_s() {
+        let verb = |args: &[&str]| match cli::parse(args) {
+            Ok(Invocation::Verb(verb)) => verb,
+            _ => panic!("{args:?} is a command of gro's"),
+        };
+        for args in [
+            &[][..],
+            &["check", "--allow-read=.", "--", "x"],
+            &["-v"],
+            &["--unknown"],
+            &["--"],
+            &["--", "eval", "a.js"],
+            &["--allow-env=TOKEN=hunter2", "run", "a.js"],
+            &["src/a.task.ts"],
+            &["Run"],
+            &["-A", "eval"],
+        ] {
+            assert_eq!(verb(args), args, "{args:?}");
+        }
+        for args in [
+            &["run", "a.js"][..],
+            &["eval", "a.js"],
+            &["--version"],
+            &["--help"],
+            &["help"],
+            &["make-snapshot", "dir"],
+            &["make-embed", "src", "dir"],
+        ] {
+            assert!(
+                !matches!(cli::parse(args), Ok(Invocation::Verb(_))),
+                "{args:?}"
+            );
         }
     }
 
@@ -215,11 +268,7 @@ mod tests {
     #[test]
     fn eval_alone_runs_on_the_main_thread() {
         let on_main = |args| matches!(cli::parse(args), Ok(Invocation::Eval(_)));
-        for args in [
-            &["eval", "a.js"][..],
-            &["--", "eval", "a.js"],
-            &["eval", "--jit", "a.js"],
-        ] {
+        for args in [&["eval", "a.js"][..], &["eval", "--jit", "a.js"]] {
             assert!(on_main(args), "{args:?}");
         }
         for args in [
@@ -230,6 +279,7 @@ mod tests {
             &["--version", "eval", "a.js"],
             &["make-snapshot", "eval"],
             &["make-embed", "eval", "a.js"],
+            &["--", "eval", "a.js"],
             &[],
         ] {
             assert!(!on_main(args), "{args:?}");
@@ -238,9 +288,8 @@ mod tests {
 
     #[test]
     fn usage_error_exits_2() {
-        assert_eq!(code(&[]), EXIT_USAGE);
-        assert_eq!(code(&["--unknown"]), EXIT_USAGE);
-        assert_eq!(code(&["positional"]), EXIT_USAGE);
+        assert_eq!(code(&["--version", "--unknown"]), EXIT_USAGE);
+        assert_eq!(code(&["--help", "positional"]), EXIT_USAGE);
         assert_eq!(code(&["run"]), EXIT_USAGE);
         assert_eq!(code(&["run", "--"]), EXIT_USAGE);
         assert_eq!(code(&["run", "--x", "a.js"]), EXIT_USAGE);
@@ -321,8 +370,8 @@ mod tests {
             &["run", "--allow_env=TOKEN=hunter2", "a.js"][..],
             &["run", "-A=hunter2", "a.js"],
             &["run", "-\u{1b}[2J=hunter2", "a.js"],
-            &["--allow-env=TOKEN=hunter2", "run", "a.js"],
-            &["--\u{1b}[2J=hunter2", "run", "a.js"],
+            &["--version", "--allow-env=TOKEN=hunter2", "run", "a.js"],
+            &["--version", "--\u{1b}[2J=hunter2", "run", "a.js"],
             &["eval", "a.js", "--x=hunter2"],
             // an argument that's part of another, which argh refuses
             &["eval", "--export", "=", "a.js", "TOKEN=hunter2"],
@@ -376,13 +425,6 @@ mod tests {
         assert_eq!(
             message(&["--version", "run", "a.js"]),
             ("--version takes no subcommand".to_owned(), EXIT_USAGE)
-        );
-        assert_eq!(
-            message(&[]),
-            (
-                format!("a subcommand is required\nRun {BINARY_NAME} --help for more information."),
-                EXIT_USAGE
-            )
         );
     }
 

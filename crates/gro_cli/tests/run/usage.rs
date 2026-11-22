@@ -78,10 +78,9 @@ fn a_closed_stdout_fails_the_write_without_a_panic() {
 fn usage_errors_exit_2() {
     use std::os::unix::ffi::OsStrExt as _;
     for args in [
-        &[][..],
-        &["run"],
+        &["run"][..],
         &["run", "--"],
-        &["--unknown"],
+        &["--version", "--unknown"],
         &["run", "--x", "console.js"],
         &["run", "--allow-env", "console.js"],
         &["run", "--allow-env=", "console.js"],

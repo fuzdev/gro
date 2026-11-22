@@ -111,6 +111,9 @@ pub struct VerbRun {
     /// The command line without its grant flags, the args the run's args
     /// host module hands Gro.
     pub cli_args: Vec<String>,
+    /// The project's root, the working directory, a real path: the
+    /// entry's root.
+    pub root: PathBuf,
     /// What the run grants by the flags' shape: the closure's variables and
     /// programs joined to the flags' names, `-A` unconfined.
     pub grant: RunGrant,
@@ -125,22 +128,6 @@ pub struct VerbRun {
     pub development: bool,
     /// The entry's text ([`main_entry`]).
     pub entry: String,
-}
-
-impl VerbRun {
-    /// Whether a program it grants may be passed the whole environment,
-    /// which children are then handed whole.
-    pub fn passes_whole_environment(&self) -> bool {
-        self.programs.values().any(|program| {
-            matches!(
-                program,
-                ProgramGrant::Table {
-                    pass_env: PassEnvGrant::All { .. },
-                    ..
-                }
-            )
-        })
-    }
 }
 
 /// A command's run on the Node Gro the project installed.
@@ -407,6 +394,7 @@ pub fn plan(
     let home = inputs.home.map(|home| home.to_string_lossy());
     Ok(VerbPlan::Run(VerbRun {
         cli_args: split.cli_args,
+        root: inputs.root.to_owned(),
         grant,
         dirs,
         programs,

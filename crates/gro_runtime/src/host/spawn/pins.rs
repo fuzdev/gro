@@ -394,6 +394,27 @@ fn walk_path(name: &str, path: Option<&str>) -> Result<Option<String>, Fault> {
     Ok(None)
 }
 
+/// The program `name`, a bare name, found on `path` as a pin finds one.
+///
+/// It's the first regular file of the name this process may execute on `path`'s entries,
+/// absolute ones only, each spelled as a `node_modules/.bin` directory
+/// skipped, so a program a package installed there, or one a run wrote
+/// there, is never the one found. `None` when no entry has one. It pins
+/// nothing: an embedder that runs what it finds runs the file at that path
+/// when it runs it.
+///
+/// # Errors
+///
+/// Returns why an entry's file of the name can't be run, when one has a
+/// regular file of the name and none it may execute.
+pub fn find_on_path(name: &str, path: Option<&str>) -> Result<Option<String>, String> {
+    walk_path(name, path).map_err(|fault| match fault {
+        Fault::NotExecutable(why) | Fault::NotGranted(why) => why,
+        Fault::NotFound => format!("{name} is on no PATH entry"),
+        Fault::Unresolved { cause, why } => format!("{cause}: {why}"),
+    })
+}
+
 /// What a `..` with nothing before it does in [`lexical_segments`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Climb {

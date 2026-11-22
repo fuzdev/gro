@@ -1,6 +1,8 @@
 //! Why a command runs on the Node Gro instead of the binary: the closure's
 //! verdicts, the binary's policies, and the project's installed Gro, each
-//! with the reason the fallback prints and who decided it.
+//! with the reason the fallback prints and who decided it; and the run of
+//! the Node Gro the project installed ([`exec_node_gro`]), which replaces
+//! the process after one line saying why.
 //!
 //! [`BUILTIN_ROWS`] holds one row per builtin of the grants table, and its
 //! test holds the two to each other: a builtin that declares no grants has
@@ -25,14 +27,21 @@
 //! (a package script's `gro`, `node_modules/.bin/gro`), each the user's
 //! choice, not the project's.
 
-use std::ffi::OsStr;
-use std::fmt;
+use std::ffi::{OsStr, OsString};
+use std::fmt::{self, Write as _};
+use std::os::unix::ffi::OsStrExt as _;
+use std::os::unix::process::CommandExt as _;
+use std::path::Path;
+use std::process::Command;
 
+use gro_runtime::find_on_path;
 use gro_runtime::resolver::{GRO_PACKAGE, InstalledPackage};
 use gro_runtime::verb::closure::{ClosureFallback, CommandClosure};
 use thiserror::Error;
 
-use crate::print::escape_controls;
+use super::prepass::{VerbFallback, command_line, joined_reasons};
+use crate::error::CliError;
+use crate::print::{escape_controls, stderr_line};
 
 /// The environment variable naming which fallbacks to the Node Gro the
 /// binary takes ([`FallbackPolicy`]).
@@ -226,6 +235,7 @@ impl fmt::Display for FallbackReason {
                  own runs",
                 installed
                     .as_deref()
+                    .filter(|installed| !installed.is_empty())
                     .map_or_else(|| "with no version".into(), escape_controls)
             ),
             Self::Ungranted { builtin, why } => {
@@ -297,6 +307,168 @@ fn builtin_row(name: &str) -> Option<BuiltinRow> {
         .find_map(|&(row_name, row)| (row_name == name).then_some(row))
 }
 
+/// The program the Node Gro runs on, found on `PATH`.
+const NODE: &str = "node";
+
+/// Runs the command line `cli_args`, as written, grant flags included, on
+/// the Node Gro the project installed, as `fallback` planned: prints one
+/// line saying why ([`fallback_note`]), then replaces the process with
+/// `node`, found on `path` as a pin finds a bare name ([`find_on_path`]:
+/// absolute entries only, each `node_modules/.bin` one skipped), running
+/// the installed Gro's `dist/invoke.js` with its loader registered as the
+/// Node Gro registers it ([`loader_args`]), in the same working directory
+/// and with the whole environment. Returns only when it can't.
+///
+/// Kind: the line is a review signal; what runs is the Node Gro, which
+/// confines nothing.
+pub fn exec_node_gro(
+    fallback: &VerbFallback,
+    cli_args: &[String],
+    path: Option<&OsStr>,
+    node_env: Option<&OsStr>,
+) -> CliError {
+    let command = fallback.command.clone();
+    let dist = fallback.gro.root.join("dist");
+    let invoke = dist.join("invoke.js");
+    if !invoke.is_file() {
+        return CliError::NodeGroUnbuilt {
+            command,
+            path: invoke,
+        };
+    }
+    let path = path.map(OsStr::to_string_lossy);
+    let node = match find_on_path(NODE, path.as_deref()) {
+        Ok(Some(node)) => node,
+        Ok(None) => return CliError::NoNode { command, why: None },
+        Err(why) => {
+            return CliError::NoNode {
+                command,
+                why: Some(why),
+            };
+        }
+    };
+    stderr_line(fallback_note(fallback));
+    let args = loader_args(&dist.join("loader.js"), &invoke, cli_args, node_env);
+    let source = Command::new(node).args(args).exec();
+    CliError::NodeGroExec { command, source }
+}
+
+/// The line a fallback prints before it runs the Node Gro: `note: fgro
+/// <command> runs on the Node gro in node_modules/@fuzdev/gro <version>,
+/// which confines nothing, because <reason>[; and <reason>]`.
+pub fn fallback_note(fallback: &VerbFallback) -> String {
+    let version = fallback
+        .gro
+        .version
+        .as_deref()
+        .filter(|version| !version.is_empty())
+        .map_or_else(String::new, |version| {
+            format!(" {}", escape_controls(version))
+        });
+    format!(
+        "note: {} runs on the Node gro in node_modules/{GRO_PACKAGE}{version}, which confines \
+         nothing, because {}",
+        command_line(fallback.command.as_deref()),
+        joined_reasons(&fallback.reasons)
+    )
+}
+
+/// The `NODE_ENV` value under which the Node Gro's loader doesn't match the
+/// `development` condition.
+const NODE_ENV_PRODUCTION: &[u8] = b"production";
+
+/// The Node args that run `invoke_path` with `argv` after it, with the
+/// loader at `loader_path` registered: the twin of Gro's
+/// `spawn_with_loader_args` (`src/lib/gro_helpers.ts`), held to
+/// `tests/fixtures/verb/loader_args.json`, which that function writes.
+/// `-C development` is added unless `node_env` is `production`.
+pub fn loader_args(
+    loader_path: &Path,
+    invoke_path: &Path,
+    argv: &[String],
+    node_env: Option<&OsStr>,
+) -> Vec<OsString> {
+    let mut args: Vec<OsString> = vec![
+        "--import".into(),
+        register_loader_url(loader_path).into(),
+        "--experimental-import-meta-resolve".into(),
+    ];
+    if node_env.is_none_or(|node_env| node_env.as_bytes() != NODE_ENV_PRODUCTION) {
+        args.extend(["-C".into(), "development".into()]);
+    }
+    args.push(invoke_path.into());
+    args.extend(argv.iter().map(OsString::from));
+    args
+}
+
+/// The `data:` URL of a module that registers the loader at `loader_path`,
+/// as Gro's `to_register_loader_url` makes it: the module's source,
+/// `encodeURIComponent`'s encoding of it, after `data:text/javascript,`.
+fn register_loader_url(loader_path: &Path) -> String {
+    // the URL holds only what `to_file_url` keeps and `%`, which a JSON
+    // string writes as they are
+    let source = format!(
+        "import {{register}} from \"node:module\"; register(\"{}\");",
+        file_url(loader_path)
+    );
+    format!("data:text/javascript,{}", encode_uri_component(&source))
+}
+
+/// The `file:` URL of the absolute `path`, as Gro's `to_file_url` writes
+/// it: the path's `.` and `..` resolved by their text, a trailing `/` kept,
+/// each byte outside the characters a file URL's path keeps percent-encoded,
+/// uppercase. A path that isn't UTF-8 has its bytes encoded as they are,
+/// which a JS string can't hold.
+fn file_url(path: &Path) -> String {
+    let bytes = path.as_os_str().as_bytes();
+    let mut segments: Vec<&[u8]> = Vec::new();
+    for segment in bytes.split(|&byte| byte == b'/') {
+        match segment {
+            b"" | b"." => {}
+            b".." => {
+                segments.pop();
+            }
+            segment => segments.push(segment),
+        }
+    }
+    let mut resolved = Vec::with_capacity(bytes.len() + 1);
+    for segment in &segments {
+        resolved.push(b'/');
+        resolved.extend_from_slice(segment);
+    }
+    // the root alone, or a trailing `/` kept
+    if resolved.is_empty() || bytes.ends_with(b"/") {
+        resolved.push(b'/');
+    }
+    let kept = |byte: u8| byte.is_ascii_alphanumeric() || b"!$&'()*+,-./:;=@_".contains(&byte);
+    let mut url = String::from("file://");
+    for byte in resolved {
+        if kept(byte) {
+            url.push(char::from(byte));
+        } else {
+            // writing to a `String` never fails
+            let _ = write!(url, "%{byte:02X}");
+        }
+    }
+    url
+}
+
+/// `text` as JS's `encodeURIComponent` encodes it: every UTF-8 byte outside
+/// the letters, digits, and `-_.!~*'()` percent-encoded, uppercase.
+fn encode_uri_component(text: &str) -> String {
+    let kept = |byte: u8| byte.is_ascii_alphanumeric() || b"-_.!~*'()".contains(&byte);
+    let mut encoded = String::with_capacity(text.len());
+    for byte in text.bytes() {
+        if kept(byte) {
+            encoded.push(char::from(byte));
+        } else {
+            // writing to a `String` never fails
+            let _ = write!(encoded, "%{byte:02X}");
+        }
+    }
+    encoded
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
@@ -305,7 +477,107 @@ mod tests {
     use gro_runtime::verb::closure::command_closure;
     use gro_runtime::verb::table::BuiltinGrantsTable;
 
-    use super::{BUILTIN_ROWS, BuiltinRow, DecidedBy, FallbackReason, Policy, fallback_reasons};
+    use std::ffi::{OsStr, OsString};
+    use std::path::Path;
+
+    use serde_json::Value;
+
+    use super::{
+        BUILTIN_ROWS, BuiltinRow, DecidedBy, FallbackPolicy, FallbackReason, Policy,
+        fallback_reasons, loader_args,
+    };
+    use crate::verb::tests::{has_fields, read_fixture, strings};
+
+    /// The Node args are `spawn_with_loader_args`'s, case by case.
+    #[test]
+    fn the_loader_args_are_node_s() {
+        let fixture = read_fixture("loader_args.json");
+        let cases = fixture["cases"].as_array().unwrap();
+        assert!(cases.len() > 1);
+        for case in cases {
+            let name = case["name"].as_str().unwrap();
+            assert!(
+                has_fields(
+                    case,
+                    &[
+                        "name",
+                        "loader_path",
+                        "invoke_path",
+                        "argv",
+                        "node_env",
+                        "args"
+                    ]
+                ),
+                "{name}"
+            );
+            let node_env = case["node_env"].as_str().map(OsStr::new);
+            let args = loader_args(
+                Path::new(case["loader_path"].as_str().unwrap()),
+                Path::new(case["invoke_path"].as_str().unwrap()),
+                &strings(&case["argv"]),
+                node_env,
+            );
+            let expected: Vec<OsString> = strings(&case["args"])
+                .into_iter()
+                .map(OsString::from)
+                .collect();
+            assert_eq!(args, expected, "{name}");
+            assert!(matches!(case["node_env"], Value::String(_) | Value::Null));
+        }
+    }
+
+    /// `GRO_FALLBACK` takes `all` and `command`, and unset is `all`.
+    #[test]
+    fn the_fallback_policy_is_read_from_its_value() {
+        assert_eq!(FallbackPolicy::read(None), Ok(FallbackPolicy::All));
+        assert_eq!(
+            FallbackPolicy::read(Some(OsStr::new("all"))),
+            Ok(FallbackPolicy::All)
+        );
+        assert_eq!(
+            FallbackPolicy::read(Some(OsStr::new("command"))),
+            Ok(FallbackPolicy::Command)
+        );
+        let invalid = {
+            use std::os::unix::ffi::OsStrExt as _;
+            OsStr::from_bytes(b"comm\xffand")
+        };
+        assert_eq!(
+            FallbackPolicy::read(Some(invalid)).unwrap_err().to_string(),
+            "GRO_FALLBACK is \"comm\u{fffd}and\", and it takes all or command"
+        );
+    }
+
+    /// The note names the installed version escaped, as the project wrote
+    /// it, and leaves out an empty one.
+    #[test]
+    fn the_note_escapes_the_installed_version() {
+        use gro_runtime::resolver::InstalledPackage;
+
+        use super::fallback_note;
+        use crate::verb::prepass::VerbFallback;
+
+        let note = |version: &str| {
+            fallback_note(&VerbFallback {
+                command: Some("dev".to_owned()),
+                reasons: vec![FallbackReason::Install],
+                gro: InstalledPackage {
+                    root: PathBuf::from("/p/node_modules/@fuzdev/gro"),
+                    version: Some(version.to_owned()),
+                },
+            })
+        };
+        let hostile = note("1.0.0\u{1b}[2J\r");
+        assert!(
+            hostile.contains("@fuzdev/gro 1.0.0\\u{1b}[2J\\u{d}, which confines nothing"),
+            "{hostile}"
+        );
+        let empty = note("");
+        assert!(
+            empty.contains("node_modules/@fuzdev/gro, which confines nothing"),
+            "{empty}"
+        );
+    }
 
     #[test]
     fn every_builtin_has_its_row() {
@@ -424,6 +696,8 @@ mod tests {
             "the project installed @fuzdev/gro with no version, and this is 1.2.3, so the \
              project's own runs"
         );
+        // an empty version is none
+        assert_eq!(mismatch(Some("")), mismatch(None));
         assert_eq!(
             reasons(&["dev"], None)[0].to_string(),
             "`dev` declares no grants: it serves and watches the project with Vite and its plugins"

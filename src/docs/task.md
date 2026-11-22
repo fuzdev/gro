@@ -78,7 +78,7 @@ $ gro check
 # Runs the project task at `src/lib/some/file.task.ts`.
 $ gro task src/lib/some/file.task.ts arg1 arg2 --arg3 example
 
-# Without colors:
+# Without colors, on the Node gro:
 $ NO_COLOR=1 gro check
 ```
 
@@ -258,7 +258,7 @@ loading the config through it, and every command's closure holds it
 beside the grants of the builtins the command runs.
 The genfile writes both again as JSON, `src/builtin_grants.json`,
 for the binary to read natively, before any JS runs
-(`gro_runtime::verb` reads it into a command's closure, built and run by no command yet),
+(`gro_runtime::verb` reads it into a command's closure, which `fgro <command>` runs with, [runtime](runtime.md#gros-workflow-on-the-runtime)),
 the two renders held equal by a test.
 `run_task` cuts the root's handles by `GRO_BUILTIN_TASK_GRANTS` into the builtin's `host`,
 a `BuiltinTaskContext` field present only on a builtin's context:
@@ -285,12 +285,12 @@ A project task can import a host module itself, as every module can on Node.
 The cut above is a [guardrail](glossary.md#guardrail) on either runtime, against a builtin's own mistakes,
 never a boundary. On Node `env` is narrowed and `programs` refuses an ungranted role,
 but `fs_paths` is the root's whole `FsPaths`.
-On the binary, as designed, a command runs under one grant set, its closure's,
+On the binary (built, without the box), a command runs under one grant set, its closure's,
 the CLI's row and the grants of every builtin the command invokes, directly or in turn, as its `invokes` mark them, beside the grant flags,
 and the cut gives each builtin its own part of that set.
-The project's code shares the realm, where a project task can invoke any of those builtins
-and any project module (the config, a genfile) can patch a shared prototype a builtin's handles pass through,
-so it holds the whole set, which only the native checks and the box bound
+The project's code shares the realm: on the binary no project task runs (`gro task <path>` runs on the Node Gro),
+and the config or a genfile can patch a shared prototype a builtin's handles pass through,
+so it holds the whole set, which only the native checks bound, until the box is installed
 ([threat model](authority.md#threat-model)).
 `GRO_BUILTIN_TASK_GRANTS` is deep-frozen with null-prototype objects,
 and the cut copies `Object.hasOwn` when it loads,

@@ -167,7 +167,7 @@ fn a_command_runs_with_its_closure_s_grants() {
     let listing = run(&[]);
     assert_eq!(listing.grant, named(&[], &[]));
     assert_eq!(listing.dirs, dirs(&["."], &[]));
-    assert!(listing.programs.is_empty() && !listing.passes_whole_environment());
+    assert!(listing.programs.is_empty());
     assert_eq!(listing.cli_args, Vec::<String>::new());
 
     let format = run(&["format", "--check"]);
@@ -181,7 +181,6 @@ fn a_command_runs_with_its_closure_s_grants() {
         gen_check.programs,
         BTreeMap::from([("node_modules/.bin/svelte-kit".to_owned(), whole(&[]))])
     );
-    assert!(gen_check.passes_whole_environment());
     assert_eq!(run(&["gen"]).dirs, dirs(&["."], &["."]));
 
     let check = run(&["check"]);

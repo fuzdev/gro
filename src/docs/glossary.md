@@ -79,7 +79,7 @@ as is the command itself under `--check` when an invoke anywhere marks it `check
 and the union of their grants with the CLI's own row,
 or why the command runs on the Node Gro instead, like a builtin that declares no grants, an install, or a project task.
 The grant flags sit beside it.
-The binary reads it natively from the grants table it carries (`gro_runtime::verb`), built and run by no command yet,
+The binary reads it natively from the grants table it carries (`gro_runtime::verb`) for `fgro <command>`,
 as the [boundary](#boundary) for what grants a run of the command gets, once a run is held to it;
 what it can't bound is the union itself, which the command line chose.
 Not the [link closure](#link-closure). [task](task.md#a-builtins-host-and-grants) has the marks.
@@ -145,6 +145,21 @@ Narrower ways to widen sit beside each default, like a blanket net grant and the
 A directory a run grants for `spawn.program_in` and `find_in`, beneath which they find a program to run: on `fgro`, one `fgro run --allow-run-in=` names, opened as the run starts and held to the directory it named then ([host modules](host_modules.md#spawn-on-fgro)).
 One may also be a [write root](#write-root), as a build's output directory is, so a run granted both runs what it writes there, and each is declared and reviewed as narrowly.
 The kernel's `EXECUTE` rule on one is designed ([backstop](backstop.md#the-box-for-runs-and-children)).
+
+## fallback
+
+A command of Gro's that `fgro <command>` runs on the Node Gro the project installed instead of on the binary,
+after one `note:` line saying why: its [command's closure](#commands-closure) holds a builtin that declares no grants, an install, or a project task,
+the binary leaves a builtin to Node by policy (`clean`), or the project installed another version of Gro.
+Each reason is decided by the command line or by the project's files, and `GRO_FALLBACK=command` refuses the second kind
+([authority](authority.md#what-the-first-release-is-for)).
+The line is a [review signal](#review-signal); what runs is the Node Gro, which confines nothing.
+
+## generated entry
+
+The module a run of `fgro <command>` starts from, which the binary generates and holds in memory at `gro:main`:
+it imports the host modules the run grants and Gro's `binary_main`, at the project's [origin](#origin) with the working directory as its [project root](#project-root),
+and hands Gro's CLI what it imported ([runtime](runtime.md#gros-workflow-on-the-runtime)).
 
 ## grant
 

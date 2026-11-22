@@ -319,7 +319,7 @@ fn snapshot_is_current(dir: &Path, stamp: &Path, plain: &Path) -> bool {
 const INTEGRATION_TESTS: [(Measurement, &[&str]); 3] = [
     (
         Measurement::None,
-        &["run", "host", "eval", "confine", "run_box"],
+        &["run", "host", "eval", "confine", "run_box", "verb"],
     ),
     // the phases build's marks, eval's written from inside its box
     (Measurement::Phases, &["phases"]),

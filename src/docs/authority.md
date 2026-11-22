@@ -224,11 +224,11 @@ and whoever accepts the policy file.
 - An engine exploit is bounded by the box of the process it lands in, built for `fgro eval` and designed for runs and their children,
   so today an exploit in `fgro run` reaches what your user can.
 
-Under `gro <cmd>` on the binary (designed), the invocation's grant set is the command's,
+Under `gro <cmd>` on the binary (built, without the box), the invocation's grant set is the command's,
 the CLI's own grants, every builtin in the command's closure with its programs and variables, and the grant flags.
 Each builtin's `host` is cut from that set by the builtin's own grants, a guardrail against Gro's own mistakes.
-The project's code shares the realm, where a project task can invoke any builtin the command's closure holds
-and any project module (the config, a genfile) can patch a shared prototype a builtin's handles pass through,
+The project's code shares the realm: on the binary no project task runs (`gro task <path>` runs on the Node Gro),
+and the config or a genfile can patch a shared prototype a builtin's handles pass through,
 so it holds the command's whole set ([task](task.md#a-builtins-host-and-grants)).
 The Node tools a command spawns, until they leave the loop at the distant end of the [roadmap](runtime.md#roadmap),
 are designed to be held by the box, by paths and the network rather than the grant set,
@@ -253,7 +253,7 @@ It runs `gen` and `format` in check mode, and verifies the install and `package.
 `gro gen --check` and `gro format --check` write none either.
 On Node that's what Gro's own code does, not a protection, since the config, a genfile, or a test it runs can write anything your user can.
 On the binary the check mode is data the box is designed to take its write roots from.
-The [command's closure](glossary.md#commands-closure), read natively before any JS runs (built, run by no command yet),
+The [command's closure](glossary.md#commands-closure), read natively before any JS runs (built, and `fgro <command>`'s grants, unboxed),
 drops the writes on the project of `check`'s `gen` and `format`, and of a `gen --check` or `format --check` run on its own,
 so in the project a boxed `check` could write only `.svelte-kit`, fuz_css's `.fuz/cache`, and the tool directories in `node_modules` named below,
 a boxed `gen --check` or `format --check` no more than that,
@@ -268,7 +268,14 @@ for people and agents running code they haven't vetted.
 Every other command, like `dev`, `build`, and `clean`, keeps running on the Node Gro, and so does `check --build`, which CI's workflows run,
 and install runs outside any run, so an asset one of those gives away isn't one the release protects.
 When the project's installed Gro is a different version from the binary's, the binary runs the project's Node Gro and says why.
-The project's own files decide that fallback, so a project can leave the box by pinning another version, and a strict mode that refuses the fallback is designed for an agent's sandbox to set.
+The project's own files decide that fallback, so a project can leave the box by pinning another version.
+`GRO_FALLBACK=command` refuses it, and every other fallback the project's files decide, before anything runs (built), for an agent's sandbox to set:
+read from the process's environment alone, never the project's files, it's a [boundary](glossary.md#boundary) against a project pinning its way out,
+defeated only by unsetting it or by running the project's Gro another way (`node_modules/.bin/gro`, a package script), each the user's choice.
+`GRO_FALLBACK=all`, or unset, takes every fallback, and any other value is refused.
+Under `GRO_FALLBACK=command` a fallback the command line decides, like `dev` or a project task, still runs the project's installed Gro from its `dist`,
+which the project controls and which confines nothing.
+The `note:` line a fallback prints is a [review signal](glossary.md#review-signal), which the project's author controls.
 
 None of what the release is designed to claim holds today.
 Each check command the binary runs would run in a kernel box covering Gro's code, the project's config and genfiles,
@@ -293,7 +300,7 @@ What the box leaves is stated with it:
 - git's global config stays readable to every tool, with any credential or token kept in it
 - a write root is code the next unconfined command may run, as above
 - until each tool has a box of its own, a tool can write every write root the command has, so one tool's code can plant in another's
-- a project that pins another Gro version runs on the Node Gro, unboxed, unless the strict mode is set
+- a project that pins another Gro version runs on the Node Gro, unboxed, unless `GRO_FALLBACK=command` is set
 - on a kernel below Landlock's sixth ABI (Linux 6.12) there's no box, and the binary runs the Node Gro, which confines nothing, and says why
 
 ### Outside the model

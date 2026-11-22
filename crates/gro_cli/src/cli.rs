@@ -1,6 +1,7 @@
 //! The command line's shape: the argh types for `fgro`'s flags and
 //! subcommands, `run`'s arguments, which argh routes but never parses, the
-//! internal `make-snapshot` and `make-embed` names argh never sees, and
+//! internal `make-snapshot` and `make-embed` names argh never sees, every
+//! other command line a command of gro's, which argh never sees either, and
 //! [`parse`], which reads them once into an [`Invocation`].
 
 use std::collections::BTreeSet;
@@ -14,6 +15,7 @@ use thiserror::Error;
 
 use crate::error::CliError;
 use crate::print::{echo_argument, escape_controls};
+use crate::verb::prepass::VerbRun;
 
 /// The internal subcommand that writes the snapshot, handled before argh so
 /// it stays out of `--help`.
@@ -25,6 +27,7 @@ pub const MAKE_EMBED: &str = "make-embed";
 
 /// gro on its own JS runtime (experimental)
 #[derive(FromArgs)]
+#[argh(note = "{command_name} <command> runs a command of gro's, which {command_name} alone lists")]
 pub struct Args {
     /// print the version, the git commit it was built from, the V8 version,
     /// and whether a startup snapshot is embedded
@@ -77,6 +80,20 @@ const RUN_DESCRIPTION: &str = "run an ES module (.js, .mjs, .ts, or .mts) from d
 /// The arguments before the file that ask for `run`'s help: argh's help
 /// triggers, the same for every command.
 const HELP_TRIGGERS: [&str; 2] = ["--help", "help"];
+
+/// The first arguments the binary keeps for itself: its commands, its
+/// version and help, and the internal subcommands. Every other first
+/// argument, a flag, a path, or `--` among them, and none at all, is a
+/// command of gro's ([`Invocation::Verb`]).
+const BINARY_WORDS: [&str; 7] = [
+    RUN,
+    "eval",
+    "--version",
+    HELP_TRIGGERS[0],
+    HELP_TRIGGERS[1],
+    MAKE_SNAPSHOT,
+    MAKE_EMBED,
+];
 
 /// The option that grants the env host module the names it lists.
 pub const ALLOW_ENV: &str = "--allow-env";
@@ -906,6 +923,10 @@ pub enum Invocation {
     /// `fgro eval`, which confines its process and so runs on the main
     /// thread.
     Eval(EvalInvocation),
+    /// A command of gro's, every argument as written: its pre-pass runs on
+    /// the main thread before any thread starts, then it runs on a thread
+    /// with a stated stack or on the Node Gro.
+    Verb(Vec<String>),
     /// Every other command, run on a thread with a stated stack.
     Sized(Task),
 }
@@ -923,6 +944,8 @@ pub enum Task {
     MakeEmbed(PathBuf, PathBuf),
     /// `run <file> [<args...>]`.
     Run(RunInvocation),
+    /// A command of gro's, run on the binary as its pre-pass planned.
+    Verb(VerbRun),
 }
 
 /// The `N` paths an internal subcommand takes, `args` its name and them,
@@ -948,21 +971,30 @@ fn internal_args<const N: usize>(
     Ok(paths.map(PathBuf::from))
 }
 
-/// Parses `args` (the program name excluded): `make-snapshot` and
-/// `make-embed` by hand, so they stay out of `--help`, and everything else
-/// by argh, whose early exits
-/// are mapped by hand, since its `from_env` exits `1` on a usage error. Of
-/// argh's text only its help is printed, made of the commands' own names
-/// and docs; a refusal is [`invalid_arguments`], made of the arguments.
-/// argh routes `run`, and [`RunInvocation::check`] parses its arguments.
-/// `eval` is decided from what argh parses, not the first argument, so every
-/// spelling it accepts (`fgro -- eval`) runs on the main thread.
+/// Parses `args` (the program name excluded): a first argument that isn't
+/// one of [`BINARY_WORDS`], or none, is a command of gro's, its arguments
+/// kept as written for its pre-pass; `make-snapshot` and `make-embed` by
+/// hand, so they stay out of `--help`; and everything else by argh, whose
+/// early exits are mapped by hand, since its `from_env` exits `1` on a
+/// usage error. Of argh's text only its help is printed, made of the
+/// commands' own names and docs; a refusal is [`invalid_arguments`], made
+/// of the arguments. argh routes `run`, and [`RunInvocation::check`] parses
+/// its arguments. `eval` is decided from what argh parses, not the first
+/// argument, so every spelling it accepts runs on the main thread.
 ///
 /// # Errors
 ///
 /// Returns the usage error the arguments make, run's and eval's checked
 /// arguments included ([`RunInvocation::check`], [`EvalInvocation::check`]).
 pub fn parse(args: &[&str]) -> Result<Invocation, CliError> {
+    if args
+        .first()
+        .is_none_or(|first| !BINARY_WORDS.contains(first))
+    {
+        return Ok(Invocation::Verb(
+            args.iter().map(|&arg| arg.to_owned()).collect(),
+        ));
+    }
     if args.first() == Some(&MAKE_SNAPSHOT) {
         let [dir] = internal_args(args, MAKE_SNAPSHOT, "<dir>")?;
         return Ok(Invocation::Sized(Task::MakeSnapshot(dir)));
@@ -980,10 +1012,15 @@ pub fn parse(args: &[&str]) -> Result<Invocation, CliError> {
             version: true,
             command: Some(_),
         }) => Err(CliError::VersionWithCommand),
+        // argh sees a first argument that names a command or a flag of the
+        // binary's, so it never parses to nothing; were it to, the
+        // arguments would be a command of gro's, as none at all are
         Ok(Args {
             version: false,
             command: None,
-        }) => Err(CliError::NoCommand),
+        }) => Ok(Invocation::Verb(
+            args.iter().map(|&arg| arg.to_owned()).collect(),
+        )),
         Ok(Args {
             version: false,
             command: Some(Command::Run(args)),
@@ -1186,8 +1223,6 @@ mod tests {
             // an empty string is an argument like any other
             (&["run", "a.js", "", "x", ""], runs("a.js", &["", "x", ""])),
             (&["run", ""], runs("", &[])),
-            // every spelling argh routes to `run`
-            (&["--", "run", "a.js", "--x"], runs("a.js", &["--x"])),
             // the help trigger before the file, whatever follows it
             (&["run", "--help"], Help),
             (&["run", "help"], Help),
@@ -1919,21 +1954,40 @@ Options:
             )
         );
         assert_eq!(
-            message(&["--unknown", "-\u{1b}[2J", ""]),
+            message(&["--version", "--unknown", "-\u{1b}[2J", ""]),
             format!(
-                "invalid arguments to {BINARY_NAME}: --unknown -\\u{{1b}}[2J \"\"\nRun \
+                "invalid arguments to {BINARY_NAME}: --version --unknown -\\u{{1b}}[2J \"\"\nRun \
                  {BINARY_NAME} --help for more information."
             )
         );
-        let many: Vec<String> = (0..20).map(|i| format!("--x{i}")).collect();
+        let many: Vec<String> = std::iter::once("--version".to_owned())
+            .chain((0..19).map(|i| format!("--x{i}")))
+            .collect();
         let many: Vec<&str> = many.iter().map(String::as_str).collect();
         assert!(
-            message(&many).contains(" --x15 \u{2026} (4 more)\n"),
+            message(&many).contains(" --x14 \u{2026} (4 more)\n"),
             "{}",
             message(&many)
         );
         let long = format!("--{}", "y".repeat(200));
-        assert!(message(&[&long]).contains(&format!("--{}\u{2026}\n", "y".repeat(78))));
+        assert!(
+            message(&["--version", &long]).contains(&format!("--{}\u{2026}\n", "y".repeat(78)))
+        );
+    }
+
+    /// The binary's help names a command of gro's in its notes.
+    #[test]
+    fn the_binary_s_help_names_a_command_of_gro_s() {
+        let Ok(Invocation::Sized(Task::Help(help))) = parse(&["--help"]) else {
+            panic!("--help prints the help");
+        };
+        assert!(
+            help.contains(&format!(
+                "Notes:\n  {BINARY_NAME} <command> runs a command of gro's, which {BINARY_NAME} \
+                 alone lists"
+            )),
+            "{help}"
+        );
     }
 
     /// `--timeout`'s help names the default eval takes.

@@ -96,7 +96,7 @@ errors and exit codes. Where it lives:
   and its environment as `SpawnProgramOptions` has it),
   emitted as `GRO_BUILTIN_TASK_GRANTS` by the summaries genfile, and with the CLI's row as JSON
   in `src/builtin_grants.json` for the binary to read natively, which `gro_runtime::verb` reads
-  into a command's closure (built, run by no command yet); the root's
+  into a command's closure, which `fgro <command>` runs with; the root's
   `BuiltinHostRoot` (`env`, `spawn`, `stdout`, `stderr`) rides `InvokeTaskOptions` as `host_root`,
   and `run_task` cuts it by the table (`create_builtin_host`) into the `host`
   of a `BuiltinTaskContext`, only for a builtin, refusing an invoke its grants
@@ -337,7 +337,8 @@ box live there and in each crate's module docs.
 Crates (detail in [crates/CLAUDE.md](crates/CLAUDE.md#crates)):
 
 - `gro_runtime` - the JS host over a patched `deno_core`; start at its `lib.rs`
-- `gro_cli` - the `fgro` binary (`run`, `eval`, `--version`)
+- `gro_cli` - the `fgro` binary (`run`, `eval`, `--version`, and every other first
+  argument a command of Gro's: `fgro check`, bare `fgro` listing, `GRO_FALLBACK`)
 - `gro_sys` - the raw system calls the safe std API lacks, behind a safe API
 - `gro_v8` - the V8 calls rusty_v8 exposes only as `unsafe`, behind a safe API
 - `gro_bench` - the measurement harness

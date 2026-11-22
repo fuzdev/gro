@@ -41,7 +41,9 @@ A linked package's real path has no `node_modules` in it, so only its admission 
 - **Relative and absolute** specifiers resolve as URLs with mandatory extensions:
   no probing, no directory index, no `main`.
 - **Bare** specifiers resolve through a package's `"exports"` with a fixed condition set
-  (`gro`, `import`, `default`, matched in the package's own key order, Node's algorithm).
+  (`gro`, `import`, `default`, matched in the package's own key order, Node's algorithm),
+  and `development` too in a run of a command of Gro's (`fgro <command>`) unless `NODE_ENV` is `production`,
+  as the Node Gro's loader adds it.
   The package is found by self-reference or in `node_modules`, walking up from the importer's real path
   to its project root.
 - **`#`** specifiers resolve through the `"imports"` of the nearest `package.json` ([imports](#imports)).

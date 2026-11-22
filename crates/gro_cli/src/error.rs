@@ -7,12 +7,15 @@ use std::path::PathBuf;
 use gro_runtime::embed::EmbedError;
 use gro_runtime::engine::EngineError;
 use gro_runtime::prices::PricesError;
+use gro_runtime::resolver::GRO_PACKAGE;
 use gro_runtime::snapshot::SnapshotError;
+use gro_runtime::verb::table::TableError;
 use gro_runtime::{BINARY_NAME, RunError};
 use thiserror::Error;
 
 use crate::cli::{DirFlag, GrantListError};
 use crate::print::{echo_argument, escape_controls, stderr_line};
+use crate::verb::prepass::{VerbError, command_line};
 use crate::{EXIT_FAILURE, EXIT_USAGE};
 
 /// Why `fgro` failed, outside eval's envelope.
@@ -41,12 +44,6 @@ pub enum CliError {
     /// `--version` came with a subcommand.
     #[error("--version takes no subcommand")]
     VersionWithCommand,
-    /// Neither `--version` nor a subcommand was given.
-    #[error(
-        "a subcommand is required\nRun {bin} --help for more information.",
-        bin = BINARY_NAME
-    )]
-    NoCommand,
     /// `run` with an option before the file that it doesn't take, named up
     /// to its first `=`, escaped ([`echo_argument`]).
     #[error(
@@ -77,9 +74,10 @@ pub enum CliError {
     /// A directory `--allow-read=`, `--allow-write=`, or `--allow-run-in=`
     /// lists isn't one as the run starts: missing, something else, or
     /// unreadable. Its path is named as resolved against the working
-    /// directory, escaped.
+    /// directory, escaped. `fgro run`'s help is named for its flags, and
+    /// none for a command of Gro's, whose flags no help lists.
     #[error(
-        "a {flag} directory {}: {}{}\nRun {bin} run --help for more information.",
+        "a {flag} directory {}: {}{}{}",
         match fault {
             DirFault::Missing => "doesn't exist",
             DirFault::NotADirectory => "isn't a directory",
@@ -90,7 +88,11 @@ pub enum CliError {
             DirFault::Unreadable(error) => format!(" ({error})"),
             DirFault::Missing | DirFault::NotADirectory => String::new(),
         },
-        bin = BINARY_NAME
+        if *run_help {
+            format!("\nRun {BINARY_NAME} run --help for more information.")
+        } else {
+            String::new()
+        }
     )]
     NoDir {
         /// The flag that listed it.
@@ -99,6 +101,8 @@ pub enum CliError {
         path: PathBuf,
         /// What's wrong with it.
         fault: DirFault,
+        /// Whether `fgro run`'s flags listed it, so its help is named.
+        run_help: bool,
     },
     /// `eval --timeout 0`.
     #[error("--timeout takes a number of milliseconds of at least 1")]
@@ -168,6 +172,48 @@ pub enum CliError {
     /// failing the run.
     #[error("failed to make ready to start programs: {0}")]
     SpawnReady(#[source] std::io::Error),
+    /// A command of gro's can't run, on the binary or the Node Gro, as its
+    /// pre-pass decided before anything ran.
+    #[error(transparent)]
+    Verb(#[from] VerbError),
+    /// The grants table the binary carries can't be read, which its tests
+    /// hold against.
+    #[error("the grants table this binary carries can't be read: {0}")]
+    Table(#[source] TableError),
+    /// A command runs on the Node Gro, and its installed package has no
+    /// `dist/invoke.js` to run.
+    #[error(
+        "{} runs on the Node gro, and {} is missing: the installed {GRO_PACKAGE} isn't built",
+        command_line(.command.as_deref()),
+        escape_controls(&.path.to_string_lossy())
+    )]
+    NodeGroUnbuilt {
+        /// The command word, none for the listing.
+        command: Option<String>,
+        /// The missing file.
+        path: PathBuf,
+    },
+    /// A command runs on the Node Gro, and no `PATH` entry outside a
+    /// `node_modules/.bin` holds `node` it may run.
+    #[error(
+        "{} runs on the Node gro, and no PATH entry outside a node_modules/.bin holds node{}",
+        command_line(.command.as_deref()),
+        .why.as_deref().map_or_else(String::new, |why| format!(" it may run: {}", escape_controls(why)))
+    )]
+    NoNode {
+        /// The command word, none for the listing.
+        command: Option<String>,
+        /// Why the one found can't run, if one was found.
+        why: Option<String>,
+    },
+    /// `node` couldn't replace the process.
+    #[error("{} runs on the Node gro, and node failed to start: {source}", command_line(.command.as_deref()))]
+    NodeGroExec {
+        /// The command word, none for the listing.
+        command: Option<String>,
+        /// Why.
+        source: std::io::Error,
+    },
     /// `fgro run`'s module failed, printed as [`run_failure`] prints it.
     #[error("{}", run_failure(.0))]
     Run(#[from] RunError),
@@ -214,11 +260,11 @@ impl CliError {
     /// loop) among them.
     pub const fn exit_code(&self) -> u8 {
         match self {
+            Self::Verb(error) => error.exit_code(),
             Self::Prices(_)
             | Self::NotUtf8(_)
             | Self::InvalidArguments { .. }
             | Self::VersionWithCommand
-            | Self::NoCommand
             | Self::RunOption(_)
             | Self::RunNoFile
             | Self::GrantList(_)
@@ -228,7 +274,9 @@ impl CliError {
             | Self::DriverWithExport
             | Self::DriverPath(_)
             | Self::InternalUsage(..)
-            | Self::InternalFlag(..) => EXIT_USAGE,
+            | Self::InternalFlag(..)
+            | Self::NodeGroUnbuilt { .. }
+            | Self::NoNode { .. } => EXIT_USAGE,
             Self::Run(RunError::Entry(error)) if error.kind.is_refusal() => EXIT_USAGE,
             Self::OutputDir { .. }
             | Self::Snapshot(_)
@@ -238,6 +286,8 @@ impl CliError {
             | Self::Engine(_)
             | Self::Cwd(_)
             | Self::SpawnReady(_)
+            | Self::Table(_)
+            | Self::NodeGroExec { .. }
             | Self::Run(_)
             | Self::Stdout(_) => EXIT_FAILURE,
         }
