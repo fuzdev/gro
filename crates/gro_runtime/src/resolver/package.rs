@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 
 use url::Url;
 
+use super::Conditions;
 use super::error::{PackageSearchBound, ResolveErrorKind};
 use super::exports::{resolve_exports, resolve_imports};
 use super::roots::{Origin, Root, Roots};
@@ -77,6 +78,7 @@ pub(super) fn resolve_import(
     importer_path: &Path,
     importer_root: &Root,
     consulted: &mut Consulted,
+    conditions: Conditions,
 ) -> Result<Mapped, ResolveErrorKind> {
     let importer_dir = importer_path.parent().unwrap_or(importer_path);
     let scope = match package_scope(tree, importer_dir)? {
@@ -91,7 +93,7 @@ pub(super) fn resolve_import(
             defined: None,
         });
     };
-    let import = resolve_imports(&scope.dir, &scope.path, imports, specifier)?;
+    let import = resolve_imports(&scope.dir, &scope.path, imports, specifier, conditions)?;
     Ok(Mapped {
         package: Package {
             url: import.url,
@@ -118,6 +120,7 @@ pub(super) fn resolve_package(
     self_reference: Option<&Root>,
     roots: &Roots,
     consulted: &mut Consulted,
+    conditions: Conditions,
 ) -> Result<Package, ResolveErrorKind> {
     let (name, subpath) = parse_package_name(specifier)?;
 
@@ -131,7 +134,7 @@ pub(super) fn resolve_package(
         && let Some(exports) = scope.exports(consulted)
         && scope.name(consulted) == Some(name)
     {
-        let url = resolve_exports(&scope.dir, &scope.path, exports, &subpath)?;
+        let url = resolve_exports(&scope.dir, &scope.path, exports, &subpath, conditions)?;
         return Ok(Package {
             url,
             root: importer_root.clone(),
@@ -157,7 +160,7 @@ pub(super) fn resolve_package(
     let exports = package_json
         .exports(consulted)
         .ok_or_else(|| ResolveErrorKind::NoExports(package_json.path.clone()))?;
-    let url = resolve_exports(&root, &package_json.path, exports, &subpath)?;
+    let url = resolve_exports(&root, &package_json.path, exports, &subpath, conditions)?;
     // one directory under two names keeps its first admission's origin
     let origin = roots.get(&root).map_or_else(
         || Origin::Package {

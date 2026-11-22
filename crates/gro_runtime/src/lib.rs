@@ -1,7 +1,8 @@
 //! gro's JS host: a minimal web-standards runtime on V8.
 //!
-//! [`run_main`] runs an ES module from disk to completion: it resolves the
-//! entry, evaluates it on a `deno_core` `JsRuntime` driven by a current-thread
+//! [`run_main`] runs an ES module from disk to completion, and
+//! [`run_generated`] one the embedder generated ([`GeneratedEntry`]): it
+//! resolves the entry, evaluates it on a `deno_core` `JsRuntime` driven by a current-thread
 //! tokio runtime, and drains the event loop (timers, pending promises). An
 //! uncaught error or an unhandled promise rejection ends the run with a
 //! [`RunError::Uncaught`] carrying the report, stack and source positions
@@ -155,7 +156,9 @@ pub use crate::loader::refused::{
     RefusedBy,
 };
 pub use crate::report::Report;
-pub use crate::run::{RunError, RunOutcome, StartError, run_main};
+pub use crate::run::{
+    GENERATED_ENTRY_URL, GeneratedEntry, RunError, RunOutcome, StartError, run_generated, run_main,
+};
 pub use crate::runtime::SpentRuntime;
 
 /// The stack to reserve for the thread [`run_main`] runs on: tsv's
@@ -194,6 +197,11 @@ pub struct RuntimeOptions {
     /// decodes nothing. Without one, such a specifier is refused. The
     /// runtime embeds no library of its own.
     pub embed: Option<embed::LoadEmbed>,
+    /// The conditions the run's packages' `"exports"` and `"imports"`
+    /// match: the resolver's, and `development` when the embedder adds it,
+    /// as `fgro`'s verb does unless `NODE_ENV` is `production`. The default
+    /// adds none.
+    pub conditions: resolver::Conditions,
     /// The snapshot to start from, made by [`snapshot::make_snapshot`] from
     /// this same build. Without one, the runtime evaluates its extensions'
     /// sources at startup.

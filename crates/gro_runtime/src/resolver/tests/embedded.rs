@@ -13,8 +13,9 @@ use super::builtins::{Watched, shadowed};
 use super::{TEST_EMBED_MODULES, resolve_any, resolve_gro, roots, test_library};
 use crate::resolver::test_tree::MemoryTree;
 use crate::resolver::{
-    BUILTINS, GroModuleFault, Origin, PeerFault, Reserved, ResolveError, ResolveErrorKind,
-    Resolved, Root, Roots, find_builtin, needs_gro_library, resolve_from_embedded,
+    BUILTINS, Conditions, GroModuleFault, Origin, PeerFault, Reserved, ResolveError,
+    ResolveErrorKind, Resolved, Root, Roots, find_builtin, needs_gro_library,
+    resolve_from_embedded,
 };
 
 /// The project of [`shadowed`], named `@fuzdev/gro` and exporting every
@@ -254,6 +255,7 @@ fn without_a_copy_only_the_table_s_specifiers_resolve() {
         &main,
         roots.project(),
         &roots,
+        Conditions::default(),
     )
     .unwrap_err();
     assert_eq!(
@@ -308,6 +310,7 @@ fn from_embedded(
         &importer,
         importer_path,
         roots,
+        Conditions::default(),
     )
 }
 
@@ -602,6 +605,7 @@ fn an_embedded_module_s_package_is_a_peer_in_its_range() {
         &Url::parse("gro:lib/index.ts").unwrap(),
         "index.ts",
         &roots,
+        Conditions::default(),
     )
     .unwrap_err();
     assert_eq!(*watched.calls.borrow(), Vec::<PathBuf>::new());

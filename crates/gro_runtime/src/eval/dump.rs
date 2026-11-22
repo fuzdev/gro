@@ -184,6 +184,10 @@ pub enum DumpError {
     /// holds: a host bug, which fails the eval as `internal`.
     #[error("the graph records Gro's embedded module {0}, which eval never holds")]
     Embedded(Url),
+    /// An entry the embedder generated is recorded, which eval never runs:
+    /// a host bug, which fails the eval as `internal`.
+    #[error("the graph records the generated entry {0}, which eval never runs")]
+    Generated(Url),
 }
 
 /// The dump of `graph`, whose entry is `entry` and whose process was
@@ -283,6 +287,7 @@ fn dump_modules(graph: &Graph, ids: &mut Ids<'_>) -> Result<Vec<DumpModule>, Dum
             Record::Module(record) => Ok((url, record)),
             Record::Builtin(_) => Err(DumpError::Builtin(url.clone())),
             Record::Embedded(_) => Err(DumpError::Embedded(url.clone())),
+            Record::Generated(_) => Err(DumpError::Generated(url.clone())),
         })
         .collect::<Result<Vec<_>, _>>()?;
     let mut imports: BTreeMap<&Url, Vec<DumpImport>> = BTreeMap::new();

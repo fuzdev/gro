@@ -46,7 +46,7 @@ use super::roots::{Origin, Roots};
 use super::semver::{Version, VersionRange};
 use super::tree::SourceTree;
 use super::walk::Consulted;
-use super::{Resolved, find_target};
+use super::{Conditions, Resolved, find_target};
 use crate::embed::Embed;
 
 /// Gro's library as a resolution is handed it, as data.
@@ -172,7 +172,7 @@ fn find_embedded(embed: Embed<'static>, path: &str) -> Option<EmbeddedModule> {
 /// whose path in `src/lib` is `importer_path`, as the module doc says, in
 /// `library`, the run's copy, which the importer was loaded from. A bare
 /// specifier for a package resolves from the project's root in `roots`,
-/// reading `tree`.
+/// reading `tree`, its `"exports"` matching `conditions`.
 ///
 /// # Errors
 ///
@@ -185,6 +185,7 @@ pub fn resolve_from_embedded(
     importer: &Url,
     importer_path: &str,
     roots: &Roots,
+    conditions: Conditions,
 ) -> Result<Resolved, ResolveError> {
     let error = |kind| ResolveError {
         specifier: specifier.to_owned(),
@@ -217,7 +218,7 @@ pub fn resolve_from_embedded(
     }
     let embed =
         library.map_err(|reason| error(ResolveErrorKind::NoGroLibrary(reason.map(Box::from))))?;
-    resolve_peer(tree, embed, specifier, roots).map_err(error)
+    resolve_peer(tree, embed, specifier, roots, conditions).map_err(error)
 }
 
 /// Resolves the bare `specifier` of a package, imported by Gro's library,
@@ -228,6 +229,7 @@ fn resolve_peer(
     embed: Embed<'static>,
     specifier: &str,
     roots: &Roots,
+    conditions: Conditions,
 ) -> Result<Resolved, ResolveErrorKind> {
     let (name, _) = parse_package_name(specifier)?;
     let peer = |fault| ResolveErrorKind::GroPeer {
@@ -240,14 +242,22 @@ fn resolve_peer(
         .ok_or_else(|| peer(PeerFault::Undeclared))?;
     let mut consulted = Consulted::default();
     let project = roots.project();
-    let package = resolve_package(tree, specifier, &project.dir, None, roots, &mut consulted)
-        .map_err(|kind| match kind {
-            ResolveErrorKind::PackageNotFound { .. } => peer(PeerFault::Missing {
-                range: Box::from(range),
-                node_modules: project.dir.join("node_modules"),
-            }),
-            kind => kind,
-        })?;
+    let package = resolve_package(
+        tree,
+        specifier,
+        &project.dir,
+        None,
+        roots,
+        &mut consulted,
+        conditions,
+    )
+    .map_err(|kind| match kind {
+        ResolveErrorKind::PackageNotFound { .. } => peer(PeerFault::Missing {
+            range: Box::from(range),
+            node_modules: project.dir.join("node_modules"),
+        }),
+        kind => kind,
+    })?;
     let path = super::specifier::url_to_path(&package.url)?;
     // before the target is read: only the project's root has its origin
     let version = match &package.root.origin {

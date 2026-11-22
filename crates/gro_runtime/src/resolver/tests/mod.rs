@@ -24,8 +24,8 @@ use crate::resolver::entry::entry_roots;
 use crate::resolver::test_tree::MemoryTree;
 use crate::resolver::walk::Consulted;
 use crate::resolver::{
-    GroLibrary, Resolution, ResolveError, ResolveErrorKind, Resolved, Roots, SourceTree,
-    importer_path, resolve_from,
+    Conditions, GroLibrary, Resolution, ResolveError, ResolveErrorKind, Resolved, Roots,
+    SourceTree, importer_path, resolve_from,
 };
 
 /// Resolves as `resolve_from` does, the importer's root found as the one
@@ -40,7 +40,15 @@ pub(super) fn resolve_any(
     let importer_root = roots
         .containing(&importer_path)
         .expect("the importer is inside one of the roots");
-    resolve_from(tree, Err(None), specifier, importer, importer_root, roots)
+    resolve_from(
+        tree,
+        Err(None),
+        specifier,
+        importer,
+        importer_root,
+        roots,
+        Conditions::default(),
+    )
 }
 
 /// Resolves as [`resolve_any`] does, a specifier of Gro's package resolving
@@ -62,6 +70,7 @@ pub(super) fn resolve_gro(
         importer,
         importer_root,
         roots,
+        Conditions::default(),
     )
 }
 

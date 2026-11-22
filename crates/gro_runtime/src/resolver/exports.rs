@@ -6,7 +6,7 @@ use std::path::Path;
 use serde_json::{Map, Value};
 use url::Url;
 
-use super::CONDITIONS;
+use super::Conditions;
 use super::error::{MapField, ResolveErrorKind, TargetFault, UrlFault};
 use super::package::parse_package_name;
 
@@ -33,15 +33,18 @@ struct TargetContext<'a> {
     matched: Option<&'a str>,
     /// The package's `package.json`, for errors.
     package_json: &'a Path,
+    /// The conditions a conditional object's keys match.
+    conditions: Conditions,
 }
 
 /// Resolves `subpath` through a package's `"exports"`, Node's
-/// `PACKAGE_EXPORTS_RESOLVE`.
+/// `PACKAGE_EXPORTS_RESOLVE`, matching `conditions`.
 pub(super) fn resolve_exports(
     root: &Path,
     package_json: &Path,
     exports: &Value,
     subpath: &str,
+    conditions: Conditions,
 ) -> Result<Url, ResolveErrorKind> {
     // a string, an array, or an object of conditions alone is the main entry
     let entries: Vec<(&str, &Value)> = match exports {
@@ -77,8 +80,15 @@ pub(super) fn resolve_exports(
     let Some(selected) = select_entry(&entries, subpath) else {
         return Err(not_exported());
     };
-    resolve_selected(MapField::Exports, root, package_json, selected, subpath)?
-        .ok_or_else(not_exported)
+    resolve_selected(
+        MapField::Exports,
+        root,
+        package_json,
+        selected,
+        subpath,
+        conditions,
+    )?
+    .ok_or_else(not_exported)
 }
 
 /// What a `#` specifier's `"imports"` mapping names.
@@ -95,12 +105,14 @@ pub(super) struct Import {
 /// `package.json` at `package_json`, in `root`, Node's
 /// `PACKAGE_IMPORTS_RESOLVE` once the package scope is found. Only a
 /// target that is a path starting with `./` resolves, with no empty
-/// segment; one naming a package or a builtin is refused.
+/// segment; one naming a package or a builtin is refused. A conditional
+/// target matches `conditions`.
 pub(super) fn resolve_imports(
     root: &Path,
     package_json: &Path,
     imports: &Map<String, Value>,
     specifier: &str,
+    conditions: Conditions,
 ) -> Result<Import, ResolveErrorKind> {
     let entries: Vec<(&str, &Value)> = imports
         .iter()
@@ -115,8 +127,15 @@ pub(super) fn resolve_imports(
     };
     let ends_in_match =
         key.ends_with('*') && target.as_str().is_some_and(|target| target.ends_with('*'));
-    let url = resolve_selected(MapField::Imports, root, package_json, selected, specifier)?
-        .ok_or_else(not_defined)?;
+    let url = resolve_selected(
+        MapField::Imports,
+        root,
+        package_json,
+        selected,
+        specifier,
+        conditions,
+    )?
+    .ok_or_else(not_defined)?;
     Ok(Import { url, ends_in_match })
 }
 
@@ -129,6 +148,7 @@ fn resolve_selected(
     package_json: &Path,
     (key, target, matched): (&str, &Value, Option<&str>),
     subpath: &str,
+    conditions: Conditions,
 ) -> Result<Option<Url>, ResolveErrorKind> {
     let root = Url::from_directory_path(root)
         .map_err(|()| ResolveErrorKind::InvalidUrl(UrlFault::NoLocalPath))?;
@@ -138,13 +158,14 @@ fn resolve_selected(
         key,
         matched,
         package_json,
+        conditions,
     };
     match resolve_target(&context, target)? {
         Target::Url(url) => Ok(Some(url)),
         Target::Null => Ok(None),
         Target::Unmatched => {
             let mut unmatched = Vec::new();
-            unmatched_conditions(target, "", &mut unmatched);
+            unmatched_conditions(target, "", conditions, &mut unmatched);
             // no conditions at all (`{}`) is no mapping, as Node words it
             if unmatched.is_empty() {
                 return Ok(None);
@@ -159,19 +180,30 @@ fn resolve_selected(
 }
 
 /// Collects the conditions in `target` that didn't match, each once, in the
-/// package's order: a key outside [`CONDITIONS`], or, under a key in it, its
-/// own unmatched conditions, written after `prefix` and the key and a dot.
-fn unmatched_conditions(target: &Value, prefix: &str, unmatched: &mut Vec<String>) {
+/// package's order: a key `conditions` don't match, or, under a key they
+/// match, its own unmatched conditions, written after `prefix` and the key
+/// and a dot.
+fn unmatched_conditions(
+    target: &Value,
+    prefix: &str,
+    conditions: Conditions,
+    unmatched: &mut Vec<String>,
+) {
     match target {
         Value::Array(targets) => {
             for target in targets {
-                unmatched_conditions(target, prefix, unmatched);
+                unmatched_conditions(target, prefix, conditions, unmatched);
             }
         }
-        Value::Object(conditions) => {
-            for (condition, target) in conditions {
-                if CONDITIONS.contains(&condition.as_str()) {
-                    unmatched_conditions(target, &format!("{prefix}{condition}."), unmatched);
+        Value::Object(keys) => {
+            for (condition, target) in keys {
+                if conditions.matches(condition) {
+                    unmatched_conditions(
+                        target,
+                        &format!("{prefix}{condition}."),
+                        conditions,
+                        unmatched,
+                    );
                 } else {
                     let condition = format!("{prefix}{condition}");
                     if !unmatched.contains(&condition) {
@@ -279,7 +311,7 @@ fn resolve_target(context: &TargetContext<'_>, target: &Value) -> Result<Target,
                 });
             }
             for (condition, target) in conditions {
-                if CONDITIONS.contains(&condition.as_str()) {
+                if context.conditions.matches(condition) {
                     match resolve_target(context, target)? {
                         Target::Unmatched => {}
                         resolved => return Ok(resolved),

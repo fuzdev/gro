@@ -46,7 +46,7 @@ use gro_runtime::confine::Confinement;
 use gro_runtime::engine::{EngineOptions, init_engine};
 use gro_runtime::file_id::FileId;
 use gro_runtime::phases::{self, Phase};
-use gro_runtime::resolver::normalize;
+use gro_runtime::resolver::{Conditions, normalize};
 use gro_runtime::{
     ArgsGrant, Authority, CHILD_BASE_ENV, EnvGrant, EnvPattern, EnvVars, ExecRootGrant, Exit,
     ExitGrant, FsGrant, FsNeed, GrantedDir, Grants, NameKind, NeededGrant, ProgramGrant, Refusal,
@@ -94,6 +94,7 @@ pub fn run_module(run: &RunInvocation) -> u8 {
         refused,
         exit_code: set,
         runtime,
+        node_specifier_refused: _,
     } = match start_and_run(run) {
         Ok(outcome) => outcome,
         Err(error) => return error.report(),
@@ -512,6 +513,7 @@ fn runtime_options(
         spawn_env,
         temp_dir: temp.then(|| real_temp_dir(&cwd.join(temp_dir(environment)))),
         exit_step: Some(exit_now),
+        conditions: Conditions::default(),
         snapshot: STARTUP_SNAPSHOT,
         embed: Some(load_embed),
         console: color::console_options(),

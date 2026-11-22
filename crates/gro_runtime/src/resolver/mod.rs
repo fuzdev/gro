@@ -127,9 +127,32 @@ use specifier::{Request, parse_specifier, url_to_path};
 use walk::Consulted;
 pub use walk::{ConsultedFile, PackageField, PackageFields};
 
-/// The conditions a package's `"exports"` match, in no order of their own:
-/// the first key in the package's order that is one of these wins.
+/// The conditions a package's `"exports"` and `"imports"` match in every
+/// run, in no order of their own: the first key in the package's order that
+/// is one of these, or one a run adds ([`Conditions`]), wins.
 pub const CONDITIONS: [&str; 3] = ["gro", "import", "default"];
+
+/// The condition a run may add to [`CONDITIONS`], as Node's
+/// `--conditions=development` adds it.
+pub const DEVELOPMENT_CONDITION: &str = "development";
+
+/// The conditions one run's resolutions match.
+///
+/// They're [`CONDITIONS`], and [`DEVELOPMENT_CONDITION`] when it's set. The
+/// default adds none, as `fgro run` and eval resolve; the embedder decides
+/// it per run ([`RuntimeOptions::conditions`](crate::RuntimeOptions::conditions)).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Conditions {
+    /// Whether [`DEVELOPMENT_CONDITION`] is matched.
+    pub development: bool,
+}
+
+impl Conditions {
+    /// Whether `condition` is one of these.
+    pub fn matches(self, condition: &str) -> bool {
+        CONDITIONS.contains(&condition) || (self.development && condition == DEVELOPMENT_CONDITION)
+    }
+}
 
 /// A resolved module on disk.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -185,7 +208,9 @@ pub enum Resolved {
 /// `importer_root` must be the root [`Roots::containing`] finds for the
 /// importer's path, since it decides containment: a caller that recorded
 /// the importer's root when it resolved it passes that, skipping the walk.
-/// A debug build checks it.
+/// A debug build checks it, but for the entry the embedder generated, which
+/// has no path, and whose root is the one it was given.
+/// A package's `"exports"` and `"imports"` match `conditions`.
 ///
 /// # Errors
 ///
@@ -198,18 +223,20 @@ pub(crate) fn resolve_from(
     importer: &Url,
     importer_root: &Root,
     roots: &Roots,
+    conditions: Conditions,
 ) -> Result<Resolved, ResolveError> {
     let error = |kind| ResolveError {
         specifier: specifier.to_owned(),
         importer: importer.to_string(),
         kind,
     };
-    debug_assert_eq!(
-        importer
-            .to_file_path()
-            .ok()
-            .and_then(|path| roots.containing(&path)),
-        Some(importer_root),
+    debug_assert!(
+        importer.as_str() == crate::GENERATED_ENTRY_URL
+            || importer
+                .to_file_path()
+                .ok()
+                .and_then(|path| roots.containing(&path))
+                == Some(importer_root),
         "the importer's root is the one its path is inside",
     );
     let mut consulted = Consulted::default();
@@ -266,6 +293,7 @@ pub(crate) fn resolve_from(
                 Some(importer_root),
                 roots,
                 &mut consulted,
+                conditions,
             )
             .map_err(error)?;
             let path = url_to_path(&package.url).map_err(error)?;
@@ -300,6 +328,7 @@ pub(crate) fn resolve_from(
                 &importer_path,
                 importer_root,
                 &mut consulted,
+                conditions,
             )
             .map_err(error)?;
             let path = url_to_path(&mapped.package.url).map_err(error)?;

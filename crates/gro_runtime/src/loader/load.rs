@@ -104,6 +104,28 @@ pub(super) fn load(
     ))
 }
 
+/// Serves the entry the embedder generated at `specifier` from `source` as
+/// it is, JavaScript, never stripped. Imported with a `type`, it's refused
+/// as a file is, though nothing imports it: its URL's scheme is refused
+/// from source.
+pub(super) fn load_generated(
+    specifier: &ModuleSpecifier,
+    requested: &RequestedModuleType,
+    source: String,
+) -> Result<(ModuleSource, Option<Loaded>), Refused> {
+    if *requested != RequestedModuleType::None {
+        return Err(Refused::new(
+            FailureReason::Load(LoadFailure::ModuleType),
+            format!("cannot load {specifier}: import attributes are not supported yet"),
+        ));
+    }
+    let code = ModuleSourceCode::String(source.into());
+    Ok((
+        ModuleSource::new(ModuleType::JavaScript, code, specifier, None),
+        None,
+    ))
+}
+
 /// Serves the embedded `module` at `specifier` from its code as it is: the
 /// copy was stripped of its types when it was made, so it's never stripped
 /// again, and nothing is read. Imported with a `type`, it's refused as a

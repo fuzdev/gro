@@ -25,7 +25,12 @@ use crate::report::{report, report_js};
 pub(super) fn dumped(dump: Result<GraphDump, DumpError>) -> (GraphField, Option<EvalError>) {
     match dump {
         Ok(dump) => (GraphField::Dumped(Box::new(dump)), None),
-        Err(error @ (DumpError::Unread(_) | DumpError::Builtin(_) | DumpError::Embedded(_))) => (
+        Err(
+            error @ (DumpError::Unread(_)
+            | DumpError::Builtin(_)
+            | DumpError::Embedded(_)
+            | DumpError::Generated(_)),
+        ) => (
             GraphField::Unavailable,
             Some(EvalError::new(
                 ErrorKind::Internal,

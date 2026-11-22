@@ -1,8 +1,8 @@
-//! Running an entry module to completion: [`run_main`], the errors it
-//! returns, and what gro's rules refused during it, which fails
-//! the run.
+//! Running an entry module to completion: [`run_main`] from a file, and
+//! [`run_generated`] from an entry the embedder generated, the errors they
+//! return, and what gro's rules refused during a run, which fails it.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use deno_core::PollEventLoopOptions;
@@ -19,7 +19,7 @@ use crate::loader::graph::Recording;
 use crate::loader::refused::Refusals;
 use crate::phases::{self, Phase};
 use crate::report::{Report, uncaught};
-use crate::resolver::{self, DiskTree, ResolveError};
+use crate::resolver::{self, DiskTree, ResolveError, Roots};
 use crate::runtime::{HostState, SpentRuntime, start_runtime};
 use crate::snapshot::StartupSnapshot;
 use crate::{ConsoleOptions, RuntimeOptions};
@@ -54,6 +54,25 @@ pub enum StartError {
     /// process by ([`RuntimeOptions::exit_step`]).
     #[error("the run grants `exit`, and the embedder gave no step to end the process by")]
     NoExitStep,
+}
+
+/// The URL of an entry the embedder generates ([`GeneratedEntry`]): a
+/// `gro:` URL, whose scheme every module's import refuses, so no module
+/// imports it, and the name stack traces give its frames.
+pub const GENERATED_ENTRY_URL: &str = "gro:main";
+
+/// An entry module the embedder generates, for [`run_generated`].
+///
+/// It's held in memory, never on disk: JavaScript, at
+/// [`GENERATED_ENTRY_URL`], whose imports resolve as a module's at the root
+/// of the project at `root` does.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GeneratedEntry {
+    /// Its source, JavaScript, never stripped.
+    pub source: String,
+    /// The project's root, a real path: its own root, whose origin, the
+    /// project's, it takes.
+    pub root: PathBuf,
 }
 
 /// How a run that ended on its own ended. It failed when its result is an
@@ -97,6 +116,15 @@ pub struct RunOutcome {
     /// as it is by [`SpentRuntime::forget`] in a process about to exit.
     /// Unset when the run ended before a runtime was made.
     pub runtime: Option<SpentRuntime>,
+    /// Whether the resolver refused a `node:` specifier during the run,
+    /// caught or not, which no grant allows: what the program asked for is
+    /// Node's, so an embedder can say how to run it there.
+    ///
+    /// Kind: a review signal the run's code controls. Any of its code can
+    /// set it by asking for a `node:` specifier and catching the refusal,
+    /// so it says only that one was asked for, never that the program
+    /// needs Node.
+    pub node_specifier_refused: bool,
 }
 
 impl RunOutcome {
@@ -108,6 +136,7 @@ impl RunOutcome {
             refused: Refusals::default(),
             exit_code: None,
             runtime: None,
+            node_specifier_refused: false,
         }
     }
 }
@@ -150,6 +179,44 @@ pub fn run_main(engine: Engine, options: &RuntimeOptions, entry: &Path, cwd: &Pa
         Err(error) => return RunOutcome::unstarted(error),
     };
     run_resolved(engine, options, &entry, cwd, &loader)
+}
+
+/// Runs `entry`, an entry module the embedder generated, as [`run_main`]
+/// runs one from a file.
+///
+/// `entry.root` is the project's root, which a file's walk would find: the
+/// entry's origin is the project's, its imports resolve from that root,
+/// and the cwd host module's `cwd` returns `cwd`. The entry's own
+/// resolution reads nothing, so it never fails.
+pub fn run_generated(
+    engine: Engine,
+    options: &RuntimeOptions,
+    entry: &GeneratedEntry,
+    cwd: &Path,
+) -> RunOutcome {
+    let (url, loader) = generated_main(options, entry, Recording::Off);
+    run_resolved(engine, options, &url, cwd, &loader)
+}
+
+/// The URL of the generated `entry` and the loader of its graph, which
+/// checks each builtin import against the run's authority, recording as
+/// `recording` says.
+fn generated_main(
+    options: &RuntimeOptions,
+    entry: &GeneratedEntry,
+    recording: Recording,
+) -> (Url, Rc<Loader>) {
+    // a constant, which the module's tests parse
+    #[expect(clippy::expect_used, reason = "a constant URL")]
+    let url = Url::parse(GENERATED_ENTRY_URL).expect("the generated entry's URL parses");
+    let roots = Roots::new(entry.root.clone());
+    let loader = Rc::new(
+        Loader::generated(&url, entry.source.clone(), roots, recording)
+            .with_authority(options.authority.clone())
+            .with_embed(options.embed)
+            .with_conditions(options.conditions),
+    );
+    (url, loader)
 }
 
 /// How a run ended, its runtime torn down: what a test's thread returns of
@@ -247,6 +314,7 @@ fn run_resolved(
         refused,
         exit_code,
         runtime,
+        node_specifier_refused: loader.node_specifier_refused(),
     }
 }
 
@@ -320,7 +388,8 @@ fn resolve_main(
     let loader = Rc::new(
         Loader::new(&entry, roots, recording)
             .with_authority(options.authority.clone())
-            .with_embed(options.embed),
+            .with_embed(options.embed)
+            .with_conditions(options.conditions),
     );
     Ok((entry.url, loader))
 }

@@ -116,7 +116,7 @@ fn the_consulted_files_are_the_union_of_every_resolution() {
 /// A tree that counts its reads.
 struct Counting {
     tree: MemoryTree,
-    reads: std::cell::Cell<usize>,
+    reads: Cell<usize>,
 }
 
 impl SourceTree for Counting {
@@ -144,7 +144,7 @@ fn resolve_bar_twice(recording: Recording) -> (Graph, usize) {
         resolver::resolve_entry(&tree, Path::new("/p/main.ts"), Path::new("/")).unwrap();
     let tree = Counting {
         tree,
-        reads: std::cell::Cell::new(0),
+        reads: Cell::new(0),
     };
     let loader = Loader::new(&entry, roots, recording);
     loader.resolve_reached(&tree, "bar", MAIN, STATIC).unwrap();

@@ -15,7 +15,7 @@
 //! and passes the roots into every resolution. A bare specifier's package
 //! root is admitted when it resolves, and one admitted around a module
 //! already recorded inside an outer one is refused
-//! ([`ResolveErrorKind::RootConflict`](crate::resolver::ResolveErrorKind::RootConflict)).
+//! ([`ResolveErrorKind::RootConflict`]).
 //! `import.meta.resolve` admits and records nothing. A module is read only
 //! from a file opened without blocking and found to have its recorded
 //! identity, never from the path again; the first resolution's record
@@ -59,6 +59,14 @@
 //! stripped when it was made. Its imports resolve from its path in the
 //! library (`resolver::resolve_from_embedded`).
 //!
+//! An entry the embedder generated
+//! ([`GeneratedEntry`](crate::GeneratedEntry)) has no file either: it's
+//! recorded with the root it was given and its source, which it loads from
+//! as it is, JavaScript never stripped, its origin its root's, the
+//! project's. Its URL's scheme is refused from source, so no module imports
+//! it, and its imports resolve from its root as a module there does, but
+//! for a relative specifier, which has no path to join and is refused.
+//!
 //! An `import()` in code compiled from a string (an `eval`, a `Function`
 //! constructor, a string passed to a timer) is refused, whatever it names
 //! and whatever its attributes, ahead of every other check of the import
@@ -94,7 +102,7 @@
 //! recorded once ([`Loader::breach`]) for the caller to fail the run on,
 //! whatever the run did with the error, and, recording in full, as the
 //! failure of its resolution or load
-//! ([`ResolveErrorKind::ReadOutsideBox`](crate::resolver::ResolveErrorKind::ReadOutsideBox),
+//! ([`ResolveErrorKind::ReadOutsideBox`],
 //! [`LoadFailure::OutsideBox`]).
 //!
 //! An `import()` refused by one of gro's rules
@@ -125,7 +133,7 @@ pub mod refused;
 mod resolve;
 pub mod strip;
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::path::Path;
 use std::rc::Rc;
@@ -142,14 +150,15 @@ use crate::confine::BoxRoots;
 use crate::embed::LoadEmbed;
 use crate::file_id::FileId;
 use crate::resolver::{
-    DiskTree, EmbeddedModule, Resolution, Roots, SourceTree, find_builtin, find_embedded_builtin,
+    Conditions, DiskTree, EmbeddedModule, Resolution, ResolveErrorKind, Roots, SourceTree,
+    find_builtin, find_embedded_builtin,
 };
 use boxed::{BoxCheck, Boxed};
 use graph::{
     Failure, FailureReason, Graph, LoadFailure, Position, Reach, Reached, Record, Recording,
 };
 use headroom::Headroom;
-use load::{load, load_embedded};
+use load::{load, load_embedded, load_generated};
 use reads::Reads;
 use refused::{NotGranted, Refusals};
 use resolve::resolve_into;
@@ -203,6 +212,9 @@ pub struct Loader {
     /// The stack left where `deno_core` asks whether to build a builtin's
     /// module there.
     headroom: Headroom,
+    /// Whether a `node:` specifier was refused, by an import or
+    /// `import.meta.resolve`, caught or not.
+    node_specifier_refused: Cell<bool>,
 }
 
 /// What a loader refuses beyond the resolver's rules, fixed when it is made.
@@ -235,12 +247,14 @@ const SUPPORTED_ATTRIBUTE: &str = "type";
 const ROOT_REFERRER: &str = ".";
 
 /// Where a recorded URL's module comes from, as loading reads its record.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 enum Source {
     /// The file the resolution found.
     File(FileId),
     /// Gro's embedded module.
     Embedded(EmbeddedModule),
+    /// The entry the embedder generated, with its source.
+    Generated(String),
     /// A builtin, which `deno_core` serves without a load.
     Builtin,
 }
@@ -250,7 +264,7 @@ enum Source {
 /// `deno_core` rethrows to JS.
 struct Refused {
     /// Why, boxed, since it can hold a
-    /// [`ResolveErrorKind`](crate::resolver::ResolveErrorKind), and a failure
+    /// [`ResolveErrorKind`], and a failure
     /// is the rare path.
     reason: Box<FailureReason>,
     /// The message JS sees.
@@ -273,14 +287,39 @@ impl Loader {
     /// A loader for the graph of `entry`, already resolved with `roots`,
     /// recording as `recording` says, importing no builtin.
     pub fn new(entry: &Resolution, roots: Roots, recording: Recording) -> Self {
+        Self::of(Graph::new(entry, roots, recording))
+    }
+
+    /// A loader for the graph of the entry the embedder generated at `url`,
+    /// with `source`, inside the project's root of `roots`, recording as
+    /// `recording` says, importing no builtin.
+    pub fn generated(url: &Url, source: String, roots: Roots, recording: Recording) -> Self {
+        Self::of(Graph::generated(url, source, roots, recording))
+    }
+
+    /// A loader of `graph`, refusing nothing beyond the resolver's rules,
+    /// importing no builtin.
+    fn of(graph: Graph) -> Self {
         Self {
-            graph: RefCell::new(Graph::new(entry, roots, recording)),
+            graph: RefCell::new(graph),
             refused: RefCell::default(),
             refuse_dynamic_import: false,
             driver: None,
             box_check: BoxCheck::default(),
             authority: None,
             headroom: Headroom::default(),
+            node_specifier_refused: Cell::new(false),
+        }
+    }
+
+    /// The loader, its packages' `"exports"` and `"imports"` matching
+    /// `conditions` ([`Graph::with_conditions`]).
+    #[must_use]
+    pub fn with_conditions(self, conditions: Conditions) -> Self {
+        let graph = self.graph.into_inner().with_conditions(conditions);
+        Self {
+            graph: RefCell::new(graph),
+            ..self
         }
     }
 
@@ -344,6 +383,12 @@ impl Loader {
         refused: Refused,
     ) -> ModuleLoaderError {
         let Refused { reason, message } = refused;
+        if matches!(
+            *reason,
+            FailureReason::Resolve(ResolveErrorKind::NodeBuiltin)
+        ) {
+            self.node_specifier_refused.set(true);
+        }
         if reached == Reached::Import(Reach::Dynamic) && reason.guards_a_boundary() {
             self.refused.borrow_mut().record_import(&message);
         }
@@ -406,6 +451,13 @@ impl Loader {
             tree: &DiskTree,
         };
         self.resolve_reached(&tree, specifier, referrer, reached)
+    }
+
+    /// Whether the resolver refused a `node:` specifier so far, by an
+    /// import or `import.meta.resolve`, whether or not the program caught
+    /// the refusal ([`ResolveErrorKind::NodeBuiltin`]).
+    pub const fn node_specifier_refused(&self) -> bool {
+        self.node_specifier_refused.get()
     }
 
     /// What was refused by rule so far, taken from the loader, which starts
@@ -649,6 +701,7 @@ impl Loader {
             let source = graph.records().get(specifier).map(|record| match record {
                 Record::Module(module) => Source::File(module.file_id),
                 Record::Embedded(module) => Source::Embedded(*module),
+                Record::Generated(generated) => Source::Generated(generated.source.clone()),
                 Record::Builtin(_) => Source::Builtin,
             });
             (source, graph.recording())
@@ -665,6 +718,7 @@ impl Loader {
                 format!("cannot load {specifier}: a builtin has no file to load"),
             )),
             Some(Source::Embedded(module)) => load_embedded(specifier, requested, module),
+            Some(Source::Generated(source)) => load_generated(specifier, requested, source),
             Some(Source::File(file_id)) => load(specifier, requested, file_id, recording, |path| {
                 self.box_check.check_read(path)
             }),

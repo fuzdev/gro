@@ -339,3 +339,111 @@ fn segments() {
         assert!(!is_array_index(key), "{key}");
     }
 }
+
+/// `development` is matched only when a run's conditions add it, in
+/// `"exports"`, in `"imports"`, and from Gro's embedded library alike, in
+/// the package's key order, as Node's `--conditions=development` matches
+/// it; the base conditions are matched either way.
+#[test]
+fn development_is_matched_only_when_the_run_adds_it() {
+    use std::collections::BTreeMap;
+
+    use url::Url;
+
+    use super::{roots, test_library};
+    use crate::resolver::test_tree::MemoryTree;
+    use crate::resolver::{Conditions, Resolved, resolve_from, resolve_from_embedded};
+
+    let tree = MemoryTree {
+        files: BTreeMap::from([
+            (
+                "/p/package.json",
+                r##"{"name": "p", "type": "module",
+                    "imports": {"#mode": {"development": "./dev.js", "default": "./prod.js"}}}"##,
+            ),
+            ("/p/main.js", ""),
+            ("/p/dev.js", ""),
+            ("/p/prod.js", ""),
+            (
+                "/p/node_modules/esm-env/package.json",
+                r#"{"name": "esm-env", "type": "module", "exports": {
+                    "./development": {"development": "./true.js", "default": "./false.js"},
+                    "./node": {"node": "./true.js", "default": "./false.js"}
+                }}"#,
+            ),
+            ("/p/node_modules/esm-env/true.js", ""),
+            ("/p/node_modules/esm-env/false.js", ""),
+            // a peer of the test library's, which Gro's code imports
+            (
+                "/p/node_modules/dep/package.json",
+                r#"{"name": "dep", "version": "1.0.0", "type": "module", "exports": {
+                    "./development": {"development": "./true.js", "default": "./false.js"}
+                }}"#,
+            ),
+            ("/p/node_modules/dep/true.js", ""),
+            ("/p/node_modules/dep/false.js", ""),
+        ]),
+        dirs: Vec::new(),
+        links: BTreeMap::new(),
+        loops: Vec::new(),
+        world_writable: Vec::new(),
+    };
+    let importer = Url::parse("file:///p/main.js").unwrap();
+    let roots = roots(&tree, &importer);
+    let path = |resolved: Resolved| match resolved {
+        Resolved::Module(resolution) => resolution.url.path().to_owned(),
+        resolved => panic!("{resolved:?}"),
+    };
+    let from_project = |specifier: &str, development| {
+        path(
+            resolve_from(
+                &tree,
+                Err(None),
+                specifier,
+                &importer,
+                roots.project(),
+                &roots,
+                Conditions { development },
+            )
+            .unwrap(),
+        )
+    };
+    let from_gro = |specifier: &str, development| {
+        path(
+            resolve_from_embedded(
+                &tree,
+                test_library(),
+                specifier,
+                &Url::parse("gro:lib/index.ts").unwrap(),
+                "index.ts",
+                &roots,
+                Conditions { development },
+            )
+            .unwrap(),
+        )
+    };
+    let esm_env = "/p/node_modules/esm-env";
+    for (development, expected) in [(true, "true.js"), (false, "false.js")] {
+        assert_eq!(
+            from_project("esm-env/development", development),
+            format!("{esm_env}/{expected}")
+        );
+        assert_eq!(
+            from_project("esm-env/node", development),
+            format!("{esm_env}/false.js")
+        );
+    }
+    assert_eq!(from_project("#mode", true), "/p/dev.js");
+    assert_eq!(from_project("#mode", false), "/p/prod.js");
+    assert!(Conditions { development: true }.matches("development"));
+    assert!(!Conditions::default().matches("development"));
+    assert!(Conditions::default().matches("import") && !Conditions::default().matches("node"));
+    assert_eq!(
+        from_gro("dep/development", true),
+        "/p/node_modules/dep/true.js"
+    );
+    assert_eq!(
+        from_gro("dep/development", false),
+        "/p/node_modules/dep/false.js"
+    );
+}
