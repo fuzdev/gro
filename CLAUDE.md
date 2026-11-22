@@ -42,7 +42,13 @@ errors and exit codes. Where it lives:
   host cut by `GRO_CLI_GRANTS` (declared in the summaries genfile, emitted beside the builtins'
   grants, held by every command's closure), and calls `invoke_cli`; the root reports what it throws with
   `log_cli_error` and exits with `to_exit_code`. `invoke.ts` is the Node root: the
-  `process` listeners, Node's `styleText` for fuz_util's `st`, and the exit's flush
+  `process` listeners, Node's `styleText` for fuz_util's `st`, and the exit's flush.
+  `binary_main` (`binary_main.ts`, embedded) is the body of the binary's CLI root, made for the
+  entry the binary generates for a command to call with the granted host modules
+  (`BinaryMainDeps`), `HOME`, the binary's version, and an `import_url` that imports a project
+  module from the entry's origin; it builds the `FsPaths`, the project loader, and a platform
+  whose module graph and Svelte config refuse naming the Node run, and sets the exit code from
+  what `gro_main` throws
 - Grant flags - a run right after the command word (`gro check --allow-read=. --watch`),
   split off by `to_grant_flags` (`task_args.ts`) in `gro_main`, which warns once that they
   confine nothing on Node ([docs](src/docs/task.md#run-a-task))
@@ -393,7 +399,7 @@ recipes), and `../fuz_forge` (eval's `forge2` config).
 
 Core systems (src/lib/):
 
-- CLI and task invocation: `gro.ts`, `invoke.ts`, `gro_main.ts`, `task_args.ts`, `task.ts`,
+- CLI and task invocation: `gro.ts`, `invoke.ts`, `gro_main.ts`, `binary_main.ts`, `task_args.ts`, `task.ts`,
   `task_registry.ts`, `invoke_task.ts`, `run_task.ts`
 - Gen input paths: `input_path.ts`
 - Code generation: `gen.ts`, `gen.task.ts`, `run_gen.ts`, `gen_helpers.ts`
@@ -470,7 +476,7 @@ Key utilities:
   list, and holds that each embedded module's static closure reaches no `node:` builtin, no granted
   host module, and no file the embed leaves out, linking only the grant-free host modules and error
   modules, and that it reads nothing of the process when it loads, but `invoke_task.ts` and
-  `gro_main.ts`, whose fuz_util `Logger` reads it (`EMBED_LOAD_READS`)
+  the CLI bodies that reach it, whose fuz_util `Logger` reads it (`EMBED_LOAD_READS`)
 - Git: `git.ts`, library code over a `git` `SpawnProgram` a root builds with `to_git_program`;
   a read of the local repo captures with `out`, anything that may prompt uses `run` (or `out` with
   `stdin: 'inherit'` when its output is needed), a caller's

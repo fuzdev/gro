@@ -123,7 +123,9 @@ const EMBED_LOAD_READS: ReadonlyMap<string, ReadonlyArray<string>> = new Map([
 	// from a `process` global when it loads, which the runtime has none of
 	['invoke_task.ts', ['env', 'process']],
 	// and through `invoke_task.ts`, the CLI's body
-	['gro_main.ts', ['env', 'process']]
+	['gro_main.ts', ['env', 'process']],
+	// and through `gro_main.ts`, the body of the binary's root
+	['binary_main.ts', ['env', 'process']]
 ]);
 
 // the builtin tasks that take their handles from their `host`, the ones with grants

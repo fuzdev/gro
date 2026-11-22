@@ -1,6 +1,7 @@
 {
 	"description": "Sorts every file of `src/lib` for the binary's embed of Gro's own code: the modules it takes, and the ones it leaves out, by group, each group with its reason. Paths are relative to `src/lib`, each list sorted.",
 	"embedded": [
+		"binary_main.ts",
 		"builtin_host.ts",
 		"changelog.ts",
 		"changeset_helpers.ts",

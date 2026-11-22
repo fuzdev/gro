@@ -130,6 +130,8 @@ export interface BuiltinInvokeGrant {
 	 * builtin's grants without their writes to the project, its programs' tool directories aside,
 	 * and the same for the builtins it invokes in turn:
 	 * `check`'s `gen` and `format`, invoked with `check: true`.
+	 * A builtin some invoke marks so is check-capable: a command line that runs it
+	 * with its own `--check`, like `gro gen --check`, holds the same grants, its writes dropped.
 	 * The mark is data for a runtime that holds a command to its closure's grants;
 	 * nothing enforces it on Node, where a forwarded arg can run the invoke in write mode.
 	 */

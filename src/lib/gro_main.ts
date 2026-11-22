@@ -1,6 +1,7 @@
 /**
- * The Gro CLI's body, which a root of the CLI calls with what it opened,
- * today only the Node Gro's entry, `invoke.ts`.
+ * The Gro CLI's body, which a root of the CLI calls with what it opened:
+ * the Node Gro's entry, `invoke.ts`, and `binary_main`, the body of the binary's CLI root,
+ * made for the entry the binary generates for a command.
  *
  * It splits off the grant flags, warning that they confine nothing here, parses the CLI args,
  * loads the project's config, and invokes what the args name, the CLI's primary concept,
@@ -8,8 +9,8 @@
  * It imports no host module itself, reads nothing of the process itself,
  * and configures nothing global:
  * the root opens the handles, picks the project loader and the platform, and configures
- * fuz_util's print colors before it calls `gro_main`, and it reports what `gro_main` throws
- * with `log_cli_error` and exits with `to_exit_code`.
+ * fuz_util's print colors, if it colors at all, before it calls `gro_main`, and it reports what
+ * `gro_main` throws with `log_cli_error` and exits with `to_exit_code`.
  *
  * @module
  */

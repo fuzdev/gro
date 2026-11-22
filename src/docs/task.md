@@ -102,6 +102,8 @@ A `--help` may sit among them, as `fgro run` takes it, and stays the command's:
 `gro run --help --allow-read=. x.ts` asks for `run`'s help and hands the script no grant flag.
 The Node gro takes the same grammar and confines nothing,
 so it runs the command without them and warns once, on stderr, that they have no effect.
+It checks only their spelling, not the names and directories they list,
+so `--allow-read=,`, whose empty entries the binary refuses, passes there.
 A grant flag before the command word, one in the run spelled `--allow-*` that's no grant flag,
 one with no list after its `=`, and `--allow-temp` with a value are usage errors;
 after the run a flag spelled `--allow-*` is the task's, and `--` forwards as written.
