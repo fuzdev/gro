@@ -101,8 +101,8 @@ errors and exit codes. Where it lives:
   without writing them (`npm_install_check.ts`); a `project_modules` builtin's loaded modules get no `invoke_task`),
   and refusing a task with `grants` run by path or re-exported,
   as a builtin runs only by its name; the body is a function over the task's own `*Deps`
-  ([docs](src/docs/task.md#a-builtins-host-and-grants)). On Node the cut is a
-  review signal, not an enforced boundary. A builtin with no `grants` (`null`
+  ([docs](src/docs/task.md#a-builtins-host-and-grants)). The cut is a
+  guardrail against a builtin's own mistakes, never a boundary, on Node and on the binary alike. A builtin with no `grants` (`null`
   in the table) imports its host modules and gets no `host`
 - Builtin loading - by name: `invoke_task` imports the generated `GRO_BUILTIN_TASK_IMPORTS`
   (`gro_builtin_task_imports.ts`, from the summaries genfile), a literal import per builtin,

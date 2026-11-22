@@ -277,10 +277,17 @@ so it's refused with a `TaskError` naming the builtin to run instead.
 
 A project task's context has no `host`. Its `invoke_task` of a builtin
 runs the builtin with the builtin's own grants, so a project task needs no handle a builtin uses.
-A project task can import a host module itself:
-on Node every module can, and the cut above is a review signal, as Node's narrowed roots are,
-not an enforced boundary (`env` is narrowed and `programs` refuses an ungranted role,
-but `fs_paths` is the root's whole `FsPaths`).
+A project task can import a host module itself, as every module can on Node.
+The cut above is a [guardrail](glossary.md#guardrail) on either runtime, against a builtin's own mistakes,
+never a boundary. On Node `env` is narrowed and `programs` refuses an ungranted role,
+but `fs_paths` is the root's whole `FsPaths`.
+On the binary, as designed, a command runs under one grant set, its closure's,
+the CLI's row and the grants of every builtin the command invokes, directly or in turn, as its `invokes` mark them, beside the grant flags,
+and the cut gives each builtin its own part of that set.
+The project's code shares the realm, where a project task can invoke any of those builtins
+and any project module (the config, a genfile) can patch a shared prototype a builtin's handles pass through,
+so it holds the whole set, which only the native checks and the box bound
+([threat model](authority.md#threat-model)).
 `GRO_BUILTIN_TASK_GRANTS` is deep-frozen with null-prototype objects,
 and the cut copies `Object.hasOwn` when it loads,
 a guardrail against accidental prototype pollution widening a host,

@@ -86,9 +86,10 @@ A bare `--allow-env` is a usage error, not Deno's grant of every name.
 The network included: `fetch` arrives by import, as `net.fetch`,
 so a dependency that starts fetching is a new edge in the graph, and the diff names the package.
 
-The policy file is also a guardrail for the code agents write, not for the agent itself, which already holds your shell's authority.
+Against the code agents write, a widening of the policy file is a [review signal](glossary.md#review-signal), a diff someone has to read,
+and against the agent itself it's nothing, since the agent already holds your shell's authority.
 What an agent's code may reach sits in one small file a person can audit,
-the runtime will enforce it (nothing enforces it today), and a widening is a diff in review.
+the runtime will enforce what it records (nothing enforces it today), and a widening is a diff in review.
 Keeping an agent from editing that file itself is still open, and for a project without a review process,
 "accepted" means someone ran the accept command, which an agent can run.
 Review, harness rules, and a push gate cover the normal case but aren't a structural guarantee,
@@ -173,43 +174,135 @@ and no global carries authority, so a package that reaches the network only thro
 
 ## Threat model
 
-Built today: `fgro eval`'s box, and `fgro run`'s link-time grant check over the builtin modules built so far; `fgro run` has no backstop yet, so an engine exploit in a run isn't contained.
+Built today: `fgro eval`'s box, and for `fgro run` the link-time grant check over the builtin modules built so far,
+each handle's scope, and the pinned programs.
+`fgro run` has no box yet, so an engine exploit in a run isn't contained,
+and Gro's commands (`gro check` and the rest) run on the Node Gro, which confines nothing.
+The rest of this section is the model as designed, with what's built marked.
 
-Grants are designed to contain overreach.
-A dependency, a task, or an agent that reaches for authority nobody accepted
-fails before it runs (an unaccepted host module fails at link time,
-and there's no global to reach around it), and the widening shows up as a diff in review.
-V8 itself isn't treated as the boundary against code built to escape it.
-An engine exploit is designed to land in the kernel backstop (built for `fgro eval` alone so far),
-which applies a coarsening of the same grants to the whole invocation and every child process,
-and FFI is designed to run in a process of its own, as `gro eval` does.
-Within one realm, a package's own grants catch overreach and attribute it in review,
-but a dependency built to steal can patch a shared prototype
-and catch a capability on its way through project code,
-so against it the bound is the invocation's whole grant set and the kernel backstop:
-attribution catches the careless, and the invocation's grants plus the kernel box bound the deliberate.
-Code that must be treated as hostile belongs in WASM or a separate process,
-not under a looser grant.
-WASM runs with V8's JIT on, so against an engine exploit
-what holds it is the kernel backstop, not the engine.
-Until the Node tools leave the loop, which is the distant end of the roadmap, an invocation that spawns them
-is confined only as finely as the kernel backstop, by paths and ports rather than the grant set;
-that is the common verb, `gro check`, until then, and the strong claims above describe `gro run` and the dependency's own graph.
-A child process is where a box is weakest, since a program's arguments and its config files are code,
-so children are designed to get the project read-only and only the declared write roots writable, at the kernel
-([backstop](backstop.md#the-box-for-runs-and-children) has the rules and what they close).
-Availability is outside the model: a confined run can spend CPU, memory, and descriptors, and fill its writable roots;
-`fgro eval` caps its own, and `fgro run` has no limits yet ([backstop](backstop.md#resource-limits)).
-A process outside the run that can already rename or replace the project's root or what a grant flag names is outside the model too:
-a flag's directory is held to the real path, identity, and nesting it had as the run started, the project's root to none
-([host modules](host_modules.md#fs-on-fgro)), and nothing more is claimed against such a process.
-The terminal is a channel: confined output can carry escape sequences, so the host is designed to escape a run's own console output
+### Three kinds of protection
+
+Each mechanism in these docs is named as one of three kinds, with what defeats it:
+
+- a [boundary](glossary.md#boundary) holds against code built to defeat it, because it's a native check, a separate process, or the kernel,
+  like the link-time grant check, a handle's scope, a pin, or a [box](glossary.md#box)
+- a [guardrail](glossary.md#guardrail) is enforced in the shared realm or by convention, and holds against mistakes, not intent,
+  like a builtin's `host`, a narrowed handle in first-party code, or the frozen grants table
+- a [review signal](glossary.md#review-signal) reports without enforcing,
+  like the install check `gro check` runs, or a grant diff and the policy file (both designed)
+
+### What it protects, and whom it trusts
+
+The assets are secrets in the environment and in files (`.env*`, credential files under the home directory, `.git/config`),
+the user's files outside the project, the network, and the terminal with whatever logs it, CI's public logs included.
+The project's own tree is one too, since later commands run it, some of them unconfined,
+like `.git`'s hooks and config, `node_modules`, config files, `package.json` scripts, and the sources themselves.
+
+Gro trusts its own code and the kernel,
+the pinned programs as binaries but never for what their arguments and config files make them do,
+V8 for correctness but not as a boundary,
+and whoever accepts the policy file.
+
+### Who it's against
+
+- Gro's own bug is caught first by guardrails, like a builtin's `host` and the test that holds what Gro's own modules may import,
+  and then by whatever bounds the adversaries below.
+- Careless code, a dependency, task, genfile, or agent-written module that reaches further than it should without evading,
+  is refused at link time or at the call (built for `fgro run`), its widening attributed in the policy diff (designed),
+  and guardrails catch it too.
+- A dependency built to steal holds only what it's handed, since its origin is granted nothing unless accepted
+  (built for `fgro run`, where a package is granted nothing short of `-A`).
+  While the shared prototypes stay mutable it can patch one and catch a capability passing through project code,
+  and then its bound is the invocation's whole grant set.
+- Deliberate code in the project holds the invocation's whole grant set.
+  The native checks and the box (designed) bound it, and guardrails don't.
+- A child process, whose arguments and config files are code, is bounded by its box (designed).
+  Until then a program a run is granted is close to `-A`.
+- An engine exploit is bounded by the box of the process it lands in, built for `fgro eval` and designed for runs and their children,
+  so today an exploit in `fgro run` reaches what your user can.
+
+Under `gro <cmd>` on the binary (designed), the invocation's grant set is the command's,
+the CLI's own grants, every builtin in the command's closure with its programs and variables, and the grant flags.
+Each builtin's `host` is cut from that set by the builtin's own grants, a guardrail against Gro's own mistakes.
+The project's code shares the realm, where a project task can invoke any builtin the command's closure holds
+and any project module (the config, a genfile) can patch a shared prototype a builtin's handles pass through,
+so it holds the command's whole set ([task](task.md#a-builtins-host-and-grants)).
+The Node tools a command spawns, until they leave the loop at the distant end of the [roadmap](runtime.md#roadmap),
+are designed to be held by the box, by paths and the network rather than the grant set,
+so the native checks' finer claims describe `fgro run` and a dependency's own graph,
+and `gro check` is confined only as finely as the box.
+
+Code that must be treated as hostile belongs in WASM or a separate process, not under a looser grant.
+WASM runs with V8's JIT on, so against an engine exploit what's designed to hold it is the box, not the engine,
+and FFI is designed to load its library in a process of its own, as `gro eval` runs in one.
+The terminal is a channel too: confined output can carry escape sequences, so the host is designed to escape a run's own console output
 (a child's inherited terminal stays unescaped, and today `fgro` escapes none, [run](run.md#usage)) and never to print a grant diff inside a run's output
 ([backstop](backstop.md#the-terminal)).
-Outside the model are `-A` and the named unconfined phases (Gro's `publish` and `deploy`), which run the build they contain unconfined too.
-Linux is the design target, and the kernel backstop and every claim that rests on it are Linux's.
-On macOS and Windows anything past the runtime's own checks is outside the model
-until each gets a sandbox design of its own, never a translation of Linux's.
+
+### The time-shifted write
+
+What a command writes into the project is code the next unconfined command may run,
+like `gro dev`, an npm script, git's hooks, or the editor,
+so a write grant on the project is as wide as that command's reach.
+A plain `gro check`, without `--install` or `--build`, writes no source on either runtime.
+It runs `gen` and `format` in check mode, and verifies the install and `package.json` without writing them, failing with the fix
+([task](task.md#a-builtins-host-and-grants)).
+On Node that's what Gro's own code does, not a protection, since the config, a genfile, or a test it runs can write anything your user can.
+On the binary the check mode is data the box is designed to take its write roots from,
+so in the project a boxed `check` could write only `.svelte-kit`, fuz_css's `.fuz/cache`, and the tool directories in `node_modules` named below,
+and a test it runs couldn't rewrite a source, a workflow, or `package.json`.
+A command granted a write on the project, like `gen`, `format`, or `sync`, reaches as far as the next unconfined command that runs what it wrote.
+
+### What the first release is for
+
+Designed, not built: the first release of Gro on its runtime is for local and agent runs of the check commands
+(`check`, `test`, `typecheck`, `lint`, `format`, `gen`, and `sync`) on a Linux workstation,
+for people and agents running code they haven't vetted.
+Every other command, like `dev`, `build`, and `clean`, keeps running on the Node Gro, and so does `check --build`, which CI's workflows run,
+and install runs outside any run, so an asset one of those gives away isn't one the release protects.
+When the project's installed Gro is a different version from the binary's, the binary runs the project's Node Gro and says why.
+The project's own files decide that fallback, so a project can leave the box by pinning another version, and a strict mode that refuses the fallback is designed for an agent's sandbox to set.
+
+None of what the release is designed to claim holds today.
+Each check command the binary runs would run in a kernel box covering Gro's code, the project's config and genfiles,
+and the tools it spawns, which inherit it.
+The home directory is unreadable but for git's global config, `~/.gitconfig` and the `~/.config/git` directory.
+The network is a private one with only loopback, so a test that binds `127.0.0.1` still passes.
+Where the system restricts unprivileged user namespaces, the box refuses internet sockets instead, loopback's included, so such a test fails there.
+The project is read-only but for the command's write roots, `.svelte-kit` and fuz_css's `.fuz/cache` among them.
+`.git` is never writable, and `node_modules` only in the directories tools own there (`$app`, `.vite`, and `.vite-temp`).
+A tool and its children may execute the system's programs, the project's `node_modules`, and the run's private temp directory.
+Inside the box the per-builtin grants are guardrails.
+Each tool getting a narrower box of its own inside the run's is designed, and whether the first release waits for it is open.
+
+What the box leaves is stated with it:
+
+- a process in the box can still change the mode and times of a file your user owns,
+  like making a secret readable to a group or a disabled hook executable,
+  each harm needing a later unboxed step that an unboxed `dev` or install already gives away;
+  changes of ownership and extended attributes are refused
+- `.env*` files in the project stay readable
+- the tools see the run's whole environment, as on Node, and what they print can carry it
+- git's global config stays readable to every tool, with any credential or token kept in it
+- a write root is code the next unconfined command may run, as above
+- until each tool has a box of its own, a tool can write every write root the command has, so one tool's code can plant in another's
+- a project that pins another Gro version runs on the Node Gro, unboxed, unless the strict mode is set
+- on a kernel below Landlock's sixth ABI (Linux 6.12) there's no box, and the binary runs the Node Gro, which confines nothing, and says why
+
+### Outside the model
+
+- a process outside the run that can already rename or replace the project's root or what a grant flag names,
+  since a flag's directory is held to the real path, identity, and nesting it had as the run started, the project's root to none
+  ([host modules](host_modules.md#fs-on-fgro)), and nothing more is claimed against such a process
+- a second run cooperating with the first
+- install time, since `npm install` and its scripts run outside any run
+- `-A` and the named unconfined phases (Gro's `publish`, `deploy`, `commit`, and `changeset`),
+  where `publish` and `deploy` run their build unconfined too
+- availability, since a confined run can spend CPU, memory, and descriptors, and fill its writable roots;
+  `fgro eval` caps its own, and `fgro run` has no limits yet ([backstop](backstop.md#resource-limits))
+- macOS and Windows, since Linux is the design target and the box and every claim resting on it are Linux's,
+  so on those anything past the runtime's own checks is outside the model
+  until each gets a sandbox design of its own, never a translation of Linux's
 
 ## Imports or globals
 

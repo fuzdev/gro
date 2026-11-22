@@ -325,8 +325,11 @@ As designed, except where marked built:
   running project tasks by full path for explicit resolution,
   while the builtins stay first-class subcommands (`gro check`, `gro dev`) (built on the Node Gro).
 - A task runs under the union of what the invocation reaches,
-  its own graph plus the tasks it invokes by a literal name (`invoke_task`), since every task holds the shared context (config, `invoke_task`),
-  and a Node tool it spawns is confined by the kernel backstop, not the grant set.
+  its own graph plus the tasks it invokes by a literal name (`invoke_task`), since every task holds the shared context (config, `invoke_task`).
+  Each builtin's `host` is cut from that union by its own grants, a [guardrail](glossary.md#guardrail) against Gro's own mistakes,
+  while the project's code in the same realm holds the whole union, which only the native checks and the run's box bound
+  ([threat model](authority.md#threat-model)).
+  A Node tool the invocation spawns is held by the box, by paths and the network, not by the grant set.
 - `gro check` is the project's check: it infers each task's and gen file's grants,
   diffs them against the committed policy file, and fails on a widening until `gro policy accept` records it.
   On the Node Gro it runs advisory first, since Node enforces none of it.

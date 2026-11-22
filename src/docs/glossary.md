@@ -40,6 +40,13 @@ Each is an import instead, if Gro implements it, like the network on the `net` [
 Every other web global is a [pure global](#pure-globals).
 Compare [host modules](#host-modules).
 
+## boundary
+
+A protection that holds against code built to defeat it, because it's a native check, a separate process, or the kernel,
+like the link-time grant check, a [handle](#handle)'s scope, a [pin](#pin), or a [box](#box).
+One of the three kinds the docs name each mechanism as, beside a [guardrail](#guardrail) and a [review signal](#review-signal),
+each with what defeats it, like an engine exploit for the runtime's own checks ([authority](authority.md#threat-model)).
+
 ## box
 
 The kernel rules (Landlock and seccomp) a process is held in on Linux.
@@ -144,6 +151,13 @@ a specifier of `@fuzdev/gro` that isn't a [builtin module](#builtin-modules)'s r
 at its `gro:lib/` URL, its [origin](#origin) holding no grant by its own imports,
 its packages taken from the project root's `node_modules` at the ranges of Gro's peer dependencies.
 [resolver](resolver.md#gros-library) has the rules.
+
+## guardrail
+
+A protection enforced in the shared [realm](#realm) or by convention, which holds against mistakes, not intent,
+like a builtin's `host`, a [narrowed](#narrowing) handle in first-party code, or the frozen grants table.
+Code built to defeat one does so cheaply, like a project task's `invoke_task` of a builtin or a patched shared prototype,
+so the docs never describe one as bounding deliberate code ([authority](authority.md#threat-model)).
 
 ## handle
 
@@ -288,8 +302,8 @@ against [interposition](#interposition), not a way to grant authority, and never
 
 ## review signal
 
-Something that reports without enforcing, like the advisory grants on the Node Gro.
-The docs and the CLI name each one as a signal, with what evades it, never as a boundary.
+Something that reports without enforcing, like the install check `gro check` runs, a grant diff, or the policy file.
+The docs and the CLI name each one as a signal, with what evades it, never as a [boundary](#boundary) or a [guardrail](#guardrail).
 
 ## root
 
