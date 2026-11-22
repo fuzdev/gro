@@ -4,6 +4,7 @@
 use std::ffi::OsString;
 use std::path::PathBuf;
 
+use gro_runtime::confine::plan::DirFlag;
 use gro_runtime::embed::EmbedError;
 use gro_runtime::engine::EngineError;
 use gro_runtime::prices::PricesError;
@@ -13,7 +14,7 @@ use gro_runtime::verb::table::TableError;
 use gro_runtime::{BINARY_NAME, RunError};
 use thiserror::Error;
 
-use crate::cli::{DirFlag, GrantListError};
+use crate::cli::GrantListError;
 use crate::print::{echo_argument, escape_controls, stderr_line};
 use crate::verb::prepass::{VerbError, command_line};
 use crate::{EXIT_FAILURE, EXIT_USAGE};

@@ -222,7 +222,9 @@ mod tests {
     use gro_runtime::EnvPattern;
 
     use super::{GrantFlagsError, split_grant_flags, to_run_grant};
-    use crate::cli::{DirFlag, DirFlagFault, FlagDirs, GrantListError, ListFlag, RunGrant};
+    use gro_runtime::confine::plan::DirFlag;
+
+    use crate::cli::{DirFlagFault, FlagDirs, GrantListError, ListFlag, RunGrant};
     use crate::verb::tests::{has_fields, read_fixture, strings};
 
     /// The refusal's kind as the fixture names it, the flag it names, and

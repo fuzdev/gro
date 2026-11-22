@@ -15,6 +15,7 @@ mod closure;
 #[cfg(target_arch = "x86_64")]
 mod denylist;
 mod landlock;
+mod plan;
 mod rules;
 mod run;
 mod seccomp;

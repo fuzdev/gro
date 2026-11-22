@@ -57,6 +57,7 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 use gro_runtime::confine::Confinement;
+use gro_runtime::confine::plan::DirFlag;
 use gro_runtime::engine::{EngineOptions, init_engine};
 use gro_runtime::file_id::FileId;
 use gro_runtime::phases::{self, Phase};
@@ -75,7 +76,7 @@ use gro_runtime::{
 use crate::EXIT_FAILURE;
 use crate::cli::{
     ALLOW_ENV, ALLOW_READ, ALLOW_RUN, ALLOW_RUN_ENV, ALLOW_RUN_IN, ALLOW_TEMP, ALLOW_WRITE,
-    DirFlag, FlagDirs, RunGrant, RunInvocation, Task,
+    FlagDirs, RunGrant, RunInvocation, Task,
 };
 use crate::color;
 use crate::embed::load_embed;
@@ -1507,7 +1508,7 @@ mod tests {
         use std::path::Path;
 
         use super::grant_note;
-        use crate::cli::DirFlag;
+        use gro_runtime::confine::plan::DirFlag;
 
         let note = |flag: DirFlag, dir: &str, real: &str| {
             grant_note(flag, dir, &Path::new("/c").join(dir), Path::new(real))

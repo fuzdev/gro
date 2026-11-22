@@ -10,6 +10,7 @@ use std::time::Duration;
 
 use argh::{CommandInfo, EarlyExit, FromArgs, SubCommand};
 use gro_runtime::confine::Jit;
+use gro_runtime::confine::plan::DirFlag;
 use gro_runtime::{BINARY_NAME, EnvNameFault, EnvPattern, EnvPatternFault, env_name_fault};
 use thiserror::Error;
 
@@ -100,11 +101,11 @@ pub const ALLOW_ENV: &str = "--allow-env";
 
 /// The option that grants the fs host module the directories it lists, to
 /// read.
-pub const ALLOW_READ: &str = "--allow-read";
+pub const ALLOW_READ: &str = DirFlag::Read.spelled();
 
 /// The option that grants the fs host module the directories it lists, to
 /// write.
-pub const ALLOW_WRITE: &str = "--allow-write";
+pub const ALLOW_WRITE: &str = DirFlag::Write.spelled();
 
 /// The option that grants the fs host module fresh directories under the
 /// OS's temporary directory, made by `fs.temp_dir`.
@@ -115,7 +116,7 @@ pub const ALLOW_RUN: &str = "--allow-run";
 
 /// The option that grants the spawn host module the directories it lists
 /// as exec roots, beneath which `program_in` and `find_in` find a program.
-pub const ALLOW_RUN_IN: &str = "--allow-run-in";
+pub const ALLOW_RUN_IN: &str = DirFlag::RunIn.spelled();
 
 /// The option that forwards to the programs `--allow-run` grants, and those
 /// found beneath what `--allow-run-in` grants, the environment variables it
@@ -761,35 +762,6 @@ impl std::fmt::Display for RunEnvFlagFault {
                 "an --allow-run-env glob needs a prefix: * alone would pass every variable",
             ),
         }
-    }
-}
-
-/// One of the flags that grant directories.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DirFlag {
-    /// `--allow-read`.
-    Read,
-    /// `--allow-write`.
-    Write,
-    /// `--allow-run-in`.
-    RunIn,
-}
-
-impl DirFlag {
-    /// The flag as it's spelled, `--allow-read`, `--allow-write`, or
-    /// `--allow-run-in`.
-    pub const fn spelled(self) -> &'static str {
-        match self {
-            Self::Read => ALLOW_READ,
-            Self::Write => ALLOW_WRITE,
-            Self::RunIn => ALLOW_RUN_IN,
-        }
-    }
-}
-
-impl std::fmt::Display for DirFlag {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.spelled())
     }
 }
 

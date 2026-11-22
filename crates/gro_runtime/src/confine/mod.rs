@@ -110,6 +110,7 @@ use std::path::{Path, PathBuf};
 
 mod closure;
 mod landlock;
+pub mod plan;
 pub mod rules;
 pub mod run;
 pub mod seccomp;
