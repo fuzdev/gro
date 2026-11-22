@@ -483,3 +483,62 @@ test(
 	},
 	TEST_TIMEOUT_MD
 );
+
+describe("a config that reaches a module missing from the project's own `dist/`", () => {
+	// a project whose `package.json` maps its own package's `.ts` specifiers to `dist/`,
+	// as Gro's does, with no `dist/` built, its config importing `specifier`
+	const run_unbuilt = async (
+		specifier: string
+	): Promise<{ status: number | null; output: string }> => {
+		const dir = await create_project('gro_invoke_unbuilt_');
+		await writeFile(
+			join(dir, 'package.json'),
+			JSON.stringify({
+				name: '@gro_invoke_test/self',
+				type: 'module',
+				exports: { './*.ts': { default: './dist/*.js' } }
+			}) + '\n'
+		);
+		await writeFile(join(dir, 'gro.config.ts'), `import '${specifier}';\nexport default {};\n`);
+		const result = spawnSync(process.execPath, invoke_args(['--version']), {
+			cwd: dir,
+			encoding: 'utf8',
+			env: cli_env()
+		});
+		return { status: result.status, output: result.stderr + result.stdout };
+	};
+
+	const HINT =
+		"`gro.config.ts` reaches `dist/a.js`, which is missing, since Node resolves a project's imports " +
+		"of its own package by name to its `dist/`. Build the project first, like `npm run bootstrap` in Gro's checkout.";
+
+	test(
+		'by its own package name fails naming the build that fixes it, with no stack',
+		async () => {
+			const { status, output } = await run_unbuilt('@gro_invoke_test/self/a.ts');
+			assert.equal(status, 1);
+			assert.include(output, HINT);
+			assert.notMatch(output, /^\s+at /m);
+		},
+		TEST_TIMEOUT_MD
+	);
+
+	test(
+		"fails with Node's own error for any other missing module",
+		async () => {
+			for (const [specifier, expected] of [
+				[
+					'gro_invoke_test_no_such_package/a.ts',
+					"Cannot find package 'gro_invoke_test_no_such_package'"
+				],
+				['./no_such_module.ts', "cannot resolve './no_such_module.ts'"]
+			]) {
+				const { status, output } = await run_unbuilt(specifier!);
+				assert.equal(status, 1, specifier);
+				assert.include(output, expected!, specifier);
+				assert.notInclude(output, 'Build the project first', specifier);
+			}
+		},
+		TEST_TIMEOUT_MD
+	);
+});

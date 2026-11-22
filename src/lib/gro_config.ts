@@ -4,10 +4,11 @@ import { json_stringify_deterministic } from '@fuzdev/fuz_util/json.ts';
 import { to_bytes } from '@fuzdev/fuz_util/bytes.ts';
 import { to_hex } from '@fuzdev/fuz_util/hex.ts';
 
-import { posix_join, posix_resolve } from './internal/posix_path.ts';
+import { posix_join, posix_resolve, to_file_url } from './internal/posix_path.ts';
 import { hash } from './blake3.ts';
 import type { FsPaths } from './fs_paths.ts';
 import type { ImportModule } from './modules.ts';
+import { TaskError } from './task_error.ts';
 import {
 	GRO_CONFIG_FILENAME,
 	NODE_MODULES_DIRNAME,
@@ -199,6 +200,9 @@ export interface GroConfigModule {
  * @param fs_paths - checks for the config file
  * @param import_module - loads the config file
  * @param dir - the directory holding `gro.config.ts`, defaults to the project of `fs_paths`
+ * @throws `TaskError` - when loading the config fails on a module missing from the project's
+ * own `dist/`, as for a config that imports its own package by name before a build,
+ * naming the fix
  */
 export const load_gro_config = async (
 	fs_paths: FsPaths,
@@ -219,7 +223,19 @@ export const load_gro_config = async (
 	}
 
 	// Import the user's `gro.config.ts`.
-	const config_module = await import_module(config_path);
+	let config_module;
+	try {
+		config_module = await import_module(config_path);
+	} catch (error) {
+		const missing = to_missing_dist_module(error, root);
+		if (missing === null) throw error;
+		throw new TaskError(
+			`\`${GRO_CONFIG_FILENAME}\` reaches \`${missing}\`, which is missing, ` +
+				`since Node resolves a project's imports of its own package by name to its \`${SVELTEKIT_DIST_DIRNAME}/\`. ` +
+				`Build the project first, like \`npm run bootstrap\` in Gro's checkout.`,
+			{ cause: error }
+		);
+	}
 
 	validate_gro_config_module(config_module, config_path);
 
@@ -229,6 +245,24 @@ export const load_gro_config = async (
 			: config_module.default,
 		root
 	);
+};
+
+/**
+ * The path, relative to the project root, of a module missing from the project's own `dist/`
+ * that `error` failed to find, as Node's not-found error names it by its `url`,
+ * or `null` for any other failure, and for any value it can't read,
+ * like a getter that throws or a `url` no decode reads, so the error is rethrown as it was.
+ */
+const to_missing_dist_module = (error: unknown, root: string): string | null => {
+	try {
+		const { code, url } = (error ?? {}) as { code?: unknown; url?: unknown };
+		if (code !== 'ERR_MODULE_NOT_FOUND' || typeof url !== 'string') return null;
+		const root_url = to_file_url(posix_join(root, '/'));
+		const dist_url = to_file_url(posix_join(root, SVELTEKIT_DIST_DIRNAME, '/'));
+		return url.startsWith(dist_url) ? decodeURIComponent(url.slice(root_url.length)) : null;
+	} catch {
+		return null;
+	}
 };
 
 export const validate_gro_config_module: (

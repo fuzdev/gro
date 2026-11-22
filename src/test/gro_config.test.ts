@@ -2,6 +2,7 @@ import { test, expect, assert } from 'vitest';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { hash_blake3 } from '@fuzdev/fuz_util/hash_blake3.ts';
 import { json_stringify_deterministic } from '@fuzdev/fuz_util/json.ts';
 
@@ -18,6 +19,7 @@ import { create_fs_paths } from '#lib/fs_paths.ts';
 import { import_module_node } from '#lib/internal/node_import_module.ts';
 import { create_project_fs_paths, to_fs_paths_options } from './fs_test_helpers.ts';
 import { paths } from './test_helpers.ts';
+import { is_task_error } from '#lib/task_error.ts';
 
 test('load_gro_config', async () => {
 	const config = await load_gro_config(
@@ -172,5 +174,70 @@ test('load_gro_config resolves `watch.dir` against the project root, with a conf
 		assert.strictEqual(created.watch.dir, src);
 	} finally {
 		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+test("load_gro_config names the build when the config's import misses a module in the project's own `dist/`", async () => {
+	// a root a `file:` URL encodes, so the hint's `dist/` prefix is held to the encoded one
+	const dir = await mkdtemp(join(tmpdir(), 'gro_config unbuilt #?%é_'));
+	try {
+		await writeFile(join(dir, 'gro.config.ts'), '');
+		const fs_paths = await create_project_fs_paths(dir);
+		// what Node's import rejects with for a module it can't find, by `code` and `url`
+		const load = (fields: Record<string, unknown>): Promise<unknown> =>
+			load_gro_config(fs_paths, () =>
+				Promise.reject(Object.assign(new Error('not found'), fields))
+			).then(
+				() => null,
+				(error: unknown) => error
+			);
+		const not_found = (path: string) => ({
+			code: 'ERR_MODULE_NOT_FOUND',
+			url: pathToFileURL(join(dir, path)).href
+		});
+
+		const hinted = await load(not_found('dist/lib/a b.js'));
+		assert.ok(is_task_error(hinted));
+		assert.include(hinted.message, '`gro.config.ts` reaches `dist/lib/a b.js`, which is missing');
+		assert.include(hinted.message, '`npm run bootstrap`');
+		assert.strictEqual((hinted.cause as Error).message, 'not found');
+
+		// a missing module anywhere else, or another failure, is the error as it was
+		for (const fields of [
+			not_found('distx/a.js'),
+			not_found('src/dist/a.js'),
+			not_found('a.js'),
+			{ code: 'ERR_MODULE_NOT_FOUND' },
+			{ ...not_found('dist/a.js'), code: 'ERR_PACKAGE_PATH_NOT_EXPORTED' }
+		]) {
+			const error = await load(fields);
+			assert.ok(!is_task_error(error), JSON.stringify(fields));
+			assert.strictEqual((error as Error).message, 'not found');
+		}
+
+		// a value the hint can't read is rethrown as it was, never replaced by the read's failure:
+		// a `url` in `dist/` no decode reads, and a `code` or `url` getter that throws
+		const throwing_getter = (key: 'code' | 'url') =>
+			Object.defineProperty(new Error('unreadable'), key, {
+				get: () => {
+					throw Error(`the ${key} getter`);
+				}
+			});
+		for (const unreadable of [
+			Object.assign(new Error('malformed'), {
+				code: 'ERR_MODULE_NOT_FOUND',
+				url: pathToFileURL(join(dir, 'dist')).href + '/%E0%A4.js'
+			}),
+			throwing_getter('code'),
+			Object.assign(throwing_getter('url'), { code: 'ERR_MODULE_NOT_FOUND' })
+		]) {
+			const error = await load_gro_config(fs_paths, () => Promise.reject(unreadable)).then(
+				() => null,
+				(e: unknown) => e
+			);
+			assert.strictEqual(error, unreadable);
+		}
+	} finally {
+		await rm(dir, { recursive: true });
 	}
 });
