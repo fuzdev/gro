@@ -137,8 +137,8 @@
  *   `TextDecoder`, `Error`, `EventEmitter.prototype.on`, or the stream classes after this module
  *   loads runs inside these ops, and a patched `on` or stream method holds the raw `ChildProcess`
  *   or stream.
- * - Any module can import `node:child_process`, so a narrowed `spawn` bounds only code
- *   that uses it, a review signal, not a boundary.
+ * - Any module can import `node:child_process`, so a narrowed `spawn` holds only code
+ *   that uses it, a guardrail against mistakes, not a boundary.
  * - The refusal of files with no `#!` reads only the first bytes, so a file with a native magic
  *   the kernel won't load, or a `#!` line naming no interpreter or one too long for the kernel's
  *   buffer, still reaches Linux's `/bin/sh` fallback, and a Java class file passes on macOS,

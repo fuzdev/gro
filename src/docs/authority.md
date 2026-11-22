@@ -54,7 +54,10 @@ As designed, a run gets:
   spawning processes, reads outside the project, private env names,
   and any host module a dependency imports
 - **never short of `-A`:** `.env*` files except through the host's env reader,
-  credential files (`~/.ssh`, `.git/config`), and writes under `.git` or `node_modules`
+  credential files (`~/.ssh`, `.git/config`), and writes under `.git` or `node_modules`,
+  the [deny overlays](glossary.md#deny-overlays), designed for after the first release
+  (its box leaves the project's `.env*` files and `.git/config` readable
+  and the directories tools own in `node_modules` writable, [threat model](#what-the-first-release-is-for))
 - **never, `-A` included:** reads of a process's environment, memory, and command line
   (`/proc/*/environ`, `/proc/*/mem`, `/proc/*/cmdline`), the always-on part of the read-deny overlay
 - **under `gro eval`:** the module files of its project and linked packages, read-only (the kernel admits those trees whole today, [eval](eval.md#the-box)), with no network, writes, env, or spawn,
@@ -137,7 +140,7 @@ A widening of the second kind is a diff accepted in review, and the first kind h
 
 The exceptions are explicit and labeled.
 `-A` is the one flag that widens everything but the always-on deny overlay (designed), never a default; some grants are as strong (any program until children are boxed, a child's whole environment) and are shown that way.
-As designed, a tool built on the runtime names unconfined phases, like Gro's `publish` and `deploy`,
+As designed, a tool built on the runtime names unconfined phases, like Gro's `publish`, `deploy`, `commit`, and `changeset`,
 which push and use credentials;
 they're shown that way in the policy diff, with credentials passed to the one process that needs them.
 
@@ -154,7 +157,7 @@ and so obtain capabilities it was never handed.
 A builtin module's own code passes through none of them: it runs when a run first imports the module, which can be after such a patch,
 and it takes every intrinsic it uses from references the runtime took before any user code ran, using none whose work reads a prototype such a patch can reach ([host modules](host_modules.md#native-requirements)).
 Against a dependency treated as hostile the realm isn't the boundary,
-and freezing the intrinsics is a hardening the design hasn't made the default ([open questions](#open-questions)).
+and freezing the intrinsics, adopted for confined runs, isn't built ([open questions](#open-questions)).
 
 ### Friction and costs
 
@@ -247,10 +250,14 @@ so a write grant on the project is as wide as that command's reach.
 A plain `gro check`, without `--install` or `--build`, writes no source on either runtime.
 It runs `gen` and `format` in check mode, and verifies the install and `package.json` without writing them, failing with the fix
 ([task](task.md#a-builtins-host-and-grants)).
+`gro gen --check` and `gro format --check` write none either.
 On Node that's what Gro's own code does, not a protection, since the config, a genfile, or a test it runs can write anything your user can.
-On the binary the check mode is data the box is designed to take its write roots from,
+On the binary the check mode is data the box is designed to take its write roots from.
+The [command's closure](glossary.md#commands-closure), read natively before any JS runs (built, run by no command yet),
+drops the writes on the project of `check`'s `gen` and `format`, and of a `gen --check` or `format --check` run on its own,
 so in the project a boxed `check` could write only `.svelte-kit`, fuz_css's `.fuz/cache`, and the tool directories in `node_modules` named below,
-and a test it runs couldn't rewrite a source, a workflow, or `package.json`.
+a boxed `gen --check` or `format --check` no more than that,
+and a test or genfile any of them runs couldn't rewrite a source, a workflow, or `package.json`.
 A command granted a write on the project, like `gen`, `format`, or `sync`, reaches as far as the next unconfined command that runs what it wrote.
 
 ### What the first release is for
@@ -350,7 +357,7 @@ Nothing mechanical checks that hand, so a root passing a whole handle where a na
 What it buys is a bound per callee rather than per origin, like one subdirectory or one of the accepted hosts,
 and it binds only code whose origin isn't granted the host module itself:
 a dependency holds what it's handed, while a project module can import whatever the project is granted,
-so for first-party code a narrowed handle is a convention review reads, not a limit.
+so for first-party code a narrowed handle is a [guardrail](glossary.md#guardrail) against mistakes, not a limit.
 A grant limits what code can obtain, never what it's given,
 so even enforced per package it bounds the importer, not the code the importer hands to.
 
@@ -399,11 +406,11 @@ The design doesn't have every answer, and these are the ones it knows it's missi
   since their startup, memory, and compatibility costs weigh against speed and ergonomics.
   What the opt-in tier looks like is undecided, the limit is stated in the meantime, and the gate suite carries a probe either way.
 - **Freezing the intrinsics in the one realm.** Separate realms are the costly option above; freezing the shared prototypes
-  in the single realm needs no second realm and the seal already has a named-exception mechanism,
-  so whether lockdown is the default for third-party and agent-authored code, with a measured compatibility cost, is a separate decision, undecided.
+  in the single realm needs no second realm, and the seal already has a named-exception mechanism.
+  Lockdown, that freezing, is adopted for every confined run, its spike and its build after the first release.
+  How lockdown meets the seal, and how a package that patches a prototype opts out at a measured compatibility cost, stay open.
 - **Free names through the global's prototype.** `Object.prototype.fetch = …` makes a free `fetch` resolve
   without touching the seal; how to close that, and at what cost to compatibility, is undecided.
-- **Which files under the project are secrets.** `.env*`, credential files, and `.git/config` are denied by the read overlay;
+- **Which files under the project are secrets.** `.env*`, credential files, and `.git/config` are designed to be denied by the read overlay, which isn't built;
   a project `.npmrc` token, `*.pem`, `.git/objects` (every secret ever committed), and the depth the overlay applies at are not yet listed,
   and a pre-accepted write to a build root plus an unconfined `deploy` is a path out for any of them.
-- **Where the builtins' grants live**, for Gro's own workflow ([runtime](runtime.md#gros-workflow-on-the-runtime)).

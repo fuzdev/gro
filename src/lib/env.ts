@@ -17,7 +17,7 @@
  * the runtime's builtin, which it documents rather than the API weakening to match:
  *
  * - The global `process` stays, and any module can read `process.env`,
- *   so a narrowed `Env` bounds only code that uses it, a review signal, not a boundary.
+ *   so a narrowed `Env` holds only code that uses it, a guardrail against mistakes, not a boundary.
  * - The root `Env` allows every name, where the runtime's holds only the granted ones
  *   (every name under `fgro run -A`) and a name outside them throws `not_granted`.
  * - A `not_granted` is only thrown here, where on the runtime it also fails the run,

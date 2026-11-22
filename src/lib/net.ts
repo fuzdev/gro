@@ -21,7 +21,7 @@
  * - The hostname is checked, not the address it connects to, so a granted name resolving to a
  *   private range, or rebinding between requests, isn't refused.
  * - The globals stay: any module can call the global `fetch` or import `node:http`,
- *   so a handle bounds only code that uses it, a review signal, not a boundary.
+ *   so a handle holds only code that uses it, a guardrail against mistakes, not a boundary.
  * - The root handle allows every host, where the runtime's holds only the accepted ones.
  * - Following relies on Node exposing a `manual` response's status and `Location`,
  *   where the Fetch standard filters them behind an `opaqueredirect`.

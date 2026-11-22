@@ -235,12 +235,14 @@ so a module re-exporting the `task` carries them:
   which run as the project's code
 - `invokes` - the builtins it invokes, by name, each a `BuiltinInvokeGrant`, `{}` or marked:
   `when` names a boolean arg of the invoking task that the invoke runs only under,
-  so a command's closure holds the invoked builtin only when its args set it,
+  so a [command's closure](glossary.md#commands-closure) holds the invoked builtin only when its args set it,
   like `check`'s `build: {when: 'build'}` and `sync: {when: 'install'}`,
   a plain `gro check` holding neither;
   `check: true` marks an invoke in check mode, writing no source, so the closure holds the invoked
   builtin, and the builtins it invokes in turn, without their writes to the project,
-  like `check`'s `gen` and `format`, run with `check: true`; it's data for a runtime
+  like `check`'s `gen` and `format`, run with `check: true`,
+  and a builtin some invoke marks `check: true`, run as the command itself with `--check`
+  (`gro gen --check`, `gro format --check`), takes the same check mode; it's data for a runtime
   that holds a command to its closure, which nothing enforces on Node
 
 The genfile that writes the builtin summaries also writes them as `GRO_BUILTIN_TASK_GRANTS`
@@ -254,7 +256,7 @@ loading the config through it, and every command's closure holds it
 beside the grants of the builtins the command runs.
 The genfile writes both again as JSON, `src/builtin_grants.json`,
 for the binary to read natively, before any JS runs
-(`gro_runtime::verb` reads it into a command line's closure),
+(`gro_runtime::verb` reads it into a command's closure, built and run by no command yet),
 the two renders held equal by a test.
 `run_task` cuts the root's handles by `GRO_BUILTIN_TASK_GRANTS` into the builtin's `host`,
 a `BuiltinTaskContext` field present only on a builtin's context:

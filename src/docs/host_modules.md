@@ -1263,7 +1263,7 @@ Gro's tooling, not the module, guards what it removes and writes:
 Where a gap below says what the runtime does, that's its design, not yet built.
 The types are the runtime's, and the Node implementation runs the same ops,
 but Node can't enforce what the runtime will.
-It documents each gap rather than weakening the API to match, and is a review signal, not a boundary:
+It documents each gap rather than weakening the API to match, and its checks are a [guardrail](glossary.md#guardrail) against mistakes, not a boundary:
 
 - Confinement is a check, then an open: a path is walked beneath the handle's directory,
   reading each symlink, then the op runs. A symlink swapped in between escapes, since Node has no `openat2`.
@@ -1294,7 +1294,7 @@ It documents each gap rather than weakening the API to match, and is a review si
 - `fs.open_dir` and `fs.real_path` take any absolute path, checked against no grant,
   so no op throws `not_granted`, which the runtime's throws for a reach outside the run's grants.
 - Any module can import `node:fs` and the `process` global stays,
-  so a narrowed handle bounds only the code that uses handles.
+  so a narrowed handle holds only the code that uses handles.
 - `fs.project` is the working directory when the module loads, as for the cwd host module's `cwd`,
   so importing the module throws when the working directory has been removed.
   The runtime's is the entry's [project root](glossary.md#project-root), and spawn's project root with it,
@@ -1350,12 +1350,12 @@ It documents each gap rather than weakening the API to match, and is a review si
 - The signal hook runs on the event loop, so a host stuck in synchronous code delays the kill of a group until it yields.
 - `spawn`, like `fs`, reads the project root when the module loads, so importing it throws
   in a removed or non-UTF-8 working directory.
-- Any module can import `node:child_process`, so a narrowed `spawn` bounds only the code that uses it.
+- Any module can import `node:child_process`, so a narrowed `spawn` holds only the code that uses it.
 
 ### The process modules
 
 - The global `process` stays, so any module can read `process.env` or call `process.exit`,
-  and a narrowed `Env` bounds only the code that uses it.
+  and a narrowed `Env` holds only the code that uses it.
 - The root `Env` allows every name. The runtime's holds only the granted names, and a name outside them throws `not_granted`.
 - The snapshot is taken when `env.ts` loads, so a write to `process.env` made before that shows.
 - `args` under `node -e` and `node -p` depends on the undocumented `process._eval`, since no documented API says the process has no script.
@@ -1373,7 +1373,7 @@ It documents each gap rather than weakening the API to match, and is a review si
 ### net
 
 - The hostname is checked, not the address it connects to, so a granted name resolving to a private range, or rebinding between requests, isn't refused.
-- The global `fetch` stays, and any module can import `node:http` or `node:net`, so a handle bounds only the code that uses it.
+- The global `fetch` stays, and any module can import `node:http` or `node:net`, so a handle holds only the code that uses it.
 - The root handle allows every host, where the runtime's holds only the accepted ones.
 - Following relies on Node exposing a `manual` response's status and `Location`, where the Fetch standard filters them behind an `opaqueredirect`.
 - A dispatcher placed at undici's global key reroutes every send, as for the global `fetch`, and a missing one rejects rather than sends past it.
@@ -1424,7 +1424,7 @@ It documents each gap rather than weakening the API to match, and is a review si
   naming no entry the handle reaches, and listing its directory through the handle fails with `io_error`.
 - Node exposes no kernel overflow, so a `rescan` comes only from `max_pending` and a directory that couldn't be watched, never from events the kernel dropped.
   A directory that can't be read when the watch starts stays unwatched after it's readable.
-- Any module can import `node:fs` and watch any path, so a handle bounds only the code that uses it.
+- Any module can import `node:fs` and watch any path, so a handle holds only the code that uses it.
 
 ## Native requirements
 
@@ -1506,11 +1506,11 @@ what can fail for a reason of the run's fails in what the module exports, as `cw
 - Inherit only fds 0, 1, and 2 into the child (built: a run that grants a program marks every descriptor it inherited
   above stderr close-on-exec before anything runs, and what the runtime opens is close-on-exec already).
 - Confine the child with the run's kernel rules:
-  the project and the linked packages readable, only the declared write roots writable (the tool's own cache directory among them), never the project root,
-  TCP on the granted ports, and seccomp denying unix sockets, UDP, new namespaces, and terminal input injection (`TIOCSTI`, `TIOCLINUX`)
-  unless a grant names them ([backstop](backstop.md#the-box-for-runs-and-children)) (designed; a child runs unboxed).
-- Give a child that needs `/proc` a further Landlock layer of its own before it runs, so the runtime's process falls outside the child's domain
-  and its environment stays unreadable (designed).
+  the project and the linked packages readable, only the run's write roots writable (the tool directories among them), never the project root,
+  the network the run's own loopback (or, where user namespaces are restricted, no internet socket), and seccomp refusing unix sockets by path, nested user namespaces, and terminal input injection (`TIOCSTI`, `TIOCLINUX`)
+  ([backstop](backstop.md#the-box-for-runs-and-children)) (built in parts and installed by no command, so a child runs unboxed).
+- Keep the runtime's own environment and memory from a child that can read `/proc`:
+  the run marks itself not dumpable before its box goes up (built in the box's steps, installed by no command).
 - Hand the child a `PATH` filtered to absolute entries (built).
 - Refuse a name or argument holding a NUL byte or a lone surrogate before it reaches the kernel (built).
 - Report a child killed by any signal, real-time ones included, from what `waitid` reports on its pidfd (built).

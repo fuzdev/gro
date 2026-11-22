@@ -44,8 +44,12 @@
 //! (`kernel.apparmor_restrict_unprivileged_userns`) is told before
 //! `unshare`, as [`Refusal::AppArmor`]: under it, `unshare` succeeds for an
 //! unconfined process and the policy then denies every capability in the
-//! new namespace, so the maps' writes would fail and strand it (inferred
-//! from `AppArmor`'s design: no test here runs with the setting on).
+//! new namespace, so the maps' writes would fail and strand it.
+//! `gro_cli`'s `run_box` test holds this where the setting is on, as CI
+//! runs it: there an `unshare` with no check first must strand or be
+//! refused (on CI's runner it strands at the `setgroups` write with
+//! `EACCES`), and the box goes up in the host's network with this refusal
+//! as its cause.
 //!
 //! # Precondition and order
 //!
@@ -114,8 +118,8 @@ pub enum Refusal {
     /// process: unconfined, and holding no `CAP_SYS_ADMIN`. Found before
     /// `unshare`, which would succeed and strand the process, as the
     /// [module doc](self) says; or, past that, an `unshare` refused under
-    /// the setting. Inferred from `AppArmor`'s design: no test here runs
-    /// on a kernel with the setting on.
+    /// the setting. `gro_cli`'s `run_box` test holds the first where the
+    /// setting is on.
     #[error(
         "AppArmor restricts unprivileged user namespaces \
          (kernel.apparmor_restrict_unprivileged_userns is 1)"

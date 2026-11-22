@@ -49,14 +49,15 @@ each with what defeats it, like an engine exploit for the runtime's own checks (
 
 ## box
 
-The kernel rules (Landlock and seccomp) a process is held in on Linux.
+The kernel rules (Landlock and seccomp, and for a run a network namespace) a process is held in on Linux.
 `fgro eval`'s box is built, installed from the process's one thread before V8 starts, after it closes every descriptor it inherited above stderr:
 file contents read-only to the [project root](#project-root) and its [link closure](#link-closure)
 (a path's metadata stays readable everywhere),
 no write, no execution, no network,
 and no signal outside it, nor a resource limit, priority, or scheduling set at all.
 The first built part of the [kernel backstop](#kernel-backstop) ([eval](eval.md#the-box)).
-The box for runs and their children is designed ([backstop](backstop.md#the-box-for-runs-and-children)).
+The run's box is built in parts and installed by no command yet, and a box for each child inside it is designed
+([backstop](backstop.md#the-box-for-runs-and-children)).
 
 ## builtin module
 
@@ -68,6 +69,20 @@ while one that needs none (`cwd`, `pid`, `runtime_version`, `blake3`, `tsv`, and
 `fgro eval` imports none, and a package's modules can't reach a granted one through a project module they import by name.
 Not a builtin task, which Gro's CLI runs by name.
 [resolver](resolver.md#builtin-modules) has the rules.
+
+## command's closure
+
+What one of Gro's commands runs and may reach, read from its command line before any JS runs:
+the builtins it runs, each builtin's `invokes` joined in turn as their marks allow
+(one marked `when` only when the command's args set that arg, and one marked `check` without its writes,
+as is the command itself under `--check` when an invoke anywhere marks it `check`, like `gro gen --check`),
+and the union of their grants with the CLI's own row,
+or why the command runs on the Node Gro instead, like a builtin that declares no grants, an install, or a project task.
+The grant flags sit beside it.
+The binary reads it natively from the grants table it carries (`gro_runtime::verb`), built and run by no command yet,
+as the [boundary](#boundary) for what grants a run of the command gets, once a run is held to it;
+what it can't bound is the union itself, which the command line chose.
+Not the [link closure](#link-closure). [task](task.md#a-builtins-host-and-grants) has the marks.
 
 ## composition root
 
@@ -212,11 +227,12 @@ V8 running JS in its interpreter alone, with no JIT and no `WebAssembly`:
 
 ## kernel backstop
 
-On Linux, a coarsening of the grant set enforced as kernel rules (Landlock and seccomp),
+On Linux, a coarsening of the grant set enforced as kernel rules (Landlock and seccomp, and for a run a namespace),
 installed before V8 starts and inherited by every child process.
 It's coarser than the runtime's own checks (hierarchies and ports, not single files or hostnames),
 so it backs them up rather than replacing them.
-Built so far as `fgro eval`'s [box](#box); [backstop](backstop.md) has the design for the rest.
+Built so far as `fgro eval`'s [box](#box), with the run's box built in parts and installed by no command;
+[backstop](backstop.md) has the design for the rest.
 
 ## link closure
 
@@ -248,11 +264,16 @@ or enters another root nested in it, and `"exports"` targets and self-references
 
 ## pin
 
-In `spawn`, what a granted program's name resolves to, held for the run so a later change on disk never changes which file a handle runs:
+In `spawn`, what a granted program's name resolves to, held for the run:
 the file found (on `PATH` for a bare name, beneath the [project root](#project-root) for one holding `/`), its identity, and its real path,
-and for a native binary a descriptor on it, which it runs by; a script keeps none and runs by the path it was found at.
-A pin holds the file's identity, not its content: a file rewritten in place is still the file pinned and runs as rewritten,
-while one replaced, removed, or made at its path since isn't seen.
+and on `fgro` for a native binary a descriptor on it, which it runs by; a script keeps none and runs by the path it was found at.
+On `fgro` a pin also holds the file's change time (`ctime`), checked with its identity as it launches,
+so a later change on disk never changes which file a handle runs:
+a file replaced, removed, or made at its path since is never what it runs,
+and one rewritten in place, which keeps its identity, is refused, as is one whose mode, owner, or links changed,
+short of a change within the filesystem clock's tick of the file's last change before the pin.
+On Node a script's pin holds its identity alone, so one rewritten in place runs as rewritten,
+and a native binary replaced at its path runs the new file ([host modules](host_modules.md#the-node-implementations-gaps)).
 `fgro run` pins each program `--allow-run=` names as the run starts, before any module evaluates, a name that finds nothing included;
 under `-A`, and on Node, a name is pinned when a handle is made of it ([host modules](host_modules.md#spawn-on-fgro)).
 It isn't a release binary's hash pin, the hash a caller checks an `fgro` file against ([eval](eval.md#the-envelope)).
@@ -349,7 +370,7 @@ like `dist/esm/package.json`. It sets a directory's module format without boundi
 ## unconfined
 
 The [run kind](#run-kinds) under `-A` or a named unconfined phase (designed),
-like Gro's `publish` and `deploy`, which push and use credentials:
+like Gro's `publish`, `deploy`, `commit`, and `changeset`, which push and use credentials:
 every grant at its widest, with no global added and native code still out of process.
 
 ## write root

@@ -107,10 +107,12 @@ Two limits belong beside that claim, and one cost.
 The cost is that `fetch`, `WebSocket`, and `EventSource` are imports on the host's `net` handle, never globals,
 so a package that reaches the network only through the global doesn't run on Gro
 ([imports or globals](authority.md#imports-or-globals) has the trade-off).
-The import boundary holds against code that overreaches, not a dependency built to steal,
-which can patch a shared prototype in the same realm
+For obtaining a host module by import, the import boundary holds against any code,
+since a module whose origin isn't granted one can't link it, short of an engine exploit.
+A dependency built to steal goes around it without importing, by being handed a handle,
+or by patching a shared prototype in the same realm to catch one passing through project code
 (the runtime's [threat model](authority.md#threat-model) says where the bound is then).
-And of all this, the omissions are built (`fgro` has no namespace, no Node compat, and no remote imports),
+And of all this, the omissions are built (`fgro` has no runtime namespace, no Node compat, and no remote imports),
 the link-time grant check by origin is built for the builtin modules, with the grant flags listed in [run](run.md#usage),
 and inference, attribution by package, the other grant flags, and the policy file are designed.
 

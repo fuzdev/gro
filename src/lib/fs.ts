@@ -45,7 +45,7 @@
  *   directory one component at a time, reading each symlink, then the op runs on the
  *   path the walk found, `read_link`, `set_times`, `set_mode`, and `symlink` included.
  *   A symlink swapped in between escapes, since Node has no `openat2`.
- *   The twin is a review signal, not a boundary.
+ *   The twin's confinement is a guardrail against mistakes, not a boundary.
  * - Intrinsics stay pollutable: code that patches `String.prototype`, `Array.prototype`,
  *   or `Promise` after this module loads runs inside its ops. The walk refuses a segment
  *   holding a `/`, so a forged segment can't climb out, and the Node functions it calls
@@ -53,7 +53,7 @@
  * - A handle opened on `/proc` follows its magic links, which the kernel resolves
  *   without a path the walk can check.
  * - `fs.open_dir` and `fs.real_path` take any absolute path, checked against no grant.
- * - Any module can import `node:fs`, so a narrowed handle bounds only code that
+ * - Any module can import `node:fs`, so a narrowed handle holds only code that
  *   uses the handles.
  * - `fs.project` is the working directory when this module loads, the same source
  *   as the cwd host module's `cwd`; `getcwd` returns a path with symlinks resolved. Importing

@@ -75,8 +75,8 @@
  * - Node exposes no kernel overflow, so a `rescan` comes only from `max_pending` and a
  *   directory chokidar couldn't watch, never from events the kernel dropped. A directory that
  *   can't be read when the watch starts stays unwatched after it's readable.
- * - Any module can import `node:fs` and call `watch` on any path, so a handle bounds only
- *   code that uses it, a review signal, not a boundary.
+ * - Any module can import `node:fs` and call `watch` on any path, so a handle holds only
+ *   code that uses it, a guardrail against mistakes, not a boundary.
  *
  * @module
  */

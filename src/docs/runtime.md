@@ -26,7 +26,7 @@ The runtime's docs:
 
 - [runtime](runtime.md) (this doc) - why it exists, the model in a page, the design, and the roadmap
 - [authority](authority.md) - the security model: grants and the policy file, run kinds, what holds by construction, the threat model, imports or globals
-- [backstop](backstop.md) - the kernel layer under the runtime's checks: what Landlock and seccomp hold and can't, why not namespaces, the box designed for runs and children, the terminal, and limits
+- [backstop](backstop.md) - the kernel layer under the runtime's checks: what Landlock and seccomp hold and can't, the one namespace the box takes, the box designed for runs and children, the terminal, and limits
 - [run](run.md) - the reference for `fgro run` as built today: what loads, the globals, errors, and exit codes
 - [eval](eval.md) - the reference for `fgro eval` as built today: the engine and its limits, determinism, the protocol, the box, the driver, the serializer, the envelope, the graph, and exit codes
 - [host modules](host_modules.md) - the imports that reach the OS: `fs`, `spawn`, `net`, `watch`, and the process modules, how to hand them down, and the Node implementation's gaps
@@ -127,7 +127,7 @@ any language compiled to it (see [polyglot confinement](#what-the-design-opens-u
 
 Of all this, the omissions are built (`fgro` has no runtime namespace, no Node compat, no remote imports, and no authority globals),
 `fgro eval`'s box is built, the link-time grant check is built, over the builtin modules [host modules](host_modules.md#the-modules) marks built, which are its only host APIs,
-the grant flags [run](run.md#usage) lists are built, and the rest of the host modules, the other grant flags, the policy file, the seal, and the box for `run` are designed.
+the grant flags [run](run.md#usage) lists are built, and the rest of the host modules, the other grant flags, the policy file, and the seal are designed, and the box for runs is built in parts and installed by no command.
 
 ## Design
 
@@ -203,8 +203,8 @@ Each bullet marks what's built; anything unmarked past the omissions is designed
   with named exceptions ([authority](authority.md#imports-or-globals) has the trade-off and the how-to).
 - **A kernel backstop.** On Linux a coarsening of the grant set also becomes kernel rules for the whole invocation,
   installed before V8 starts a thread and inherited by every child process.
-  Built so far for `fgro eval` alone, as a fixed box with no grants to enforce yet
-  ([eval](eval.md#the-box) has its exact walls; [backstop](backstop.md) has what each layer holds, why not namespaces, and the box designed for runs and children).
+  Installed so far for `fgro eval` alone, as a fixed box with no grants to enforce yet, and the run's box built in parts
+  ([eval](eval.md#the-box) has its exact walls; [backstop](backstop.md) has what each layer holds, the one namespace the box takes, and the box designed for runs and children).
 - **Native code: first-party crates linked in, WASM as the portable path, FFI as a grant.**
   blake3 and tsv are exposed as builtin modules (`@fuzdev/gro/blake3.ts`, `@fuzdev/gro/tsv.ts`), with no boundary to cross.
   Third-party native code arrives as WASM, or as an embedder's own host modules.
@@ -305,11 +305,10 @@ Security is the north star, and neither it nor speed is finished.
 The design's open questions live with the layer they belong to:
 
 - the authority model's, in [authority](authority.md#open-questions): keeping an agent out of the policy file,
-  deterministic scheduling for replay, interposition within one realm and whether to freeze the intrinsics,
+  deterministic scheduling for replay, interposition within one realm and how freezing the intrinsics opts a package out,
   free names through the global's prototype, and which files under the project count as secrets
-- the kernel layer's, in [backstop](backstop.md#open): name resolution for children, a code cache for unconfined runs,
+- the kernel layer's, in [backstop](backstop.md#open): the network for a run granted it, a code cache for unconfined runs,
   children that need `/proc`, hard links, browser tests, and the platforms
-- **where the builtins' grants live**, for Gro's own workflow ([below](#gros-workflow-on-the-runtime))
 - **how a package's reach into the project is accepted**: a package's bare import that resolves into the project root
   is refused (built), so a workspace package that imports the app by name, and a tool package that imports the project's config by name,
   wait on a policy-file acceptance naming the package or on workspace support ([resolver](resolver.md#departures-from-node))
@@ -335,11 +334,12 @@ As designed, except where marked built:
   On the Node Gro it runs advisory first, since Node enforces none of it.
 - Gen files are hermetic by default, with each one's run kind shown in the task listing,
   so a gen file that stops being hermetic is a reviewed diff, and `gro gen --check` becomes a cache probe.
-- `publish` and `deploy` push and use credentials, so they're named unconfined phases.
-- Where the builtins' grants live is open.
-  `gro check` spawns Node tools through Gro's own tasks,
-  so "nothing to declare" holds only once the builtins' grants ship with the binary
-  and a project's policy file holds project tasks alone.
+- `publish`, `deploy`, `commit`, and `changeset` push and use credentials, so they're named unconfined phases.
+- The builtins' grants live in Gro: each builtin's `task.grants`, generated into a table the binary carries
+  and reads into a [command's closure](glossary.md#commands-closure) before any JS runs
+  (built, run by no command yet; [task](task.md#a-builtins-host-and-grants)).
+  So a project's policy file is designed to hold its own tasks alone,
+  and `gro check`, which spawns Node tools through Gro's own tasks, leaves the project nothing to declare for them.
 
 ## Roadmap
 
