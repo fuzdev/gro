@@ -9,6 +9,8 @@
 //! command's, so a flag spelled `--allow-*` there is a task's arg, and
 //! everything from the first `--` is forwarded as written. A `--help` in the
 //! run is kept for the command, as `fgro run` takes it among its flags.
+//! What the flags list is read and checked by [`to_run_grant`], through the
+//! reader `fgro run`'s flags go through ([`RunGrantBuilder`]).
 //!
 //! Kind: the native parse of the trusted command line: it refuses a slip (a
 //! misplaced or misspelled flag) rather than let it quietly become a task's
@@ -20,7 +22,8 @@ use gro_runtime::verb::closure::{RUN_TASK_NAME, is_task_path_input};
 use thiserror::Error;
 
 use crate::cli::{
-    ALLOW_ALL, ALLOW_RUN, ALLOW_RUN_ENV, ALLOW_RUN_IN, ALLOW_TEMP, GrantFlag, ListFlag,
+    ALLOW_ALL, ALLOW_RUN, ALLOW_RUN_ENV, ALLOW_RUN_IN, ALLOW_TEMP, FlagDirs, GrantFlag,
+    GrantListError, ListFlag, RunGrant, RunGrantBuilder,
 };
 use crate::print::{echo_argument, escape_controls};
 
@@ -85,6 +88,10 @@ pub enum GrantFlagsError {
          and `{BINARY_NAME} {RUN_TASK_NAME}` was given neither"
     )]
     RunEnvWithoutRun,
+    /// A flag's list refused, as `fgro run` refuses it, without its help's
+    /// hint.
+    #[error(transparent)]
+    List(#[from] GrantListError),
 }
 
 /// Every grant flag's name, as [`GrantFlagsError::NoGrantFlag`] lists them.
@@ -184,13 +191,38 @@ pub fn split_grant_flags(cli_args: &[String]) -> Result<GrantFlagsSplit, GrantFl
     })
 }
 
+/// What `grant_flags`, the flags [`split_grant_flags`] split off, grant,
+/// and the directories they list, each read and checked as `fgro run`
+/// reads and checks its own ([`RunGrantBuilder`]). `--allow-run-env=` is
+/// taken alone: the split refuses it so for `run`, and it forwards to the
+/// programs a command's closure grants by a list.
+///
+/// # Errors
+///
+/// Returns [`GrantFlagsError::List`] for the first flag whose list `fgro
+/// run` refuses, and [`GrantFlagsError::NoGrantFlag`] for an argument
+/// that's no grant flag, which no split leaves.
+pub fn to_run_grant(grant_flags: &[String]) -> Result<(RunGrant, FlagDirs), GrantFlagsError> {
+    let mut grant = RunGrantBuilder::default();
+    for flag in grant_flags {
+        let parsed = GrantFlag::parse(flag)
+            .ok_or_else(|| GrantFlagsError::NoGrantFlag { flag: flag.clone() })?;
+        grant.add(parsed)?;
+    }
+    Ok(grant.build())
+}
+
 #[cfg(test)]
 mod tests {
     use gro_runtime::BINARY_NAME;
     use serde_json::Value;
 
-    use super::{GrantFlagsError, split_grant_flags};
-    use crate::cli::ListFlag;
+    use std::collections::BTreeSet;
+
+    use gro_runtime::EnvPattern;
+
+    use super::{GrantFlagsError, split_grant_flags, to_run_grant};
+    use crate::cli::{DirFlag, DirFlagFault, FlagDirs, GrantListError, ListFlag, RunGrant};
     use crate::verb::tests::{has_fields, read_fixture, strings};
 
     /// The refusal's kind as the fixture names it, the flag it names, and
@@ -204,6 +236,7 @@ mod tests {
             GrantFlagsError::TakesAList { flag, .. } => ("takes_a_list", Some(flag), None),
             GrantFlagsError::NoGrantFlag { flag } => ("no_grant_flag", Some(flag), None),
             GrantFlagsError::RunEnvWithoutRun => ("run_env_without_run", None, None),
+            GrantFlagsError::List(error) => panic!("the split reads no list: {error}"),
         }
     }
 
@@ -299,5 +332,86 @@ mod tests {
                 ..
             })
         ));
+    }
+
+    /// The verb's grant flags are read by `fgro run`'s reader once the
+    /// split leaves them: a list it refuses is refused, though the split
+    /// passed its spelling; a flag given twice joins one set; `-A` grants
+    /// everything beside it; and `--allow-run-env=` is taken alone.
+    #[test]
+    fn the_verb_s_grant_flags_are_read_as_fgro_run_reads_its_own() {
+        let read = |argv: &[&str]| {
+            let argv: Vec<String> = argv.iter().map(|&arg| arg.to_owned()).collect();
+            to_run_grant(&split_grant_flags(&argv).unwrap().grant_flags)
+        };
+        let set = |items: &[&str]| -> BTreeSet<String> {
+            items.iter().map(|&item| item.to_owned()).collect()
+        };
+        for (argv, flag) in [
+            (["check", "--allow-read=,"], DirFlag::Read),
+            (["check", "--allow-write=a,,b"], DirFlag::Write),
+            (["check", "--allow-run-in=a,"], DirFlag::RunIn),
+        ] {
+            assert!(
+                matches!(read(&argv), Err(GrantFlagsError::List(GrantListError::Dir(refused, DirFlagFault::Empty))) if refused == flag),
+                "{argv:?}"
+            );
+        }
+        assert!(matches!(
+            read(&["check", "--allow-env=A=B"]),
+            Err(GrantFlagsError::List(GrantListError::EnvName(_)))
+        ));
+        assert!(matches!(
+            read(&["check", "--allow-run=../x"]),
+            Err(GrantFlagsError::List(GrantListError::RunName(_)))
+        ));
+        assert!(matches!(
+            read(&["check", "--allow-run-env=*"]),
+            Err(GrantFlagsError::List(GrantListError::RunEnvName(_)))
+        ));
+        assert_eq!(
+            read(&["check", "--allow-read=a,,b"])
+                .unwrap_err()
+                .to_string(),
+            "a --allow-read directory is empty: --allow-read=a,/b lists directories separated \
+             by single commas"
+        );
+        assert!(matches!(
+            to_run_grant(&["--bogus".to_owned()]),
+            Err(GrantFlagsError::NoGrantFlag { flag }) if flag == "--bogus"
+        ));
+        let (grant, dirs) = read(&[
+            "check",
+            "--allow-env=A",
+            "--allow-env=B,A",
+            "--allow-read=x",
+            "--allow-run-env=GIT_*",
+            "--allow-temp",
+            "--",
+            "--allow-read=,",
+        ])
+        .unwrap();
+        assert_eq!(
+            grant,
+            RunGrant::Named {
+                env: set(&["A", "B"]),
+                temp: true,
+                run: BTreeSet::new(),
+                run_env: BTreeSet::from([EnvPattern::Prefix("GIT_".to_owned())]),
+            }
+        );
+        assert_eq!(
+            dirs,
+            FlagDirs {
+                read: set(&["x"]),
+                ..FlagDirs::default()
+            }
+        );
+        assert_eq!(
+            read(&["check", "--allow-env=A", "-A", "--allow-read=y"])
+                .unwrap()
+                .0,
+            RunGrant::All
+        );
     }
 }

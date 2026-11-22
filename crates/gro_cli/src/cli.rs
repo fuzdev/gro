@@ -10,6 +10,7 @@ use std::time::Duration;
 use argh::{CommandInfo, EarlyExit, FromArgs, SubCommand};
 use gro_runtime::confine::Jit;
 use gro_runtime::{BINARY_NAME, EnvNameFault, EnvPattern, EnvPatternFault, env_name_fault};
+use thiserror::Error;
 
 use crate::error::CliError;
 use crate::print::{echo_argument, escape_controls};
@@ -323,31 +324,18 @@ impl RunInvocation {
     /// one set, the last only beside one of the others; and `-A`, which
     /// grants everything, so names, directories, and `--allow-temp` given
     /// beside it are checked and add nothing. A file starting with `-`
-    /// comes after `--`.
+    /// comes after `--`. The grant flags are read by [`RunGrantBuilder`],
+    /// as the verb's are.
     ///
     /// # Errors
     ///
     /// Returns the usage error, checked in the order the arguments come: an
-    /// option before the file that isn't one of these (a bare `--allow-env`,
-    /// `--allow-read`, or `--allow-write` among them, which grants
-    /// nothing, and `--allow-temp` given a value), a name `--allow-env=`
-    /// lists that no variable can have
-    /// ([`check_env_flag_names`]), a directory `--allow-read=`,
-    /// `--allow-write=`, or `--allow-run-in=` lists that no path can be
-    /// ([`check_dir_flag`]), a
-    /// name `--allow-run=` lists that names no program it can grant
-    /// ([`check_run_flag_names`]), or one `--allow-run-env=` lists that
-    /// names no variable or glob ([`check_run_env_flag_names`]); then
-    /// `--allow-run-env=` without `--allow-run=` or `--allow-run-in=`; then
-    /// no file.
+    /// option before the file that isn't one of these, or a grant flag
+    /// [`RunGrantBuilder::add`] refuses; then `--allow-run-env=` without
+    /// `--allow-run=` or `--allow-run-in=`; then no file.
     fn check(args: RunArgs) -> Result<Task, CliError> {
         let mut help = false;
-        let mut all = false;
-        let mut temp = false;
-        let mut env = BTreeSet::new();
-        let mut run = BTreeSet::new();
-        let mut run_env = BTreeSet::new();
-        let mut dirs = FlagDirs::default();
+        let mut grant = RunGrantBuilder::default();
         let mut args = args.args.into_iter();
         let file = loop {
             let Some(arg) = args.next() else {
@@ -361,56 +349,179 @@ impl RunInvocation {
                 break args.next();
             }
             match GrantFlag::parse(&arg) {
-                Some(GrantFlag::All) => all = true,
-                Some(GrantFlag::Temp) => temp = true,
-                Some(GrantFlag::TempWithValue) => return Err(CliError::AllowTempValue),
-                Some(GrantFlag::List(flag, None)) => {
-                    return Err(match flag {
-                        ListFlag::Env => CliError::AllowEnvBare,
-                        ListFlag::Read => CliError::AllowDirsBare(DirFlag::Read),
-                        ListFlag::Write => CliError::AllowDirsBare(DirFlag::Write),
-                        ListFlag::Run => CliError::AllowRunBare,
-                        ListFlag::RunIn => CliError::AllowDirsBare(DirFlag::RunIn),
-                        ListFlag::RunEnv => CliError::AllowRunEnvBare,
-                    });
-                }
-                Some(GrantFlag::List(flag, Some(listed))) => match flag {
-                    ListFlag::Env => env.extend(check_env_flag_names(listed)?),
-                    ListFlag::Read => dirs.read.extend(check_dir_flag(DirFlag::Read, listed)?),
-                    ListFlag::Write => dirs.write.extend(check_dir_flag(DirFlag::Write, listed)?),
-                    ListFlag::Run => run.extend(check_run_flag_names(listed)?),
-                    ListFlag::RunIn => {
-                        dirs.run_in.extend(check_dir_flag(DirFlag::RunIn, listed)?);
-                    }
-                    ListFlag::RunEnv => run_env.extend(check_run_env_flag_names(listed)?),
-                },
+                Some(flag) => grant.add(flag)?,
                 None if arg.starts_with('-') => return Err(CliError::RunOption(arg)),
                 None => break Some(arg),
             }
         };
-        if !run_env.is_empty() && run.is_empty() && dirs.run_in.is_empty() {
+        if grant.run_env_alone() {
             return Err(CliError::AllowRunEnvAlone);
         }
         match (help, file) {
             (true, _) => Ok(Task::Help(run_help())),
             (false, None) => Err(CliError::RunNoFile),
-            (false, Some(file)) => Ok(Task::Run(Self {
-                file: PathBuf::from(file),
-                args: args.collect(),
-                grant: if all {
-                    RunGrant::All
-                } else {
-                    RunGrant::Named {
-                        env,
-                        temp,
-                        run,
-                        run_env,
-                    }
-                },
-                dirs,
-            })),
+            (false, Some(file)) => {
+                let (grant, dirs) = grant.build();
+                Ok(Task::Run(Self {
+                    file: PathBuf::from(file),
+                    args: args.collect(),
+                    grant,
+                    dirs,
+                }))
+            }
         }
     }
+}
+
+/// The grant flags read one at a time into what they grant, each checked
+/// as it's added: the one reading of a grant list, `fgro run`'s flags
+/// before its file and the verb's after its command word
+/// (`verb::grant_flags::to_run_grant`) alike.
+#[derive(Debug, Default)]
+pub struct RunGrantBuilder {
+    /// Whether `-A` was given.
+    all: bool,
+    /// Whether `--allow-temp` was given.
+    temp: bool,
+    /// The names `--allow-env=` lists.
+    env: BTreeSet<String>,
+    /// The names `--allow-run=` lists.
+    run: BTreeSet<String>,
+    /// The names and globs `--allow-run-env=` lists.
+    run_env: BTreeSet<EnvPattern>,
+    /// The directories the directory flags list.
+    dirs: FlagDirs,
+}
+
+impl RunGrantBuilder {
+    /// Adds `flag`, what it lists checked: `-A`, which grants everything,
+    /// so what's given beside it is checked and adds nothing; `--allow-temp`;
+    /// or a flag that lists, its names or directories joining the ones
+    /// listed before.
+    ///
+    /// # Errors
+    ///
+    /// Returns the usage error for a bare flag that lists, which grants
+    /// nothing, `--allow-temp` given a value, a name `--allow-env=` lists
+    /// that no variable can have ([`check_env_flag_names`]), a directory
+    /// `--allow-read=`, `--allow-write=`, or `--allow-run-in=` lists that
+    /// no path can be ([`check_dir_flag`]), a name `--allow-run=` lists
+    /// that names no program it can grant ([`check_run_flag_names`]), or
+    /// one `--allow-run-env=` lists that names no variable or glob
+    /// ([`check_run_env_flag_names`]).
+    pub fn add(&mut self, flag: GrantFlag<'_>) -> Result<(), GrantListError> {
+        match flag {
+            GrantFlag::All => self.all = true,
+            GrantFlag::Temp => self.temp = true,
+            GrantFlag::TempWithValue => return Err(GrantListError::TempValue),
+            GrantFlag::List(flag, None) => {
+                return Err(match flag {
+                    ListFlag::Env => GrantListError::EnvBare,
+                    ListFlag::Read => GrantListError::DirsBare(DirFlag::Read),
+                    ListFlag::Write => GrantListError::DirsBare(DirFlag::Write),
+                    ListFlag::Run => GrantListError::RunBare,
+                    ListFlag::RunIn => GrantListError::DirsBare(DirFlag::RunIn),
+                    ListFlag::RunEnv => GrantListError::RunEnvBare,
+                });
+            }
+            GrantFlag::List(flag, Some(listed)) => match flag {
+                ListFlag::Env => self.env.extend(check_env_flag_names(listed)?),
+                ListFlag::Read => self
+                    .dirs
+                    .read
+                    .extend(check_dir_flag(DirFlag::Read, listed)?),
+                ListFlag::Write => self
+                    .dirs
+                    .write
+                    .extend(check_dir_flag(DirFlag::Write, listed)?),
+                ListFlag::Run => self.run.extend(check_run_flag_names(listed)?),
+                ListFlag::RunIn => self
+                    .dirs
+                    .run_in
+                    .extend(check_dir_flag(DirFlag::RunIn, listed)?),
+                ListFlag::RunEnv => self.run_env.extend(check_run_env_flag_names(listed)?),
+            },
+        }
+        Ok(())
+    }
+
+    /// Whether `--allow-run-env=` listed variables with neither
+    /// `--allow-run=` nor `--allow-run-in=` listing anything, so no
+    /// program the flags grant is passed them: a usage error where the
+    /// flags alone grant programs, as `fgro run`'s do.
+    pub fn run_env_alone(&self) -> bool {
+        !self.run_env.is_empty() && self.run.is_empty() && self.dirs.run_in.is_empty()
+    }
+
+    /// What the flags added grant, and the directories they list.
+    pub fn build(self) -> (RunGrant, FlagDirs) {
+        let grant = if self.all {
+            RunGrant::All
+        } else {
+            RunGrant::Named {
+                env: self.env,
+                temp: self.temp,
+                run: self.run,
+                run_env: self.run_env,
+            }
+        };
+        (grant, self.dirs)
+    }
+}
+
+/// Why a grant flag's list is refused, as [`RunGrantBuilder::add`] checks
+/// it: `fgro run`'s usage error ([`CliError::GrantList`]), which adds its
+/// help's hint, and the verb's ([`GrantFlagsError::List`]), which doesn't.
+///
+/// [`GrantFlagsError::List`]: crate::verb::grant_flags::GrantFlagsError::List
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum GrantListError {
+    /// `--allow-env` with no names, which grants none.
+    #[error("{ALLOW_ENV} takes the names it grants, as {ALLOW_ENV}=A,B")]
+    EnvBare,
+    /// `--allow-env=` listing a name no variable can have.
+    #[error("{0}")]
+    EnvName(EnvFlagFault),
+    /// `--allow-read`, `--allow-write`, or `--allow-run-in` with no
+    /// directories, which grants none.
+    #[error("{0} takes the directories it grants, as {0}=a,/b")]
+    DirsBare(DirFlag),
+    /// `--allow-temp=` with a value, which it takes none of; the value isn't
+    /// echoed.
+    #[error(
+        "{ALLOW_TEMP} takes no value: it grants fresh directories under the OS's temporary \
+         directory, as {ALLOW_TEMP}"
+    )]
+    TempValue,
+    /// `--allow-run` with no names, which grants none.
+    #[error("{ALLOW_RUN} takes the programs it grants, as {ALLOW_RUN}=git,cargo")]
+    RunBare,
+    /// `--allow-run=` listing a name it can't grant.
+    #[error("{0}")]
+    RunName(RunFlagFault),
+    /// `--allow-run-env` with no names, which passes none.
+    #[error(
+        "{ALLOW_RUN_ENV} takes the variables it lets programs be passed, as \
+         {ALLOW_RUN_ENV}=A,B_*"
+    )]
+    RunEnvBare,
+    /// `--allow-run-env=` listing a name that names no variable or glob.
+    #[error("{0}")]
+    RunEnvName(RunEnvFlagFault),
+    /// `--allow-read=`, `--allow-write=`, or `--allow-run-in=` listing a
+    /// path that names nothing.
+    #[error(
+        "{}",
+        match .1 {
+            DirFlagFault::Empty => format!(
+                "a {0} directory is empty: {0}=a,/b lists directories separated by single \
+                 commas",
+                .0
+            ),
+            DirFlagFault::Nul => format!("a {} directory holds a NUL byte", .0),
+        }
+    )]
+    Dir(DirFlag, DirFlagFault),
 }
 
 /// The names `--allow-env=` lists in `names`, split at each comma, each
@@ -419,15 +530,15 @@ impl RunInvocation {
 ///
 /// # Errors
 ///
-/// Returns [`CliError::AllowEnvName`] for the first name that breaks it.
-fn check_env_flag_names(names: &str) -> Result<Vec<String>, CliError> {
+/// Returns [`GrantListError::EnvName`] for the first name that breaks it.
+fn check_env_flag_names(names: &str) -> Result<Vec<String>, GrantListError> {
     names
         .split(',')
         .map(|name| {
             env_name_fault(name, false).map_or_else(
                 || Ok(name.to_owned()),
                 |fault| {
-                    Err(CliError::AllowEnvName(match fault {
+                    Err(GrantListError::EnvName(match fault {
                         EnvNameFault::Glob => EnvFlagFault::Glob(name.to_owned()),
                         EnvNameFault::Empty => EnvFlagFault::Empty,
                         EnvNameFault::Nul => EnvFlagFault::Nul,
@@ -483,8 +594,8 @@ impl std::fmt::Display for EnvFlagFault {
 ///
 /// # Errors
 ///
-/// Returns [`CliError::AllowRunName`] for the first name that breaks it.
-fn check_run_flag_names(names: &str) -> Result<Vec<String>, CliError> {
+/// Returns [`GrantListError::RunName`] for the first name that breaks it.
+fn check_run_flag_names(names: &str) -> Result<Vec<String>, GrantListError> {
     names
         .split(',')
         .map(|name| {
@@ -501,7 +612,7 @@ fn check_run_flag_names(names: &str) -> Result<Vec<String>, CliError> {
             } else {
                 return Ok(name.to_owned());
             };
-            Err(CliError::AllowRunName(fault))
+            Err(GrantListError::RunName(fault))
         })
         .collect()
 }
@@ -574,14 +685,14 @@ impl std::fmt::Display for RunFlagFault {
 ///
 /// # Errors
 ///
-/// Returns [`CliError::AllowRunEnvName`] for the first that names
+/// Returns [`GrantListError::RunEnvName`] for the first that names
 /// neither.
-fn check_run_env_flag_names(names: &str) -> Result<Vec<EnvPattern>, CliError> {
+fn check_run_env_flag_names(names: &str) -> Result<Vec<EnvPattern>, GrantListError> {
     names
         .split(',')
         .map(|name| {
             EnvPattern::parse(name).map_err(|fault| {
-                CliError::AllowRunEnvName(match fault {
+                GrantListError::RunEnvName(match fault {
                     EnvPatternFault::Name(EnvNameFault::Empty) => RunEnvFlagFault::Empty,
                     EnvPatternFault::Name(EnvNameFault::Nul) => RunEnvFlagFault::Nul,
                     EnvPatternFault::Name(EnvNameFault::Equals) => RunEnvFlagFault::Equals,
@@ -672,15 +783,15 @@ impl std::fmt::Display for DirFlag {
 ///
 /// # Errors
 ///
-/// Returns [`CliError::AllowDir`] for the first directory that breaks it.
-fn check_dir_flag(flag: DirFlag, listed: &str) -> Result<Vec<String>, CliError> {
+/// Returns [`GrantListError::Dir`] for the first directory that breaks it.
+fn check_dir_flag(flag: DirFlag, listed: &str) -> Result<Vec<String>, GrantListError> {
     listed
         .split(',')
         .map(|dir| {
             if dir.is_empty() {
-                Err(CliError::AllowDir(flag, DirFlagFault::Empty))
+                Err(GrantListError::Dir(flag, DirFlagFault::Empty))
             } else if dir.contains('\0') {
-                Err(CliError::AllowDir(flag, DirFlagFault::Nul))
+                Err(GrantListError::Dir(flag, DirFlagFault::Nul))
             } else {
                 Ok(dir.to_owned())
             }
@@ -947,7 +1058,7 @@ mod tests {
     use gro_runtime::BINARY_NAME;
 
     use super::{
-        DirFlag, DirFlagFault, EnvFlagFault, FlagDirs, Invocation, RUN_DESCRIPTION,
+        DirFlag, DirFlagFault, EnvFlagFault, FlagDirs, GrantListError, Invocation, RUN_DESCRIPTION,
         RunEnvFlagFault, RunFlagFault, RunGrant, Task, parse, run_help,
     };
     use crate::error::CliError;
@@ -963,23 +1074,23 @@ mod tests {
         NoFile,
         /// [`CliError::RunOption`], naming the option.
         Option(String),
-        /// [`CliError::AllowEnvBare`].
+        /// [`GrantListError::EnvBare`].
         AllowEnvBare,
-        /// [`CliError::AllowEnvName`].
+        /// [`GrantListError::EnvName`].
         AllowEnvName(EnvFlagFault),
-        /// [`CliError::AllowDirsBare`].
+        /// [`GrantListError::DirsBare`].
         AllowDirsBare(DirFlag),
-        /// [`CliError::AllowDir`].
+        /// [`GrantListError::Dir`].
         AllowDir(DirFlag, DirFlagFault),
-        /// [`CliError::AllowTempValue`].
+        /// [`GrantListError::TempValue`].
         AllowTempValue,
-        /// [`CliError::AllowRunBare`].
+        /// [`GrantListError::RunBare`].
         AllowRunBare,
-        /// [`CliError::AllowRunName`].
+        /// [`GrantListError::RunName`].
         AllowRunName(RunFlagFault),
-        /// [`CliError::AllowRunEnvBare`].
+        /// [`GrantListError::RunEnvBare`].
         AllowRunEnvBare,
-        /// [`CliError::AllowRunEnvName`].
+        /// [`GrantListError::RunEnvName`].
         AllowRunEnvName(RunEnvFlagFault),
         /// [`CliError::AllowRunEnvAlone`].
         AllowRunEnvAlone,
@@ -993,15 +1104,19 @@ mod tests {
             Ok(Invocation::Sized(Task::Help(help))) if help == run_help() => Run::Help,
             Err(CliError::RunNoFile) => Run::NoFile,
             Err(CliError::RunOption(option)) => Run::Option(option),
-            Err(CliError::AllowEnvBare) => Run::AllowEnvBare,
-            Err(CliError::AllowEnvName(fault)) => Run::AllowEnvName(fault),
-            Err(CliError::AllowDirsBare(flag)) => Run::AllowDirsBare(flag),
-            Err(CliError::AllowDir(flag, fault)) => Run::AllowDir(flag, fault),
-            Err(CliError::AllowTempValue) => Run::AllowTempValue,
-            Err(CliError::AllowRunBare) => Run::AllowRunBare,
-            Err(CliError::AllowRunName(fault)) => Run::AllowRunName(fault),
-            Err(CliError::AllowRunEnvBare) => Run::AllowRunEnvBare,
-            Err(CliError::AllowRunEnvName(fault)) => Run::AllowRunEnvName(fault),
+            Err(CliError::GrantList(GrantListError::EnvBare)) => Run::AllowEnvBare,
+            Err(CliError::GrantList(GrantListError::EnvName(fault))) => Run::AllowEnvName(fault),
+            Err(CliError::GrantList(GrantListError::DirsBare(flag))) => Run::AllowDirsBare(flag),
+            Err(CliError::GrantList(GrantListError::Dir(flag, fault))) => {
+                Run::AllowDir(flag, fault)
+            }
+            Err(CliError::GrantList(GrantListError::TempValue)) => Run::AllowTempValue,
+            Err(CliError::GrantList(GrantListError::RunBare)) => Run::AllowRunBare,
+            Err(CliError::GrantList(GrantListError::RunName(fault))) => Run::AllowRunName(fault),
+            Err(CliError::GrantList(GrantListError::RunEnvBare)) => Run::AllowRunEnvBare,
+            Err(CliError::GrantList(GrantListError::RunEnvName(fault))) => {
+                Run::AllowRunEnvName(fault)
+            }
             Err(CliError::AllowRunEnvAlone) => Run::AllowRunEnvAlone,
             _ => panic!("{args:?} is not one of run's outcomes"),
         }

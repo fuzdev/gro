@@ -11,7 +11,7 @@ use gro_runtime::snapshot::SnapshotError;
 use gro_runtime::{BINARY_NAME, RunError};
 use thiserror::Error;
 
-use crate::cli::{DirFlag, DirFlagFault, EnvFlagFault, RunEnvFlagFault, RunFlagFault};
+use crate::cli::{DirFlag, GrantListError};
 use crate::print::{echo_argument, escape_controls, stderr_line};
 use crate::{EXIT_FAILURE, EXIT_USAGE};
 
@@ -62,55 +62,9 @@ pub enum CliError {
         bin = BINARY_NAME
     )]
     RunNoFile,
-    /// `run --allow-env` with no names, which grants none.
-    #[error(
-        "--allow-env takes the names it grants, as --allow-env=A,B\n\
-         Run {bin} run --help for more information.",
-        bin = BINARY_NAME
-    )]
-    AllowEnvBare,
-    /// `run --allow-env=` listing a name no variable can have.
+    /// A grant flag's list refused, checked as `fgro run` reads its flags.
     #[error("{0}\nRun {bin} run --help for more information.", bin = BINARY_NAME)]
-    AllowEnvName(EnvFlagFault),
-    /// `run --allow-read`, `--allow-write`, or `--allow-run-in` with no
-    /// directories, which grants none.
-    #[error(
-        "{0} takes the directories it grants, as {0}=a,/b\n\
-         Run {bin} run --help for more information.",
-        bin = BINARY_NAME
-    )]
-    AllowDirsBare(DirFlag),
-    /// `run --allow-temp=` with a value, which it takes none of; the value
-    /// isn't echoed.
-    #[error(
-        "--allow-temp takes no value: it grants fresh directories under the OS's temporary \
-         directory, as --allow-temp\n\
-         Run {bin} run --help for more information.",
-        bin = BINARY_NAME
-    )]
-    AllowTempValue,
-    /// `run --allow-run` with no names, which grants none.
-    #[error(
-        "--allow-run takes the programs it grants, as --allow-run=git,cargo\n\
-         Run {bin} run --help for more information.",
-        bin = BINARY_NAME
-    )]
-    AllowRunBare,
-    /// `run --allow-run=` listing a name it can't grant.
-    #[error("{0}\nRun {bin} run --help for more information.", bin = BINARY_NAME)]
-    AllowRunName(RunFlagFault),
-    /// `run --allow-run-env` with no names, which passes none.
-    #[error(
-        "--allow-run-env takes the variables it lets programs be passed, as \
-         --allow-run-env=A,B_*\n\
-         Run {bin} run --help for more information.",
-        bin = BINARY_NAME
-    )]
-    AllowRunEnvBare,
-    /// `run --allow-run-env=` listing a name that names no variable or
-    /// glob.
-    #[error("{0}\nRun {bin} run --help for more information.", bin = BINARY_NAME)]
-    AllowRunEnvName(RunEnvFlagFault),
+    GrantList(#[from] GrantListError),
     /// `run --allow-run-env=` without `--allow-run=` or `--allow-run-in=`,
     /// which grant no program to pass a variable to.
     #[error(
@@ -120,21 +74,6 @@ pub enum CliError {
         bin = BINARY_NAME
     )]
     AllowRunEnvAlone,
-    /// `run --allow-read=`, `--allow-write=`, or `--allow-run-in=` listing
-    /// a path that names nothing.
-    #[error(
-        "{}\nRun {bin} run --help for more information.",
-        match .1 {
-            DirFlagFault::Empty => format!(
-                "a {0} directory is empty: {0}=a,/b lists directories separated by single \
-                 commas",
-                .0
-            ),
-            DirFlagFault::Nul => format!("a {} directory holds a NUL byte", .0),
-        },
-        bin = BINARY_NAME
-    )]
-    AllowDir(DirFlag, DirFlagFault),
     /// A directory `--allow-read=`, `--allow-write=`, or `--allow-run-in=`
     /// lists isn't one as the run starts: missing, something else, or
     /// unreadable. Its path is named as resolved against the working
@@ -282,15 +221,7 @@ impl CliError {
             | Self::NoCommand
             | Self::RunOption(_)
             | Self::RunNoFile
-            | Self::AllowEnvBare
-            | Self::AllowEnvName(_)
-            | Self::AllowDirsBare(_)
-            | Self::AllowTempValue
-            | Self::AllowDir(..)
-            | Self::AllowRunBare
-            | Self::AllowRunName(_)
-            | Self::AllowRunEnvBare
-            | Self::AllowRunEnvName(_)
+            | Self::GrantList(_)
             | Self::AllowRunEnvAlone
             | Self::NoDir { .. }
             | Self::TimeoutZero
