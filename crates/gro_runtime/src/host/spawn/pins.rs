@@ -23,6 +23,34 @@
 //! by. Any other is `not_executable`, since `execvp` would hand it to
 //! `/bin/sh`.
 //!
+//! A script found at a name spelled as a `node_modules/.bin` program
+//! (`node_modules/.bin/<x>`, its last three segments, once resolved by its
+//! text, `node_modules`, `.bin`, and the program) runs under `node` alone,
+//! never by its path: `npm run` puts each `node_modules/.bin` up from the
+//! project on a child's `PATH`, absolute, ahead of the rest, so the
+//! `/usr/bin/env node` such a script names would find a `node` a package
+//! installed there, or the run wrote there, at each exec. Its `#!` line,
+//! read through the pinned descriptor, is `#!/usr/bin/env node` or
+//! `#!/usr/bin/env -S node` and its flags, each a plain word starting with
+//! `-`, or the name is `not_executable`, naming the line; `node` is found
+//! by the walk a bare name takes and pinned beside the script, a `node`
+//! that is itself a script (a version manager's shim) pinned as one, its
+//! own line the kernel's to read on the child's `PATH`, so a shim's
+//! interpreter is found where a package can plant one; and the launch runs
+//! that `node`, as `node`, with the flags, then the script's real path,
+//! then the call's arguments ([`PinKind::NodeScript`]). A script reached by
+//! another name, a bare one on `PATH` included, runs by its path, its
+//! interpreter the kernel's to find at each exec.
+//!
+//! Kind: a boundary for which `node` runs, a native check before the
+//! launch, when the `node` found is the runtime itself. A `node` that finds
+//! what it runs on the child's `PATH`, a script shim or a native launcher,
+//! defeats it at no more effort than the threat it closes, a `bash` or
+//! `node` linked into a `node_modules/.bin`; and the script, install-time
+//! code, is opened by `node` at its real path after the launch check, so
+//! code that can write a directory on that path, the run's own with a write
+//! grant there, swaps what runs.
+//!
 //! A pin holds a file's identity, and its change time (`ctime`) as it was
 //! pinned: a file replaced, removed, or made at its path since is never
 //! what the pin runs, and a file rewritten in place, which keeps its
@@ -40,6 +68,7 @@ use std::os::fd::{AsRawFd as _, OwnedFd};
 use std::os::unix::fs::{FileExt as _, OpenOptionsExt as _};
 
 use crate::file_id::FileId;
+use crate::host::fs::reads::escaped;
 
 /// A program pinned: what its handle runs.
 #[derive(Debug)]
@@ -47,7 +76,8 @@ pub struct Pin {
     /// The real path of the file pinned, its handle's `path`.
     pub real: String,
     /// The path it runs at: the real path for a native binary, the path it
-    /// was found at for a script.
+    /// was found at for a script, and the real path, handed to its `node`,
+    /// for a `node_modules/.bin` script.
     pub run_path: String,
     /// Its `argv[0]`: the name for a bare one, else the path it was found
     /// at, absolute.
@@ -72,17 +102,28 @@ impl Pin {
             && self.argv0 == other.argv0
             && self.id == other.id
             && self.changed == other.changed
-            && matches!(
-                (&self.kind, &other.kind),
-                (PinKind::Native(_), PinKind::Native(_)) | (PinKind::Script, PinKind::Script)
-            )
+            && match (&self.kind, &other.kind) {
+                (PinKind::Native(_), PinKind::Native(_)) | (PinKind::Script, PinKind::Script) => {
+                    true
+                }
+                (
+                    PinKind::NodeScript { node, flags },
+                    PinKind::NodeScript {
+                        node: other_node,
+                        flags: other_flags,
+                    },
+                ) => node.same(other_node) && flags == other_flags,
+                _ => false,
+            }
     }
 
     /// That the file the pin runs is still the one pinned, just before
     /// it's launched, `name` the name it was asked for: a native binary's
-    /// descriptor, and the path a script was found at, which must still
-    /// lead to the pin's identity, each with the change time it was pinned
-    /// with. Else the cause of the `launch_failed` the launch throws.
+    /// descriptor, the path a script was found at, and a
+    /// `node_modules/.bin` script's real path, which must still lead to the
+    /// pin's identity, each with the change time it was pinned with, and
+    /// then the `node` such a script runs under, as its own pin. Else the
+    /// cause of the `launch_failed` the launch throws.
     ///
     /// # Errors
     ///
@@ -99,23 +140,34 @@ impl Pin {
                     },
                 )?
             }
-            PinKind::Script => std::fs::metadata(&self.run_path).map_err(|error| Unlaunched {
-                cause: format!(
-                    "{name} at {} no longer resolves, pinned to {}",
-                    self.run_path, self.real
-                ),
-                inner: Some(error.to_string()),
-            })?,
+            PinKind::Script | PinKind::NodeScript { .. } => std::fs::metadata(&self.run_path)
+                .map_err(|error| Unlaunched {
+                    cause: format!(
+                        "{name} at {} no longer resolves, pinned to {}",
+                        self.run_path, self.real
+                    ),
+                    inner: Some(error.to_string()),
+                })?,
         };
         if FileId::of(&metadata) != self.id {
             let leads_to = std::fs::canonicalize(&self.run_path)
                 .ok()
-                .and_then(|real| real.into_os_string().into_string().ok())
-                .map_or_else(|| " another file,".to_owned(), |real| format!(" {real},"));
-            return Err(Unlaunched::of(format!(
-                "{name} at {} now leads to{leads_to} not the file pinned at {}",
-                self.run_path, self.real
-            )));
+                .and_then(|real| real.into_os_string().into_string().ok());
+            // another file at the pinned real path, renamed over it, is told
+            // apart by what it is, not where it is
+            return Err(Unlaunched::of(match leads_to {
+                Some(real) if real == self.real => {
+                    format!("{name} at {} is no longer the file pinned", self.run_path)
+                }
+                Some(real) => format!(
+                    "{name} at {} now leads to {real}, not the file pinned at {}",
+                    self.run_path, self.real
+                ),
+                None => format!(
+                    "{name} at {} now leads to another file, not the file pinned at {}",
+                    self.run_path, self.real
+                ),
+            }));
         }
         if changed(&metadata) != self.changed {
             // a link gone is the file renamed over or removed, else it was
@@ -129,6 +181,9 @@ impl Pin {
                 "{name} at {} {how} after the run pinned it",
                 self.real
             )));
+        }
+        if let PinKind::NodeScript { node, .. } = &self.kind {
+            node.check_launch(NODE)?;
         }
         Ok(())
     }
@@ -168,6 +223,32 @@ pub enum PinKind {
     /// A `#!` script, run by the path it was found at, checked to lead to
     /// the pin's identity just before it's launched.
     Script,
+    /// A `node_modules/.bin` script, run by its `node`, pinned beside it,
+    /// as `node <flags> <real path>`, its real path checked to lead to the
+    /// pin's identity just before it's launched, and its `node` checked as
+    /// its own pin.
+    NodeScript {
+        /// The `node` it runs under: native, or a script the kernel reads,
+        /// never a `node_modules/.bin` script itself.
+        node: Box<Pin>,
+        /// The flags its `#!/usr/bin/env -S node` line passes, in order.
+        flags: Vec<String>,
+    },
+}
+
+/// The interpreter a `node_modules/.bin` script runs under, by its name on
+/// `PATH`, and its own `argv[0]`.
+const NODE: &str = "node";
+
+/// How a `#!` script a pin finds runs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScriptRun<'a> {
+    /// By the path it was found at, the kernel reading its line at each
+    /// exec.
+    ByPath,
+    /// Under `node`, found on this `PATH`, its line read and checked as
+    /// it's pinned ([`PinKind::NodeScript`]).
+    UnderNode(Option<&'a str>),
 }
 
 /// Why a name pins nothing, which a call asking for it meets.
@@ -203,7 +284,7 @@ pub fn resolve(name: &str, path: Option<&str>, project: &str) -> Result<Pin, Fau
     }
     if !name.contains('/') {
         let found = walk_path(name, path)?.ok_or(Fault::NotFound)?;
-        return pin(name, &found, name);
+        return pin(name, &found, name, ScriptRun::ByPath);
     }
     let found = to_project_path(name, project)?;
     // a trailing `/` or `/.` passes through its last component, which only
@@ -214,8 +295,23 @@ pub fn resolve(name: &str, path: Option<&str>, project: &str) -> Result<Pin, Fau
     match probe(&found) {
         Probe::Missing => Err(Fault::NotFound),
         Probe::NotExecutable => Err(Fault::NotExecutable(format!("{found} isn't executable"))),
-        Probe::Executable => pin(name, &found, &found),
+        Probe::Executable => {
+            let run = if is_package_bin_name(name) {
+                ScriptRun::UnderNode(path)
+            } else {
+                ScriptRun::ByPath
+            };
+            pin(name, &found, &found, run)
+        }
     }
+}
+
+/// Whether a program's name, holding `/`, names a `node_modules/.bin`
+/// program, by its spelling, resolved by its text, no symlink followed:
+/// its last three segments `node_modules`, `.bin`, and the program.
+pub fn is_package_bin_name(name: &str) -> bool {
+    let segments = lexical_segments(name, Climb::Clamp).unwrap_or_default();
+    matches!(segments.as_slice(), [.., "node_modules", ".bin", _])
 }
 
 /// Whether `path` ends with a Windows shell's extension, allowing the
@@ -364,15 +460,17 @@ const MAGIC_LENGTH: usize = 4;
 /// ELF's magic, the first bytes of a native binary on Linux.
 const ELF_MAGIC: [u8; MAGIC_LENGTH] = [0x7f, b'E', b'L', b'F'];
 
-/// Pins `found`, the file `name` was found at, whose `argv[0]` is `argv0`.
+/// Pins `found`, the file `name` was found at, whose `argv[0]` is `argv0`,
+/// a script running as `run` says.
 ///
 /// # Errors
 ///
 /// Returns [`Fault::NotExecutable`] for a real path that isn't UTF-8 or
 /// can't be read, a `.bat` or `.cmd` pin, a file that can't be opened or
 /// read but for a denied read, and one whose first bytes are neither `#!`
-/// nor ELF's magic.
-fn pin(name: &str, found: &str, argv0: &str) -> Result<Pin, Fault> {
+/// nor ELF's magic, and [`pin_held`]'s faults for a script run under
+/// `node`.
+fn pin(name: &str, found: &str, argv0: &str, run: ScriptRun<'_>) -> Result<Pin, Fault> {
     let no_real_path = || {
         Fault::NotExecutable(format!(
             "{name} at {found} has no real path a string can name"
@@ -392,25 +490,29 @@ fn pin(name: &str, found: &str, argv0: &str) -> Result<Pin, Fault> {
         .open(&real)
         .map_err(|_| Fault::NotExecutable(format!("{name} at {real} can't be read")))?
         .into();
-    pin_held(name, held, real, found, argv0)
+    pin_held(name, held, real, found, argv0, run)
 }
 
 /// Pins the file `held` names, opened as a path only, found at `found`,
-/// whose real path is `real` and whose `argv[0]` is `argv0`: what a pin of
-/// a found path does once it's opened, and what `program_in` does with the
-/// file it opened beneath its directory.
+/// whose real path is `real` and whose `argv[0]` is `argv0`, a script
+/// running as `run` says: what a pin of a found path does once it's
+/// opened, and what `program_in` does with the file it opened beneath its
+/// directory.
 ///
 /// # Errors
 ///
 /// Returns [`Fault::NotExecutable`] for a file that can't be read but for
 /// a denied read, and one whose first bytes are neither `#!` nor ELF's
-/// magic.
+/// magic; for a script run under `node`, one whose `#!` line is no `node`
+/// line ([`node_flags`]) or no `node` on `PATH`, and a `node` that pins
+/// nothing, [`Fault::Unresolved`], its fault as the cause's own.
 pub fn pin_held(
     name: &str,
     held: OwnedFd,
     real: String,
     found: &str,
     argv0: &str,
+    run: ScriptRun<'_>,
 ) -> Result<Pin, Fault> {
     let unreadable = || Fault::NotExecutable(format!("{name} at {real} can't be read"));
     let held = File::from(held);
@@ -423,43 +525,155 @@ pub fn pin_held(
         .read(true)
         .custom_flags(libc::O_NONBLOCK)
         .open(format!("/proc/self/fd/{}", held.as_raw_fd()));
-    let script = match reading {
+    let kind = match reading {
         Ok(reading) => {
             // zeroed, so a file shorter than the magic can't match it
             let mut magic = [0; MAGIC_LENGTH];
             reading.read_at(&mut magic, 0).map_err(|_| unreadable())?;
-            if magic.starts_with(b"#!") {
-                true
-            } else if magic == ELF_MAGIC {
-                false
-            } else {
+            if !magic.starts_with(b"#!") && magic != ELF_MAGIC {
                 return Err(Fault::NotExecutable(format!(
                     "{name} at {real} starts with neither #! nor a native binary's magic"
                 )));
             }
+            match run {
+                _ if magic == ELF_MAGIC => PinKind::Native(held.into()),
+                ScriptRun::ByPath => PinKind::Script,
+                ScriptRun::UnderNode(path) => {
+                    let (line, whole) = read_line(&reading).map_err(|_| unreadable())?;
+                    let flags = whole.then(|| node_flags(&line)).flatten().ok_or_else(|| {
+                        Fault::NotExecutable(format!(
+                            "{name} at {real} starts with `{}`, and a node_modules/.bin script \
+                             runs pinned only under node, by `#!/usr/bin/env node` or \
+                             `#!/usr/bin/env -S node` and its flags",
+                            escaped(&line)
+                        ))
+                    })?;
+                    let node = pin_node(name, &real, path)?;
+                    PinKind::NodeScript {
+                        node: Box::new(node),
+                        flags,
+                    }
+                }
+            }
         }
         // a file this user can't read can't be inspected, and no
         // interpreter could read it as a script
-        Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => false,
+        Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+            PinKind::Native(held.into())
+        }
         Err(_) => return Err(unreadable()),
     };
     Ok(Pin {
-        run_path: if script {
-            found.to_owned()
-        } else {
-            real.clone()
+        run_path: match kind {
+            PinKind::Native(_) | PinKind::NodeScript { .. } => real.clone(),
+            PinKind::Script => found.to_owned(),
         },
         real,
         argv0: argv0.to_owned(),
         id,
         changed: changed(&metadata),
         links: std::os::unix::fs::MetadataExt::nlink(&metadata),
-        kind: if script {
-            PinKind::Script
-        } else {
-            PinKind::Native(held.into())
-        },
+        kind,
     })
+}
+
+/// The most of a file's first line the kernel reads for its `#!`.
+const LINE_MAX: usize = 256;
+
+/// The first line of the file `reading` reads, from its first byte, without
+/// its newline, and whether it's whole: up to the first newline in its
+/// first [`LINE_MAX`] bytes, or the whole file when it's shorter and holds
+/// none; else those bytes, not whole, which no `node` line is.
+///
+/// # Errors
+///
+/// Returns the read's error.
+fn read_line(reading: &File) -> std::io::Result<(Vec<u8>, bool)> {
+    let mut bytes = vec![0; LINE_MAX];
+    let mut read = 0;
+    while read < LINE_MAX {
+        let more = reading.read_at(&mut bytes[read..], u64::try_from(read).unwrap_or(u64::MAX))?;
+        if more == 0 {
+            break;
+        }
+        read += more;
+    }
+    bytes.truncate(read);
+    match bytes.iter().position(|&byte| byte == b'\n') {
+        Some(end) => {
+            bytes.truncate(end);
+            Ok((bytes, true))
+        }
+        None => Ok((bytes, read < LINE_MAX)),
+    }
+}
+
+/// The flags a `node_modules/.bin` script's first line, `line`, passes to
+/// `node`: none for `#!/usr/bin/env node`, and those after `node` for
+/// `#!/usr/bin/env -S node <flags>`, each a word of letters, digits, and
+/// `-_=.,:/+@%` starting with `-`, so `env -S` would split and pass it as
+/// written; the words split at spaces and tabs, as the kernel and `env -S`
+/// split them. `None` for any other line: another interpreter, a `node`
+/// with words but no `-S`, which `env` would take for one program's name,
+/// a word `env -S` would expand, unquote, or end at, or anything not
+/// printable ASCII, a carriage return among it.
+fn node_flags(line: &[u8]) -> Option<Vec<String>> {
+    let text = std::str::from_utf8(line.strip_prefix(b"#!")?).ok()?;
+    if !text
+        .bytes()
+        .all(|byte| byte == b'\t' || (0x20..0x7f).contains(&byte))
+    {
+        return None;
+    }
+    let words: Vec<&str> = text
+        .split([' ', '\t'])
+        .filter(|word| !word.is_empty())
+        .collect();
+    let flags = match words.as_slice() {
+        ["/usr/bin/env", "node"] => &[][..],
+        ["/usr/bin/env", "-S", "node", flags @ ..] => flags,
+        _ => return None,
+    };
+    let plain = |flag: &&str| {
+        flag.starts_with('-')
+            && flag
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || b"-_=.,:/+@%".contains(&byte))
+    };
+    flags
+        .iter()
+        .all(plain)
+        .then(|| flags.iter().map(|&flag| flag.to_owned()).collect())
+}
+
+/// `node`, found by the walk a bare name takes on `path` and pinned, for
+/// `name`, a `node_modules/.bin` script at `real`; a `node` that is itself
+/// a script pins as one, by its path.
+///
+/// # Errors
+///
+/// Returns [`Fault::NotExecutable`] when no entry of `path` holds a
+/// `node`, and [`Fault::Unresolved`], `node`'s own fault as the cause's,
+/// when what's found pins nothing.
+fn pin_node(name: &str, real: &str, path: Option<&str>) -> Result<Pin, Fault> {
+    let unpinned = |fault: Fault| {
+        let why = match fault {
+            Fault::NotFound => "nothing is there".to_owned(),
+            Fault::NotExecutable(why) | Fault::NotGranted(why) => why,
+            Fault::Unresolved { cause, why } => format!("{cause}: {why}"),
+        };
+        Fault::Unresolved {
+            cause: format!("{name} at {real} runs under node, which can't be pinned"),
+            why,
+        }
+    };
+    let found = walk_path(NODE, path).map_err(unpinned)?.ok_or_else(|| {
+        Fault::NotExecutable(format!(
+            "{name} at {real} runs under node, and no PATH entry outside a node_modules/.bin \
+             holds one"
+        ))
+    })?;
+    pin(NODE, &found, NODE, ScriptRun::ByPath).map_err(unpinned)
 }
 
 #[cfg(test)]

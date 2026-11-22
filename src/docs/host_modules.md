@@ -380,7 +380,8 @@ const result = await check.closed;
   and in that window whoever can write a directory on the found path can redirect a held handle,
   where a native binary is reached only through its pin's own path. A native binary runs at its pin, unchecked.
   The interpreter a `#!` line names is never pinned or confined: the kernel finds it at each exec,
-  so a relative one resolves against the call's `cwd`, and a script beneath `program_in`'s handle can name one outside it.
+  so a relative one resolves against the call's `cwd`, and a script beneath `program_in`'s handle can name one outside it;
+  on `fgro`, a script at a `node_modules/.bin` name runs under a `node` pinned with it instead ([spawn on fgro](#spawn-on-fgro)).
   `name` and `path` are for display; the pin itself is private, and `path` is the real path for a script too.
 - A file is pinned only when its first bytes are a format the kernel runs, else it's `not_executable`,
   an empty file included, since on Linux `execvp` hands any other file the kernel won't run to `/bin/sh`.
@@ -538,6 +539,24 @@ How it's built is in the module docs of `crates/gro_runtime/src/host/spawn.rs` a
   its first bytes read through a descriptor on the file it found, which a native binary's pin keeps to run by,
   while a script's keeps none and is run by the path it was found at:
   a call meets what the start found, a fault included, where Node resolves at the call.
+- A script at a name spelled as a `node_modules/.bin` program, its last three segments `node_modules`, `.bin`, and the program once its text is resolved,
+  runs under a `node` the run pins beside it, never by its path, where Node runs it by its path:
+  `npm run` puts each `node_modules/.bin` up from the project on the `PATH` a child inherits, absolute and ahead of the rest,
+  so the `/usr/bin/env node` such a script names would find a `node` that a package installed there, or the run wrote there, at each exec.
+  Its first line, read through the descriptor its pin was read from, must be `#!/usr/bin/env node` or `#!/usr/bin/env -S node` and its flags,
+  each a plain word starting with `-`, else the name is `not_executable`, naming the line;
+  `node` is found by the walk a bare name takes, skipping every `node_modules/.bin` entry, and pinned as any program is,
+  one that is itself a script, like a version manager's shim, pinned as a script whose own line the kernel reads,
+  and no `node` to find is `not_executable` too.
+  A launch checks that the script's real path still leads to the file pinned, then checks `node`'s pin, and runs that `node`, as `node`,
+  with the line's flags, the script's real path, and then the call's arguments, so the script sees its real path as `process.argv[1]`, where on Node it sees the `.bin` path.
+  The pin is a boundary for which `node` runs, a native check before the launch, against code built to defeat it, when that `node` is the runtime itself.
+  One that finds what it runs on the child's `PATH`, a `node_modules/.bin` entry first, bounds no more than a script run by its path does:
+  a script shim, like asdf's or nodenv's `#!/usr/bin/env bash` one, whose `bash` a package can link there,
+  and a native launcher that looks a `node` up on `PATH`, `/usr/bin/env` itself among them.
+  The script itself is install-time code, checked and then used as any script is: `node` opens its real path after the launch check,
+  so whoever can write a directory on that path swaps what `node` reads, the run's own code with a write grant there among them, with no race to win.
+  A script reached by any other name, a bare name on `PATH` like `npm` among them, runs by its path, its interpreter the kernel's to find.
   A pin holds the file's identity and its change time (`ctime`) as it was pinned, and a launch checks both first:
   a native binary through the descriptor it runs by, a script at the path it was found at, which must still lead to the pinned file.
   A file rewritten in place, as `fs`'s `write` rewrites one, keeps its identity but not its change time, which no program can set,
@@ -1538,7 +1557,8 @@ what can fail for a reason of the run's fails in what the module exports, as `cw
   and no `SIGPIPE` reaching the runtime (built).
 - Kill every child still running when the host exits, the group for a group leader, from the runtime's own exit path (built).
 - Resolve the `PATH` walk and the realpath pin at grant time, so a handle's reach is decided once,
-  skipping `node_modules/.bin` entries by the rule above (built, as the run starts, for each program `--allow-run=` names).
+  skipping `node_modules/.bin` entries by the rule above (built, as the run starts, for each program `--allow-run=` names),
+  and pin the `node` a `node_modules/.bin` script runs under the same way, read from its `#!` line, so the script never runs by the interpreter its line names (built).
   The policy file names the program, and its pin, a real path that differs per machine, is recorded in a local file that isn't committed (designed).
 - Check a name against a narrowed root's set before any resolution, so a name outside it touches nothing on disk (built).
 - Decide the lexical check on a name holding `/` natively, refusing an absolute name or one climbing above the project,

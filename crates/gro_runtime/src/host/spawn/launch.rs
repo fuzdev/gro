@@ -67,7 +67,7 @@ use gro_sys::{
 use gro_v8::PendingArrayBuffer;
 use tokio::net::unix::pipe;
 
-use super::pins::PinKind;
+use super::pins::{Pin, PinKind};
 use super::watch::{Capture, Guard, Held, Outcome, Started, Stop, Watch};
 use super::{
     Failure, MODULE, NOT_AN_FS_HANDLE, SpawnErrorKind, SpawnRun, array, checked_text, element,
@@ -555,17 +555,26 @@ pub(super) fn launch_child(
             .project_dir()
             .map_err(|why| not_started(program, path, why))?,
     };
-    let mut command = Command::new(match &pin.kind {
+    // a `node_modules/.bin` script runs as its `node`'s argument, by its
+    // real path, after the flags its line gives
+    let (runs, script): (&Pin, _) = match &pin.kind {
+        PinKind::NodeScript { node, flags } => (node, Some((flags, &pin.run_path))),
+        PinKind::Native(_) | PinKind::Script => (pin, None),
+    };
+    let mut command = Command::new(match &runs.kind {
         PinKind::Native(held) => format!("/proc/self/fd/{}", held.as_raw_fd()),
-        PinKind::Script => pin.run_path.clone(),
+        PinKind::Script | PinKind::NodeScript { .. } => runs.run_path.clone(),
     });
+    if let Some((flags, script)) = script {
+        command.args(flags).arg(script);
+    }
     let to_stdio = |stream: Stream| match stream {
         Stream::Inherit => Stdio::inherit(),
         Stream::Pipe => Stdio::piped(),
         Stream::Ignore => Stdio::null(),
     };
     command
-        .arg0(&pin.argv0)
+        .arg0(&runs.argv0)
         .args(argv)
         .env_clear()
         .envs(program.env.iter().map(|(key, value)| (key, value)))

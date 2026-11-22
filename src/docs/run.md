@@ -78,7 +78,8 @@ A run grants the project's own modules `args`, `exit`, `stdout`, `stderr`, and `
   a bare name is found on `PATH`, absolute entries only and never a `node_modules/.bin`, and a name holding `/` beneath the project's root.
   An empty list, an empty name, a NUL byte, a `*`, an absolute name, and one holding `/` that climbs above the project's root by `..` are usage errors, and so is a bare `--allow-run`.
   `fgro` reads what a child may be given for a run that grants a program, once, as the run starts (`PATH`, `HOME`, `TMPDIR`, `TERM`, `NO_COLOR`, `FORCE_COLOR`, and what `--allow-run-env=` names),
-  and pins each name then, once the entry has resolved and before any module evaluates, to the file it finds and that file's real path ([host modules](host_modules.md#spawn-on-fgro));
+  and pins each name then, once the entry has resolved and before any module evaluates, to the file it finds and that file's real path ([host modules](host_modules.md#spawn-on-fgro)),
+  a script at a `node_modules/.bin` name with the `node` it runs under, read from its `#!` line, which must name `node` through `/usr/bin/env`;
   a name that finds nothing is no error, and `find` returns `null` for it.
   Until each child is boxed, granting any program is close to granting what `-A` grants:
   most programs can be made to run code by their arguments or environment, a shell, git, and cargo among them,

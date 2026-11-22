@@ -266,7 +266,8 @@ or enters another root nested in it, and `"exports"` targets and self-references
 
 In `spawn`, what a granted program's name resolves to, held for the run:
 the file found (on `PATH` for a bare name, beneath the [project root](#project-root) for one holding `/`), its identity, and its real path,
-and on `fgro` for a native binary a descriptor on it, which it runs by; a script keeps none and runs by the path it was found at.
+and on `fgro` for a native binary a descriptor on it, which it runs by; a script keeps none and runs by the path it was found at;
+on `fgro`, a script at a `node_modules/.bin` name runs instead under a `node` pinned with it, by its real path ([host modules](host_modules.md#spawn-on-fgro)).
 On `fgro` a pin also holds the file's change time (`ctime`), checked with its identity as it launches,
 so a later change on disk never changes which file a handle runs:
 a file replaced, removed, or made at its path since is never what it runs,

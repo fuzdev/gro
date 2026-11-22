@@ -256,7 +256,7 @@ pub(super) fn not_utf8(bytes: &[u8], path: &str, what: &str) -> Failure {
 
 /// `bytes` with printable ASCII as itself and every other byte, a `\`
 /// among them, as `\xNN`.
-fn escaped(bytes: &[u8]) -> String {
+pub(in crate::host) fn escaped(bytes: &[u8]) -> String {
     let mut text = String::with_capacity(bytes.len());
     for &byte in bytes {
         if (0x20..0x7f).contains(&byte) && byte != b'\\' {

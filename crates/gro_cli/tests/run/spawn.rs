@@ -11,7 +11,7 @@ use std::os::unix::process::ExitStatusExt as _;
 use std::process::Stdio;
 use std::time::{Duration, Instant};
 
-use super::temp_fixtures;
+use super::{run_with, temp_fixtures};
 use crate::support::{self, KillOnDrop, Scratch, fgro_command, spawn};
 
 /// How long a killed process may take to be gone, and a child to write
@@ -306,8 +306,7 @@ console.log(JSON.stringify({
             ],
             "swapped": [
                 "launch_failed",
-                "./bin/swapped at {project}/bin/swapped now leads to {project}/bin/swapped, not \
-                 the file pinned at {project}/bin/swapped"
+                "./bin/swapped at {project}/bin/swapped is no longer the file pinned"
             ],
             "removed": [
                 "launch_failed",
@@ -322,6 +321,72 @@ console.log(JSON.stringify({
             "remoded": [
                 "launch_failed",
                 "./bin/native at {project}/bin/native changed after the run pinned it"
+            ],
+        })
+    );
+}
+
+/// A script at a `node_modules/.bin` name runs under the `node` the run
+/// pinned, as `node`, with its line's flags and its real path before the
+/// call's arguments, never the `node` a `node_modules/.bin` entry of the
+/// child's `PATH` holds, which `/usr/bin/env node` would find first; and
+/// the script replaced since its pin refuses the launch. The `node` is
+/// `cat`, which prints the script, then its own `argv` from
+/// `/proc/self/cmdline`.
+#[test]
+fn a_package_bin_script_runs_under_the_pinned_node() {
+    let fixtures = temp_fixtures(
+        "spawn_node_pin",
+        &[
+            ("pkg/cli.js", "#!/usr/bin/env -S node -u\n"),
+            ("pkg/next.js", "#!/usr/bin/env node\n"),
+            ("node_modules/.bin/node", "#!/bin/sh\necho PLANTED\n"),
+            (
+                "main.js",
+                "import { fs } from '@fuzdev/gro/fs.ts';
+import { spawn } from '@fuzdev/gro/spawn.ts';
+const pkg = await fs.open_dir(`${fs.project.path}/pkg`);
+const shown = (text) => text.replaceAll(fs.project.path, '{project}');
+const cli = spawn.program('node_modules/.bin/cli');
+const ran = await cli.out(['/proc/self/cmdline']);
+await pkg.rename('next.js', 'cli.js');
+let replaced;
+try {
+\tawait cli.out([]);
+} catch (error) {
+\treplaced = [error.kind, shown(error.cause.message)];
+}
+console.log(JSON.stringify({ path: shown(cli.path), stdout: shown(ran.stdout), replaced }));
+",
+            ),
+        ],
+    );
+    fixtures.set_mode("pkg/cli.js", 0o755);
+    fixtures.set_mode("pkg/next.js", 0o755);
+    fixtures.set_mode("node_modules/.bin/node", 0o755);
+    std::os::unix::fs::symlink("../../pkg/cli.js", fixtures.0.join("node_modules/.bin/cli"))
+        .unwrap();
+    std::fs::create_dir(fixtures.0.join("tools")).unwrap();
+    std::os::unix::fs::symlink("/bin/cat", fixtures.0.join("tools/node")).unwrap();
+    let root = fixtures.0.to_str().unwrap();
+    let path = format!("{root}/node_modules/.bin:{root}/tools:/usr/bin:/bin");
+    let run = run_with(
+        &fixtures,
+        &["--allow-run=node_modules/.bin/cli", "--allow-write=pkg"],
+        "main.js",
+        &[("PATH", &path)],
+    );
+    assert_eq!(run.code, 0, "{}", run.stderr);
+    let printed: serde_json::Value = serde_json::from_str(&run.stdout).unwrap();
+    assert_eq!(
+        printed,
+        serde_json::json!({
+            "path": "{project}/pkg/cli.js",
+            "stdout": "#!/usr/bin/env -S node -u\nnode\u{0}-u\u{0}{project}/pkg/cli.js\u{0}\
+                       /proc/self/cmdline\u{0}",
+            "replaced": [
+                "launch_failed",
+                "node_modules/.bin/cli at {project}/pkg/cli.js is no longer the file pinned"
             ],
         })
     );

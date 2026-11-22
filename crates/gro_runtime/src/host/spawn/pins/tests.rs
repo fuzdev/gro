@@ -2,7 +2,8 @@ use std::os::unix::fs::PermissionsExt as _;
 use std::path::Path;
 
 use super::{
-    Fault, Pin, PinKind, is_package_bin_entry, is_refused_extension, resolve, to_project_path,
+    Fault, Pin, PinKind, is_package_bin_entry, is_package_bin_name, is_refused_extension,
+    node_flags, resolve, to_project_path,
 };
 use crate::test_support::TestDir;
 
@@ -209,4 +210,250 @@ fn a_native_pin_holds_the_file_pinned() {
     assert_ne!(again.id, before);
     assert!(!pin.same(&again));
     assert!(again.same(&resolve("bin/tool", None, text(root)).unwrap()));
+}
+
+/// A program name is a `node_modules/.bin` program's by its last three
+/// segments, resolved by their text, however it's spelled, and no other is.
+#[test]
+fn a_package_bin_name_is_known_by_its_spelling() {
+    for name in [
+        "node_modules/.bin/vitest",
+        "./node_modules/.bin/vitest",
+        "node_modules/./.bin//vitest",
+        "packages/a/node_modules/.bin/x",
+        "node_modules/x/../.bin/vitest",
+    ] {
+        assert!(is_package_bin_name(name), "{name}");
+    }
+    for name in [
+        "node_modules/.bin",
+        "node_modules/.bin/",
+        "node_modules/.bin/x/y",
+        "node_modules/.bin/x/..",
+        "bin/vitest",
+        ".bin/vitest",
+        "node_modules/vitest",
+    ] {
+        assert!(!is_package_bin_name(name), "{name}");
+    }
+}
+
+/// A `node_modules/.bin` script's line is `#!/usr/bin/env node`, or
+/// `#!/usr/bin/env -S node` with plain flags, split at spaces and tabs;
+/// any other line passes no flags, since `env` would read it otherwise.
+#[test]
+fn a_node_line_is_env_node_or_env_s_node_with_plain_flags() {
+    let flags = |line: &str| node_flags(line.as_bytes());
+    let none: Vec<String> = Vec::new();
+    assert_eq!(flags("#!/usr/bin/env node"), Some(none.clone()));
+    assert_eq!(flags("#! /usr/bin/env\tnode  "), Some(none.clone()));
+    assert_eq!(flags("#!/usr/bin/env -S node"), Some(none));
+    assert_eq!(
+        flags(
+            "#!/usr/bin/env -S node --experimental-import-meta-resolve --max-old-space-size=4096"
+        ),
+        Some(vec![
+            "--experimental-import-meta-resolve".to_owned(),
+            "--max-old-space-size=4096".to_owned()
+        ])
+    );
+    for refused in [
+        "#!/bin/sh",
+        "#!/usr/bin/node",
+        "#!/usr/bin/env nodejs",
+        "#!/usr/bin/env node --flag",
+        "#!/usr/bin/env -S node script.js",
+        "#!/usr/bin/env -S node --x=${HOME}",
+        "#!/usr/bin/env -S node '--x'",
+        "#!/usr/bin/env -S node --x\\y",
+        "#!/usr/bin/env -S node --x #comment",
+        "#!/usr/bin/env -S -i node",
+        "#!/usr/bin/env -Snode",
+        "#!/usr/bin/env node\r",
+        "#!/usr/local/bin/env node",
+        "#!/usr/bin/env",
+        "/usr/bin/env node",
+    ] {
+        assert_eq!(flags(refused), None, "{refused:?}");
+    }
+    assert_eq!(node_flags(b"#!/usr/bin/env -S node --\xff"), None);
+}
+
+/// The `node` pinned beside a `node_modules/.bin` script, or why there's
+/// none.
+fn node_of(pin: &Pin) -> (&Pin, &[String]) {
+    match &pin.kind {
+        PinKind::NodeScript { node, flags } => (node, flags),
+        PinKind::Native(_) | PinKind::Script => panic!("{} runs without its node", pin.real),
+    }
+}
+
+/// A script at a `node_modules/.bin` name is pinned with the `node` the
+/// walk finds, past a `node` planted in a `node_modules/.bin` entry, to
+/// run by its real path with its line's flags; a `node` that is a script
+/// is pinned as one; a native binary there, and a script reached by any
+/// other name, run as before; and a line naming anything else, or no
+/// `node` to find, is `not_executable`.
+#[test]
+fn a_package_bin_script_is_pinned_with_its_node() {
+    let dir = TestDir::in_system_temp("spawn_pins_node");
+    let root = dir.path();
+    let project = text(root);
+    file(
+        root,
+        "pkg/cli.js",
+        b"#!/usr/bin/env node\nconsole.log(1);\n",
+        0o755,
+    );
+    file(
+        root,
+        "pkg/flagged.js",
+        b"#!/usr/bin/env -S node --a=1 --b\n",
+        0o755,
+    );
+    file(root, "pkg/shell.sh", SCRIPT, 0o755);
+    file(
+        root,
+        "pkg/long.js",
+        &[b"#!/usr/bin/env node".as_slice(), &[b' '; 300], b"\n"].concat(),
+        0o755,
+    );
+    file(root, "node_modules/.bin/native", ELF, 0o755);
+    file(root, "node_modules/.bin/node", ELF, 0o755);
+    file(root, "tools/node", ELF, 0o755);
+    file(root, "shims/node", SCRIPT, 0o755);
+    for (bin, target) in [
+        ("cli", "cli.js"),
+        ("flagged", "flagged.js"),
+        ("shell", "shell.sh"),
+        ("long", "long.js"),
+    ] {
+        std::os::unix::fs::symlink(
+            format!("../../pkg/{target}"),
+            root.join("node_modules/.bin").join(bin),
+        )
+        .unwrap();
+    }
+    let path = format!("{project}/node_modules/.bin:{project}/tools:/usr/bin:/bin");
+    let pin = resolve("node_modules/.bin/cli", Some(&path), project).unwrap();
+    assert_eq!(pin.real, format!("{project}/pkg/cli.js"));
+    assert_eq!(pin.run_path, pin.real);
+    let (node, flags) = node_of(&pin);
+    assert_eq!(node.real, format!("{project}/tools/node"));
+    assert_eq!(node.argv0, "node");
+    assert!(is_native(node));
+    assert!(flags.is_empty());
+    let spelled = resolve("./node_modules/./.bin/cli", Some(&path), project).unwrap();
+    assert!(pin.same(&spelled));
+    let pin = resolve("node_modules/.bin/flagged", Some(&path), project).unwrap();
+    assert_eq!(node_of(&pin).1, ["--a=1", "--b"]);
+    let shimmed = format!("{project}/shims:{project}/tools");
+    let pin = resolve("node_modules/.bin/cli", Some(&shimmed), project).unwrap();
+    let (node, _) = node_of(&pin);
+    assert!(matches!(node.kind, PinKind::Script));
+    assert_eq!(node.run_path, format!("{project}/shims/node"));
+    assert!(is_native(
+        &resolve("node_modules/.bin/native", Some(&path), project).unwrap()
+    ));
+    let by_path = resolve("pkg/cli.js", Some(&path), project).unwrap();
+    assert!(matches!(by_path.kind, PinKind::Script));
+    for (name, line) in [("shell", "#!/bin/sh"), ("long", "#!/usr/bin/env node")] {
+        match resolve(&format!("node_modules/.bin/{name}"), Some(&path), project) {
+            Err(Fault::NotExecutable(cause)) => assert!(
+                cause.starts_with(&format!("node_modules/.bin/{name} at {project}/pkg/"))
+                    && cause.contains(&format!(" starts with `{line}")),
+                "{cause}"
+            ),
+            other => panic!("{name}: {other:?}"),
+        }
+    }
+    let shell = resolve("node_modules/.bin/shell", Some(&path), project).unwrap_err();
+    assert_eq!(
+        shell,
+        Fault::NotExecutable(format!(
+            "node_modules/.bin/shell at {project}/pkg/shell.sh starts with `#!/bin/sh`, and a \
+             node_modules/.bin script runs pinned only under node, by `#!/usr/bin/env node` or \
+             `#!/usr/bin/env -S node` and its flags"
+        ))
+    );
+    let planted_only = format!("{project}/node_modules/.bin");
+    assert_eq!(
+        resolve("node_modules/.bin/cli", Some(&planted_only), project).unwrap_err(),
+        Fault::NotExecutable(format!(
+            "node_modules/.bin/cli at {project}/pkg/cli.js runs under node, and no PATH entry \
+             outside a node_modules/.bin holds one"
+        ))
+    );
+    file(root, "text/node", b"echo hi\n", 0o755);
+    let text_node = format!("{project}/text");
+    assert!(matches!(
+        resolve("node_modules/.bin/cli", Some(&text_node), project),
+        Err(Fault::Unresolved { cause, .. })
+            if cause == format!("node_modules/.bin/cli at {project}/pkg/cli.js runs under node, which can't be pinned")
+    ));
+}
+
+/// A `node_modules/.bin` script's launch checks its real path still leads
+/// to the file pinned, and then its `node`, as its own pin: either one
+/// replaced since refuses the launch.
+#[test]
+fn a_package_bin_script_s_launch_checks_it_and_its_node() {
+    let dir = TestDir::in_system_temp("spawn_pins_node_launch");
+    let root = dir.path();
+    let project = text(root);
+    let line = b"#!/usr/bin/env node\n";
+    file(root, "pkg/cli.js", line, 0o755);
+    file(root, "pkg/other.js", line, 0o755);
+    file(root, "shims/node", SCRIPT, 0o755);
+    file(root, "shims/other", SCRIPT, 0o755);
+    std::fs::create_dir_all(root.join("node_modules/.bin")).unwrap();
+    std::os::unix::fs::symlink("../../pkg/cli.js", root.join("node_modules/.bin/cli")).unwrap();
+    let path = format!("{project}/shims");
+    let pinned = || resolve("node_modules/.bin/cli", Some(&path), project).unwrap();
+    let pin = pinned();
+    assert!(pin.check_launch("cli").is_ok());
+    std::fs::rename(root.join("pkg/other.js"), root.join("pkg/cli.js")).unwrap();
+    let refused = pin.check_launch("cli").unwrap_err();
+    assert_eq!(
+        refused.cause,
+        format!("cli at {project}/pkg/cli.js is no longer the file pinned")
+    );
+    let pin = pinned();
+    assert!(pin.check_launch("cli").is_ok());
+    std::fs::rename(root.join("shims/other"), root.join("shims/node")).unwrap();
+    let refused = pin.check_launch("cli").unwrap_err();
+    assert_eq!(
+        refused.cause,
+        format!("node at {project}/shims/node is no longer the file pinned")
+    );
+}
+
+/// A script's launch names what its found path now leads to when that's
+/// another file's real path, and says only that it's no longer the file
+/// pinned when another file was renamed over the pinned one.
+#[test]
+fn a_replaced_script_is_named_by_where_its_path_now_leads() {
+    let dir = TestDir::in_system_temp("spawn_pins_replaced");
+    let root = dir.path();
+    let project = text(root);
+    file(root, "bin/a.sh", SCRIPT, 0o755);
+    file(root, "bin/b.sh", SCRIPT, 0o755);
+    file(root, "bin/c.sh", SCRIPT, 0o755);
+    std::os::unix::fs::symlink("a.sh", root.join("bin/link")).unwrap();
+    let pin = resolve("bin/link", None, project).unwrap();
+    std::fs::remove_file(root.join("bin/link")).unwrap();
+    std::os::unix::fs::symlink("b.sh", root.join("bin/link")).unwrap();
+    assert_eq!(
+        pin.check_launch("link").unwrap_err().cause,
+        format!(
+            "link at {project}/bin/link now leads to {project}/bin/b.sh, not the file pinned at \
+             {project}/bin/a.sh"
+        )
+    );
+    let pin = resolve("bin/a.sh", None, project).unwrap();
+    std::fs::rename(root.join("bin/c.sh"), root.join("bin/a.sh")).unwrap();
+    assert_eq!(
+        pin.check_launch("a").unwrap_err().cause,
+        format!("a at {project}/bin/a.sh is no longer the file pinned")
+    );
 }

@@ -49,7 +49,7 @@ use std::path::Path;
 
 use gro_sys::beneath::{self, Links, OpenAs};
 
-use super::pins::{self, Climb, Fault, Pin};
+use super::pins::{self, Climb, Fault, Pin, ScriptRun};
 use crate::file_id::FileId;
 use crate::{EnvPattern, GrantedDir};
 
@@ -226,7 +226,7 @@ impl ExecRoot {
         if pins::is_refused_extension(&real) {
             return Err(pins::refused_extension(name, &real));
         }
-        pins::pin_held(name, held, real, &found, &found).map(Some)
+        pins::pin_held(name, held, real, &found, &found, ScriptRun::ByPath).map(Some)
     }
 }
 
