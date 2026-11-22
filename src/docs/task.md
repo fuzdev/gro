@@ -469,8 +469,9 @@ in `dependencies` or `devDependencies`, and only the project's own install in `n
 so the tool that runs is the one `package.json` names, never a copy on `PATH`;
 `svelte-kit`, from `@sveltejs/kit`, is found the same way.
 The builtins that read SvelteKit's generated files, `gen`, `lint`, and `check` (before its `build` step),
-run `svelte-kit sync` first for a project declaring `@sveltejs/kit`
-whose `.svelte-kit` directory or generated `node_modules/$app/tsconfig.json` is missing,
+run `svelte-kit sync` first for a project declaring `@sveltejs/kit` that's missing
+either of two files a sync writes, `.svelte-kit/types/route_meta_data.json`
+or the generated `node_modules/$app/tsconfig.json`, so a `.svelte-kit` directory that exists unsynced still syncs,
 each through its own `sveltekit_cli` grant, and `typecheck` always runs a full sync,
 as `dev`, `build`, and `sync` do in their sync step, and `test`'s Vite does when it starts;
 the listing, `--version`, `format`, `clean`, `run`, and project tasks run none.

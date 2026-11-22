@@ -8,6 +8,7 @@ import { to_cli_finder } from '#lib/cli.ts';
 import {
 	SVELTEKIT_DEP_NAME,
 	SVELTEKIT_DEV_DIRNAME,
+	SVELTEKIT_ROUTE_META_DATA_PATH,
 	SVELTEKIT_TSCONFIG_PATH
 } from '#lib/constants.ts';
 
@@ -29,7 +30,7 @@ describe('sveltekit_sync_if_obviously_needed', () => {
 	test('a synced project reads no package.json', async () => {
 		const fs_paths = to_project({
 			'package.json': DECLARED,
-			[`${SVELTEKIT_DEV_DIRNAME}/x`]: '',
+			[SVELTEKIT_ROUTE_META_DATA_PATH]: '{}',
 			[SVELTEKIT_TSCONFIG_PATH]: '{}'
 		});
 		const open_path = vi.spyOn(fs_paths, 'open_path');
@@ -45,9 +46,9 @@ describe('sveltekit_sync_if_obviously_needed', () => {
 		}
 	});
 
-	// either path missing means a sync, `npm install` wiping only the generated tsconfig
+	// either file missing means a sync, `npm install` wiping only the generated tsconfig
 	test.each([
-		['only `.svelte-kit`', `${SVELTEKIT_DEV_DIRNAME}/x`],
+		['only the route records in `.svelte-kit`', SVELTEKIT_ROUTE_META_DATA_PATH],
 		['only the generated tsconfig', SVELTEKIT_TSCONFIG_PATH]
 	])('syncs a declared project with %s', async (_name, present) => {
 		const spawn = create_mock_spawn();
@@ -59,6 +60,25 @@ describe('sveltekit_sync_if_obviously_needed', () => {
 		);
 		assert.strictEqual(count_syncs(spawn), 1);
 		assert.deepEqual(warn.mock.calls, []);
+	});
+
+	// a `.svelte-kit` that exists unsynced, as a tool that makes the directory leaves it,
+	// or a sync that stopped before rewriting its route records
+	test.each([
+		['empty', `${SVELTEKIT_DEV_DIRNAME}/`],
+		['holding files no sync wrote', `${SVELTEKIT_DEV_DIRNAME}/output/x`],
+		[
+			'holding route types but no route records',
+			`${SVELTEKIT_DEV_DIRNAME}/types/src/routes/$types.d.ts`
+		]
+	])('syncs a declared project whose `.svelte-kit` is %s', async (_name, entry) => {
+		const spawn = create_mock_spawn();
+		await sveltekit_sync_if_obviously_needed(
+			to_project({ 'package.json': DECLARED, [entry]: '', [SVELTEKIT_TSCONFIG_PATH]: '{}' }),
+			to_cli_finder(spawn, SVELTEKIT_PROGRAM_OPTIONS),
+			{ warn: vi.fn() }
+		);
+		assert.strictEqual(count_syncs(spawn), 1);
 	});
 });
 
@@ -94,7 +114,7 @@ describe('sveltekit_sync_if_obviously_needed without the CLI', () => {
 		assert.deepEqual(
 			await run({
 				'package.json': DECLARED,
-				[`${SVELTEKIT_DEV_DIRNAME}/x`]: '',
+				[SVELTEKIT_ROUTE_META_DATA_PATH]: '{}',
 				[SVELTEKIT_TSCONFIG_PATH]: '{}'
 			}),
 			[]

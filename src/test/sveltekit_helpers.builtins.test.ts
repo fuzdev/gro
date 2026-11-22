@@ -9,7 +9,7 @@ import { task as gen_task } from '#lib/gen.task.ts';
 import { task as lint_task } from '#lib/lint.task.ts';
 import { task as check_task } from '#lib/check.task.ts';
 import { GRO_BUILTIN_TASK_GRANTS } from '#lib/gro_builtin_tasks.ts';
-import { SVELTEKIT_DEV_DIRNAME, SVELTEKIT_TSCONFIG_PATH } from '#lib/constants.ts';
+import { SVELTEKIT_ROUTE_META_DATA_PATH, SVELTEKIT_TSCONFIG_PATH } from '#lib/constants.ts';
 import type { BuiltinTask } from '#lib/builtin_host.ts';
 
 import { create_mock_builtin_context } from './test_helpers.ts';
@@ -49,9 +49,10 @@ const create_project = (synced: boolean): string => {
 	mkdirSync(join(dir, 'src'));
 	mkdirSync(join(dir, 'node_modules'));
 	if (synced) {
-		mkdirSync(join(dir, SVELTEKIT_DEV_DIRNAME));
-		mkdirSync(dirname(join(dir, SVELTEKIT_TSCONFIG_PATH)), { recursive: true });
-		writeFileSync(join(dir, SVELTEKIT_TSCONFIG_PATH), '{}');
+		for (const path of [SVELTEKIT_ROUTE_META_DATA_PATH, SVELTEKIT_TSCONFIG_PATH]) {
+			mkdirSync(dirname(join(dir, path)), { recursive: true });
+			writeFileSync(join(dir, path), '{}');
+		}
 	}
 	return dir;
 };

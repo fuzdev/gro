@@ -50,6 +50,13 @@ export const LOCKFILE_FILENAME = 'package-lock.json';
 export const NPM_HIDDEN_LOCKFILE_PATH = NODE_MODULES_DIRNAME + '/.package-lock.json';
 export const SVELTEKIT_DEV_DIRNAME = '.svelte-kit'; // TODO use Svelte config value `outDir`
 /**
+ * SvelteKit's record of each route's type inputs, which `svelte-kit sync` rewrites on every sync,
+ * a project with no routes included, when TypeScript is installed.
+ * Gro reads its presence as `SVELTEKIT_DEV_DIRNAME` synced, since the directory alone
+ * can exist unsynced, emptied or made by another tool.
+ */
+export const SVELTEKIT_ROUTE_META_DATA_PATH = SVELTEKIT_DEV_DIRNAME + '/types/route_meta_data.json';
+/**
  * The tsconfig SvelteKit generates for projects to extend as `$app/tsconfig`.
  */
 export const SVELTEKIT_TSCONFIG_PATH = NODE_MODULES_DIRNAME + '/$app/tsconfig.json';

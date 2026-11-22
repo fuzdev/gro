@@ -15,7 +15,7 @@ import {
 	SVELTE_PACKAGE_DEP_NAME,
 	SVELTEKIT_CLI,
 	SVELTEKIT_DEP_NAME,
-	SVELTEKIT_DEV_DIRNAME,
+	SVELTEKIT_ROUTE_META_DATA_PATH,
 	SVELTEKIT_TSCONFIG_PATH,
 	SVELTEKIT_TSCONFIG_SPECIFIER,
 	TSCONFIG_FILENAME,
@@ -118,9 +118,12 @@ const run_sveltekit_sync = async (found_sveltekit_cli: SpawnProgram): Promise<vo
 
 /**
  * What the builtins that read SvelteKit's generated files run first, `gen`, `lint`, and `check`
- * (`typecheck` runs a full sync): `svelte-kit sync` for a project `has_sveltekit_app` detects whose
- * `.svelte-kit` directory or generated `$app/tsconfig` is missing, the tsconfig checked because
- * it lives in `node_modules`, which reinstalls wipe. A project with both pays only their checks.
+ * (`typecheck` runs a full sync): `svelte-kit sync` for a project `has_sveltekit_app` detects
+ * that's missing either of two files a sync writes, `SVELTEKIT_ROUTE_META_DATA_PATH` in `.svelte-kit`
+ * and the generated `$app/tsconfig` in `node_modules`, which reinstalls wipe. A file in `.svelte-kit`
+ * is checked rather than the directory, which can exist unsynced, emptied or made by another tool.
+ * A project with both pays only their checks; one without TypeScript, whose sync writes no
+ * `SVELTEKIT_ROUTE_META_DATA_PATH`, syncs on every run.
  * A CLI that isn't found skips rather than throws, so `gro sync --install` runs on a fresh clone,
  * and warns that the files weren't synced when the project has a `node_modules`,
  * an install missing SvelteKit, and stays quiet on a fresh clone with none,
@@ -136,7 +139,7 @@ export const sveltekit_sync_if_obviously_needed = async (
 	log: Pick<Logger, 'warn'>
 ): Promise<void> => {
 	if (
-		(await path_exists(fs_paths, SVELTEKIT_DEV_DIRNAME)) &&
+		(await path_exists(fs_paths, SVELTEKIT_ROUTE_META_DATA_PATH)) &&
 		(await path_exists(fs_paths, SVELTEKIT_TSCONFIG_PATH))
 	) {
 		return;

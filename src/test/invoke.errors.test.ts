@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 
 import { spawn_with_loader_args } from '#lib/gro_helpers.ts';
-import { SVELTEKIT_DEV_DIRNAME, SVELTEKIT_TSCONFIG_PATH } from '#lib/constants.ts';
+import { SVELTEKIT_ROUTE_META_DATA_PATH, SVELTEKIT_TSCONFIG_PATH } from '#lib/constants.ts';
 
 import { LOADER_SOURCE_PATH, TEST_TIMEOUT_MD } from './test_helpers.ts';
 
@@ -171,9 +171,10 @@ const create_project = async (prefix: string): Promise<string> => {
 	onTestFinished(() => rm(dir, { recursive: true, force: true }));
 	await writeFile(join(dir, 'package.json'), '{"type": "module"}\n');
 	// looks synced, so no `svelte-kit sync` runs first: its inherited stdio clears `O_NONBLOCK`
-	await mkdir(join(dir, SVELTEKIT_DEV_DIRNAME));
-	await mkdir(dirname(join(dir, SVELTEKIT_TSCONFIG_PATH)), { recursive: true });
-	await writeFile(join(dir, SVELTEKIT_TSCONFIG_PATH), '{}\n');
+	for (const path of [SVELTEKIT_ROUTE_META_DATA_PATH, SVELTEKIT_TSCONFIG_PATH]) {
+		await mkdir(dirname(join(dir, path)), { recursive: true });
+		await writeFile(join(dir, path), '{}\n');
+	}
 	return dir;
 };
 
