@@ -42,7 +42,8 @@ arm (a `cfg` on the architecture or the C library is fine).
   directory descriptor by `openat2`, in `beneath`, a private user and
   network namespace entered, its loopback brought up and nested ones
   refused, in `namespace`, every capability dropped, in `capabilities`, the
-  dumpable mark, a directory private to the process, in `private_dir`, and
+  dumpable mark, a directory private to the process, held by a shared lock,
+  and the sweep of those whose processes are gone, in `private_dir`, and
   an unbuffered write to a descriptor), each behind a safe API
 - `gro_v8` - the V8 boundary: the calls rusty_v8 exposes only as `unsafe`,
   behind a safe API (eval's recording `ArrayBuffer` allocator,

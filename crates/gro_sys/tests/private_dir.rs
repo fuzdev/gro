@@ -11,7 +11,7 @@
 mod support;
 
 use std::fs::{self, File};
-use std::os::fd::{AsFd as _, OwnedFd};
+use std::os::fd::{AsFd as _, BorrowedFd, OwnedFd};
 use std::os::unix::fs::{MetadataExt as _, symlink};
 use std::path::PathBuf;
 use std::process::Command;
@@ -29,14 +29,14 @@ fn parent() {
         (
             "makes",
             "022",
-            "name: gro-<pid>-<start>\nkind: directory\nmode: 700\nowner: the process's\nagain: \
+            "name: gro-<pid>-<start>\nkind: directory\nmode: 700\nowner: the process's\nlocked: true\nagain: \
              exists\n",
         ),
         // a umask taking the owner's own bits off, set back
         (
             "makes",
             "777",
-            "name: gro-<pid>-<start>\nkind: directory\nmode: 700\nowner: the process's\nagain: exists\n",
+            "name: gro-<pid>-<start>\nkind: directory\nmode: 700\nowner: the process's\nlocked: true\nagain: exists\n",
         ),
         (
             "symlink",
@@ -53,6 +53,13 @@ fn parent() {
             "directory",
             "022",
             "refused: exists\nthe directory: empty\n",
+        ),
+        (
+            "sweep",
+            "022",
+            "removed: gro-4194305-1, gro-<pid>-<start + 1>\nfailed: none\nleft: gro-4194306-1, \
+             gro-4194307-1, gro-4194308-1, gro-4194310-1, gro-42x, gro-<pid>-<start>\nthe inner link's target: kept\nthe \
+             planted link's target: kept\n",
         ),
     ] {
         // made here, under this process's umask, and removed here after
@@ -104,6 +111,12 @@ fn child(case: &str) {
                     "another"
                 }
             );
+            // its shared lock held: an exclusive one, a sweep's, waits
+            let other = File::open(&at).unwrap();
+            println!(
+                "locked: {}",
+                matches!(other.try_lock(), Err(fs::TryLockError::WouldBlock))
+            );
             print_refused("again", private_dir::make_private_dir(parent.as_fd()));
         }
         "symlink" | "dangling" => {
@@ -154,8 +167,75 @@ fn child(case: &str) {
                 }
             );
         }
+        "sweep" => sweep(&scratch, parent.as_fd(), &name),
         _ => unreachable!("no case {case}"),
     }
+}
+
+/// Sweeps a parent holding this process's own directory, kept; one named
+/// for a process id no kernel gives (above 2 ** 22) with a symlink inside
+/// to a file outside, and one named for this process's id with another
+/// start time, a reused id, both removed, the file kept; and a name of
+/// another shape, a symlink at a gone process's name to a directory
+/// outside and one to a directory beside it, a file at one, and a
+/// directory at one that a live process holds locked, all left.
+fn sweep(scratch: &std::path::Path, parent: BorrowedFd<'_>, name: &str) {
+    let at = |entry: &str| scratch.join("parent").join(entry);
+    let (prefix, start) = name.rsplit_once('-').unwrap();
+    let reused = format!("{prefix}-{}", start.parse::<u64>().unwrap() + 1);
+    for dir in [name, "gro-4194305-1", reused.as_str(), "gro-42x"] {
+        fs::create_dir(at(dir)).unwrap();
+    }
+    let target = scratch.join("outside").join("kept.txt");
+    fs::write(&target, "kept").unwrap();
+    symlink(&target, at("gro-4194305-1").join("link")).unwrap();
+    fs::create_dir(scratch.join("outside").join("dir")).unwrap();
+    fs::write(scratch.join("outside").join("dir").join("kept.txt"), "kept").unwrap();
+    symlink(scratch.join("outside").join("dir"), at("gro-4194306-1")).unwrap();
+    // a link inside the parent, which a lookup beneath it would follow
+    symlink("gro-42x", at("gro-4194308-1")).unwrap();
+    fs::write(at("gro-4194307-1"), "kept").unwrap();
+    // a live run that `/proc` doesn't show (hidden by `hidepid`, or in
+    // another pid namespace), named for a gone id, holding its lock
+    fs::create_dir(at("gro-4194310-1")).unwrap();
+    let held = File::open(at("gro-4194310-1")).unwrap();
+    held.lock_shared().unwrap();
+    let swept = private_dir::sweep_private_dirs(parent).unwrap();
+    drop(held);
+    let shown = |entry: &str| {
+        entry
+            .replace(name, "gro-<pid>-<start>")
+            .replace(&reused, "gro-<pid>-<start + 1>")
+    };
+    let mut removed: Vec<String> = swept.removed.iter().map(|entry| shown(entry)).collect();
+    removed.sort();
+    println!("removed: {}", removed.join(", "));
+    println!(
+        "failed: {}",
+        if swept.failed.is_empty() {
+            "none".to_owned()
+        } else {
+            format!("{:?}", swept.failed)
+        }
+    );
+    let mut left: Vec<String> = fs::read_dir(scratch.join("parent"))
+        .unwrap()
+        .map(|entry| shown(&entry.unwrap().file_name().to_string_lossy()))
+        .collect();
+    left.sort();
+    println!("left: {}", left.join(", "));
+    let kept = |path: PathBuf| {
+        if fs::read_to_string(path).is_ok_and(|text| text == "kept") {
+            "kept"
+        } else {
+            "changed"
+        }
+    };
+    println!("the inner link's target: {}", kept(target));
+    println!(
+        "the planted link's target: {}",
+        kept(scratch.join("outside").join("dir").join("kept.txt"))
+    );
 }
 
 /// Prints `label` and that the make was refused for an entry at the name;

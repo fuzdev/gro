@@ -118,6 +118,7 @@ pub mod run;
 pub mod seccomp;
 #[cfg(test)]
 mod tests;
+pub mod tool_dirs;
 
 use closure::link_closure;
 use rules::{BoxRules, open_real_dir};

@@ -54,8 +54,10 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
+use gro_runtime::confine::plan::{BoxFacts, BoxInputs, BoxPlan};
 use gro_runtime::confine::rules::{BoxRules, Need, RealRights, Rights};
-use gro_runtime::confine::run::{RunClosed, RunNetwork, RunPrepared};
+use gro_runtime::confine::run::{RunClosed, RunHardened, RunNetwork, RunPrepared};
+use gro_runtime::confine::tool_dirs::ToolDirError;
 
 use support::{DEADLINE, KillOnDrop, Scratch};
 
@@ -88,6 +90,8 @@ const CASES: &[&str] = &[
     "stdin_unix_datagram",
     "stdin_ring",
     "stdout_stream",
+    "tool_dirs",
+    "tool_dirs_planted",
     #[cfg(feature = "snapshot")]
     "v8",
 ];
@@ -364,6 +368,24 @@ fn expected(case: &str) -> String {
         "stdout_stream" => {
             line(&format!("network: {network}"));
             line("confined");
+        }
+        "tool_dirs" => {
+            line(&format!("network: {network}"));
+            line("made: ok");
+            line(
+                "tool directories: .fuz/cache, .svelte-kit, node_modules/$app, node_modules/.vite, node_modules/.vite-temp",
+            );
+            line("the one made before: kept");
+            line("a file at .svelte-kit: NotADirectory");
+        }
+        "tool_dirs_planted" => {
+            line(&format!("network: {network}"));
+            line(".svelte-kit linked to /tmp: Symlink");
+            line("made where it leads: false");
+            line("node_modules/.vite linked outside: Symlink");
+            line("made where it leads: false");
+            line("node_modules swapped for a link to .git: Symlink");
+            line("made in .git: false");
         }
         "v8" => {
             line(&format!("network: {network}"));
@@ -824,10 +846,136 @@ fn child(case: &str, scratch: &Path, port: u16) {
             Ok(_) => say("confined"),
             Err(error) => panic!("refused otherwise: {error}"),
         },
+        "tool_dirs" => tool_dirs(scratch),
+        "tool_dirs_planted" => tool_dirs_planted(scratch),
         #[cfg(feature = "snapshot")]
         "v8" => v8::run(&project, &outside),
         _ => panic!("no case {case}"),
     }
+}
+
+/// A project of its own beneath the scratch directory, `node_modules`
+/// installed, made before the run's steps, its real path.
+fn tools_project(scratch: &Path, name: &str) -> PathBuf {
+    let project = scratch.join(name);
+    std::fs::create_dir_all(project.join("node_modules")).unwrap();
+    std::fs::create_dir_all(project.join(".git")).unwrap();
+    std::fs::write(project.join("package.json"), "{}").unwrap();
+    std::fs::canonicalize(project).unwrap()
+}
+
+/// The plan of a run of `project` granting the local `tools`, the project
+/// declaring `declared`.
+fn tools_plan(project: &Path, tools: &[&str], declared: &[&str]) -> BoxPlan {
+    let inputs = BoxInputs {
+        root: project.to_owned(),
+        tools: tools.iter().map(|&tool| tool.to_owned()).collect(),
+        declared: declared.iter().map(|&name| name.to_owned()).collect(),
+        ..BoxInputs::default()
+    };
+    BoxPlan::for_run(&inputs, &BoxFacts::read(&inputs).unwrap()).unwrap()
+}
+
+/// The hardened run's steps, the network printed.
+fn hardened() -> RunHardened {
+    let networked = RunClosed::close_inherited()
+        .unwrap()
+        .enter_network()
+        .unwrap();
+    say(&network_line(networked.network()));
+    networked.harden().unwrap()
+}
+
+/// What a make of tool directories refused, by kind.
+fn tool_dir_refusal(made: Result<(), ToolDirError>) -> String {
+    match made {
+        Ok(()) => "made".to_owned(),
+        Err(ToolDirError::NotADirectory { .. }) => "NotADirectory".to_owned(),
+        Err(ToolDirError::Symlink { .. }) => "Symlink".to_owned(),
+        Err(error) => format!("{error}"),
+    }
+}
+
+/// The tool directories a plan names, made once the run is hardened,
+/// `.fuz` with `.fuz/cache` and `.svelte-kit` passing as the directory made
+/// before; a file at one refused.
+fn tool_dirs(scratch: &Path) {
+    let project = tools_project(scratch, "tools_made");
+    std::fs::create_dir(project.join(".svelte-kit")).unwrap();
+    std::fs::write(project.join(".svelte-kit/kept.txt"), "").unwrap();
+    let plan = tools_plan(
+        &project,
+        &["vitest"],
+        &["@sveltejs/kit", "vite", "@fuzdev/fuz_css"],
+    );
+    let filed = tools_project(scratch, "tools_file");
+    std::fs::write(filed.join(".svelte-kit"), "").unwrap();
+    let file_plan = tools_plan(&filed, &["vitest"], &["@sveltejs/kit"]);
+    let hardened = hardened();
+    hardened.make_tool_dirs(&plan).unwrap();
+    say("made: ok");
+    let mut made: Vec<String> = [
+        ".fuz/cache",
+        ".svelte-kit",
+        "node_modules/$app",
+        "node_modules/.vite",
+        "node_modules/.vite-temp",
+    ]
+    .into_iter()
+    .filter(|dir| project.join(dir).is_dir() && !project.join(dir).is_symlink())
+    .map(str::to_owned)
+    .collect();
+    made.sort();
+    say(&format!("tool directories: {}", made.join(", ")));
+    say(&format!(
+        "the one made before: {}",
+        if project.join(".svelte-kit/kept.txt").exists() {
+            "kept"
+        } else {
+            "emptied"
+        }
+    ));
+    say(&format!(
+        "a file at .svelte-kit: {}",
+        tool_dir_refusal(hardened.make_tool_dirs(&file_plan))
+    ));
+}
+
+/// A tool directory planted as a symlink, `.svelte-kit` to `/tmp` and
+/// `node_modules/.vite` outside the project, and `node_modules` swapped for
+/// a link to `.git` after the plan read it, each refused with nothing made
+/// where it leads.
+fn tool_dirs_planted(scratch: &Path) {
+    let project = tools_project(scratch, "tools_planted");
+    let tmp = PathBuf::from(format!("/tmp/gro_run_box_{}_x", std::process::id()));
+    std::os::unix::fs::symlink(&tmp, project.join(".svelte-kit")).unwrap();
+    let kit = tools_plan(&project, &["svelte-kit"], &["@sveltejs/kit"]);
+    let home = scratch.join("outside/home_x");
+    std::os::unix::fs::symlink(&home, project.join("node_modules/.vite")).unwrap();
+    let vite = tools_plan(&project, &["vitest"], &["vitest"]);
+    let swapped = tools_project(scratch, "tools_swapped");
+    let swapped_plan = tools_plan(&swapped, &["vitest"], &["vitest"]);
+    std::fs::rename(swapped.join("node_modules"), swapped.join("moved")).unwrap();
+    std::os::unix::fs::symlink(".git", swapped.join("node_modules")).unwrap();
+    let hardened = hardened();
+    say(&format!(
+        ".svelte-kit linked to /tmp: {}",
+        tool_dir_refusal(hardened.make_tool_dirs(&kit))
+    ));
+    say(&format!("made where it leads: {}", tmp.exists()));
+    say(&format!(
+        "node_modules/.vite linked outside: {}",
+        tool_dir_refusal(hardened.make_tool_dirs(&vite))
+    ));
+    say(&format!("made where it leads: {}", home.exists()));
+    say(&format!(
+        "node_modules swapped for a link to .git: {}",
+        tool_dir_refusal(hardened.make_tool_dirs(&swapped_plan))
+    ));
+    say(&format!(
+        "made in .git: {}",
+        swapped.join(".git/.vite").exists() || swapped.join(".git/.vite-temp").exists()
+    ));
 }
 
 /// The process's capability sets, as `/proc/self/status` shows them.
