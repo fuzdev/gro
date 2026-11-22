@@ -47,8 +47,8 @@ jobs:
       - run: npm run bootstrap
       - run: npx @fuzdev/gro check --workspace --build
       # The JS/TS under crates/ (the runtime's extension sources, the bench
-      # workloads, the test fixtures), which `gro check` doesn't reach and the
-      # rust job has no Node for. It builds only the xtask, with the toolchain
+      # workloads, the test fixtures), which `gro check` doesn't reach and which
+      # read the `dist` built above. It builds only the xtask, with the toolchain
       # rust-toolchain.toml pins, installed explicitly as the rust job does.
       - name: Install Rust
         run: |
@@ -85,6 +85,16 @@ jobs:
           cargo --version
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      # The tests of `fgro <command>` run gro's CLI from the embed, which
+      # resolves gro's peers (fuz_util, fuz_schema) from the project's
+      # `node_modules`, so they link the checkout's: installed here, no build.
+      - name: Use Node.js 24.14
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '24.14'
+          cache: npm
+      - run: npm ci
 
       # The run's box where unprivileged user namespaces are restricted, as
       # this image restricts them until the next step's flip. The box's check
