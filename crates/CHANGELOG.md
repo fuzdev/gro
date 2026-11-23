@@ -54,7 +54,8 @@ for Linux x86_64 only, built from source ([install](../src/docs/runtime.md#insta
     each refused `launch_failed` when its file changed since it was pinned, even in place;
     the child is waited for by its pidfd, and a group it leads is killed, by an id still its own, at the drain bound, past `max_bytes`, and after a timeout's grace.
     A call resolves to how its child ended, `exited` with its code, `signaled` with the signal's name and number, or `timed_out` with the code or the signal's name and number it ended by.
-    No child outlives its run: `exit`, an uncaught error, the run's end, and a `SIGINT`, `SIGTERM`, or `SIGHUP` kill each one left, with its group,
+    No child outlives its run's `exit`, an uncaught error, or the run's end, each killing every child left with its group;
+    a `SIGINT`, `SIGTERM`, or `SIGHUP` that ends the run kills the groups its children lead, and a `SIGTERM` is also passed on to its children in its own group,
     a child launching as the signal arrives among them, waited for up to a second.
     `start` starts a long-lived child, its `SpawnChild` holding its `pid`, its `closed`, which never rejects, its piped `stdin`, written and closed in order,
     and its piped `stdout` and `stderr`, each an async iterable once, of chunks buffered up to 1 MiB ahead of its reader;
@@ -143,7 +144,7 @@ for Linux x86_64 only, built from source ([install](../src/docs/runtime.md#insta
     and the tool directories, like `.svelte-kit` and `node_modules/.vite`, under a command that starts a tool from `node_modules/.bin`, as the project's dependencies call for),
     nothing under the home directory but the project's own trees, what git reads there (its global config, ignore and attributes files, and the files the config includes or names, never its credential store unless that config names it) and the programs the run pins, `node`'s file among them,
     no network but the run's own loopback,
-    for a run that may start a program, a temp directory private to the run that `TMPDIR`, `TMP` and `TEMP` where set, and the XDG data, cache, and state variables name,
+    for a run that may start a program or that `--allow-temp` grants, a temp directory private to the run that `TMPDIR`, `TMP` and `TEMP` where set, and the XDG data, cache, and state variables name,
     not dumpable, and the `core` limit 0.
     `.env*` in the project stays readable, `/proc` is readable but for the environment, memory, and working directory of a process outside the box,
     and the tools share the one box and see the run's whole environment.

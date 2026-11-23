@@ -16,10 +16,10 @@
 >   or runs the project's Node Gro and says why
 >   ([Gro's workflow](#gros-workflow-on-the-runtime))
 >
-> Designed, not built: the host modules not marked built in [host modules](host_modules.md#the-modules) (`net`, `watch`, and the standard streams among them;
+> Designed, not built: the host modules not marked built in [host modules](host_modules.md#the-modules) (`net`, `watch`, and `stdin`;
 > every host module exists as its Node implementation), the grant flags beyond those listed in [run](run.md#usage), the policy file,
 > and the seal on the global object.
-> So are the box for `fgro run` and a box for each tool inside a command's ([box](box.md)).
+> So is the box for `fgro run`; a box for each tool inside a command's is built, installed by no launch yet ([box](box.md#a-box-for-each-tool)).
 > Until they land, `fgro run` gives code no API past its own module graph, the console, and the builtin modules [host modules](host_modules.md#the-modules) marks built,
 > but the process itself isn't confined or limited: against code that exploits V8 it's an ordinary process with your user's authority,
 > the same class as Deno with no permissions granted;
@@ -33,7 +33,7 @@ The runtime's docs:
 
 - [runtime](runtime.md) (this doc) - why it exists, the model in a page, the design, and the roadmap
 - [authority](authority.md) - the security model: grants and the policy file, run kinds, what holds by construction, the threat model, imports or globals
-- [box](box.md) - the kernel layer under the runtime's checks: what Landlock and seccomp hold and can't, the one namespace the box takes, the box a command of Gro's runs in and the one designed for each child, the terminal, and limits
+- [box](box.md) - the kernel layer under the runtime's checks: what Landlock and seccomp hold and can't, the one namespace the box takes, the box a command of Gro's runs in and the one for each child (built, installed by no launch yet), the terminal, and limits
 - [run](run.md) - the reference for `fgro run` as built today: what loads, the globals, errors, and exit codes
 - [eval](eval.md) - the reference for `fgro eval` as built today: the engine and its limits, determinism, the protocol, the box, the driver, the serializer, the envelope, the graph, and exit codes
 - [host modules](host_modules.md) - the imports that reach the OS: `fs`, `spawn`, `net`, `watch`, and the process modules, how to hand them down, and the Node implementation's gaps
@@ -213,7 +213,7 @@ Each bullet marks what's built; anything unmarked past the omissions is designed
 - **A kernel box.** On Linux a coarsening of the grant set also becomes kernel rules for the whole invocation,
   installed before V8 starts a thread and inherited by every child process.
   Installed for `fgro eval`, as a fixed box with no grants to enforce yet, and for every command of Gro's on the binary, as the run's box,
-  derived from the command's closure and the grant flags; designed for `fgro run`, and for each child inside the run's
+  derived from the command's closure and the grant flags; designed for `fgro run`, and built for each child inside the run's, installed by no launch yet
   ([eval](eval.md#the-box) has eval's exact walls; [box](box.md) has what each layer holds, the one namespace the box takes, and the run's walls).
 - **Native code: first-party crates linked in, WASM as the portable path, FFI as a grant.**
   blake3 and tsv are exposed as builtin modules (`@fuzdev/gro/blake3.ts`, `@fuzdev/gro/tsv.ts`), with no boundary to cross.
@@ -352,7 +352,7 @@ As designed, except where marked built:
 - `fgro <command>` runs a command of Gro's on the binary (built, in the run's box):
   every first argument but the binary's own (`run`, `eval`, `--version`, `--help` and `help`, and the internal `make-snapshot` and `make-embed`) is one,
   bare `fgro` lists them, and `fgro -v` prints Gro's version while `fgro --version` keeps the binary's line.
-  Its pre-pass, the binary's native step before any thread starts, reads the command's closure,
+  Its [pre-pass](glossary.md#pre-pass), the binary's native step before any thread starts, reads the command's closure,
   the grant flags after the command word, and the project at the working directory,
   which must hold a project's `package.json`.
   The command exits as a run does, its code Gro's, `2` when its pre-pass refuses it, and the Node Gro's when it falls back
@@ -369,7 +369,7 @@ As designed, except where marked built:
   `format --check`, which starts no tool, writes nothing at all,
   and `gen`, `format`, and `sync` write the project's top-level entries but `.git`, `node_modules`, and the other dot-entries.
   The declared differences from the Node Gro follow, first those of the binary, then those of the box;
-  the verb's differential (`crates/gro_cli/tests/verb_differential.rs`) holds the binary's output for a set of commands to what the Node Gro prints,
+  a differential test (`crates/gro_cli/tests/verb_differential.rs`) holds the binary's output for a set of commands to what the Node Gro prints,
   normalizing only the differences here that each case names.
   Gro's logger colors its output even under `NO_COLOR` or when piped.
   `fgro --help` and `fgro help` print the binary's own help, where `gro --help` lists the builtins,
@@ -408,6 +408,7 @@ As designed, except where marked built:
     so a tool that keeps state there (Vitest's token among it) gets a fresh, private place, nothing under the home directory is touched for it,
     and a tool that caches in either place starts cold every run.
     An OS temporary directory inside the project is refused for such a run, exit 2, the refusal naming the variable that set it, or saying it's the default.
+    So is a grant flag or rule holding the OS temporary directory, like `--allow-read=/tmp` or `--allow-read=/`, for a command that may start a program, exit 2, the refusal naming the flag or rule and the fix.
   - A write outside the command's write roots is refused at the kernel:
     in Gro's own code a `permission_denied` `FsError` whose cause names where the box lets the command write and what stays read-only,
     and in a tool `EACCES` or `EPERM`, after which, when the run exits nonzero, a closing `note:` line names the box's network and writes and the flags that widen it
@@ -491,7 +492,7 @@ where the host modules and grants land with their first consumer.
 - [ ] the host modules (fs, spawn, watch, net, and the process modules), the grants
       (built so far: the link-time check, the modules [host modules](host_modules.md#the-modules) marks built, and the flags [run](run.md#usage) lists),
       and the policy file, enforced, with the box under every run and its children
-      (built for every command of Gro's on the binary, designed for `fgro run` and for each child's own box,
+      (built for every command of Gro's on the binary and designed for `fgro run`, with each child's own box built, installed by no launch yet,
       [box](box.md#the-box-for-runs-and-children)), landing with Gro on Gro
 - [ ] each tool in a box of its own inside the run's, writing only the directories the grants table names for it
       ([box](box.md#a-box-for-each-tool))
@@ -540,7 +541,7 @@ Maybe later or never:
 
 No binary release is attached yet, and `fgro` isn't released on its own:
 the first published version will be Gro running on this runtime ([roadmap](#roadmap)),
-the binary attached as `gro` to the GitHub Release of the npm package's own tag, `v<version>`.
+the binary attached as `gro` to the GitHub Release of the npm package's own tag, `v<version>`, built on Ubuntu 24.04, so it needs glibc 2.39 or later.
 Until then, build it from source, for Linux x86_64 ([the README](../../README.md#develop)),
 and see [crates/CHANGELOG.md](../../crates/CHANGELOG.md) for what the binary built from `main` does;
 `fgro eval` needs Linux 6.12 or later too ([eval](eval.md#usage)),

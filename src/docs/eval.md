@@ -4,7 +4,7 @@
 > the driver contract, the serializer's rules, the envelope, and the exit codes
 
 > **status**: built; the reference for the current binary
-> ([install](runtime.md#install) says how to install a release,
+> ([install](runtime.md#install) says how to build and install the binary,
 > and the [roadmap](runtime.md#roadmap) what comes later, like determinism modes beyond `deny`).
 > Eval loads modules as [run](run.md) does and sees the same globals, apart from what's below.
 

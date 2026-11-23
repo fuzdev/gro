@@ -1,13 +1,14 @@
 # box
 
 > The box, the kernel layer under the runtime's own checks: what Landlock and seccomp each hold and can't,
-> the one namespace the box takes, the box a command of Gro's runs in on the binary and the one designed for each child, the terminal as a channel, and resource limits
+> the one namespace the box takes, the box a command of Gro's runs in on the binary and the one for each child (built, installed by no launch yet), the terminal as a channel, and resource limits
 
 > **status**: `fgro eval`'s box is built ([eval](eval.md#the-box) has its exact walls),
 > and so is the run's box, which every command of Gro's the binary runs starts in, `fgro check` and `fgro gen` among them
 > ([below](#what-a-commands-box-admits) has its exact walls).
 > `fgro run` has no kernel box and no resource limits yet ([run](run.md)): its box is designed, to come after.
-> A narrower box for each tool inside the run's is designed, to land after it, and the first release waits for it.
+> A narrower box for each tool inside the run's is built, installed by no launch yet, so today the tools share the run's box,
+> and the first release waits for it to be installed and to hold each tool to its own directories ([below](#a-box-for-each-tool)).
 > The read-deny overlay and the rest here not marked built are designed too.
 
 The runtime checks authority twice.
@@ -95,7 +96,7 @@ its rules are derived from the command's closure (the grants of the builtins it 
 installed from the process's one thread before V8 starts, and every program the run starts inherits them.
 A command the binary leaves to Node runs on the Node Gro, which confines nothing ([fallback](glossary.md#fallback)).
 `fgro run` has no box yet: its box, derived from the run's grant flags alone, is designed to come after.
-A narrower box for each program inside the run's is designed too ([below](#a-box-for-each-tool)).
+A narrower box for each program inside the run's is built, installed by no launch yet ([below](#a-box-for-each-tool)).
 
 ### What a command's box admits
 
@@ -159,7 +160,8 @@ anything else that keeps a rule from opening, like a symlink on its path, refuse
   An OS temporary directory inside the project, by its path or by its identity (a bind mount counts), refuses such a run, exit 2, before anything is made,
   since the run's tools would write an entry there that later commands read; the refusal names the variable that set it, or says it's the default.
   For a command that may start a program, a rule holding the OS temporary directory, like `--allow-read=/tmp`, `--allow-run-in=/tmp`, or `--allow-read=/`,
-  refuses it too, exit 2, before anything is made, since through that rule each program would read the whole of the run's temp directory, the others' places in it included;
+  refuses it too, exit 2, before anything is made, since through that rule each program, once its own box is installed, could read the whole of the run's temp directory, the others' temporary directories in it included
+  (until then every program shares that directory anyway);
   the refusal names the flag or rule, and says to narrow the flag or to point the variable that set it elsewhere.
   The run holds its directory by a lock, and a later start removes one no running process holds, never following a link inside it
   and never inside the project, which keeps leftovers from piling up and is no wall.
@@ -318,17 +320,20 @@ and can read another's environment through `/proc`, and its memory where Yama al
 
 ### A box for each tool
 
-Designed, to land after the run's box, and the first release waits for it: each program the run starts runs in a box of its own, nested in the run's.
-Landlock restricts the thread that installs its rules, so the run starts each program from a short-lived thread that first restricts itself with that program's rules
-and then spawns it as today, and the program inherits the narrower box; nothing re-executes the binary.
-Each program gets its own temp directory.
-A program the grants table grants writes only the directories the table names for it:
+Each program the run starts is to run in a box of its own, nested in the run's (`gro_runtime`'s `confine/program.rs`).
+The box is built, installed by no launch yet.
+The spawn host module launches every program without one, so today the tools share the run's box, and the first release waits for the box to be installed and for each tool to write only its own directories.
+Landlock restricts the thread that installs its rules, so a launch given a program's box starts the program from a short-lived thread that first restricts itself with that box
+and then spawns it as today, and the program inherits the narrower box (`host/spawn/launch.rs`); nothing re-executes the binary.
+Each program's box gives it a temporary directory of its own.
+As built, the box lets a program of the grants table write every tool directory of the command, and one a flag grants write nothing but its own temporary directory.
+Writing only the directories the table names for that program is designed:
 the tools that write on their own, like SvelteKit's sync and Vitest, name their own write roots, and the ones that don't, like tsc, ESLint, and git, name none.
 Vitest is held to SvelteKit's generated modules for its dev server and its own cache in `node_modules/.vite`, with its config loaded by Vite's runner loader,
 which needs no write of its own.
-A program a grant flag names gets no write on the project, and a flag naming a write root for one program waits behind the release.
-Nested, the boxes also keep a tool from signalling Gro and from reading a sibling through `/proc`.
-That closes a test or an ESLint plugin planting in what `dev` and `build` run.
+A flag naming the directories one program may write is designed.
+Once installed, the nested boxes will also keep a tool from signalling Gro and from reading a sibling's environment and memory through `/proc`.
+Once each tool is held to its own directories, a test or an ESLint plugin won't be able to plant in what `dev` and `build` run.
 It leaves the project's own config, which runs in every tool and which `dev` runs unconfined,
 and a write into a tool's own directory that a dev server already running picks up.
 

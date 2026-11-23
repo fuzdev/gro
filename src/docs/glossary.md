@@ -63,7 +63,7 @@ The run's box is built too, and every command of Gro's the binary runs starts in
 the project read-only but for the command's [write roots](#write-root), nothing under the home directory but what git reads there, the programs the run pins (`node`'s own file among them), and the project's own trees,
 no network but the run's own loopback, and every tool the run starts inside it
 ([box](box.md#what-a-commands-box-admits)).
-A box for `fgro run`, and one for each child inside the run's, are designed.
+A box for `fgro run` is designed, and one for each child inside the run's is built, installed by no launch yet.
 
 ## builtin module
 
@@ -162,7 +162,7 @@ for `fgro run` the kernel's rule on one is designed ([box](box.md#what-a-command
 A command of Gro's that `fgro <command>` runs on the Node Gro the project installed instead of on the binary,
 after one `note:` line saying why: its [command's closure](#commands-closure) holds a builtin that declares no grants, an install, or a project task,
 the command is `task` listing the project's tasks, the binary leaves a builtin to Node by policy (`clean`), the project installed another version of Gro,
-or the kernel's Landlock is missing, off, or below its sixth ABI (Linux 6.12), so the run's [box](#box) can't go up.
+or the kernel's Landlock is missing, off, or below its sixth ABI (Linux 6.12), or a seccomp filter refuses its calls, so the run's [box](#box) can't go up.
 Each reason is decided by the command line, by the project's files, or by the host, and `GRO_FALLBACK=command` refuses the last two kinds
 ([authority](authority.md#what-the-first-release-is-for)).
 The line is a [review signal](#review-signal); what runs is the Node Gro, which confines nothing.
@@ -305,6 +305,13 @@ The committed record of the grants accepted in review, designed and provisionall
 It holds each entry's grants and [run kind](#run-kinds) (for Gro, each task and gen file),
 and the project's check (`gro check`) diffs it like a lockfile, failing on a widening until a person accepts it.
 It names a spawn grant's programs, while each one's pin, a real path that differs per machine, is designed to live in a local file that isn't committed.
+
+## pre-pass
+
+The binary's native step for `fgro <command>`, taken before any thread starts and before any JS runs.
+It reads the [command's closure](#commands-closure), the grant flags after the command word, and the project at the working directory,
+decides any [fallback](#fallback) the command line or the project's files decide, and holds no descriptor when it returns
+([box](box.md#how-it-goes-up)).
 
 ## project root
 

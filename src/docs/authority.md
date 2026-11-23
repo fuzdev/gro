@@ -20,7 +20,7 @@
 > Its grants are the command's closure, read natively and joined to the grant flags, and each program the closure grants gets the grants table's environment policy.
 > The tools that pass the whole environment (svelte-kit, vitest, eslint, svelte-check, tsc, and npm) run the project's code inside that box,
 > bounded by its rules rather than by the grants ([box](box.md#what-a-commands-box-admits)).
-> Not built: the box for `fgro run`, where a granted program runs unboxed, and a box for each child, `net`, `watch`, the standard streams, the policy file, the deny overlays, and the seal;
+> Not built: the box for `fgro run`, where a granted program runs unboxed, a box installed for each child (it's built, installed by no launch yet), `net`, `watch`, `stdin`, the policy file, the deny overlays, and the seal;
 > the [roadmap](runtime.md#roadmap) says when, and [box](box.md) has the kernel layer under all of it.
 
 These terms carry this doc, and the [glossary](glossary.md) defines them and the others:
@@ -230,7 +230,7 @@ and whoever accepts the policy file.
 - Deliberate code in the project holds the invocation's whole grant set.
   The native checks and the box (built for `fgro <command>`, designed for `fgro run`) bound it, and guardrails don't.
 - A child process, whose arguments and config files are code, is bounded by its box:
-  under `fgro <command>` the run's box (built), which every tool shares, and a narrower one of its own (designed).
+  under `fgro <command>` the run's box (built), which every tool shares, and a narrower one of its own (built, installed by no launch yet).
   Under `fgro run`, which has no box yet, a program a run is granted is close to `-A`.
 - An engine exploit is bounded by the box of the process it lands in, built for `fgro eval` and `fgro <command>` and designed for `fgro run`,
   so today an exploit in `fgro run` reaches what your user can.
@@ -299,7 +299,7 @@ What the release claims, on Linux with Landlock's sixth ABI:
 every command of Gro's that the binary runs runs in a kernel [box](glossary.md#box) (built),
 covering Gro's code, the project's config and genfiles, and the tools it spawns, which inherit it,
 and each tool it spawns runs in a narrower box of its own inside it, writing only its own directories
-(designed, to land after the run's box, and the release waits for it, [box](box.md#a-box-for-each-tool)).
+(the box built, installed by no launch yet, and its writing only its own directories designed; the release waits for both, [box](box.md#a-box-for-each-tool)).
 Nothing in the home directory is readable but the project's own trees wherever they sit, what git reads there, and the programs the run pins, like `node`'s own file where a version manager installed it there:
 git's global config, its ignore and attributes files, and the files its config includes or names as `core.excludesFile` and `core.attributesFile`,
 never git's credential store unless your own git config names it as one of those.
@@ -459,7 +459,7 @@ The design doesn't have every answer, and these are the ones it knows it's missi
   What the opt-in tier looks like is undecided, the limit is stated in the meantime, and the gate suite carries a probe either way.
 - **Freezing the intrinsics in the one realm.** Separate realms are the costly option above; freezing the shared prototypes
   in the single realm needs no second realm, and the seal already has a named-exception mechanism.
-  Lockdown, that freezing, is adopted for every confined run, its spike and its build after the first release.
+  Lockdown, that freezing, is adopted for every confined run, prototyped and built after the first release.
   How lockdown meets the seal, and how a package that patches a prototype opts out at a measured compatibility cost, stay open.
 - **Free names through the global's prototype.** `Object.prototype.fetch = …` makes a free `fetch` resolve
   without touching the seal; how to close that, and at what cost to compatibility, is undecided.

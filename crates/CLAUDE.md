@@ -211,7 +211,10 @@ and the contracts no one module doc owns.
   in the run's, names only handles the run's box held past it, none on
   the private directory or a directory holding it, and its own temporary
   directory, made beneath the held private directory's handle, an entry
-  already there refused. A launch in a program's box reserves its slot of
+  already there refused. No launch installs one yet, since the spawn host
+  module passes `spawn_held` no box, and only tests take the held rules
+  (`RunConfined::take_program_rules`). A launch in a program's box
+  reserves its slot of
   the signal handler's tables, spawns, takes the pidfd, and arms on the
   box's own short-lived thread, never splitting those across threads
   (`host/spawn/launch.rs`'s `spawn_held`), and the handler on any thread
@@ -331,6 +334,12 @@ they need Landlock ABI 6, `python3`, the checkout's `node_modules`, and a
 `--verify` names each of `gro_cli`'s integration tests with the features it
 runs under (`INTEGRATION_TESTS` in `crates/xtask/src/snapshot.rs`), and an
 xtask unit test fails on a file of `crates/gro_cli/tests/` no run names.
+The tests that run `fgro` run the one `cargo test` builds for them
+(`CARGO_BIN_EXE_fgro`, in `tests/support/mod.rs`), with the `testing`
+features of `gro_runtime` and `gro_sys` that `gro_cli`'s dev-dependencies
+turn on, unlike the binary that ships; under `--verify` that one is built
+with the `snapshot` feature, and only the off-build-tree run
+(`off_build_tree`) checks the shipped file itself.
 `gro_sys`'s tests that close descriptors, clear the environment, cap memory,
 lower a limit, enter namespaces, drop capabilities, mark the process not
 dumpable, set a umask, or signal run in a child process, harness off, as

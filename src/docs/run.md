@@ -4,7 +4,7 @@
 > how a run fails, and the exit codes
 
 > **status**: built; the reference for the current binary.
-> [Install](runtime.md#install) says how to install a release,
+> [Install](runtime.md#install) says how to install the binary,
 > the README's [Develop](../../README.md#develop) section how to build it,
 > and [runtime](runtime.md) has the design it grows into.
 
@@ -373,6 +373,7 @@ a project's `package.json` or installed Gro's that can't be read, a forwarded se
 a `node` on `PATH` that's a script,
 a `node_modules` symlink to anything but another checkout's `node_modules`, git's files the box can't read for a command that may start a program,
 a socket on stdin, stdout, or stderr that isn't a connected unix stream, an OS temporary directory inside the project,
+a flag or rule holding the OS temporary directory for a command that may start a program (`--allow-read=/tmp`, `--allow-read=/`),
 a path planted where the box opens a rule or makes a tool directory, like a symlink,
 a fallback `GRO_FALLBACK=command` refuses, the one the host decides where Landlock can't hold the box among them, or a fallback with no installed or built Node Gro or no `node` to run it),
 `1` when the grants table or the working directory can't be read, `node` fails to start, the binary was built without its snapshot,
@@ -388,7 +389,7 @@ An `import()` whose graph is still loading when `exit` is called is abandoned wh
 a refusal the graph would meet later is never reached, so it neither fails the run nor prints.
 A top-level `await` nothing settles or waits on exits 1, where Node exits 13.
 A `SIGINT`, `SIGTERM`, or `SIGHUP` that ends a run that started a child ends it by that signal, as with none,
-once the groups its children lead are killed and a `SIGTERM` is passed on to its children in its own group,
+once the groups its children lead are killed and, for a `SIGTERM`, the signal is passed on to its children in its own group,
 a child launching as the signal arrives among them, waited for up to a second;
 a `SIGTERM` that arrives with a `SIGINT` or `SIGHUP` that ends the run first isn't passed on.
 A panic exits 101 in a debug build; a release build aborts.
