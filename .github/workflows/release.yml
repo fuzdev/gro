@@ -1,16 +1,19 @@
-# Releases `fgro`, the Rust runtime binary in crates/, as a GitHub Release
-# asset. The binary names the npm package's version, `package.json`'s, which
-# `cargo xtask build` stamps (Cargo's stays `0.0.0`), and has its own tags,
-# `fgro-v<version>`, apart from the npm package's `v*` tags.
+# Releases Gro's Rust runtime binary, built in crates/ as `fgro`, as a GitHub
+# Release asset named `gro`, on the npm package's own release tag,
+# `v<version>`. The binary names the npm package's version, `package.json`'s,
+# which `cargo xtask build` stamps (Cargo's stays `0.0.0`).
 #
-# Two jobs, so the job that runs build scripts and tests never holds a write
+# Three jobs, so the job that runs build scripts and tests never holds a write
 # token:
 #
-# - `build` (read-only) refuses a tag that isn't `fgro-v` + `package.json`'s
-#   version, builds the release `fgro` with its startup snapshot from fixed
-#   neutral paths, runs the snapshot build's checks (`--verify`), checks that
-#   no builder path outside the neutral prefix is in the binary, and uploads
-#   the bare binary as the `fgro-linux-x64-gnu` artifact, its SHA-512 a job
+# - `gate` (read-only, a sparse checkout of `package.json` and
+#   crates/CHANGELOG.md) refuses a tag that isn't `v` + `package.json`'s
+#   version, and ends the run green, skipping the rest, for a version without
+#   a `## <version>` section in crates/CHANGELOG.md, an npm-only publish.
+# - `build` (read-only) builds the release `fgro` with its startup snapshot
+#   from fixed neutral paths, runs the snapshot build's checks (`--verify`),
+#   checks that no builder path outside the neutral prefix is in the binary,
+#   and uploads the bare binary as the `gro` artifact, its SHA-512 a job
 #   output. It restores no cache, so nothing an earlier run wrote reaches the
 #   released binary.
 # - `release` downloads the artifact, checks it against the build job's
@@ -32,7 +35,7 @@ name: release
 
 on:
   push:
-    tags: ['fgro-v*']
+    tags: ['v*']
   workflow_dispatch:
 
 # Each job declares what it needs.
@@ -43,7 +46,77 @@ concurrency:
   group: release-${{ github.ref }}
 
 jobs:
+  # The tag, the version, and whether this version releases a binary, read
+  # from the tagged tree's `package.json` and crates/CHANGELOG.md alone, before
+  # anything builds: a tag that isn't `v` + `package.json`'s version fails; a
+  # version with no `## <version>` heading in the changelog releases no binary,
+  # so an npm-only publish ends here, green, with a notice, and `build` and
+  # `release` are skipped; a first- or second-level heading that begins
+  # with the version, bracketed or after a `v` or `V`, but isn't exactly
+  # `## <version>`, or an empty section, fails, so a release meant isn't
+  # skipped quietly or built to fail at its notes. A deeper heading naming
+  # the version is a section's own, never the release's. A manual run has
+  # no tag to check, says so, and builds whatever the changelog holds.
+  gate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      release: ${{ steps.gate.outputs.release }}
+      version: ${{ steps.gate.outputs.version }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      # persist-credentials: false keeps the GITHUB_TOKEN out of .git/config (no
+      # step here pushes via git).
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            package.json
+            crates/CHANGELOG.md
+          sparse-checkout-cone-mode: false
+
+      - name: Check the tag and whether the version releases a binary
+        id: gate
+        run: |
+          version=$(jq -r '.version | strings' package.json)
+          if [ -z "$version" ]; then
+            echo "::error::no string version in package.json"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if [ "$GITHUB_EVENT_NAME" != push ]; then
+            echo "::notice::a $GITHUB_EVENT_NAME run on $GITHUB_REF has no tag: the tag check is skipped, not passed (package version $version)"
+            echo "release=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "::error::the tag '$GITHUB_REF_NAME' isn't 'v' + package.json's version '$version'"
+            exit 1
+          fi
+          # the version as an extended regex, each of its metacharacters escaped
+          version_pattern=$(sed 's/[][\.*^$+?(){}|]/\\&/g' <<<"$version")
+          if grep -qxF -- "## $version" crates/CHANGELOG.md; then
+            section=$(awk -v heading="## $version" '$0 == heading { found = 1; next } found && /^## / { exit } found { print }' crates/CHANGELOG.md)
+            if ! grep -q '[^[:space:]]' <<<"$section"; then
+              echo "::error::crates/CHANGELOG.md's '## $version' section is empty"
+              exit 1
+            fi
+            echo "release=true" >> "$GITHUB_OUTPUT"
+          elif grep -qE -- "^##?[[:space:]]*\[?[vV]?${version_pattern}([^0-9A-Za-z.+-]|$)" crates/CHANGELOG.md; then
+            echo "::error::crates/CHANGELOG.md has a heading for $version that isn't exactly '## $version'"
+            exit 1
+          else
+            echo "::notice::crates/CHANGELOG.md has no '## $version' section, so $GITHUB_REF_NAME releases no binary"
+            echo "release=false" >> "$GITHUB_OUTPUT"
+          fi
+
   build:
+    needs: gate
+    if: needs.gate.outputs.release == 'true'
     # Pinned, not ubuntu-latest: the image's glibc is the binary's floor.
     runs-on: ubuntu-24.04
     timeout-minutes: 60
@@ -57,6 +130,7 @@ jobs:
       run:
         shell: bash
     env:
+      VERSION: ${{ needs.gate.outputs.version }}
       # The neutral prefix the build runs under: the source tree at
       # `$BUILD_ROOT/gro` and cargo's home, with the registry and git sources,
       # at `$BUILD_ROOT/cargo`. Every path the build writes into the binary
@@ -100,24 +174,6 @@ jobs:
           cp -a "$GITHUB_WORKSPACE" "$BUILD_ROOT/gro"
           mkdir "$BUILD_ROOT/cargo"
           echo "CARGO_HOME=$BUILD_ROOT/cargo" >> "$GITHUB_ENV"
-
-      # `fgro --version` prints `package.json`'s version, which the build stamps.
-      # A manual run has no tag to check, and says so.
-      - name: Refuse a tag that isn't the package's version
-        working-directory: ${{ env.BUILD_ROOT }}/gro
-        run: |
-          version=$(jq -r '.version | strings' package.json)
-          if [ -z "$version" ]; then
-            echo "::error::no string version in package.json"
-            exit 1
-          fi
-          if [ "$GITHUB_EVENT_NAME" != push ]; then
-            echo "::notice::a $GITHUB_EVENT_NAME run on $GITHUB_REF has no tag: the tag check is skipped, not passed (package version $version)"
-          elif [ "$GITHUB_REF_NAME" != "fgro-v$version" ]; then
-            echo "::error::the tag '$GITHUB_REF_NAME' isn't 'fgro-v' + package.json's version '$version'"
-            exit 1
-          fi
-          echo "VERSION=$version" >> "$GITHUB_ENV"
 
       # The pinned V8 archive, downloaded and its SHA-256 verified.
       - name: Fetch V8
@@ -213,31 +269,35 @@ jobs:
             exit 1
           fi
 
+      # The file is built as `fgro`, the name the binary prints in its
+      # version line and messages, and attached as `gro`.
       - name: Stage the asset
         id: stage
         working-directory: ${{ env.BUILD_ROOT }}/gro
         run: |
           mkdir -p "$RUNNER_TEMP/asset"
-          cp target/gro_snapshot/release/fgro "$RUNNER_TEMP/asset/fgro-linux-x64-gnu"
-          sha512=$(sha512sum "$RUNNER_TEMP/asset/fgro-linux-x64-gnu" | cut -d ' ' -f 1)
+          cp target/gro_snapshot/release/fgro "$RUNNER_TEMP/asset/gro"
+          sha512=$(sha512sum "$RUNNER_TEMP/asset/gro" | cut -d ' ' -f 1)
           echo "sha512=$sha512" >> "$GITHUB_OUTPUT"
-          echo "$sha512  fgro-linux-x64-gnu"
+          echo "$sha512  gro"
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: fgro-linux-x64-gnu
-          path: ${{ runner.temp }}/asset/fgro-linux-x64-gnu
+          name: gro
+          path: ${{ runner.temp }}/asset/gro
           if-no-files-found: error
 
   release:
     needs: build
-    # A tag push only: a manual run stops after the build job.
+    # A tag push only: a manual run stops after the build job, and an
+    # npm-only tag skips `build` at the gate, and this job with it.
     if: github.event_name == 'push' && github.ref_type == 'tag'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
-    # The `release` environment is configured in the repo settings, with the
-    # maintainer as its required reviewer and deployments limited to `fgro-v*`
-    # tags. Without that configuration GitHub creates it on first use,
+    # The `release` environment must be configured in the repo settings with
+    # the maintainer as its required reviewer and deployments limited to `v*`
+    # tags; a deployment tag rule that names no `v*` tag refuses this job at
+    # the environment. Without the environment GitHub creates it on first use,
     # unprotected.
     environment: release
     permissions:
@@ -256,7 +316,7 @@ jobs:
 
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: fgro-linux-x64-gnu
+          name: gro
           path: ${{ runner.temp }}/assets
 
       # The download must be the file the build job hashed, before anything
@@ -267,19 +327,19 @@ jobs:
         env:
           BUILT_SHA512: ${{ needs.build.outputs.sha512 }}
         run: |
-          downloaded=$(sha512sum fgro-linux-x64-gnu | cut -d ' ' -f 1)
+          downloaded=$(sha512sum gro | cut -d ' ' -f 1)
           if [ -z "$BUILT_SHA512" ] || [ "$downloaded" != "$BUILT_SHA512" ]; then
             echo "::error::the downloaded binary's SHA-512 '$downloaded' isn't the build job's '$BUILT_SHA512'"
             exit 1
           fi
-          sha512sum fgro-linux-x64-gnu > SHA512SUMS
+          sha512sum gro > SHA512SUMS
           cat SHA512SUMS
 
       # The changelog's `## <version>` section, which must exist and say
       # something, then the platform and the install steps.
       - name: Release notes
         run: |
-          version=${GITHUB_REF_NAME#fgro-v}
+          version=${GITHUB_REF_NAME#v}
           notes="$RUNNER_TEMP/release_notes.md"
           awk -v heading="## $version" '
             $0 == heading { found = 1; next }
@@ -319,11 +379,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          version=${GITHUB_REF_NAME#fgro-v}
+          version=${GITHUB_REF_NAME#v}
           prerelease=()
           case "$version" in *-*) prerelease=(--prerelease) ;; esac
           gh release create "$GITHUB_REF_NAME" \
-            "$RUNNER_TEMP/assets/fgro-linux-x64-gnu" "$RUNNER_TEMP/assets/SHA512SUMS" \
-            --verify-tag --title "fgro $version" \
+            "$RUNNER_TEMP/assets/gro" "$RUNNER_TEMP/assets/SHA512SUMS" \
+            --verify-tag --title "gro $version" \
             --notes-file "$RUNNER_TEMP/release_notes.md" \
             "${prerelease[@]}"

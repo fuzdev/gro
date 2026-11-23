@@ -536,7 +536,8 @@ Maybe later or never:
 ## Install
 
 No release is tagged, and `fgro` isn't released on its own:
-the first published version will be Gro running on this runtime ([roadmap](#roadmap)).
+the first published version will be Gro running on this runtime ([roadmap](#roadmap)),
+the binary attached as `gro` to the GitHub Release of the npm package's own tag, `v<version>`.
 Until then, build it from source, for Linux x86_64 ([the README](../../README.md#develop)),
 and see [crates/CHANGELOG.md](../../crates/CHANGELOG.md) for what the binary built from `main` does;
 `fgro eval` needs Linux 6.12 or later too ([eval](eval.md#usage)),
