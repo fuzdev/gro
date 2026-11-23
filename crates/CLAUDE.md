@@ -344,4 +344,4 @@ suite on a quiet machine, after `cargo xtask build --release`:
 `cargo xtask bench crates/gro_bench/suites/baseline/suite.json --attest-quiet`
 (or `suites/eval/suite.json`, or `suites/verb/suite.json`, whose Node row
 reads the checkout's built `dist/`). The perf rule's
-A/Bs run all three (gro's root `CLAUDE.md`).
+A/Bs run each of them (gro's root `CLAUDE.md`).

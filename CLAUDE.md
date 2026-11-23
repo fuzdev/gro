@@ -393,7 +393,7 @@ lists them).
 `cargo xtask bench crates/gro_bench/suites/baseline/suite.json --counters --base <merge-base>`
 and the same for `crates/gro_bench/suites/eval/suite.json` and
 `crates/gro_bench/suites/verb/suite.json` before commit; a test-only or
-doc-only change is outside it. The verb's suite is the one of the three
+doc-only change is outside it. The verb's suite is the only one of them
 that runs a command of Gro's, so only it reaches the pre-pass, the
 closure, the box's start, and the embed's load. The A/B runs alone, with
 nothing else loading the machine. It builds the release `fgro` at that revision in a

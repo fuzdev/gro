@@ -137,7 +137,7 @@ for Linux x86_64 only, built from source ([install](../src/docs/runtime.md#insta
   and starts from an entry it generates, packages matching the `development` condition unless `NODE_ENV` is `production`.
   A program the table grants takes the table's environment policy.
   A forwarded section turning off a check the command's invoke runs, like `fgro check -- gro gen --no-check`, is refused before anything runs, exit 2.
-  A step the command line turns off, like `fgro check --no-test`, leaves the command's grants, its tools unpinned and outside the box.
+  A step the command line turns off, like `fgro check --no-test`, leaves the command's grants, its tools neither pinned nor granted, and their tool directories not made.
   - The command runs in a kernel box with every tool it starts ([box](../src/docs/box.md#what-a-commands-box-admits)):
     the project read-only but for the command's write roots (a rule per top-level entry but `.git`, `node_modules`, and the other dot-entries under `gen`, `format`, and `sync`,
     and the tool directories, like `.svelte-kit` and `node_modules/.vite`, under a command that starts a tool from `node_modules/.bin`, as the project's dependencies call for),
