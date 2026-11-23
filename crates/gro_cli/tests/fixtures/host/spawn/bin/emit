@@ -16,7 +16,7 @@ hold) printf '0123456789'; exec sleep 5 ;;
 linger) sleep 5 & echo started ;;
 sleep) exec sleep "$1" ;;
 trap) trap 'kill $! 2>/dev/null; exit 7' TERM; sleep 5 & wait ;;
-stubborn) trap '' TERM; exec sleep 5 ;;
+stubborn) trap '' TERM; exec sleep 60 ;;
 real_time_on_term) trap 'kill $! 2>/dev/null; kill -35 $$' TERM; sleep 5 & wait ;;
 big) head -c "$1" /dev/zero ;;
 echo_err) cat; printf 'err' >&2 ;;

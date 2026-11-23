@@ -606,11 +606,12 @@ export default async (ns, [scenario, cwd], _print, /** @type {any} */ load) => {
 				length: big_read.text.length,
 				closed: show_result(await big_fed.closed)
 			};
-			const sleeper = /** @type {any} */ (await emit.start(['sleep', '5'], { stdio: 'ignore' }));
-			const disposed = /** @type {any} */ (await emit.start(['sleep', '5'], { stdio: 'ignore' }));
+			// each outlasts any case body, ended by the case: killed, disposed, timed out
+			const sleeper = /** @type {any} */ (await emit.start(['sleep', '60'], { stdio: 'ignore' }));
+			const disposed = /** @type {any} */ (await emit.start(['sleep', '60'], { stdio: 'ignore' }));
 			const stubborn = /** @type {any} */ (await emit.start(['stubborn'], { stdio: 'ignore' }));
 			const timed = /** @type {any} */ (
-				await emit.start(['sleep', '5'], { stdio: 'ignore', timeout_ms: 100 })
+				await emit.start(['sleep', '60'], { stdio: 'ignore', timeout_ms: 100 })
 			);
 			const many = /** @type {any} */ (
 				await emit.start(['big', '3000000'], { stdio: ['ignore', 'pipe', 'ignore'] })
