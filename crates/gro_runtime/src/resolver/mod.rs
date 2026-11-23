@@ -50,7 +50,11 @@
 //!   directory from the importer's real location up to its project root, the
 //!   first that is a directory winning. Inside `node_modules` it continues
 //!   past package roots, where npm hoists dependencies and where nested
-//!   layouts (`node_modules/.deno/<pkg>@<version>/node_modules/`) put them.
+//!   layouts (`node_modules/.deno/<pkg>@<version>/node_modules/`) put them,
+//!   up to the directory holding the outermost `node_modules`, which is the
+//!   project root for an importer there, no `package.json` read for it: a
+//!   `node_modules` a symlink leads into another checkout bounds its
+//!   packages' imports at that checkout, reading no file of it.
 //! - **A `.js` file's `"type"`** is the nearest `package.json` above it, the
 //!   search ending at a `node_modules` directory, as Node reads it; the
 //!   format is read from the real file's name ([`module_format`],

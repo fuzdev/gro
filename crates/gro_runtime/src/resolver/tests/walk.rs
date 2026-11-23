@@ -37,7 +37,7 @@ fn the_search_ends_at_a_package_json_that_is_not_a_type_marker() {
     let bound = |dir: &str| {
         Box::new(PackageSearchBound {
             dir: PathBuf::from(dir),
-            package_json: PathBuf::from(format!("{dir}/package.json")),
+            package_json: Some(PathBuf::from(format!("{dir}/package.json"))),
             above: Some(PathBuf::from("/w/proj/package.json")),
         })
     };
@@ -92,7 +92,7 @@ fn the_search_ends_at_a_package_json_that_is_not_a_type_marker() {
             name: "t".to_owned(),
             bound: Box::new(PackageSearchBound {
                 dir: PathBuf::from("/w/proj/inner"),
-                package_json: PathBuf::from("/w/proj/inner/package.json"),
+                package_json: Some(PathBuf::from("/w/proj/inner/package.json")),
                 above: Some(PathBuf::from("/w/proj/package.json")),
             }),
         }
@@ -389,7 +389,7 @@ fn a_world_writable_directory_ends_every_walk() {
             name: "foo".to_owned(),
             bound: Box::new(PackageSearchBound {
                 dir: PathBuf::from("/shared/proj"),
-                package_json: PathBuf::from("/shared/proj/package.json"),
+                package_json: Some(PathBuf::from("/shared/proj/package.json")),
                 above: None,
             }),
         }
@@ -722,7 +722,9 @@ fn a_world_writable_node_modules_ends_the_walk_for_the_bound() {
 
 /// A self-reference needs no project root: it reads only the importer's
 /// own `package.json`, so it resolves through its own package's
-/// `"exports"`, and nothing else bare does.
+/// `"exports"`; and a module inside `node_modules` is bounded by the
+/// directory holding it, with or without a `package.json` there, so its
+/// sibling resolves too.
 #[test]
 fn a_self_reference_needs_no_project_root() {
     let tree = MemoryTree {
@@ -748,11 +750,8 @@ fn a_self_reference_needs_no_project_root() {
         "file:///x/node_modules/foo/a.mjs"
     );
     assert_eq!(
-        from("bar").unwrap_err().kind,
-        ResolveErrorKind::NoProjectRoot {
-            dir: PathBuf::from("/x/node_modules/foo"),
-            stopped_at: None,
-        }
+        from("bar").unwrap().url.as_str(),
+        "file:///x/node_modules/bar/i.mjs"
     );
 }
 
@@ -913,5 +912,138 @@ fn the_entry_bound_says_how_the_project_root_was_found() {
                 stopped_at: Some(PathBuf::from("/shared"))
             }
         )
+    );
+}
+
+/// A module inside `node_modules` is bounded by the directory holding the
+/// outermost `node_modules` it's in, whatever is there: a `package.json`
+/// that isn't a type marker, one that is, or none with an ancestor's above.
+/// No file there or above is read for the bound, so a `node_modules` a
+/// symlink leads into another checkout resolves its packages' imports
+/// within it, and a package installed only above the holder isn't found.
+#[test]
+fn a_module_in_node_modules_is_bounded_by_its_holder() {
+    for holder in [Some(r#"{"name": "o"}"#), Some(MODULE), None] {
+        let mut files = BTreeMap::from([
+            ("/up/package.json", r#"{"name": "up", "type": "module"}"#),
+            ("/up/p/package.json", r#"{"name": "p", "type": "module"}"#),
+            ("/up/p/main.js", ""),
+            (
+                "/up/o/node_modules/a/package.json",
+                r#"{"name": "a", "exports": "./i.mjs"}"#,
+            ),
+            ("/up/o/node_modules/a/i.mjs", ""),
+            (
+                "/up/o/node_modules/b/package.json",
+                r#"{"name": "b", "exports": "./i.mjs"}"#,
+            ),
+            ("/up/o/node_modules/b/i.mjs", ""),
+            (
+                "/up/node_modules/above/package.json",
+                r#"{"name": "above", "exports": "./i.mjs"}"#,
+            ),
+            ("/up/node_modules/above/i.mjs", ""),
+        ]);
+        if let Some(holder) = holder {
+            files.insert("/up/o/package.json", holder);
+        }
+        let tree = MemoryTree {
+            files,
+            links: BTreeMap::from([("/up/p/node_modules", "/up/o/node_modules")]),
+            ..MemoryTree::default()
+        };
+        let entry = Url::parse("file:///up/p/main.js").unwrap();
+        let roots = roots(&tree, &entry);
+        let a = resolve(&tree, "a", &entry, &roots).unwrap();
+        assert_eq!(a.url.as_str(), "file:///up/o/node_modules/a/i.mjs");
+        // a's module as the importer, its root its package
+        let b = from_entry(&tree, "b", &a.url).unwrap();
+        assert_eq!(
+            b.url.as_str(),
+            "file:///up/o/node_modules/b/i.mjs",
+            "{holder:?}"
+        );
+        let read: Vec<&Path> = b
+            .files_consulted
+            .iter()
+            .map(|file| file.path.as_path())
+            .collect();
+        assert_eq!(
+            read,
+            [
+                Path::new("/up/o/node_modules/a/package.json"),
+                Path::new("/up/o/node_modules/b/package.json")
+            ],
+            "{holder:?}"
+        );
+        assert_eq!(
+            from_entry(&tree, "above", &a.url).unwrap_err().kind,
+            ResolveErrorKind::PackageNotFound {
+                name: "above".to_owned(),
+                bound: Box::new(PackageSearchBound {
+                    dir: PathBuf::from("/up/o"),
+                    package_json: None,
+                    above: Some(PathBuf::from("/up/package.json")),
+                }),
+            },
+            "{holder:?}"
+        );
+    }
+}
+
+/// The directory holding the outermost `node_modules` bounds a module's
+/// search inside it only where it isn't world-writable: one that is ends
+/// the walk there, nothing in it read, while a holder below a
+/// world-writable directory bounds the search, reading nothing above it.
+#[test]
+fn a_world_writable_holder_ends_the_walk_for_the_bound() {
+    let (foo, bar) = (
+        r#"{"name": "foo", "exports": "./i.mjs"}"#,
+        r#"{"name": "bar", "exports": "./i.mjs"}"#,
+    );
+    let tree = CountingTree {
+        tree: MemoryTree {
+            files: BTreeMap::from([
+                ("/shared/node_modules/foo/package.json", foo),
+                ("/shared/node_modules/foo/i.mjs", ""),
+                ("/shared/node_modules/bar/package.json", bar),
+                ("/shared/node_modules/bar/i.mjs", ""),
+                ("/shared/h/node_modules/foo/package.json", foo),
+                ("/shared/h/node_modules/foo/i.mjs", ""),
+                ("/shared/h/node_modules/bar/package.json", bar),
+                ("/shared/h/node_modules/bar/i.mjs", ""),
+            ]),
+            world_writable: vec!["/shared"],
+            ..MemoryTree::default()
+        },
+        reads: std::cell::RefCell::default(),
+    };
+    let held = Url::parse("file:///shared/node_modules/foo/i.mjs").unwrap();
+    let error = from_entry(&tree, "bar", &held).unwrap_err();
+    assert_eq!(
+        error.kind,
+        ResolveErrorKind::NoProjectRoot {
+            dir: PathBuf::from("/shared/node_modules/foo"),
+            stopped_at: Some(PathBuf::from("/shared")),
+        }
+    );
+    assert_eq!(
+        error.kind.to_string(),
+        "no project root is above /shared/node_modules/foo: a module inside node_modules \
+         resolves bare specifiers within the directory holding its outermost node_modules, and \
+         the walk up to it stopped at /shared, which is world-writable, so nothing in it or above \
+         it is read. Fix: remove that directory's other-write bit (chmod o-w)"
+    );
+    let below = Url::parse("file:///shared/h/node_modules/foo/i.mjs").unwrap();
+    assert_eq!(
+        from_entry(&tree, "bar", &below).unwrap().url.as_str(),
+        "file:///shared/h/node_modules/bar/i.mjs"
+    );
+    let reads = tree.reads.borrow();
+    assert!(
+        reads
+            .iter()
+            .all(|path| !path.starts_with("/shared/node_modules/bar")),
+        "{reads:?}"
     );
 }

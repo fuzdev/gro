@@ -972,3 +972,74 @@ fn a_node_modules_above_a_package_less_dir_is_never_searched() {
         )
     );
 }
+
+/// `fgro run` resolves a module inside a `node_modules` that is a symlink
+/// into another checkout within that `node_modules`, the checkout's own
+/// `package.json` a project's, a type marker, or none, an ancestor's above
+/// it: a package's sibling resolves, and a package installed only above
+/// the checkout doesn't.
+#[test]
+fn fgro_run_bounds_a_linked_node_modules_at_its_holder() {
+    for (name, holder) in [
+        ("named", Some(r#"{"name": "other", "type": "module"}"#)),
+        ("marker", Some(r#"{"type": "module"}"#)),
+        ("absent", None),
+    ] {
+        let package =
+            |name: &str| format!(r#"{{"name": "{name}", "type": "module", "exports": "./i.js"}}"#);
+        let (a, b, c, above) = (package("a"), package("b"), package("c"), package("above"));
+        let mut files = vec![
+            ("package.json", r#"{"name": "up", "type": "module"}"#),
+            ("node_modules/above/package.json", above.as_str()),
+            ("node_modules/above/i.js", "export const above = 1;\n"),
+            ("project/package.json", r#"{"name": "p", "type": "module"}"#),
+            (
+                "project/main.js",
+                "import { b } from 'a';\nconsole.log(b);\n",
+            ),
+            ("project/beyond.js", "import 'c';\n"),
+            ("other/node_modules/a/package.json", a.as_str()),
+            ("other/node_modules/a/i.js", "export { b } from 'b';\n"),
+            ("other/node_modules/b/package.json", b.as_str()),
+            ("other/node_modules/b/i.js", "export const b = 'b';\n"),
+            ("other/node_modules/c/package.json", c.as_str()),
+            ("other/node_modules/c/i.js", "import 'above';\n"),
+        ];
+        if let Some(holder) = holder {
+            files.push(("other/package.json", holder));
+        }
+        let scratch = Scratch::new(&format!("run_linked_{name}"), &files);
+        std::os::unix::fs::symlink(
+            scratch.0.join("other/node_modules"),
+            scratch.0.join("project/node_modules"),
+        )
+        .unwrap();
+        let in_project = |file: &str| {
+            let mut command = fgro_command(&["run", file]);
+            command.current_dir(scratch.0.join("project"));
+            let output = support::spawn(command, b"");
+            (
+                output.status.code(),
+                String::from_utf8_lossy(&output.stdout).into_owned(),
+                String::from_utf8_lossy(&output.stderr).into_owned(),
+            )
+        };
+        let (code, stdout, stderr) = in_project("main.js");
+        assert_eq!(
+            (code, stdout.as_str()),
+            (Some(0), "b\n"),
+            "{name}: {stderr}"
+        );
+        let (code, stdout, stderr) = in_project("beyond.js");
+        assert_eq!(code, Some(1), "{name}: {stdout}{stderr}");
+        assert!(
+            stderr.contains(&format!(
+                "no package 'above' is installed: no node_modules/above directory from the \
+                 importer up to {}, which holds the node_modules the importer is in and ends the \
+                 search",
+                scratch.0.join("other").display()
+            )),
+            "{name}: {stderr}"
+        );
+    }
+}

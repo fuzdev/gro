@@ -192,7 +192,7 @@ pub(super) fn find_installed(
         name,
         project_dir,
         project_dir,
-        project_dir.join("package.json"),
+        Some(project_dir.join("package.json")),
     );
     let (node_modules, package_dir, root) = match found {
         Ok(found) => found,
@@ -204,15 +204,16 @@ pub(super) fn find_installed(
 }
 
 /// Finds the package `name` in the `node_modules` of each directory from
-/// `importer_dir` up to the project root `bound_dir`, whose `package.json` is
-/// `bound_package_json`, the first that is a directory winning: its
-/// `node_modules`, its directory as found, and its real root.
+/// `importer_dir` up to the project root `bound_dir`, whose `package.json`
+/// is `bound_package_json` where one bounds it, the first that is a
+/// directory winning: its `node_modules`, its directory as found, and its
+/// real root.
 fn find_in_node_modules(
     tree: &impl SourceTree,
     name: &str,
     importer_dir: &Path,
     bound_dir: &Path,
-    bound_package_json: PathBuf,
+    bound_package_json: Option<PathBuf>,
 ) -> Result<(PathBuf, PathBuf, PathBuf), ResolveErrorKind> {
     let mut found = None;
     for dir in importer_dir.ancestors() {
@@ -322,7 +323,7 @@ fn package_not_found(
     tree: &impl SourceTree,
     name: &str,
     dir: PathBuf,
-    package_json: PathBuf,
+    package_json: Option<PathBuf>,
 ) -> ResolveErrorKind {
     // only for the message, so a failure to look is no `package.json`, and a
     // failure to read a directory's mode stops the walk

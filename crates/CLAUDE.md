@@ -287,7 +287,7 @@ Confined eval runs only from a snapshot build, so
 They need Landlock ABI 6 and fail below it, naming the kernel's ABI.
 `tests/run_box.rs`, harness off too, takes the run's box's steps in a
 child and reads it from inside and from outside: its cases run in any
-build, but the one that starts V8 under the box, which needs a snapshot.
+build, but those that start V8 under the box, which need a snapshot.
 They need Landlock ABI 6, and expect the network form the host's settings
 give (the run's own namespace unless user namespaces are restricted).
 `--verify` names each of `gro_cli`'s integration tests with the features it

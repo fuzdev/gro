@@ -96,7 +96,7 @@ fn packages_resolve_their_own_imports_from_where_they_live() {
             name: "t".to_owned(),
             bound: Box::new(PackageSearchBound {
                 dir: PathBuf::from("/w/linked"),
-                package_json: PathBuf::from("/w/linked/package.json"),
+                package_json: Some(PathBuf::from("/w/linked/package.json")),
                 above: Some(PathBuf::from("/w/package.json")),
             }),
         }
@@ -117,7 +117,8 @@ fn packages_resolve_their_own_imports_from_where_they_live() {
         .as_str(),
         "file:///w/proj/node_modules/.deno/nested@1.0.0/node_modules/nested_dep/i.mjs"
     );
-    // and still ends at the project root
+    // and still ends at the project root, the holder of the node_modules
+    // it's in, whose package.json bounds nothing there
     assert_eq!(
         from("file:///w/proj/node_modules/hoisted/i.mjs", "parent_only")
             .unwrap_err()
@@ -126,7 +127,7 @@ fn packages_resolve_their_own_imports_from_where_they_live() {
             name: "parent_only".to_owned(),
             bound: Box::new(PackageSearchBound {
                 dir: PathBuf::from("/w/proj"),
-                package_json: PathBuf::from("/w/proj/package.json"),
+                package_json: None,
                 above: Some(PathBuf::from("/w/package.json")),
             }),
         }

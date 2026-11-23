@@ -230,6 +230,10 @@ the condition set can pick another target than Node's, and `.ts` inside `node_mo
   the first `package.json` at or above the importer, outside `node_modules`,
   that isn't a type marker (a JSON object whose keys are all `"type"` or `"sideEffects"`,
   an empty object included, like `dist/esm/package.json`).
+  For an importer inside `node_modules` the root is the directory holding its outermost `node_modules`,
+  whatever is there, its `package.json` never read,
+  so a package's own imports resolve within the `node_modules` it was installed into,
+  the project's or another checkout's that a symlinked `node_modules` leads to.
   The walk for it runs before any `node_modules` is looked up,
   and the search then runs from the importer up to the root's own `node_modules`,
   so a `node_modules` planted above a project never resolves.

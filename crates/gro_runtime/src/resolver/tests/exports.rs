@@ -199,7 +199,7 @@ fn exports_resolve_as_node_does() {
             "parent_only",
             Err(&[
                 "PackageNotFound",
-                "package_json: \"/w/proj/package.json\"",
+                "package_json: Some(\"/w/proj/package.json\")",
                 "above: Some(\"/w/package.json\")",
             ]),
         ),

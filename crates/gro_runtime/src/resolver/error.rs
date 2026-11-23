@@ -445,8 +445,9 @@ pub enum UrlFault {
 pub struct PackageSearchBound {
     /// Its directory, whose `node_modules` was the last searched.
     pub dir: PathBuf,
-    /// Its real path.
-    pub package_json: PathBuf,
+    /// Its `package.json`'s real path; none where the directory bounds the
+    /// search as the holder of the `node_modules` the importer is in.
+    pub package_json: Option<PathBuf>,
     /// The nearest `package.json` above it and below any world-writable
     /// directory, whose `node_modules` aren't searched, as an npm or yarn
     /// workspace's root's aren't.
@@ -841,6 +842,21 @@ impl fmt::Display for ResolveErrorKind {
                 "it is not a valid package name: a name can't start with '.' or hold '%' or '\\', \
                  and a scoped one is '@scope/name'",
             ),
+            Self::NoProjectRoot {
+                dir,
+                stopped_at: Some(stopped_at),
+            } if super::walk::in_node_modules(dir) =>
+            {
+                write!(
+                    f,
+                    "no project root is above {}: a module inside node_modules resolves bare \
+                     specifiers within the directory holding its outermost node_modules, and the \
+                     walk up to it stopped at {}, which is world-writable, so nothing in it or \
+                     above it is read. Fix: remove that directory's other-write bit (chmod o-w)",
+                    dir.display(),
+                    stopped_at.display()
+                )
+            }
             Self::NoProjectRoot { dir, stopped_at } => {
                 write!(
                     f,
@@ -864,13 +880,23 @@ impl fmt::Display for ResolveErrorKind {
                 )
             }
             Self::PackageNotFound { name, bound } => {
-                write!(
-                    f,
-                    "no package '{name}' is installed: no node_modules/{name} directory from the \
-                     importer up to {}, which ends the search, as every package.json outside \
-                     node_modules does except one holding nothing but \"type\" and \"sideEffects\"",
-                    bound.package_json.display()
-                )?;
+                match &bound.package_json {
+                    Some(package_json) => write!(
+                        f,
+                        "no package '{name}' is installed: no node_modules/{name} directory from \
+                         the importer up to {}, which ends the search, as every package.json \
+                         outside node_modules does except one holding nothing but \"type\" and \
+                         \"sideEffects\"",
+                        package_json.display()
+                    )?,
+                    None => write!(
+                        f,
+                        "no package '{name}' is installed: no node_modules/{name} directory from \
+                         the importer up to {}, which holds the node_modules the importer is in \
+                         and ends the search",
+                        bound.dir.display()
+                    )?,
+                }
                 if let Some(above) = &bound.above {
                     write!(
                         f,

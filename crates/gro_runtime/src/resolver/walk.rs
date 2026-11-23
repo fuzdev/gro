@@ -322,15 +322,22 @@ pub(super) fn package_scope(
 
 /// The project root above `dir`, which bounds its `node_modules` search: the
 /// first directory at or above it, outside `node_modules`, whose
-/// `package.json` isn't a type marker. The walk stops at a world-writable
-/// directory. `scope` is `dir`'s package scope, already read, so it isn't
-/// read again. Returns the root's directory and its `package.json`.
+/// `package.json` isn't a type marker; or, for a `dir` inside a
+/// `node_modules`, the directory holding its outermost `node_modules`,
+/// whatever is there, its `package.json` never read, so a module of a
+/// package resolves its own imports within the `node_modules` it was
+/// installed into, whether that is the project's or another checkout's a
+/// symlink leads to. The walk stops at a world-writable directory. `scope`
+/// is `dir`'s package scope, already read, so it isn't read again. Returns
+/// the root's directory and the `package.json` that bounds it, none for a
+/// `node_modules`'s holder.
 pub(super) fn find_bound(
     tree: &impl SourceTree,
     dir: &Path,
     scope: Option<&PackageJson>,
     consulted: &mut Consulted,
-) -> Result<Walk<(PathBuf, PathBuf)>, ResolveErrorKind> {
+) -> Result<Walk<(PathBuf, Option<PathBuf>)>, ResolveErrorKind> {
+    let inside = in_node_modules(dir);
     for dir in dir.ancestors() {
         // checked inside node_modules too, since the search looks there
         if is_world_writable(tree, dir)? {
@@ -340,6 +347,10 @@ pub(super) fn find_bound(
         }
         if in_node_modules(dir) {
             continue;
+        }
+        // the first directory outside node_modules holds the outermost one
+        if inside {
+            return Ok(Walk::Found((dir.to_owned(), None)));
         }
         // any package.json but a type marker ends the walk, the scope's read once
         let package_json = match scope {
@@ -351,7 +362,7 @@ pub(super) fn find_bound(
                 .map(|package_json| package_json.path),
         };
         if let Some(package_json) = package_json {
-            return Ok(Walk::Found((dir.to_owned(), package_json)));
+            return Ok(Walk::Found((dir.to_owned(), Some(package_json))));
         }
     }
     Ok(Walk::NotFound { stopped_at: None })

@@ -44,10 +44,13 @@
 //! and refused the rest (`.git`, `node_modules`, a new top-level file, the
 //! home directory).
 //!
-//! The case that starts V8 under the box, and shows each of its threads in
-//! it, needs a snapshot build, so it runs from `cargo xtask build
-//! --verify`; the other cases run in any build. Every case needs Landlock
-//! ABI 6, and fails below it, naming the kernel's ABI.
+//! The cases that start V8 under the box need a snapshot build, so they
+//! run from `cargo xtask build --verify`: the one that shows each of its
+//! threads in it, and those whose `node_modules` is a symlink into another
+//! checkout, holding a project's `package.json`, a type marker, or none,
+//! whose packages resolve each other's imports within it and read no file
+//! of the checkout holding it. The other cases run in any build. Every
+//! case needs Landlock ABI 6, and fails below it, naming the kernel's ABI.
 
 // clippy's test allowance covers `#[test]` functions, and this binary has none
 #![expect(
@@ -113,6 +116,12 @@ const CASES: &[&str] = &[
     "private_dir_reused",
     #[cfg(feature = "snapshot")]
     "v8",
+    #[cfg(feature = "snapshot")]
+    "linked_named",
+    #[cfg(feature = "snapshot")]
+    "linked_marker",
+    #[cfg(feature = "snapshot")]
+    "linked_absent",
 ];
 
 fn main() {
@@ -441,6 +450,10 @@ fn expected(case: &str) -> String {
             line("read git's home config: ok");
             line("read the home directory: denied");
             line("node runs: node ok");
+        }
+        "linked_named" | "linked_marker" | "linked_absent" => {
+            line("confined");
+            line("ran: ok");
         }
         "v8" => {
             line(&format!("network: {network}"));
@@ -968,6 +981,8 @@ fn child(case: &str, scratch: &Path, port: u16) {
         "planned_check" => planned(scratch, false),
         #[cfg(feature = "snapshot")]
         "v8" => v8::run(&project, &outside),
+        #[cfg(feature = "snapshot")]
+        "linked_named" | "linked_marker" | "linked_absent" => v8::linked(case, scratch),
         _ => panic!("no case {case}"),
     }
 }
@@ -1502,6 +1517,9 @@ mod v8 {
     use gro_runtime::snapshot::StartupSnapshot;
     use gro_runtime::{RuntimeOptions, STACK_SIZE, run_main};
 
+    use gro_runtime::confine::plan::{BoxFacts, BoxInputs, BoxPlan};
+    use gro_runtime::confine::run::{RunClosed, probe_floor};
+
     use super::{outcome, prepared, say, wait_for_inspection};
 
     /// The snapshot the binary under test embeds, as `fgro` embeds it.
@@ -1509,6 +1527,97 @@ mod v8 {
         pub static SNAPSHOT: &[u8] =
             include_bytes!(concat!(env!("GRO_SNAPSHOT_DIR"), "/snapshot.bin"));
         include!(concat!(env!("GRO_SNAPSHOT_DIR"), "/residual.rs"));
+    }
+
+    /// A project whose `node_modules` is a symlink into another checkout,
+    /// whose `package.json` is a project's (`linked_named`), a type marker
+    /// (`linked_marker`), or none (`linked_absent`), an ancestor's
+    /// `package.json` above it either way, run in a box planned for it: the
+    /// project's module imports a package there, which imports its
+    /// sibling, resolved within that `node_modules`, reading nothing of the
+    /// checkout holding it, which the box doesn't grant.
+    pub fn linked(case: &str, scratch: &Path) {
+        let base = scratch.join(case);
+        let holder = match case {
+            "linked_named" => Some(r#"{"name": "other", "type": "module"}"#),
+            "linked_marker" => Some(r#"{"type": "module"}"#),
+            _ => None,
+        };
+        let mut files = vec![
+            ("package.json", r#"{"name": "up", "type": "module"}"#),
+            ("project/package.json", r#"{"name": "p", "type": "module"}"#),
+            (
+                "project/main.js",
+                "import { b } from 'a';\nif (b !== 'b') throw new Error(b);\n",
+            ),
+            (
+                "other/node_modules/a/package.json",
+                r#"{"name": "a", "type": "module", "exports": "./i.js"}"#,
+            ),
+            ("other/node_modules/a/i.js", "export { b } from 'b';\n"),
+            (
+                "other/node_modules/b/package.json",
+                r#"{"name": "b", "type": "module", "exports": "./i.js"}"#,
+            ),
+            ("other/node_modules/b/i.js", "export const b = 'b';\n"),
+        ];
+        if let Some(holder) = holder {
+            files.push(("other/package.json", holder));
+        }
+        for (path, text) in files {
+            let path = base.join(path);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, text).unwrap();
+        }
+        std::os::unix::fs::symlink(
+            base.join("other/node_modules"),
+            base.join("project/node_modules"),
+        )
+        .unwrap();
+        let project = std::fs::canonicalize(base.join("project")).unwrap();
+        let inputs = BoxInputs {
+            root: project.clone(),
+            ..BoxInputs::default()
+        };
+        let plan = BoxPlan::for_run(&inputs, &BoxFacts::read(&inputs).unwrap()).unwrap();
+        let confined = RunClosed::close_inherited(probe_floor().unwrap())
+            .unwrap()
+            .enter_network()
+            .unwrap()
+            .harden()
+            .unwrap()
+            .prepare(&plan, None)
+            .unwrap()
+            .confine()
+            .unwrap();
+        say("confined");
+        std::thread::Builder::new()
+            .stack_size(STACK_SIZE)
+            .spawn(move || {
+                let engine =
+                    init_engine(Confinement::Run(confined), &EngineOptions::default()).unwrap();
+                let options = RuntimeOptions {
+                    snapshot: Some(StartupSnapshot {
+                        bytes: embedded::SNAPSHOT,
+                        residual_lazy_js: embedded::RESIDUAL_LAZY_JS,
+                    }),
+                    ..RuntimeOptions::default()
+                };
+                let outcome_ = run_main(engine, &options, Path::new("main.js"), &project);
+                say(&format!(
+                    "ran: {}",
+                    outcome_
+                        .result
+                        .as_ref()
+                        .map_or_else(|error| format!("{error}"), |()| "ok".to_owned())
+                ));
+                if let Some(runtime) = outcome_.runtime {
+                    runtime.forget();
+                }
+            })
+            .unwrap()
+            .join()
+            .unwrap();
     }
 
     /// The run's box, then the engine on a thread started after it, which
