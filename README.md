@@ -30,10 +30,10 @@ an unconfined run (`-A`) is the escape hatch when you need it.
 The runtime grew out of the loader Gro already uses to run tasks, config, and codegen,
 and makes a clean break from Node toward web standards.
 Its model, authority by import with nothing ambient, is why it's a new runtime and not Deno with other defaults.
-It's an in-progress design, and of the confinement `fgro eval`'s kernel box, the kernel box every `fgro <command>` runs in, and the link-time grant check of `fgro run` and `fgro <command>` are built so far.
+It's an in-progress design, and of the confinement `fgro eval`'s kernel box, the kernel box every `fgro <command>` the binary runs itself starts in, and the link-time grant check of `fgro run` and `fgro <command>` are built so far.
 The experimental build runs modules with little API to the OS (fs reads beneath the project's root and the directories `--allow-read=` names, and writes, renames, and removes beneath those `--allow-write=` names, or everywhere under `fgro run -A`, the programs `--allow-run=` names and those beneath the directories `--allow-run-in=` names, which `fgro run` starts outside any box, so granting one there is close to `-A`, no network, and the environment only as `--allow-env=` or `-A` grants it,
 and under `fgro <command>` also what the command's closure grants, tools given the whole environment among it),
-though `fgro run`'s process isn't sandboxed yet, while `fgro <command>`'s runs with its tools in a kernel box that leaves the project read-only but for the command's write roots - see
+though `fgro run`'s process isn't sandboxed yet, while `fgro <command>`'s, when the binary runs it rather than the Node Gro, runs with its tools in a kernel box that leaves the project read-only but for the command's write roots - see
 [the runtime docs](/src/docs/runtime.md) for why it exists, the model in a page, the design, and the roadmap,
 and feedback is invited in [discussions](https://github.com/fuzdev/gro/discussions).
 
