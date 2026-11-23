@@ -548,7 +548,8 @@ fn with_causes(error: &dyn std::error::Error) -> String {
 /// thread is always waited for. The hand-off matters for the box's thread
 /// besides: Landlock's signal scope lets it signal its own child alone,
 /// each earlier child being in a sibling domain of its own, so the handler
-/// kills only that child there, and the main thread, in the run's domain, kills
+/// there could kill only that child; handed on, the main thread, in the
+/// run's domain, kills
 /// every guarded group and passes the `SIGTERM` on to every other child
 /// (`gro_sys::guard_children_on_signal`).
 ///
@@ -1021,7 +1022,7 @@ mod tests {
     /// A launch that failed says why as its `launch_failed`'s text: the
     /// steps every launch takes as they've always said it, and a launch in
     /// a box, whose thread couldn't install the box, with each cause its
-    /// message doesn't hold already, couldn't start, or panicked.
+    /// message doesn't hold already, or couldn't start.
     #[test]
     fn a_launch_that_failed_says_which_step() {
         let os = std::io::Error::from_raw_os_error;

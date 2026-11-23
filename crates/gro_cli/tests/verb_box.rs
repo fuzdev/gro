@@ -946,11 +946,12 @@ fn a_flag_holding_the_temporary_directory_is_refused() {
     // `format --check` starts no program, so makes no private directory
     let flag = format!("--allow-read={}", root.display());
     let (code, stdout, stderr) = run(in_tree(
-        fgro_command(&["format", "--check", &flag]),
+        fgro_command(&["format", &flag, "--check"]),
         &scratch,
     ));
     assert_ne!(code, Some(2), "{stdout}{stderr}");
     assert!(!stderr.contains("holds it"), "{stderr}");
+    assert!(!stderr.contains("expected no unknown keys"), "{stderr}");
 }
 
 /// A temporary directory inside the project is refused for a run that

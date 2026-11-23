@@ -76,7 +76,8 @@
 //! changes, `-A`, a socket on stdio, what the plan refuses, a temporary
 //! directory in the project or held by a rule a program's box would take,
 //! and every path planted where the box opens a rule or makes a tool
-//! directory; `1` for a build with no snapshot and a step that failed. A fallback exits with the Node Gro's code.
+//! directory; `1` for a build with no snapshot and a step that failed. A
+//! fallback exits with the Node Gro's code.
 //!
 //! Kinds: the box is a boundary, the kernel's, against the project's code
 //! and tests, the tools and their children, and an exploit of the engine;

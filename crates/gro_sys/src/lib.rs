@@ -1705,8 +1705,9 @@ impl ForwardReservation {
 /// less than the main thread may, as Landlock's signal scope narrows a
 /// thread that restricted itself to a domain nested in the process's
 /// (every process outside that domain refused, its own earlier children
-/// among them, each in a sibling domain of its own), kills only its own
-/// child itself. That needs the main thread live, not blocking the three
+/// among them, each in a sibling domain of its own), has every child
+/// killed by the main thread, where on its own it could kill only its own
+/// child. That needs the main thread live, not blocking the three
 /// signals, not itself holding a reservation, and reachable by the
 /// `tgkill`, which Landlock allows between threads of one process on
 /// kernels that exempt a process's own threads from its signal scope
