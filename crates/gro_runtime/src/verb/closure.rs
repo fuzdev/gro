@@ -25,8 +25,9 @@
 //! - An invoke marked `check` drops the writes of the invoked builtin's
 //!   grants, and of those it invokes in turn. The mark holds whatever the
 //!   command line forwards, where on Node a section turning its check mode
-//!   off (`-- gro gen --no-check`) runs it writing: the binary refuses what
-//!   Node writes there.
+//!   off (`-- gro gen --no-check`) runs it writing: the closure names each
+//!   such builtin ([`CommandClosure::check_turned_off`]), and the caller
+//!   refuses the command line before anything runs.
 //! - The command itself runs in check mode, its writes dropped the same way,
 //!   when its args set `check` and the table marks it check-capable, some
 //!   invoke marking it `check` (`gro gen --check`, `gro format --check`).
@@ -84,6 +85,11 @@ pub struct CommandClosure {
     /// Why it runs on the Node Gro, if it does, by the closure's own rules;
     /// a policy's fallback is the caller's.
     pub fallback: BTreeSet<ClosureFallback>,
+    /// The builtins an invoke marked `check` runs whose forwarded section,
+    /// the last `-- gro <name>`, turns the check off: Node runs each
+    /// writing, its `check: false` merged over the invoke's `check: true`,
+    /// where the closure holds it to its reads.
+    pub check_turned_off: BTreeSet<String>,
 }
 
 /// A builtin in a closure.
@@ -170,7 +176,8 @@ pub fn command_closure(table: &BuiltinGrantsTable, cli_args: &[String]) -> Comma
         Command::Builtin { name, args } => {
             if table.builtins.contains_key(&name) {
                 let check = args.is_set(CHECK_ARG) && table.is_check_capable(&name);
-                visit(table, &mut closure, &name, Some(&args), check);
+                let rest = split_direct(cli_args).1;
+                visit(table, &mut closure, &name, Some(&args), rest, check);
                 if args.is_set(INSTALL_ARG)
                     && closure
                         .grants
@@ -188,12 +195,14 @@ pub fn command_closure(table: &BuiltinGrantsTable, cli_args: &[String]) -> Comma
 
 /// Adds the builtin `name` to `closure`, in check mode or not, and the
 /// builtins it invokes; `args` are its args when it's the command, `None`
-/// when another invokes it.
+/// when another invokes it, and `rest` the command line from its first
+/// `--`.
 fn visit(
     table: &BuiltinGrantsTable,
     closure: &mut CommandClosure,
     name: &str,
     args: Option<&ArgvKeys>,
+    rest: &[String],
     check: bool,
 ) {
     let builtin = ClosureBuiltin {
@@ -217,8 +226,22 @@ fn visit(
         {
             continue;
         }
-        visit(table, closure, invoked, None, check || invoke.check);
+        if invoke.check && turns_check_off(rest, invoked) {
+            closure.check_turned_off.insert(invoked.clone());
+        }
+        visit(table, closure, invoked, None, rest, check || invoke.check);
     }
+}
+
+/// Whether the forwarded section of `rest` that runs the builtin `name`
+/// sets its `check` arg `false` once merged over the `check: true` an
+/// invoke marked `check` passes it, as `invoke_task` merges them: a value
+/// given it the builtin's `Args` refuses, running nothing.
+fn turns_check_off(rest: &[String], name: &str) -> bool {
+    to_forwarded_args(rest, name).is_some_and(|forwarded| {
+        let invoked = parse_argv(&[format!("--{CHECK_ARG}")]).keys;
+        invoked.merge(&forwarded).is_false(CHECK_ARG)
+    })
 }
 
 /// What a command line runs.
@@ -439,6 +462,42 @@ mod tests {
         // `c` and `a` aren't: nothing marks an invoke of them `check`
         assert_eq!(builtins_and_writes(&["c", "--check"]).1, set(&["c", "d"]));
         assert_eq!(builtins_and_writes(&["a", "--check"]).1, set(&["a"]));
+    }
+
+    #[test]
+    fn a_forwarded_section_turning_an_invoke_s_check_off_is_named() {
+        let table = table(CHAIN);
+        let turned_off = |cli_args: &[&str]| closure(&table, cli_args).check_turned_off;
+        assert_eq!(
+            turned_off(&["a", "--", "gro", "b", "--no-check"]),
+            set(&["b"])
+        );
+        // `no-check` set later wins; a value is refused by the builtin's `Args`, running nothing
+        assert_eq!(
+            turned_off(&["a", "--", "gro", "b", "--check", "--no-check"]),
+            set(&["b"])
+        );
+        // the check kept, or a later section for the builtin keeping it
+        assert_eq!(turned_off(&["a"]), set(&[]));
+        assert_eq!(turned_off(&["a", "--", "gro", "b", "--check"]), set(&[]));
+        assert_eq!(turned_off(&["a", "--", "gro", "b", "--x"]), set(&[]));
+        assert_eq!(turned_off(&["a", "--", "gro", "b", "--check=1"]), set(&[]));
+        assert_eq!(
+            turned_off(&["a", "--", "gro", "b", "--no-check=1"]),
+            set(&[])
+        );
+        assert_eq!(
+            turned_off(&["a", "--", "gro", "b", "--no-check", "--", "gro", "b"]),
+            set(&[])
+        );
+        // a builtin no `check` invoke runs, the command itself, and a tool's section
+        assert_eq!(turned_off(&["a", "--", "gro", "c", "--no-check"]), set(&[]));
+        assert_eq!(turned_off(&["b", "--", "gro", "b", "--no-check"]), set(&[]));
+        assert_eq!(turned_off(&["a", "--", "b", "--no-check"]), set(&[]));
+        assert_eq!(
+            turned_off(&["e", "--", "gro", "b", "--no-check"]),
+            set(&["b"])
+        );
     }
 
     #[test]

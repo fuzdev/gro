@@ -76,6 +76,17 @@ impl ArgvKeys {
         Self(merged)
     }
 
+    /// Whether the boolean arg `key` is `false` once `args_parse` syncs it
+    /// with `no-<key>`, as [`Self::is_set`] reads it, with neither given a
+    /// value, which a boolean's schema refuses.
+    pub fn is_false(&self, key: &str) -> bool {
+        !self.is_set(key)
+            && [key.to_owned(), format!("no-{key}")].iter().all(|key| {
+                self.get(key)
+                    .is_none_or(|(_, value)| value != ArgValue::Other)
+            })
+    }
+
     /// Whether the boolean arg `key`, `false` by default, is `true` once
     /// `args_parse` syncs it with `no-<key>`: the later given of the two
     /// wins, `no-<key>` setting the opposite of its value, and neither

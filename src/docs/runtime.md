@@ -374,8 +374,9 @@ As designed, except where marked built:
   The console prints a string inside an array or object with double quotes, where Node's prints single ones,
   so a list Gro logs, like `gen`'s files, reads differently.
   A forwarded section that turns off a check its command runs, like `fgro check -- gro gen --no-check`,
-  is refused at its first write, failing the run, where the Node Gro writes,
-  since the closure keeps an invoke's `check` mark whatever the command line forwards.
+  is refused before anything runs, exit 2, where the Node Gro writes,
+  since the closure keeps an invoke's `check` mark whatever the command line forwards,
+  and the refusal names the command that writes on the binary (`fgro gen`) and the whole command on the Node Gro.
   A project's typecheck reads the types of the Gro it installed while the command runs the binary's embedded code.
   Another installed version falls back, so the two can differ when the installed Gro has the binary's version but not its code,
   like a build of a later commit before the version moves, or when the project installed no Gro, whose typecheck then finds no Gro types.

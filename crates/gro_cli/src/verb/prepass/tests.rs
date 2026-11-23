@@ -291,6 +291,48 @@ fn a_flag_s_list_is_checked_for_a_run_alone() {
     ));
 }
 
+/// A forwarded section turning off the check a `check` invoke runs with is
+/// refused before anything runs, naming the command on the Node Gro, its
+/// grant flags split off; one the Node Gro runs anyway falls back, and a
+/// command's own section decides its own check.
+#[test]
+fn a_forwarded_section_turning_a_check_off_is_refused() {
+    let refused = planned(&[
+        "check",
+        "--allow-env=X",
+        "--",
+        "gro",
+        "gen",
+        "--no-check",
+        "--",
+        "gro",
+        "format",
+        "--no-check",
+    ])
+    .unwrap_err();
+    assert_eq!(refused.exit_code(), 2);
+    assert_eq!(
+        refused.to_string(),
+        "fgro check runs format and gen in check mode, writing no source, and the forwarded \
+         `-- gro format` and `-- gro gen` turn that check off, a write it never grants: run fgro \
+         format and fgro gen for the writes, or node_modules/.bin/gro check -- gro gen \
+         --no-check -- gro format --no-check on the project's Node gro, unconfined"
+    );
+    let one = planned(&["check", "--", "gro", "gen", "--no-check"]).unwrap_err();
+    assert_eq!(
+        one.to_string(),
+        "fgro check runs gen in check mode, writing no source, and the forwarded `-- gro gen` \
+         turns that check off, a write it never grants: run fgro gen for the writes, or \
+         node_modules/.bin/gro check -- gro gen --no-check on the project's Node gro, unconfined"
+    );
+    assert_eq!(
+        fallback(&["check", "--build", "--", "gro", "gen", "--no-check"]).command,
+        Some("check".to_owned())
+    );
+    assert!(run(&["gen", "--check", "--", "gro", "gen", "--no-check"]).writes_root);
+    assert!(!run(&["check", "--", "gro", "gen", "--check"]).writes_root);
+}
+
 /// A command whose closure or policy leaves it to Node falls back, each
 /// reason decided by the command line, and `task` with no task's path lists
 /// on Node.

@@ -369,7 +369,8 @@ Every other first argument, a flag among them, and none run a command of Gro's (
 which runs in the run's kernel box ([box](box.md#how-it-goes-up)) and exits with Gro's code as a run does,
 `2` when it's refused before anything runs
 (its grant flags, `-A` before or after the command word among them, a write flag naming a directory that holds the project root, `GRO_FALLBACK`'s value, a working directory with no project's `package.json`,
-a project's `package.json` or installed Gro's that can't be read, a `node` on `PATH` that's a script,
+a project's `package.json` or installed Gro's that can't be read, a forwarded section turning off a check the command's invoke runs, like `-- gro gen --no-check` after `check`,
+a `node` on `PATH` that's a script,
 a `node_modules` symlink to anything but another checkout's `node_modules`, git's files the box can't read for a command that may start a program,
 a socket on stdin, stdout, or stderr that isn't a connected unix stream, an OS temporary directory inside the project,
 a path planted where the box opens a rule or makes a tool directory, like a symlink,

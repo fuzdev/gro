@@ -145,6 +145,7 @@ fn closure(case: &Value) -> CommandClosure {
         builtins,
         grants,
         fallback,
+        check_turned_off: set(&case["check_turned_off"]),
     }
 }
 
@@ -163,7 +164,15 @@ fn the_closure_is_node_s() {
                 assert!(
                     has_fields(
                         case,
-                        &["name", "argv", "outcome", "builtins", "grants", "fallback"]
+                        &[
+                            "name",
+                            "argv",
+                            "outcome",
+                            "builtins",
+                            "grants",
+                            "fallback",
+                            "check_turned_off"
+                        ]
                     ),
                     "{name}"
                 );

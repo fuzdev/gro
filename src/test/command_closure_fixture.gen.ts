@@ -14,6 +14,7 @@ import { posix_dirname, posix_join } from '#lib/internal/posix_path.ts';
 import {
 	merge_forwarded_args,
 	to_forwarded_args,
+	to_forwarded_args_by_command,
 	to_grant_flags,
 	to_raw_rest_args,
 	to_task_args
@@ -49,8 +50,8 @@ The rules, and where each comes from:
   and of the builtins it invokes in turn (`BuiltinInvokeGrant`'s `check`); a builtin reached
   both ways is held both ways. The mark holds whatever the CLI forwards: on Node a section like
   `-- gro gen --no-check` reaches the invoked builtin, merged over the args its invoker passes,
-  and runs it in write mode, a write the closure doesn't hold, so there the binary refuses
-  what Node writes.
+  and runs it in write mode, a write the closure doesn't hold: the closure names each such builtin
+  in `check_turned_off`, and the binary refuses the command line before anything runs.
 - The command runs in check mode too, its own writes and its invokes' dropped the same way,
   when its parsed args hold `true` for `check` and the table marks it check-capable,
   some builtin's invoke of it marked `check`: `gen --check` and `format --check` write
@@ -119,6 +120,11 @@ const CASES: Array<ClosureCase> = [
 	{ name: 'check_forwarded_other_section', argv: ['check', '--', 'vitest', '--build'] },
 	{ name: 'check_forwarded_gen_write', argv: ['check', '--', 'gro', 'gen', '--no-check'] },
 	{ name: 'check_forwarded_format_write', argv: ['check', '--', 'gro', 'format', '--no-check'] },
+	{
+		name: 'check_forwarded_gen_write_then_check',
+		argv: ['check', '--', 'gro', 'gen', '--no-check', '--', 'gro', 'gen']
+	},
+	{ name: 'check_forwarded_gen_valued', argv: ['check', '--', 'gro', 'gen', '--check=1'] },
 	{ name: 'check_forwarded_sync_install', argv: ['check', '--', 'gro', 'sync', '--install'] },
 	{ name: 'check_grant_flags', argv: ['check', '--allow-read=.', '-A', '--build'] },
 	{ name: 'check_workspace', argv: ['check', '--workspace'] },
@@ -189,6 +195,11 @@ interface Closure {
 		stderr: boolean;
 	};
 	fallback: Array<Fallback>;
+	/**
+	 * The builtins an invoke marked `check` runs that Node runs writing,
+	 * a forwarded section's `check: false` merged over the invoke's `check: true`.
+	 */
+	check_turned_off: Array<string>;
 }
 
 /**
@@ -293,6 +304,9 @@ const to_closure = async (
 		stdout ||= grants.stdout === true;
 		stderr ||= grants.stderr === true;
 	};
+	const check_turned_off: Array<string> = [];
+	// the forwarded sections by command, read once the command's args parsed, so none is malformed
+	let forwarded_by_command: Record<string, Args | undefined> = {};
 	const visited: Set<string> = new Set();
 	// `args` is the builtin's parsed args when it's the command, `null` when another invokes it
 	const visit = (name: string, args: Args | null, check: boolean): void => {
@@ -322,6 +336,14 @@ const to_closure = async (
 				}
 				if (!(Object.hasOwn(args, when) && args[when] === true)) continue;
 			}
+			const forwarded = forwarded_by_command[to_task_command(invoked)];
+			if (invoke.check === true && forwarded) {
+				// what `invoke_task` runs it with, parsed as `run_task` parses it: invalid args run nothing
+				const invoked_args = merge_forwarded_args({ check: true }, forwarded);
+				const Args = table.builtins.get(invoked)?.Args;
+				const parsed = Args ? args_parse(invoked_args, Args) : { ok: true, value: invoked_args };
+				if (parsed.ok && parsed.value.check !== true) check_turned_off.push(invoked);
+			}
 			visit(invoked, null, check || invoke.check === true);
 		}
 	};
@@ -350,6 +372,7 @@ const to_closure = async (
 		);
 		if (command.outcome !== 'runs') return command;
 		const command_args = command.args;
+		forwarded_by_command = await to_forwarded_args_by_command(to_raw_rest_args(cli_args), fs_paths);
 		// check-capable: some builtin's invoke of it is marked `check`
 		const check_capable = [...table.builtins.values()].some(
 			({ grants }) => grants?.invokes?.[task_name as keyof typeof grants.invokes]?.check === true
@@ -380,7 +403,8 @@ const to_closure = async (
 			stderr
 		},
 		// by kind, then builtin, an order no walk decides
-		fallback: fallback.sort((a, b) => compare(JSON.stringify(a), JSON.stringify(b)))
+		fallback: fallback.sort((a, b) => compare(JSON.stringify(a), JSON.stringify(b))),
+		check_turned_off: sorted(check_turned_off)
 	};
 };
 

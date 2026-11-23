@@ -15,7 +15,11 @@
 //!    installed Gro: a fallback the policy refuses is refused, one with no
 //!    installed Gro to run is too, and any other is the plan
 //!    ([`VerbPlan::Fallback`]);
-//! 5. else the run's grants, the closure's unioned with the flags', each
+//! 5. else a forwarded section that turns off the check of a builtin an
+//!    invoke marked `check` runs is refused
+//!    ([`VerbError::CheckTurnedOff`]), since the closure holds that builtin
+//!    to its reads where Node runs it writing;
+//! 6. else the run's grants, the closure's unioned with the flags', each
 //!    flag's list checked as `fgro run` checks its own ([`to_run_grant`]),
 //!    each closure program granted by the table's policy under the name
 //!    Gro's TS asks for it by ([`table_programs`]), and the entry's text
@@ -29,7 +33,10 @@
 //! module doc names the adversary and the asset), whose bound is their
 //! union with the flags, which the command line chose; the root check and
 //! the refusal of a table [`table_programs`] can't read are guardrails
-//! against a mistake and against gro's own drift; `GRO_FALLBACK`'s policy is
+//! against a mistake and against gro's own drift, and so is the refusal of a
+//! forwarded section turning a check off, which keeps the command from
+//! failing at its first write where Node writes (the closure's reads bound
+//! it either way); `GRO_FALLBACK`'s policy is
 //! [`FallbackPolicy`]'s.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -247,6 +254,28 @@ pub enum VerbError {
         /// Why it would run on the Node Gro.
         reasons: Vec<FallbackReason>,
     },
+    /// A forwarded section turns off the check of a builtin an invoke
+    /// marked `check` runs, a write the command's closure never grants.
+    #[error(
+        "{} runs {} in check mode, writing no source, and the forwarded {} {} that check off, a \
+         write it never grants: run {} for the writes, or {} on the project's Node gro, \
+         unconfined",
+        command_line(.command.as_deref()),
+        and_list(.builtins.iter().cloned()),
+        and_list(.builtins.iter().map(|name| format!("`-- gro {name}`"))),
+        if .builtins.len() == 1 { "turns" } else { "turn" },
+        and_list(.builtins.iter().map(|name| command_line(Some(name)))),
+        node_gro_command(.cli_args)
+    )]
+    CheckTurnedOff {
+        /// The command word.
+        command: Option<String>,
+        /// The builtins whose check a forwarded section turns off, names
+        /// of the grants table's.
+        builtins: Vec<String>,
+        /// The command line, its grant flags split off.
+        cli_args: Vec<String>,
+    },
     /// The grants table can't be read into a run's grants: Gro's own
     /// drift, which its tests hold against.
     #[error("the grants table can't grant `{program}`: {fault}")]
@@ -287,6 +316,7 @@ impl VerbError {
             | Self::Project { .. }
             | Self::Strict { .. }
             | Self::StrictHost { .. }
+            | Self::CheckTurnedOff { .. }
             | Self::NoNodeGro { .. } => EXIT_USAGE,
         }
     }
@@ -332,6 +362,16 @@ fn command_suffix(command: Option<&str>) -> String {
     command.map_or_else(String::new, |command| {
         format!(" {}", escape_controls(command))
     })
+}
+
+/// `items` joined as a list, `and` before the last.
+fn and_list(items: impl Iterator<Item = String>) -> String {
+    let items: Vec<String> = items.collect();
+    match items.split_last() {
+        Some((last, [])) => last.clone(),
+        Some((last, rest)) => format!("{} and {last}", rest.join(", ")),
+        None => String::new(),
+    }
 }
 
 /// `reasons` joined as one clause, `; and ` between them.
@@ -401,6 +441,13 @@ pub fn plan(
             reasons,
             gro,
         }));
+    }
+    if !closure.check_turned_off.is_empty() {
+        return Err(VerbError::CheckTurnedOff {
+            command,
+            builtins: closure.check_turned_off.into_iter().collect(),
+            cli_args: split.cli_args,
+        });
     }
     let (grant, flags) = to_run_grant(&split.grant_flags)?;
     let mut dirs = flags.clone();
