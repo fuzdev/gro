@@ -195,7 +195,7 @@ pub fn table(record: &RunRecord, prices_of: &Prices) -> String {
         out,
         "(each price is the default's median less the variant's, with that default off: what keeping it costs; `~` marks one within the two rows' MADs added{})",
         if counted {
-            "; wall times aren't priced under perf. User instructions count what the process runs, kernel ones its system calls and faults: seccomp's user price is mostly compiling its BPF filters, once per eval, and its kernel price the filters run on each call"
+            "; wall times aren't priced under perf. User instructions count what the process runs, kernel ones its system calls and faults: a seccomp filter's user price is mostly compiling its BPF, once per process, and its kernel price the filter run on each call. Kernel instructions grow with the depth of the copy's path, which the loader resolves a `readlink` per component, so a kernel share reads against that depth"
         } else {
             ""
         },

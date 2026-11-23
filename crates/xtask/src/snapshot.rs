@@ -84,7 +84,8 @@ pub enum Measurement {
     None,
     /// With `phases`: a timestamp at each phase boundary.
     Phases,
-    /// With `prices`: the switches that turn off eval's defaults.
+    /// With `prices`: the switches that turn off eval's defaults and the
+    /// steps of a command's box.
     Prices,
 }
 
@@ -332,7 +333,7 @@ const INTEGRATION_TESTS: [(Measurement, &[&str]); 3] = [
     ),
     // the phases build's marks, eval's written from inside its box
     (Measurement::Phases, &["phases"]),
-    // the priced build's switches, eval's box among them
+    // the priced build's switches, eval's box and a command's among them
     (Measurement::Prices, &["prices", "confine"]),
 ];
 

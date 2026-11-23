@@ -1,9 +1,9 @@
 //! The `phases` feature from outside: a default build ignores
 //! `GRO_PHASES_FILE`, and a phases build writes its marks there, in order,
-//! when its program exits too, and eval's through the handle it opened
-//! before its box. The phases
-//! build's test runs from `cargo xtask build --verify`, which builds `fgro`
-//! with the feature for it.
+//! when its program exits too, and eval's and a command of Gro's through the
+//! handle each opened before its box. The phases build's test runs from
+//! `cargo xtask build --verify`, which builds `fgro` with the feature for it;
+//! the command's case needs the checkout's `node_modules`.
 
 // clippy's test allowance covers `#[test]` functions, not their helpers
 #![expect(clippy::unwrap_used, reason = "a test's setup fails by panicking")]
@@ -152,4 +152,43 @@ fn a_phases_build_writes_evals_marks_in_order() {
             "exit"
         ]
     );
+}
+
+/// A command of Gro's marks each step of its box as a phase of its own,
+/// written from inside the box through the handle opened before it.
+#[cfg(feature = "phases")]
+#[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "a command of Gro's runs in its box only from a snapshot build"
+)]
+fn a_phases_build_writes_a_command_s_box_steps_in_order() {
+    let dir = Scratch::new(
+        "verb",
+        &[("project/package.json", r#"{"name": "p", "type": "module"}"#)],
+    );
+    // the checkout's node_modules, linked whole, where Gro's embedded
+    // library finds its peers
+    let node_modules = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../node_modules")
+        .canonicalize()
+        .unwrap();
+    std::os::unix::fs::symlink(node_modules, dir.0.join("project/node_modules")).unwrap();
+    let file = dir.0.join("phases");
+    let mut command = fgro_command(&["-v"]);
+    command
+        .env(PHASES_FILE_ENV, &file)
+        .env_remove("GRO_FALLBACK")
+        .current_dir(dir.0.join("project"));
+    let output = spawn(command, b"");
+    assert!(output.status.success(), "{output:?}");
+    let marks = read_marks(&file);
+    assert_eq!(
+        marks[..7],
+        [
+            "prepass", "network", "sweep", "facts", "plan", "confine", "engine"
+        ],
+        "{marks:?}"
+    );
+    assert_eq!(marks.last().map(String::as_str), Some("exit"), "{marks:?}");
 }

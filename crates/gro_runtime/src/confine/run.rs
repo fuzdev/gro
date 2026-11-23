@@ -47,6 +47,11 @@
 //!    Landlock, then the seccomp denylist (`seccomp::denylist`), each
 //!    thread the process starts afterward inheriting both.
 //!
+//! A priced build (`crate::prices`, `RunDefault`) can leave out the second
+//! step's namespace, its box then built for the run's own network form, and
+//! the fifth's Landlock or denylist, each to be timed; without the `prices`
+//! feature nothing reads the switches and every step is taken.
+//!
 //! Between two steps the caller may run work on a thread it joins before
 //! the next, as a pre-pass that reads the project does: every step after
 //! the first that needs the process to have one thread reads the count
@@ -131,6 +136,7 @@ use super::landlock::{self, TcpWall};
 use super::plan::{Anchor, BoxPlan, Opening};
 use super::rules::{BoxRules, InstalledRule, RuleError};
 use super::{ConfineError, NetForm, Threads, alone};
+use crate::prices::{self, RunDefault};
 
 /// The kernel's Landlock, probed and found at the floor the box needs, with
 /// nothing changed: what the run's first step takes, made only by
@@ -358,6 +364,13 @@ impl RunClosed {
     /// [`RunStepError::NestedNamespaces`] for a namespace entered whose
     /// next step failed.
     pub fn enter_network(self) -> Result<RunNetworked, RunStepError> {
+        // a priced build can stay in the host's namespaces, its box built
+        // for the run's own network all the same (`prices`)
+        if prices::off(RunDefault::Namespace) {
+            return Ok(RunNetworked {
+                network: RunNetwork::Namespace,
+            });
+        }
         let network = match namespace::enter_user_net_namespace() {
             Ok(entered) => {
                 entered.loopback_up().map_err(RunStepError::Loopback)?;
@@ -587,15 +600,25 @@ impl RunPrepared {
         }
         let form = self.network.form();
         // the filter is assembled first, so one that can't be fails before
-        // any wall goes up
-        let denylist = denylist(form)?;
+        // any wall goes up; a priced build can leave either wall out
+        // (`prices`)
+        let denylist = if prices::off(RunDefault::Filter) {
+            None
+        } else {
+            Some(denylist(form)?)
+        };
         let tcp = match form {
             NetForm::Namespace => TcpWall::Unhandled,
             NetForm::InetRefused => TcpWall::Refused,
         };
-        landlock::landlock(&self.rules, tcp)?;
-        // Landlock set `no_new_privs`, which an unprivileged filter needs
-        seccompiler::apply_filter(&denylist).map_err(ConfineError::Seccomp)?;
+        if !prices::off(RunDefault::Landlock) {
+            landlock::landlock(&self.rules, tcp)?;
+        }
+        // an unprivileged filter needs `no_new_privs`, which Landlock set,
+        // and the filter's install sets it again (`seccompiler` does)
+        if let Some(denylist) = &denylist {
+            seccompiler::apply_filter(denylist).map_err(ConfineError::Seccomp)?;
+        }
         let (rules, absent) = self.rules.into_installed();
         Ok(RunConfined {
             rules,

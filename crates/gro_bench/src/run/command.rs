@@ -73,13 +73,16 @@ pub(super) struct RowCommand {
     pub(super) stdout: Option<Stdout>,
     /// Whether its samples write phase timings, under [`Sampler::Phases`](super::sample::Sampler::Phases).
     pub(super) phases: bool,
+    /// The directory its processes run in, for a workload of args: its
+    /// copy's root. Absent, they run in the suite's directory.
+    pub(super) cwd: Option<PathBuf>,
 }
 
 impl RowCommand {
     /// A process of this row, its stdin opened fresh, with stdout and
     /// stderr on the null device.
     pub(super) fn command(&self, dir: &Path) -> Result<Command, BenchError> {
-        let mut command = self.program.command(dir);
+        let mut command = self.program.command(self.cwd.as_deref().unwrap_or(dir));
         command.args(&self.args);
         self.finish(command)
     }
@@ -93,7 +96,8 @@ impl RowCommand {
         dir: &Path,
     ) -> Result<Command, BenchError> {
         let mut command = perf.command(out, &self.program.path, &self.args);
-        self.program.isolate(&mut command, dir);
+        self.program
+            .isolate(&mut command, self.cwd.as_deref().unwrap_or(dir));
         self.finish(command)
     }
 
@@ -114,9 +118,14 @@ impl RowCommand {
         Ok(command)
     }
 
-    /// The command line to re-run alone, with its stdin redirect.
+    /// The command line to re-run alone, with its stdin redirect, and the
+    /// directory it runs in when that isn't the suite's.
     pub(super) fn display(&self) -> String {
         let line = display_command(&self.program.path, &self.args);
+        let line = match &self.cwd {
+            Some(cwd) => format!("cd {} && {line}", cwd.display()),
+            None => line,
+        };
         match &self.stdin {
             Some(stdin) => format!("{line} < {}", stdin.display()),
             None => line,
@@ -161,12 +170,13 @@ pub(super) fn resolve_program(runtime: &Runtime, dir: &Path) -> Result<Program, 
 
 /// A row's arguments after the program, and the variables it sets over the
 /// runtime's `env`: the runtime's `args`, its `cold` args and env when the
-/// workload is cold, then the script. `resolve` turns a file argument into the
-/// absolute path passed.
+/// workload is cold, then `tail`, the workload's script as an absolute path
+/// or its args. `resolve` turns a file argument into the absolute path
+/// passed.
 pub(super) fn row_args(
     runtime: &Runtime,
     workload: &Workload,
-    script: &Path,
+    tail: Vec<OsString>,
     resolve: &mut impl FnMut(&Path) -> Result<PathBuf, BenchError>,
 ) -> Result<(Vec<OsString>, BTreeMap<String, String>), BenchError> {
     let cold = runtime.cold.as_ref().filter(|_| workload.cold);
@@ -178,7 +188,7 @@ pub(super) fn row_args(
             Arg::File(FileArg { file }) => resolve(file)?.into_os_string(),
         });
     }
-    args.push(script.as_os_str().to_owned());
+    args.extend(tail);
     let env = cold.map(|cold| cold.env.clone()).unwrap_or_default();
     Ok((args, env))
 }
@@ -333,13 +343,13 @@ mod tests {
             .unwrap()
         };
         let mut resolve = |file: &Path| Ok(Path::new("/abs").join(file));
-        let script = Path::new("/abs/w.js");
+        let script = || vec![OsString::from("/abs/w.js")];
         let (warm_args, warm_env) =
-            row_args(&runtime, &workload(false), script, &mut resolve).unwrap();
+            row_args(&runtime, &workload(false), script(), &mut resolve).unwrap();
         assert_eq!(warm_args, ["run", "/abs/w.js"]);
         assert!(warm_env.is_empty());
         let (cold_args, cold_env) =
-            row_args(&runtime, &workload(true), script, &mut resolve).unwrap();
+            row_args(&runtime, &workload(true), script(), &mut resolve).unwrap();
         assert_eq!(
             cold_args,
             ["run", "--no-code-cache", "/abs/shim.js", "/abs/w.js"]

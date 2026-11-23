@@ -391,15 +391,20 @@ lists them).
 (`gro_runtime`, `gro_cli`, `gro_sys`, `gro_v8`, `vendor/`, the root
 `Cargo.toml`, `Cargo.lock`, `.cargo/config.toml`, `rust-toolchain.toml`) runs
 `cargo xtask bench crates/gro_bench/suites/baseline/suite.json --counters --base <merge-base>`
-and the same for `crates/gro_bench/suites/eval/suite.json` before commit; a
-test-only or doc-only change is outside it. The A/B runs alone, with nothing
-else loading the machine. It builds the release `fgro` at that revision in a
+and the same for `crates/gro_bench/suites/eval/suite.json` and
+`crates/gro_bench/suites/verb/suite.json` before commit; a test-only or
+doc-only change is outside it. The verb's suite is the one of the three
+that runs a command of Gro's, so only it reaches the pre-pass, the
+closure, the box's start, and the embed's load. The A/B runs alone, with
+nothing else loading the machine. It builds the release `fgro` at that revision in a
 clone outside the checkout, runs each `fgro` row beside the base copy
 interleaved, prints instruction, cycle, and wall medians against the base's,
 and records nothing. An instruction move past 2% needs a written reason in
-review. Both suites read checkouts beside gro's, as their recorded runs do:
-`../corpora` (the baseline's module graph), `../zap` (eval's driver and
-recipes), and `../fuz_forge` (eval's `forge2` config).
+review. The suites read checkouts beside gro's, as their recorded runs do:
+`../corpora` (the baseline's module graph and the verb's project),
+`../zap` (eval's driver and recipes), and `../fuz_forge` (eval's `forge2`
+config); the verb's also copies Gro's peers from the checkout's own
+`node_modules`.
 
 ## Implementation reference
 

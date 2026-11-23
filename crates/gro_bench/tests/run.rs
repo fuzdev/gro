@@ -14,7 +14,7 @@ use gro_bench::project::project_blake3;
 use gro_bench::record::{GitState, Machine, MachineQuiet, Mode, RunRecord};
 use gro_bench::run::{Measure, RunContext, run};
 use gro_bench::suite::{
-    Arg, Budget, Cold, CorporaPin, FileArg, Project, Runtime, Stdout, Suite, Workload,
+    Arg, Budget, Cold, CorporaPin, FileArg, NodeModules, Project, Runtime, Stdout, Suite, Workload,
 };
 
 /// A run's context writing under `dir`, its own per test.
@@ -85,11 +85,13 @@ fn suite(runtimes: Vec<Runtime>, scripts: &[&str], samples: u32) -> Suite {
             .iter()
             .map(|script| Workload {
                 name: script.trim_end_matches(".sh").to_owned(),
-                script: PathBuf::from(script),
+                script: Some(PathBuf::from(script)),
+                args: None,
                 warmup: 1,
                 cold: false,
                 weight: 1,
                 collection: None,
+                node_modules: None,
                 project: None,
                 runtimes: None,
             })
@@ -785,7 +787,7 @@ fn a_collection_workload_runs_from_a_fresh_copy() {
     let canonical = dir.canonicalize().unwrap();
     suite.runtimes[0].env = BTreeMap::from([("SUITE".to_owned(), canonical.display().to_string())]);
     let tree = suite.corpora.as_ref().unwrap().collections["c"].clone();
-    let copy = dir.join("work/corpora").join(&tree).join("c");
+    let copy = dir.join("work/corpora/c");
     // a stale copy, which the run replaces
     fs::create_dir_all(&copy).unwrap();
     fs::write(copy.join("stale.sh"), "").unwrap();
@@ -805,6 +807,53 @@ fn a_collection_workload_runs_from_a_fresh_copy() {
         ["entry.sh", "plain.sh"]
     );
     assert_eq!(record.collections, BTreeMap::from([("c".to_owned(), tree)]));
+}
+
+/// A workload of args runs its runtime's command from its collection's
+/// copy, with the `node_modules` it names: each package copied whole, no
+/// link, beside the stubs.
+#[test]
+fn a_workload_of_args_runs_from_its_collection_s_copy() {
+    // it runs only from the copy's root, beside the collection's files and
+    // a node_modules laid out as a real install's
+    let command = "test \"$(pwd -P)\" = \"$COPY\" && test -f lib.sh \
+        && test -f node_modules/@s/pkg/package.json && test -f node_modules/@s/pkg/dist/a.js \
+        && test ! -L node_modules/@s/pkg && test -f node_modules/stub_0001/package.json \
+        && test ! -e node_modules/stub_0002";
+    let dir = scratch("collection_args", &[]);
+    fs::create_dir_all(dir.join("installed/pkg/dist")).unwrap();
+    fs::write(
+        dir.join("installed/pkg/package.json"),
+        r#"{"name": "@s/pkg", "version": "1.2.3"}"#,
+    )
+    .unwrap();
+    fs::write(dir.join("installed/pkg/dist/a.js"), "").unwrap();
+    let (mut suite, context) = collection_suite(&dir, &["a.sh"]);
+    let workload = &mut suite.workloads[0];
+    workload.name = "listing".to_owned();
+    workload.script = None;
+    workload.args = Some(vec!["-c".to_owned(), command.to_owned()]);
+    workload.node_modules = Some(NodeModules {
+        stub_packages: 2,
+        packages: BTreeMap::from([("@s/pkg".to_owned(), PathBuf::from("installed/pkg"))]),
+    });
+    let copy = dir.canonicalize().unwrap().join("work/corpora/c");
+    suite.runtimes[0].env = BTreeMap::from([("COPY".to_owned(), copy.display().to_string())]);
+    let record = run(&suite, &dir, context.clone()).unwrap();
+    // a package with nothing at its path fails before anything runs
+    suite.workloads[0].node_modules.as_mut().unwrap().packages =
+        BTreeMap::from([("@s/pkg".to_owned(), PathBuf::from("installed/gone"))]);
+    let missing = run(&suite, &dir, context).unwrap_err();
+    assert_eq!(record.rows.len(), 1);
+    // a command, no script: no suite file to hash
+    assert!(record.artifacts.is_empty(), "{:?}", record.artifacts);
+    // the package copied, by the version it names, unpinned
+    assert_eq!(record.packages, BTreeSet::from(["@s/pkg@1.2.3".to_owned()]));
+    assert!(
+        matches!(missing, BenchError::PackageMissing { ref package, .. } if package == "@s/pkg"),
+        "{missing:?}"
+    );
+    assert!(missing.is_input_error());
 }
 
 #[test]
@@ -912,12 +961,7 @@ fn a_path_written_into_a_copy_discards_the_run() {
     );
     let (suite, context) = collection_suite(&dir, &["writes.sh"]);
     let result = run(&suite, &dir, context);
-    let lock = dir
-        .join("work/corpora")
-        .join(&suite.corpora.as_ref().unwrap().collections["c"])
-        .join("c/lock.json")
-        .canonicalize()
-        .unwrap();
+    let lock = dir.join("work/corpora/c/lock.json").canonicalize().unwrap();
     match result {
         Err(BenchError::ArtifactsChanged { paths }) => assert_eq!(paths, [lock]),
         other => panic!("expected ArtifactsChanged, got {other:?}"),
@@ -936,12 +980,7 @@ fn a_file_rewritten_in_a_copy_discards_the_run() {
     );
     let (suite, context) = collection_suite(&dir, &["rewrites.sh"]);
     let result = run(&suite, &dir, context);
-    let lib = dir
-        .join("work/corpora")
-        .join(&suite.corpora.as_ref().unwrap().collections["c"])
-        .join("c/lib.sh")
-        .canonicalize()
-        .unwrap();
+    let lib = dir.join("work/corpora/c/lib.sh").canonicalize().unwrap();
     match result {
         Err(BenchError::ArtifactsChanged { paths }) => assert_eq!(paths, [lib]),
         other => panic!("expected ArtifactsChanged, got {other:?}"),

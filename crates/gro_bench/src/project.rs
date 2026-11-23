@@ -19,6 +19,7 @@
 //! A project can also name files to generate into the copy ([`Generate`]), such
 //! as a [`write_data_module`] too large to commit.
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -34,8 +35,8 @@ pub struct ProjectCopy {
     pub root: PathBuf,
     /// Every regular file the run wrote into it, stubs included.
     pub files: Vec<PathBuf>,
-    /// The workload's script in the copy.
-    pub entry: PathBuf,
+    /// The workload's script in the copy, if it runs one.
+    pub entry: Option<PathBuf>,
 }
 
 /// The least size a [`write_data_module`] can be asked for: its header and
@@ -103,7 +104,8 @@ pub(crate) fn is_stub_name(name: &str, count: u32) -> bool {
 /// `<work_dir>/projects/<workload>`, after removing anything already there.
 ///
 /// It writes the files of `project.dir` (relative to `suite_dir`), then its
-/// `node_modules`. `script` is the workload's script, inside `project.dir`.
+/// `node_modules`. `script` is the workload's script, inside `project.dir`,
+/// if it runs one.
 ///
 /// # Errors
 ///
@@ -117,7 +119,7 @@ pub(crate) fn is_stub_name(name: &str, count: u32) -> bool {
 pub fn materialize_project(
     workload: &str,
     project: &Project,
-    script: &Path,
+    script: Option<&Path>,
     suite_dir: &Path,
     work_dir: &Path,
 ) -> Result<ProjectCopy, BenchError> {
@@ -198,9 +200,77 @@ pub fn materialize_project(
         files.push(to);
     }
 
+    files.extend(write_node_modules(
+        workload,
+        &root,
+        project.stub_packages,
+        &[],
+        &links,
+    )?);
+    // validation puts the script inside the project's directory
+    let entry = script.map(|script| root.join(script.strip_prefix(&project.dir).unwrap_or(script)));
+    Ok(ProjectCopy { root, files, entry })
+}
+
+/// Each package of `packages` resolved to its installed directory.
+///
+/// Each path is relative to `suite_dir`, and the run copies the directory
+/// into a `node_modules`; one that doesn't exist or isn't a directory is
+/// refused, before anything is written.
+///
+/// # Errors
+///
+/// Fails with [`BenchError::PackageMissing`] naming the first.
+pub fn resolve_packages<'a>(
+    workload: &str,
+    packages: &'a BTreeMap<String, PathBuf>,
+    suite_dir: &Path,
+) -> Result<Vec<(&'a String, PathBuf)>, BenchError> {
+    packages
+        .iter()
+        .map(|(package, from)| {
+            let path = suite_dir.join(from);
+            let missing = |source| BenchError::PackageMissing {
+                workload: workload.to_owned(),
+                package: package.clone(),
+                path: path.clone(),
+                source,
+            };
+            let resolved = path.canonicalize().map_err(missing)?;
+            if !resolved.is_dir() {
+                return Err(missing(io::Error::from(io::ErrorKind::NotADirectory)));
+            }
+            Ok((package, resolved))
+        })
+        .collect()
+}
+
+/// Writes `node_modules` at `root`, returning the regular files written:
+/// `stub_packages` stubs, each a directory holding only a `package.json`;
+/// each of `packages` copied from its installed directory, its regular
+/// files and directories, as a real install lays one out; and each of
+/// `links` a symlink to its checkout.
+///
+/// # Errors
+///
+/// Fails with [`BenchError::ProjectEntry`] (naming `workload`) when a
+/// package holds a symlink or another special file, or a `node_modules` of
+/// its own, and otherwise when a read or write fails.
+pub(crate) fn write_node_modules(
+    workload: &str,
+    root: &Path,
+    stub_packages: u32,
+    packages: &[(&String, PathBuf)],
+    links: &[(&String, PathBuf)],
+) -> Result<Vec<PathBuf>, BenchError> {
+    let write_error = |path: &Path| {
+        let path = path.to_owned();
+        move |source| BenchError::Write { path, source }
+    };
+    let mut files = Vec::new();
     let node_modules = root.join("node_modules");
     fs::create_dir_all(&node_modules).map_err(write_error(&node_modules))?;
-    for index in 0..project.stub_packages {
+    for index in 0..stub_packages {
         let name = stub_name(index);
         let dir = node_modules.join(&name);
         fs::create_dir(&dir).map_err(write_error(&dir))?;
@@ -211,20 +281,22 @@ pub fn materialize_project(
         fs::write(&package_json, text).map_err(write_error(&package_json))?;
         files.push(package_json);
     }
+    for (package, from) in packages {
+        let to = node_modules.join(package);
+        if let Some(parent) = to.parent() {
+            fs::create_dir_all(parent).map_err(write_error(parent))?;
+        }
+        fs::create_dir(&to).map_err(write_error(&to))?;
+        files.extend(copy_tree(workload, from, &to)?);
+    }
     for (package, target) in links {
         let link = node_modules.join(package);
         if let Some(parent) = link.parent() {
             fs::create_dir_all(parent).map_err(write_error(parent))?;
         }
-        std::os::unix::fs::symlink(&target, &link).map_err(write_error(&link))?;
+        std::os::unix::fs::symlink(target, &link).map_err(write_error(&link))?;
     }
-    // validation puts the script inside the project's directory
-    let inside = script.strip_prefix(&project.dir).unwrap_or(script);
-    Ok(ProjectCopy {
-        entry: root.join(inside),
-        root,
-        files,
-    })
+    Ok(files)
 }
 
 /// The blake3 hash of the project directory `dir`'s files.
@@ -383,8 +455,14 @@ mod tests {
         let work = base.join("work");
         // a stale copy, which the run replaces
         fs::create_dir_all(work.join("projects/w/stale")).unwrap();
-        let copy =
-            materialize_project("w", &project, Path::new("p/main.ts"), &suite_dir, &work).unwrap();
+        let copy = materialize_project(
+            "w",
+            &project,
+            Some(Path::new("p/main.ts")),
+            &suite_dir,
+            &work,
+        )
+        .unwrap();
         let root = copy.root.clone();
         let listed = crate::collection::list_paths(&root).unwrap();
         let link = fs::read_link(root.join("node_modules/@s/linked")).unwrap();
@@ -397,26 +475,48 @@ mod tests {
             &mut project.blake3,
             project_blake3("w", &suite_dir.join("p")).unwrap(),
         );
-        let collides =
-            materialize_project("w", &project, Path::new("p/main.ts"), &suite_dir, &work);
+        let collides = materialize_project(
+            "w",
+            &project,
+            Some(Path::new("p/main.ts")),
+            &suite_dir,
+            &work,
+        );
         fs::remove_dir_all(suite_dir.join("p/gen")).unwrap();
         project.blake3 = pin;
         project.generate.clear();
 
         project.links = BTreeMap::from([("x".to_owned(), PathBuf::from("../nope"))]);
-        let missing = materialize_project("w", &project, Path::new("p/main.ts"), &suite_dir, &work);
+        let missing = materialize_project(
+            "w",
+            &project,
+            Some(Path::new("p/main.ts")),
+            &suite_dir,
+            &work,
+        );
         fs::write(base.join("file"), "").unwrap();
         project.links = BTreeMap::from([("x".to_owned(), PathBuf::from("../file"))]);
-        let file = materialize_project("w", &project, Path::new("p/main.ts"), &suite_dir, &work);
+        let file = materialize_project(
+            "w",
+            &project,
+            Some(Path::new("p/main.ts")),
+            &suite_dir,
+            &work,
+        );
         // the failed run wrote nothing: the earlier copy stands
         let kept = root.join("main.ts").is_file();
         fs::create_dir_all(suite_dir.join("p/node_modules")).unwrap();
         project.links.clear();
-        let installed =
-            materialize_project("w", &project, Path::new("p/main.ts"), &suite_dir, &work);
+        let installed = materialize_project(
+            "w",
+            &project,
+            Some(Path::new("p/main.ts")),
+            &suite_dir,
+            &work,
+        );
         fs::remove_dir_all(&base).unwrap();
 
-        assert_eq!(copy.entry, root.join("main.ts"));
+        assert_eq!(copy.entry, Some(root.join("main.ts")));
         let relative: Vec<String> = listed
             .iter()
             .map(|path| path.strip_prefix(&root).unwrap().display().to_string())

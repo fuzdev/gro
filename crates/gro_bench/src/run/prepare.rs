@@ -3,6 +3,7 @@
 //! run in, and building the rows' commands.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::ffi::OsString;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -13,8 +14,8 @@ use crate::collection::materialize;
 use crate::error::BenchError;
 use crate::git::read_corpora_collection;
 use crate::phases::PHASES_FILE_ENV;
-use crate::project::materialize_project;
-use crate::suite::{FileArg, Suite};
+use crate::project::{materialize_project, resolve_packages, write_node_modules};
+use crate::suite::{FileArg, Suite, Tail};
 
 /// The suite's corpora checkout, checked against its pin.
 pub(super) struct Corpora {
@@ -112,7 +113,8 @@ pub(super) fn plan_rows(
     let scripts = suite
         .workloads
         .iter()
-        .map(|workload| Ok((workload.name.as_str(), resolver.resolve(&workload.script)?)))
+        .filter_map(|workload| Some((workload.name.as_str(), workload.script.as_deref()?)))
+        .map(|(name, script)| Ok((name, resolver.resolve(script)?)))
         .collect::<Result<BTreeMap<_, _>, BenchError>>()?;
     // each runtime's stdin file, hashed like a file argument
     let stdins = suite
@@ -126,7 +128,7 @@ pub(super) fn plan_rows(
                 .transpose()
         })
         .collect::<Result<Vec<_>, _>>()?;
-    let mut copies = materialize_collections(suite, corpora, work_dir, &scripts)?;
+    let mut copies = materialize_collections(suite, corpora, dir, work_dir, &scripts)?;
     materialize_projects(suite, dir, work_dir, &mut copies)?;
     let program_of: BTreeMap<&str, (&Program, &Option<PathBuf>)> = suite
         .runtimes
@@ -137,8 +139,20 @@ pub(super) fn plan_rows(
     let mut rows = Vec::new();
     for (workload, runtime) in suite.rows() {
         let name = workload.name.as_str();
-        let script = copies.entries.get(name).unwrap_or_else(|| &scripts[name]);
-        let (args, mut env) = row_args(runtime, workload, script, &mut |file: &Path| {
+        let tail = match workload.tail() {
+            Some(Tail::Script(_)) => {
+                let script = copies.entries.get(name).unwrap_or_else(|| &scripts[name]);
+                vec![script.as_os_str().to_owned()]
+            }
+            Some(Tail::Args(args)) => args.iter().map(OsString::from).collect(),
+            // `Suite::validate` refuses this before any run gets here
+            None => {
+                return Err(BenchError::SuiteInvalid(format!(
+                    "the workload `{name}` names neither a script nor args, or both"
+                )));
+            }
+        };
+        let (args, mut env) = row_args(runtime, workload, tail, &mut |file: &Path| {
             resolver.resolve(file)
         })?;
         let (program, stdin) = program_of[runtime.name.as_str()];
@@ -156,6 +170,7 @@ pub(super) fn plan_rows(
             stdin: stdin.clone(),
             stdout: runtime.stdout,
             phases: phases_file.is_some(),
+            cwd: copies.dirs.get(name).cloned(),
         });
     }
     let Resolver {
@@ -182,17 +197,36 @@ pub(super) struct Copies {
     /// Every file of every copy, entries included.
     pub(super) files: Vec<PathBuf>,
     /// The entry each workload with a collection or a project runs, by
-    /// workload name.
+    /// workload name, for a workload of a script.
     pub(super) entries: BTreeMap<String, PathBuf>,
+    /// The copy's root each workload of args runs from, by workload name.
+    pub(super) dirs: BTreeMap<String, PathBuf>,
+    /// Each package copied into a collection's `node_modules`, as
+    /// `name@version` ([`installed_as`]).
+    pub(super) packages: BTreeSet<String>,
+}
+
+/// The package `name` copied from `from`, as `name@version` by the version
+/// its `package.json` names, or `name` alone when it names none or can't be
+/// read.
+fn installed_as(name: &str, from: &Path) -> String {
+    let version = fs::read_to_string(from.join("package.json"))
+        .ok()
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+        .and_then(|value| value.get("version")?.as_str().map(str::to_owned));
+    version.map_or_else(|| name.to_owned(), |version| format!("{name}@{version}"))
 }
 
 /// Copies each collection the suite's workloads name, once, from its pinned
-/// tree into `<work_dir>/corpora/<tree>/<collection>`, and writes each of its
-/// workloads' scripts (by their resolved paths in `scripts`) at its root
-/// under the script's own file name, refusing one the collection already has.
+/// tree into `<work_dir>/corpora/<collection>`, with the
+/// `node_modules` its workloads name (relative to `dir`), and writes each of
+/// its workloads' scripts (by their resolved paths in `scripts`) at its root
+/// under the script's own file name, refusing one the collection already has;
+/// a workload of args runs from its root.
 fn materialize_collections(
     suite: &Suite,
     corpora: Option<&Corpora>,
+    dir: &Path,
     work_dir: &Path,
     scripts: &BTreeMap<&str, PathBuf>,
 ) -> Result<Copies, BenchError> {
@@ -225,17 +259,46 @@ fn materialize_collections(
                 path: work_dir.to_owned(),
                 source,
             })?;
-            // the tree id is git's own output, a hex id, matched to the pin
-            let root = work_dir.join("corpora").join(tree).join(collection);
+            // one segment per collection, short, since a module's
+            // resolution costs a `readlink` per component of its path
+            let root = work_dir.join("corpora").join(collection);
+            // every package resolved first, so a missing one fails before
+            // any write
+            let node_modules = workload
+                .node_modules
+                .as_ref()
+                .map(|written| {
+                    resolve_packages(&workload.name, &written.packages, dir)
+                        .map(|packages| (written.stub_packages, packages))
+                })
+                .transpose()?;
             copies
                 .files
                 .extend(materialize(&corpora.path, tree, collection, &root)?);
+            // validation gives every workload naming the collection the
+            // same `node_modules`
+            if let Some((stub_packages, packages)) = node_modules {
+                copies.files.extend(write_node_modules(
+                    &workload.name,
+                    &root,
+                    stub_packages,
+                    &packages,
+                    &[],
+                )?);
+                copies
+                    .packages
+                    .extend(packages.iter().map(|(name, from)| installed_as(name, from)));
+            }
             copies.roots.push(root.clone());
             roots.insert(collection, root.clone());
             root
         };
+        let Some(script) = &workload.script else {
+            copies.dirs.insert(workload.name.clone(), root);
+            continue;
+        };
         // validation gives every collection workload's script a file name
-        let file_name = workload.script.file_name().unwrap_or_default();
+        let file_name = script.file_name().unwrap_or_default();
         let entry = root.join(file_name);
         if entries.insert(entry.clone()) {
             if fs::symlink_metadata(&entry).is_ok() {
@@ -270,10 +333,19 @@ fn materialize_projects(
         let Some(project) = &workload.project else {
             continue;
         };
-        let copy = materialize_project(&workload.name, project, &workload.script, dir, work_dir)?;
-        copies.roots.push(copy.root);
+        let copy = materialize_project(
+            &workload.name,
+            project,
+            workload.script.as_deref(),
+            dir,
+            work_dir,
+        )?;
         copies.files.extend(copy.files);
-        copies.entries.insert(workload.name.clone(), copy.entry);
+        match copy.entry {
+            Some(entry) => copies.entries.insert(workload.name.clone(), entry),
+            None => copies.dirs.insert(workload.name.clone(), copy.root.clone()),
+        };
+        copies.roots.push(copy.root);
     }
     Ok(())
 }

@@ -71,7 +71,8 @@
 //! canonical path, [`counters`](crate::counters)), and with a cleared
 //! environment holding only the caller's `PATH` and `HOME` and the variables
 //! the suite sets. Its working directory is the suite's directory, a
-//! collection's workloads included.
+//! collection's workloads of a script included; a workload of args runs from
+//! its copy's root.
 
 mod artifacts;
 mod check;
@@ -110,7 +111,7 @@ pub struct RunContext {
     pub machine: Machine,
     pub machine_quiet: MachineQuiet,
     /// The directory the run writes its copies under, a collection's at
-    /// `corpora/<tree>/<collection>` and a project's at
+    /// `corpora/<collection>` and a project's at
     /// `projects/<workload>`, each replaced on every run.
     /// `cargo xtask bench` passes the gro checkout's gitignored
     /// `target/bench/`, which is trusted like the rest of `target/` (a
@@ -225,6 +226,7 @@ pub fn run(suite: &Suite, dir: &Path, context: RunContext) -> Result<RunRecord, 
             .map(|corpora| corpora.collections)
             .unwrap_or_default(),
         projects: suite.project_pins(),
+        packages: copies.packages,
         runtimes,
         artifacts: artifact_hashes,
         checkouts: checkouts

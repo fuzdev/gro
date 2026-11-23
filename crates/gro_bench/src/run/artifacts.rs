@@ -123,14 +123,13 @@ pub(super) fn read_checkouts(
                     checkouts.insert(target.to_string_lossy().into_owned(), (root, state));
                 }
             }
-        } else if workload.collection.is_none() {
-            let script = resolve_file(dir, &workload.script)?;
+        } else if workload.collection.is_none()
+            && let Some(own) = &workload.script
+        {
+            let script = resolve_file(dir, own)?;
             if let Some(root) = checkout_root(&script).filter(other) {
                 let state = CheckoutState::read(&root)?;
-                checkouts.insert(
-                    workload.script.to_string_lossy().into_owned(),
-                    (root, state),
-                );
+                checkouts.insert(own.to_string_lossy().into_owned(), (root, state));
             }
         }
     }

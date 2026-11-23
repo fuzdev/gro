@@ -1,0 +1,79 @@
+{
+	"name": "verb",
+	"version": 1,
+	"samples": 100,
+	"corpora": {
+		"path": "../../../../../corpora",
+		"collections": {
+			"fuz_util": "84315fb37508694b35779f53958ff36dfc3f5665"
+		}
+	},
+	"runtimes": [
+		{
+			"name": "node",
+			"program": "node",
+			"args": [
+				"--import",
+				{
+					"file": "../../../../dist/register.js"
+				},
+				"--experimental-import-meta-resolve",
+				"-C",
+				"development",
+				{
+					"file": "../../../../dist/invoke.js"
+				}
+			],
+			"v8_args": [
+				"-p",
+				"process.versions.v8"
+			]
+		},
+		{
+			"name": "fgro",
+			"program": "../../../../target/gro_snapshot/release/fgro"
+		}
+	],
+	"gate": {
+		"against": "node",
+		"runtimes": [
+			"fgro"
+		],
+		"workloads": [
+			"listing",
+			"version"
+		]
+	},
+	"workloads": [
+		{
+			"name": "listing",
+			"args": [],
+			"warmup": 10,
+			"collection": "fuz_util",
+			"node_modules": {
+				"stub_packages": 198,
+				"packages": {
+					"@fuzdev/fuz_schema": "../../../../node_modules/@fuzdev/fuz_schema",
+					"@fuzdev/fuz_util": "../../../../node_modules/@fuzdev/fuz_util",
+					"esm-env": "../../../../node_modules/esm-env"
+				}
+			}
+		},
+		{
+			"name": "version",
+			"args": [
+				"-v"
+			],
+			"warmup": 10,
+			"collection": "fuz_util",
+			"node_modules": {
+				"stub_packages": 198,
+				"packages": {
+					"@fuzdev/fuz_schema": "../../../../node_modules/@fuzdev/fuz_schema",
+					"@fuzdev/fuz_util": "../../../../node_modules/@fuzdev/fuz_util",
+					"esm-env": "../../../../node_modules/esm-env"
+				}
+			}
+		}
+	]
+}

@@ -106,6 +106,7 @@ pub(super) fn rss_floor(
         stdin: None,
         stdout: None,
         phases: false,
+        cwd: None,
     };
     let mut floor = 0;
     for _ in 0..FLOOR_RUNS {

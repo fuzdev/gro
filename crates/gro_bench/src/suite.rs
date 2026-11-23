@@ -19,10 +19,11 @@
 //! ```
 //!
 //! A row's command is the runtime's `program`, its `args`, its `cold` args
-//! when the workload is cold, then the workload's `script`. Files (a
+//! when the workload is cold, then the workload's `script`, or its `args`
+//! where it runs a runtime's command rather than a file. Files (a
 //! `{"file": …}` argument and every script) are relative to the suite file's
-//! directory, which is also each command's working directory, and are passed
-//! to the runtime as absolute paths. A `program` containing a `/` is a file
+//! directory, which is also each command's working directory but for a
+//! workload of `args`, and are passed to the runtime as absolute paths. A `program` containing a `/` is a file
 //! too; any other is looked up on `PATH`.
 //!
 //! A `program` names the real executable, not a script wrapping it (a file
@@ -53,6 +54,12 @@
 //! of it, refused when it hashes otherwise, with a generated `node_modules`
 //! of stub packages and links to sibling checkouts
 //! ([`project`](crate::project)), and runs the script from the copy.
+//!
+//! A workload of `args` runs from the root of its collection's or project's
+//! copy, so the command it runs takes the copy for the project it's run in.
+//! A collection's workloads can name the `node_modules` the run writes into
+//! its copy ([`NodeModules`]), laid out as a real install's: stubs, and
+//! installed packages copied whole, none a link.
 //!
 //! A runtime can read a file on stdin (`stdin`, opened fresh for each
 //! process), and can say what its stdout holds (`stdout`): before any timed
@@ -301,14 +308,23 @@ pub struct FileArg {
 }
 
 /// A workload: a script every runtime runs unmodified, or every one it
-/// names.
+/// names, or the arguments a command line of each runtime ends with.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Workload {
     /// The name rows and the record use, unique in the suite.
     pub name: String,
-    /// The script, relative to the suite file's directory.
-    pub script: PathBuf,
+    /// The script, relative to the suite file's directory. A workload names
+    /// a script or `args`, not both.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub script: Option<PathBuf>,
+    /// The arguments after the runtime's own, in place of a script, passed
+    /// as written, for a workload that runs a runtime's command rather than
+    /// a file (`fgro -v`, or none for its listing). It runs from the root of
+    /// its collection's or project's copy, so the command sees the copy as
+    /// the project it's run in. Absent serializes as no key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub args: Option<Vec<String>>,
     /// Untimed processes per row before its timed samples, interleaved like
     /// them. They warm what outlives a process (the page cache, a runtime's
     /// on-disk caches); warming inside a process is the workload's own
@@ -334,6 +350,11 @@ pub struct Workload {
     /// the config hash of a suite that names none doesn't depend on the field.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub collection: Option<String>,
+    /// The `node_modules` the run writes into its collection's copy, as a
+    /// real install's: every workload naming the collection names the same.
+    /// Absent writes none, and serializes as no key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub node_modules: Option<NodeModules>,
     /// A committed project the workload runs inside: the run copies it fresh,
     /// writes its `node_modules`, and runs the script from the copy. The
     /// script is a file inside the project's directory.
@@ -354,6 +375,44 @@ impl Workload {
             .as_ref()
             .is_none_or(|names| names.iter().any(|name| name == runtime))
     }
+
+    /// What its command line ends with: its script, or its args; none when
+    /// it names both or neither, which validation refuses.
+    pub fn tail(&self) -> Option<Tail<'_>> {
+        match (&self.script, &self.args) {
+            (Some(script), None) => Some(Tail::Script(script)),
+            (None, Some(args)) => Some(Tail::Args(args)),
+            _ => None,
+        }
+    }
+}
+
+/// What a workload's command line ends with.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Tail<'a> {
+    /// A script, relative to the suite file's directory, passed as an
+    /// absolute path.
+    Script(&'a Path),
+    /// Arguments, passed as written.
+    Args(&'a [String]),
+}
+
+/// The `node_modules` the run writes into a collection's copy,
+/// `{"stub_packages": N, "packages": {…}}`, laid out as a real install's:
+/// each package a directory of its own files, none a link.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NodeModules {
+    /// How many stub packages it holds beside its packages, as a
+    /// [`Project`]'s `stub_packages` are, for the breadth of a real install.
+    #[serde(default)]
+    pub stub_packages: u32,
+    /// Packages copied into it, by package name (`a` or `@scope/a`), each
+    /// from an installed package's directory given relative to the suite
+    /// file's directory: its regular files and directories, as installed. A
+    /// missing directory fails the run.
+    #[serde(default)]
+    pub packages: BTreeMap<String, PathBuf>,
 }
 
 /// A workload's project, `{"dir": …, "stub_packages": N, "links": {…}}`.
@@ -469,6 +528,7 @@ impl Suite {
         }
         unique("runtime", self.runtimes.iter().map(|r| r.name.as_str()))?;
         unique("workload", self.workloads.iter().map(|w| w.name.as_str()))?;
+        self.validate_tails()?;
         self.validate_workload_runtimes()?;
         if let Some((workload, runtime)) = self
             .rows()
@@ -483,6 +543,30 @@ impl Suite {
         self.validate_collections()?;
         self.validate_checks()?;
         self.validate_budgets_and_prices()
+    }
+
+    /// Checks that each workload names a script or args, not both, and that
+    /// one with args has a copy to run in, a collection or a project.
+    fn validate_tails(&self) -> Result<(), BenchError> {
+        for workload in &self.workloads {
+            let invalid = |problem: &str| {
+                Err(BenchError::SuiteInvalid(format!(
+                    "the workload `{}` {problem}",
+                    workload.name
+                )))
+            };
+            match (&workload.script, &workload.args) {
+                (Some(_), Some(_)) => return invalid("names both a script and args"),
+                (None, None) => return invalid("names neither a script nor args"),
+                (None, Some(_)) if workload.collection.is_none() && workload.project.is_none() => {
+                    return invalid(
+                        "has args, so it runs from a copy's root, and names no collection or project to copy",
+                    );
+                }
+                _ => {}
+            }
+        }
+        Ok(())
     }
 
     /// Checks each workload's `runtimes`: at least one, each once, each a
@@ -590,15 +674,14 @@ impl Suite {
                     "has a project, so its name must be a single directory name".to_owned(),
                 );
             }
-            let inside = workload
-                .script
-                .strip_prefix(&project.dir)
-                .ok()
-                .filter(|rest| is_plain_relative(rest));
-            if inside.is_none() {
+            if let Some(script) = &workload.script
+                && !script
+                    .strip_prefix(&project.dir)
+                    .is_ok_and(is_plain_relative)
+            {
                 return invalid(format!(
                     "has the script `{}`, which isn't a file inside its project `{}`",
-                    workload.script.display(),
+                    script.display(),
                     project.dir.display()
                 ));
             }
@@ -724,10 +807,40 @@ impl Suite {
     /// Then checks the pin names only collections a workload names.
     fn validate_collections(&self) -> Result<(), BenchError> {
         let mut entries: BTreeMap<(&str, &OsStr), &Path> = BTreeMap::new();
+        let mut node_modules: BTreeMap<&str, Option<&NodeModules>> = BTreeMap::new();
         for workload in &self.workloads {
             let Some(collection) = &workload.collection else {
+                if workload.node_modules.is_some() {
+                    return Err(BenchError::SuiteInvalid(format!(
+                        "the workload `{}` names `node_modules`, which the run writes only into a collection's copy",
+                        workload.name
+                    )));
+                }
                 continue;
             };
+            let written = workload.node_modules.as_ref();
+            if *node_modules.entry(collection).or_insert(written) != written {
+                return Err(BenchError::SuiteInvalid(format!(
+                    "the workload `{}` names another `node_modules` for the collection `{collection}` than another workload does, and they share its copy",
+                    workload.name
+                )));
+            }
+            if let Some(written) = written {
+                for name in written.packages.keys() {
+                    if !is_package_name(name) {
+                        return Err(BenchError::SuiteInvalid(format!(
+                            "the workload `{}` copies `{name}` into `node_modules`, which isn't a package name (`a` or `@scope/a`)",
+                            workload.name
+                        )));
+                    }
+                    if crate::project::is_stub_name(name, written.stub_packages) {
+                        return Err(BenchError::SuiteInvalid(format!(
+                            "the workload `{}` copies `{name}` into `node_modules`, which is one of its {} stub packages",
+                            workload.name, written.stub_packages
+                        )));
+                    }
+                }
+            }
             let Some(corpora) = &self.corpora else {
                 return Err(BenchError::SuiteInvalid(format!(
                     "the workload `{}` names the collection `{collection}`, but the suite pins no `corpora`",
@@ -740,23 +853,23 @@ impl Suite {
                     workload.name
                 )));
             }
-            let Some(entry) = workload.script.file_name() else {
-                return Err(BenchError::SuiteInvalid(format!(
-                    "the workload `{}` has the script `{}`, which names no file",
-                    workload.name,
-                    workload.script.display()
-                )));
-            };
-            let script = entries
-                .entry((collection, entry))
-                .or_insert(&workload.script);
-            if *script != workload.script {
-                return Err(BenchError::SuiteInvalid(format!(
-                    "the scripts `{}` and `{}` would both be the entry `{}` of the collection `{collection}`",
-                    script.display(),
-                    workload.script.display(),
-                    entry.to_string_lossy()
-                )));
+            if let Some(own) = &workload.script {
+                let Some(entry) = own.file_name() else {
+                    return Err(BenchError::SuiteInvalid(format!(
+                        "the workload `{}` has the script `{}`, which names no file",
+                        workload.name,
+                        own.display()
+                    )));
+                };
+                let script = entries.entry((collection, entry)).or_insert(own);
+                if *script != own {
+                    return Err(BenchError::SuiteInvalid(format!(
+                        "the scripts `{}` and `{}` would both be the entry `{}` of the collection `{collection}`",
+                        script.display(),
+                        own.display(),
+                        entry.to_string_lossy()
+                    )));
+                }
             }
             if !corpora.collections.contains_key(collection) {
                 return Err(BenchError::SuiteInvalid(format!(
@@ -1168,7 +1281,10 @@ mod tests {
         let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("suites/baseline");
         let suite = Suite::load(&dir.join("suite.json")).unwrap();
         for workload in &suite.workloads {
-            assert!(dir.join(&workload.script).is_file(), "{workload:?}");
+            assert!(
+                dir.join(workload.script.as_ref().unwrap()).is_file(),
+                "{workload:?}"
+            );
         }
         assert!(suite.workloads.iter().any(|w| w.cold));
         let corpora = suite.corpora.as_ref().unwrap();
@@ -1182,7 +1298,7 @@ mod tests {
         for workload in graph {
             let collection = workload.collection.as_deref().unwrap();
             assert_eq!(collection, "fuz_util");
-            let script = fs::read_to_string(dir.join(&workload.script)).unwrap();
+            let script = fs::read_to_string(dir.join(workload.script.as_ref().unwrap())).unwrap();
             let imports: Vec<&str> = script
                 .lines()
                 .filter_map(|line| line.strip_prefix("import '")?.strip_suffix("';"))
@@ -1561,7 +1677,10 @@ mod tests {
         assert!(suite.gate.is_none() && suite.parity.is_empty());
         let project = suite.workloads[0].project.as_ref().unwrap();
         // the fixture's files are committed, its node_modules generated
-        assert!(dir.join(&suite.workloads[0].script).is_file());
+        assert!(
+            dir.join(suite.workloads[0].script.as_ref().unwrap())
+                .is_file()
+        );
         assert!(dir.join(&project.dir).join("package.json").is_file());
         assert!(!dir.join(&project.dir).join("node_modules").exists());
     }
@@ -1588,6 +1707,117 @@ mod tests {
         // every variant's value must be the default's
         assert_eq!(suite.parity.len(), suite.runtimes.len());
         assert!(suite.budgets.is_empty());
+    }
+
+    /// The verb's suites run the same commands on the same copy: the verb
+    /// suite `fgro` beside the Node Gro, judged against it, and its prices
+    /// suite `fgro` with each step of its box turned off.
+    #[test]
+    fn the_verb_suites_are_valid() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("suites");
+        let verb = Suite::load(&root.join("verb/suite.json")).unwrap();
+        let priced = Suite::load(&root.join("verb_prices/suite.json")).unwrap();
+        let runtimes: Vec<&str> = verb.runtimes.iter().map(|r| r.name.as_str()).collect();
+        assert_eq!(runtimes, ["node", "fgro"]);
+        let gate = verb.gate.as_ref().unwrap();
+        assert_eq!(
+            (gate.against.as_str(), &gate.runtimes),
+            ("node", &vec!["fgro".to_owned()])
+        );
+        assert_eq!(verb.workloads, priced.workloads);
+        assert_eq!(verb.corpora, priced.corpora);
+        for workload in &verb.workloads {
+            // a command run from the copy's root, a real install's layout
+            // in its node_modules
+            assert!(workload.script.is_none() && workload.args.is_some());
+            assert_eq!(workload.collection.as_deref(), Some("fuz_util"));
+            let node_modules = workload.node_modules.as_ref().unwrap();
+            assert!(node_modules.packages.contains_key("@fuzdev/fuz_util"));
+        }
+        let prices = priced.prices.as_ref().unwrap();
+        let fgro = verb.runtimes.iter().find(|r| r.name == "fgro").unwrap();
+        for runtime in &priced.runtimes {
+            assert_eq!(runtime.program, fgro.program, "{}", runtime.name);
+            assert_eq!(
+                runtime.env.contains_key("GRO_PRICES_OFF"),
+                runtime.name != prices.default,
+                "{}",
+                runtime.name
+            );
+        }
+    }
+
+    #[test]
+    fn a_workload_names_a_script_or_args_and_a_copy_for_args() {
+        let suite = |workload: &str, extra: &str| {
+            format!(
+                r#"{{"name": "s", "version": 1, "samples": 2,
+                    "runtimes": [{{"name": "r", "program": "r"}}],
+                    "corpora": {{"path": "p", "collections": {{"c": "t"}}}},
+                    "workloads": [{workload}{extra}]}}"#
+            )
+        };
+        let invalid = |json: &str, says: &str| match parse(json) {
+            Err(BenchError::SuiteInvalid(message)) => {
+                assert!(message.contains(says), "{message}");
+            }
+            other => panic!("{json}: {other:?}"),
+        };
+        let nm = r#""node_modules": {"stub_packages": 2, "packages": {"@s/a": "a"}}"#;
+        let args = format!(r#"{{"name": "w", "args": ["-v"], "collection": "c", {nm}}}"#);
+        let found = parse(&suite(&args, "")).unwrap();
+        assert_eq!(
+            found.workloads[0].tail(),
+            Some(Tail::Args(&["-v".to_owned()]))
+        );
+        // an absent `args` and `node_modules` serialize as no key
+        let script = r#"{"name": "w", "script": "w.js", "collection": "c"}"#;
+        let value = serde_json::to_value(parse(&suite(script, "")).unwrap()).unwrap();
+        for key in ["args", "node_modules"] {
+            assert!(value["workloads"][0].get(key).is_none(), "{value}");
+        }
+        invalid(
+            &suite(
+                r#"{"name": "w", "script": "w.js", "args": [], "collection": "c"}"#,
+                "",
+            ),
+            "names both a script and args",
+        );
+        invalid(
+            &suite(r#"{"name": "w", "collection": "c"}"#, ""),
+            "names neither a script nor args",
+        );
+        invalid(
+            r#"{"name": "s", "version": 1, "samples": 2, "runtimes": [{"name": "r", "program": "r"}],
+                "workloads": [{"name": "w", "args": []}]}"#,
+            "names no collection or project to copy",
+        );
+        invalid(
+            r#"{"name": "s", "version": 1, "samples": 2, "runtimes": [{"name": "r", "program": "r"}],
+                "workloads": [{"name": "w", "script": "w.js", "node_modules": {}}]}"#,
+            "only into a collection's copy",
+        );
+        // workloads sharing a collection's copy share its node_modules
+        invalid(
+            &suite(&args, r#", {"name": "x", "args": [], "collection": "c"}"#),
+            "another `node_modules`",
+        );
+        let twice = format!(r#", {{"name": "x", "args": [], "collection": "c", {nm}}}"#);
+        assert!(parse(&suite(&args, &twice)).is_ok());
+        invalid(
+            &suite(
+                r#"{"name": "w", "args": [], "collection": "c", "node_modules": {"packages": {"../a": "a"}}}"#,
+                "",
+            ),
+            "isn't a package name",
+        );
+        invalid(
+            &suite(
+                r#"{"name": "w", "args": [], "collection": "c", "node_modules": {"stub_packages": 2, "packages": {"stub_0001": "a"}}}"#,
+                "",
+            ),
+            "stub packages",
+        );
     }
 
     #[test]

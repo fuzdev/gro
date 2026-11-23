@@ -1,7 +1,7 @@
 //! Base records the crate's tests build on, each test overriding the fields
 //! it exercises with struct-update syntax.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::record::{
     GitState, Machine, MachineQuiet, Metric, Mode, NoiseRecord, RECORD_VERSION, RowRecord,
@@ -63,6 +63,7 @@ pub fn run_record(rows: Vec<RowRecord>) -> RunRecord {
         machine_quiet: MachineQuiet::Unchecked,
         collections: BTreeMap::new(),
         projects: BTreeMap::new(),
+        packages: BTreeSet::new(),
         runtimes: Vec::new(),
         artifacts: BTreeMap::new(),
         checkouts: BTreeMap::new(),

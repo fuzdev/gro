@@ -1,6 +1,6 @@
-//! Prices: switches that turn off one of eval's defaults each, so the
-//! measurement harness can time what each default costs, read only under the
-//! `prices` cargo feature.
+//! Prices: switches that turn off one of eval's defaults, or one step of a
+//! command's box, each, so the measurement harness can time what each costs,
+//! read only under the `prices` cargo feature.
 //!
 //! Without the feature, [`start`] and [`off`] read nothing and [`off`] is
 //! always `false`, so a default build reads no such variable and keeps every
@@ -9,22 +9,29 @@
 //! so (`fgro`'s `, prices`).
 //!
 //! With it, the environment variable [`PRICES_OFF_ENV`] names the defaults to
-//! turn off, comma-separated by their [`EvalDefault::name`]s
-//! (`GRO_PRICES_OFF=landlock,seccomp`); unset or empty, every default stands. A
-//! name it doesn't know, and a value that isn't Unicode, is refused
-//! ([`start`]), so a typo never times the default build under another name. A
-//! priced build with some default off is no eval's to trust: it can run outside
-//! its box, read the clock, or run forever, and exists only to be timed against
-//! the build with every default on.
+//! turn off, comma-separated by their names ([`EvalDefault::name`],
+//! [`RunDefault::name`]): `GRO_PRICES_OFF=landlock,seccomp` for eval's walls,
+//! `GRO_PRICES_OFF=run_landlock,run_filter` for a command's; unset or empty,
+//! every default stands. A name it doesn't know, and a value that isn't
+//! Unicode, is refused ([`start`]), so a typo never times the default build
+//! under another name. A priced build with some default off is no eval's or
+//! command's to trust: it can run outside its box, read the clock, or run
+//! forever, and exists only to be timed against the build with every default
+//! on.
 //!
 //! The JIT has no switch here: eval runs jitless unless `--jit`, which
 //! already turns it on, the box's executable mappings with it.
 //!
-//! The box's setup isn't priced: the pre-pass computes the link closure and
+//! Eval's box's setup isn't priced: the pre-pass computes the link closure and
 //! opens a handle to each root whatever the switches say, since the loader
 //! reads its roots from it, so `landlock` and `seccomp` price only the
 //! walls installed (and `seccomp` its filters' compiling). The setup falls
 //! within a phases run's `prepass` phase.
+//!
+//! A command's box ([`RunDefault`]) is priced the same way: its facts and
+//! plan can't be switched off, since its rules and tool directories come
+//! from them, so a phases run times them as phases of their own (`facts`,
+//! `plan`), and each switch prices only its step.
 
 /// Whether this build reads the switches: the `prices` feature of this
 /// crate.
@@ -123,6 +130,84 @@ impl EvalDefault {
     }
 }
 
+/// One step of a command's box a priced build can turn off, named by what
+/// it keeps (`gro_runtime::confine::run`'s steps, and the sweep `fgro`
+/// takes between them).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RunDefault {
+    /// The run's own user and network namespace, entered with its loopback
+    /// up and nested user namespaces refused. Off, the process stays in the
+    /// host's namespaces and its box is built for its own network's form
+    /// all the same (`RunNetwork::Namespace`), so the steps after it do the
+    /// work they do by default. On a host where the namespaces are refused,
+    /// the default's form is `RunNetwork::InetRefused` and the stand-in's
+    /// isn't, so the price there also counts the form's change: the TCP wall
+    /// and the denylist's socket rule.
+    Namespace,
+    /// The sweep of the private directories of runs gone from the OS's
+    /// temporary directory.
+    Sweep,
+    /// The box's Landlock rules installed. Off, the rules are still opened
+    /// from the plan, and the filter's install still sets `no_new_privs`.
+    Landlock,
+    /// The box's seccomp denylist, assembled and installed.
+    Filter,
+}
+
+impl RunDefault {
+    /// Every default, in the order a command's start takes them.
+    pub const ALL: [Self; 4] = [Self::Namespace, Self::Sweep, Self::Landlock, Self::Filter];
+
+    /// The name [`PRICES_OFF_ENV`] lists it by.
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Namespace => "run_namespace",
+            Self::Sweep => "run_sweep",
+            Self::Landlock => "run_landlock",
+            Self::Filter => "run_filter",
+        }
+    }
+}
+
+/// A default a priced build can turn off: eval's or a command's box's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Switch {
+    /// One of eval's defaults.
+    Eval(EvalDefault),
+    /// One step of a command's box.
+    Run(RunDefault),
+}
+
+impl Switch {
+    /// Every switch, eval's then a command's, each family in its order.
+    pub fn all() -> impl Iterator<Item = Self> {
+        EvalDefault::ALL
+            .into_iter()
+            .map(Self::Eval)
+            .chain(RunDefault::ALL.into_iter().map(Self::Run))
+    }
+
+    /// The name [`PRICES_OFF_ENV`] lists it by.
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Eval(default) => default.name(),
+            Self::Run(default) => default.name(),
+        }
+    }
+}
+
+impl From<EvalDefault> for Switch {
+    fn from(default: EvalDefault) -> Self {
+        Self::Eval(default)
+    }
+}
+
+impl From<RunDefault> for Switch {
+    fn from(default: RunDefault) -> Self {
+        Self::Run(default)
+    }
+}
+
 /// Why a [`PRICES_OFF_ENV`] value is refused, each naming every default.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum PricesError {
@@ -148,7 +233,7 @@ pub enum PricesError {
 
 /// Every default's name, comma-separated.
 fn default_names() -> String {
-    let names: Vec<&str> = EvalDefault::ALL.iter().map(|d| d.name()).collect();
+    let names: Vec<&str> = Switch::all().map(Switch::name).collect();
     names.join(", ")
 }
 
@@ -157,14 +242,13 @@ fn default_names() -> String {
 /// # Errors
 ///
 /// Returns [`PricesError::Unknown`] naming a name it doesn't know.
-pub fn parse(value: &str) -> Result<Vec<EvalDefault>, PricesError> {
+pub fn parse(value: &str) -> Result<Vec<Switch>, PricesError> {
     value
         .split(',')
         .map(str::trim)
         .filter(|name| !name.is_empty())
         .map(|name| {
-            EvalDefault::ALL
-                .into_iter()
+            Switch::all()
                 .find(|default| default.name() == name)
                 .ok_or_else(|| PricesError::Unknown {
                     name: name.to_owned(),
@@ -178,12 +262,12 @@ mod enabled {
     use std::env::VarError;
     use std::sync::OnceLock;
 
-    use super::{EvalDefault, PRICES_OFF_ENV, PricesError, parse};
+    use super::{PRICES_OFF_ENV, PricesError, Switch, parse};
 
     /// The defaults turned off, read once.
-    static OFF: OnceLock<Result<Vec<EvalDefault>, PricesError>> = OnceLock::new();
+    static OFF: OnceLock<Result<Vec<Switch>, PricesError>> = OnceLock::new();
 
-    fn read() -> &'static Result<Vec<EvalDefault>, PricesError> {
+    fn read() -> &'static Result<Vec<Switch>, PricesError> {
         OFF.get_or_init(|| match std::env::var(PRICES_OFF_ENV) {
             Ok(value) => parse(&value),
             Err(VarError::NotPresent) => Ok(Vec::new()),
@@ -195,7 +279,7 @@ mod enabled {
         read().as_ref().map(|_| ()).map_err(Clone::clone)
     }
 
-    pub fn off(default: EvalDefault) -> bool {
+    pub fn off(default: Switch) -> bool {
         read().as_ref().is_ok_and(|off| off.contains(&default))
     }
 }
@@ -227,18 +311,14 @@ pub const fn start() -> Result<(), PricesError> {
 /// when [`PRICES_OFF_ENV`] names it. A value [`start`] refuses turns nothing
 /// off.
 #[cfg(feature = "prices")]
-pub fn off(default: EvalDefault) -> bool {
-    enabled::off(default)
+pub fn off(default: impl Into<Switch>) -> bool {
+    enabled::off(default.into())
 }
 
 /// Whether `default` is turned off: never, without the `prices` feature.
 #[cfg(not(feature = "prices"))]
 #[inline]
-#[expect(
-    clippy::missing_const_for_fn,
-    reason = "the priced build reads the environment, and callers are the same in both"
-)]
-pub fn off(_default: EvalDefault) -> bool {
+pub fn off(_default: impl Into<Switch>) -> bool {
     false
 }
 
@@ -268,13 +348,46 @@ mod tests {
         }
     }
 
+    /// The bench's `verb_prices` suite prices every step of a command's box
+    /// the same way.
+    #[test]
+    fn the_verb_prices_suite_has_a_variant_for_every_run_default() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../gro_bench/suites/verb_prices/suite.json");
+        let suite = gro_bench::suite::Suite::load(&path).unwrap();
+        for default in RunDefault::ALL {
+            let variant = suite
+                .runtimes
+                .iter()
+                .find(|runtime| runtime.name == default.name());
+            assert_eq!(
+                variant
+                    .and_then(|runtime| runtime.env.get(PRICES_OFF_ENV))
+                    .map(String::as_str),
+                Some(default.name()),
+                "{default:?}"
+            );
+        }
+    }
+
     #[test]
     fn parse_reads_a_comma_separated_list() {
         assert_eq!(parse(""), Ok(Vec::new()));
         assert_eq!(parse(" , "), Ok(Vec::new()));
         assert_eq!(
             parse("landlock, seccomp"),
-            Ok(vec![EvalDefault::Landlock, EvalDefault::Seccomp])
+            Ok(vec![
+                Switch::Eval(EvalDefault::Landlock),
+                Switch::Eval(EvalDefault::Seccomp)
+            ])
+        );
+        // a command's steps beside eval's, by their own names
+        assert_eq!(
+            parse("run_landlock,deny"),
+            Ok(vec![
+                Switch::Run(RunDefault::Landlock),
+                Switch::Eval(EvalDefault::Deny)
+            ])
         );
         let error = parse("deny,jitless").unwrap_err();
         assert_eq!(
@@ -285,14 +398,17 @@ mod tests {
         );
         // the message lists every default
         assert!(error.to_string().contains("envelope_cap"), "{error}");
+        assert!(error.to_string().contains("run_filter"), "{error}");
     }
 
     #[test]
     fn every_default_is_listed_once_by_a_distinct_name() {
-        for (index, default) in EvalDefault::ALL.iter().enumerate() {
+        let all: Vec<Switch> = Switch::all().collect();
+        assert_eq!(all.len(), EvalDefault::ALL.len() + RunDefault::ALL.len());
+        for (index, default) in all.iter().enumerate() {
             assert_eq!(parse(default.name()), Ok(vec![*default]));
             assert!(
-                !EvalDefault::ALL[..index]
+                !all[..index]
                     .iter()
                     .any(|other| other.name() == default.name()),
                 "{default:?}"
@@ -304,6 +420,6 @@ mod tests {
     #[test]
     fn a_default_build_turns_nothing_off() {
         assert_eq!(start(), Ok(()));
-        assert!(EvalDefault::ALL.iter().all(|default| !off(*default)));
+        assert!(Switch::all().all(|default| !off(default)));
     }
 }

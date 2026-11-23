@@ -156,6 +156,20 @@ pub enum BenchError {
         #[source]
         source: io::Error,
     },
+    /// A package a workload's `node_modules` copies names a directory that
+    /// doesn't exist, isn't a directory, or cannot be read, saying which.
+    #[error(
+        "the workload `{workload}` copies `{package}` from {}, which {}",
+        path.display(),
+        link_problem(source)
+    )]
+    PackageMissing {
+        workload: String,
+        package: String,
+        path: PathBuf,
+        #[source]
+        source: io::Error,
+    },
     /// A link of a workload's project names a directory in no git checkout,
     /// whose code the record couldn't name.
     #[error(
@@ -266,10 +280,11 @@ impl BenchError {
     /// command that fails or prints no version, a corpora collection off its
     /// pin or missing, a collection a copy can't hold, an entry
     /// colliding with a collection's file, a project's missing or unversioned
-    /// link or unsupported entry, a failed correctness run, values that break
-    /// the suite's parity, counters the machine can't give, a phases run's
-    /// program that isn't a phases build, a size over its budget, a process
-    /// past its deadline, or a work directory another run holds), so the caller
+    /// link or unsupported entry, a missing package to copy, a failed
+    /// correctness run, values that break the suite's parity, counters the
+    /// machine can't give, a phases run's program that isn't a phases build,
+    /// a size over its budget, a process past its deadline, or a work
+    /// directory another run holds), so the caller
     /// must change something before re-running: unchanged, it fails the same
     /// way.
     pub const fn is_input_error(&self) -> bool {
@@ -292,6 +307,7 @@ impl BenchError {
             | Self::CollectionEntry { .. }
             | Self::EntryCollides { .. }
             | Self::ProjectLinkMissing { .. }
+            | Self::PackageMissing { .. }
             | Self::ProjectLinkUnversioned { .. }
             | Self::ProjectEntry { .. }
             | Self::ProjectFilesUnpinned { .. }

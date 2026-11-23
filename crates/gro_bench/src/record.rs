@@ -4,7 +4,8 @@
 //! version, the gro checkout's commit, the config hash, the runtimes' versions,
 //! binary hashes, and sizes, the hashes of the scripts and files the suite
 //! names, the state of the other checkouts the workloads read, the machine, the
-//! corpora collections' pins, the workload projects' pins, and every row's
+//! corpora collections' pins, the workload projects' pins, the packages its workloads' `node_modules`
+//! copied, and every row's
 //! samples beside their statistics. Raw samples stay in the line, so later comparisons can
 //! recompute from them.
 //!
@@ -21,7 +22,7 @@
 //! added each row's `peak_rss_kib` and `kernel_instructions`, the run's
 //! `rss_floor_kib`, and `snapshot_bytes`; 8 replaced `corpora`, the tree id of
 //! the corpora's whole `collections/`, with `collections`, each read
-//! collection's own tree id; 9 added `projects`. A line of an older version
+//! collection's own tree id; 9 added `projects`; 10 added `packages`. A line of an older version
 //! still reads as this shape, as a wall run, with the fields it lacks empty
 //! (an older line's `corpora` is ignored).
 //!
@@ -35,7 +36,7 @@
 //! own peak would mask a small runtime's, and a phases run's `fgro` is a
 //! measurement build.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::Path;
@@ -48,7 +49,7 @@ use crate::stats::Stats;
 /// The line shape's version, bumped on any change to it, additive ones
 /// included, so a harness older than a line skips it rather than read it
 /// without the fields it doesn't know.
-pub const RECORD_VERSION: u32 = 9;
+pub const RECORD_VERSION: u32 = 10;
 
 /// One run.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -86,6 +87,14 @@ pub struct RunRecord {
     /// names. Absent before version 9, and left out of the line when empty.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub projects: BTreeMap<String, String>,
+    /// Each package a workload's `node_modules` copied into a collection's
+    /// copy, as `name@version` from its `package.json` (`name` alone when it
+    /// names no version): unpinned, since it's copied from an install the
+    /// suite doesn't pin, and recorded so a record names what its workloads
+    /// loaded. Absent before version 10, and left out of the line when
+    /// empty.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub packages: BTreeSet<String>,
     /// The runtimes, in suite order.
     pub runtimes: Vec<RuntimeInfo>,
     /// The blake3 hash of every workload script, file argument, and runtime
@@ -403,6 +412,7 @@ mod tests {
 
     fn record() -> RunRecord {
         RunRecord {
+            packages: BTreeSet::from(["@fuzdev/fuz_util@0.83.0".to_owned()]),
             record_version: RECORD_VERSION,
             mode: Mode::Counters,
             counters: Some(CounterTool {
@@ -555,7 +565,7 @@ mod tests {
         assert_eq!(
             (RECORD_VERSION, keys),
             (
-                9,
+                10,
                 vec![
                     "artifacts",
                     "checkouts",
@@ -567,6 +577,7 @@ mod tests {
                     "machine_quiet",
                     "mode",
                     "noise",
+                    "packages",
                     "projects",
                     "record_version",
                     "rows",
@@ -667,6 +678,24 @@ mod tests {
         record.projects.clear();
         let line = record.to_line();
         assert!(!line.contains("projects"), "{line}");
+        assert_eq!(serde_json::from_str::<RunRecord>(&line).unwrap(), record);
+    }
+
+    /// A line from before version 10 reads with no `packages`, and a record
+    /// that copied none leaves the key out.
+    #[test]
+    fn a_line_without_packages_reads_with_none() {
+        let mut value: serde_json::Value = serde_json::from_str(&record().to_line()).unwrap();
+        assert_eq!(value["packages"][0], "@fuzdev/fuz_util@0.83.0");
+        let object = value.as_object_mut().unwrap();
+        object.insert("record_version".to_owned(), 9.into());
+        object.remove("packages");
+        let parsed: RunRecord = serde_json::from_value(value).unwrap();
+        assert!(parsed.packages.is_empty());
+        let mut record = record();
+        record.packages.clear();
+        let line = record.to_line();
+        assert!(!line.contains("packages"), "{line}");
         assert_eq!(serde_json::from_str::<RunRecord>(&line).unwrap(), record);
     }
 

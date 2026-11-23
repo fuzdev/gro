@@ -55,14 +55,30 @@ pub enum Phase {
     /// inherited descriptors, creating the phases file, reading the working
     /// directory and the stdin driver, then the pre-pass on a thread of its
     /// own (the entry resolved, the box's roots found and opened) and the
-    /// join.
+    /// join. A command of Gro's, from the entry: parsing the arguments, the
+    /// verb's pre-pass, and the probes before its box's first change.
     Prepass,
+    /// A command of Gro's inherited descriptors closed, the phases file
+    /// created, its network entered, and the process hardened.
+    Network,
+    /// A command of Gro's temporary directory opened and the private
+    /// directories of runs gone swept from it.
+    Sweep,
+    /// What a command of Gro's run and its box both hold, resolved (the
+    /// grant flags' directories, the programs pinned), and the disk's
+    /// facts its box's plan reads.
+    Facts,
+    /// A command of Gro's box planned from its inputs and the facts.
+    Plan,
     /// `fgro eval`'s snapshot check and its box installed: Landlock and
-    /// seccomp.
+    /// seccomp. A command of Gro's private and tool directories made, its
+    /// environment set, its options read, and its box's rules opened, then
+    /// installed: Landlock and the denylist.
     Confine,
     /// V8's process-wide setup (`engine::init_engine`). In `fgro run`, from
     /// the entry, so also parsing the arguments and starting the sized
-    /// thread; in eval, also starting the thread that evaluates.
+    /// thread; in eval, also starting the thread that evaluates; in a
+    /// command of Gro's, also starting the sized thread the box made.
     Engine,
     /// The runtime made: in `fgro run`, the entry resolved and the loader
     /// set up; in eval, the engine and options checked, the out-of-memory
@@ -108,6 +124,10 @@ impl Phase {
     pub const fn name(self) -> &'static str {
         match self {
             Self::Prepass => "prepass",
+            Self::Network => "network",
+            Self::Sweep => "sweep",
+            Self::Facts => "facts",
+            Self::Plan => "plan",
             Self::Confine => "confine",
             Self::Engine => "engine",
             Self::Runtime => "runtime",

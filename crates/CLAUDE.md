@@ -342,4 +342,6 @@ an A/A noise row, and appends one JSON line per run to
 committed files bumps its suite's `version` and re-pins its `blake3`. Record a
 suite on a quiet machine, after `cargo xtask build --release`:
 `cargo xtask bench crates/gro_bench/suites/baseline/suite.json --attest-quiet`
-(or `suites/eval/suite.json`).
+(or `suites/eval/suite.json`, or `suites/verb/suite.json`, whose Node row
+reads the checkout's built `dist/`). The perf rule's
+A/Bs run all three (gro's root `CLAUDE.md`).

@@ -64,8 +64,9 @@
 //! - `phases` writes a timestamp at each phase boundary to the file
 //!   `GRO_PHASES_FILE` names (`gro_runtime::phases`), for
 //!   `cargo xtask bench --phases`
-//! - `prices` reads `GRO_PRICES_OFF`, eval's defaults to turn off
-//!   (`gro_runtime::prices`), for the bench's prices suite
+//! - `prices` reads `GRO_PRICES_OFF`, eval's defaults and the steps of a
+//!   command's box to turn off (`gro_runtime::prices`), for the bench's
+//!   prices suites
 //!
 //! Without its feature, no such variable is read.
 //!

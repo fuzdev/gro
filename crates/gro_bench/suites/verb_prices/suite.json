@@ -1,0 +1,87 @@
+{
+	"name": "verb_prices",
+	"version": 1,
+	"samples": 40,
+	"corpora": {
+		"path": "../../../../../corpora",
+		"collections": {
+			"fuz_util": "84315fb37508694b35779f53958ff36dfc3f5665"
+		}
+	},
+	"runtimes": [
+		{
+			"name": "fgro",
+			"program": "../../../../target/gro_snapshot/release/fgro"
+		},
+		{
+			"name": "run_namespace",
+			"program": "../../../../target/gro_snapshot/release/fgro",
+			"env": {
+				"GRO_PRICES_OFF": "run_namespace"
+			}
+		},
+		{
+			"name": "run_sweep",
+			"program": "../../../../target/gro_snapshot/release/fgro",
+			"env": {
+				"GRO_PRICES_OFF": "run_sweep"
+			}
+		},
+		{
+			"name": "run_landlock",
+			"program": "../../../../target/gro_snapshot/release/fgro",
+			"env": {
+				"GRO_PRICES_OFF": "run_landlock"
+			}
+		},
+		{
+			"name": "run_filter",
+			"program": "../../../../target/gro_snapshot/release/fgro",
+			"env": {
+				"GRO_PRICES_OFF": "run_filter"
+			}
+		},
+		{
+			"name": "run_box",
+			"program": "../../../../target/gro_snapshot/release/fgro",
+			"env": {
+				"GRO_PRICES_OFF": "run_namespace,run_sweep,run_landlock,run_filter"
+			}
+		}
+	],
+	"workloads": [
+		{
+			"name": "listing",
+			"args": [],
+			"warmup": 10,
+			"collection": "fuz_util",
+			"node_modules": {
+				"stub_packages": 198,
+				"packages": {
+					"@fuzdev/fuz_schema": "../../../../node_modules/@fuzdev/fuz_schema",
+					"@fuzdev/fuz_util": "../../../../node_modules/@fuzdev/fuz_util",
+					"esm-env": "../../../../node_modules/esm-env"
+				}
+			}
+		},
+		{
+			"name": "version",
+			"args": [
+				"-v"
+			],
+			"warmup": 10,
+			"collection": "fuz_util",
+			"node_modules": {
+				"stub_packages": 198,
+				"packages": {
+					"@fuzdev/fuz_schema": "../../../../node_modules/@fuzdev/fuz_schema",
+					"@fuzdev/fuz_util": "../../../../node_modules/@fuzdev/fuz_util",
+					"esm-env": "../../../../node_modules/esm-env"
+				}
+			}
+		}
+	],
+	"prices": {
+		"default": "fgro"
+	}
+}

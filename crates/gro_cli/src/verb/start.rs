@@ -54,6 +54,12 @@
 //!     entry on a [`RunEngine`](gro_runtime::engine::RunEngine), the engine
 //!     only a box makes.
 //!
+//! A priced build (`gro_runtime::prices`) can leave out step 6's namespace,
+//! step 7's sweep, and step 13's Landlock or denylist, each to be timed
+//! against the build with every step taken; without the `prices` feature, as
+//! the binary that ships is built, nothing reads the switches and every step
+//! is taken.
+//!
 //! What the box says once the run is going, each text built from the rules
 //! it installed: a write through the fs host module that the kernel
 //! refuses, for a path whose real destination no write rule holds, gains a
@@ -100,6 +106,7 @@ use gro_runtime::confine::tool_dirs::ToolDirError;
 use gro_runtime::engine::{EngineOptions, init_run_engine};
 use gro_runtime::file_id::FileId;
 use gro_runtime::phases::{self, Phase};
+use gro_runtime::prices::{self, RunDefault};
 use gro_runtime::{BINARY_NAME, DeniedWriteCause, GeneratedEntry, GrantedDir, RunPins};
 use gro_sys::private_dir::PrivateDirError;
 use thiserror::Error;
@@ -329,6 +336,7 @@ pub fn run_boxed(run: VerbRun, cli_args: &[String]) -> u8 {
             };
         }
     };
+    phases::mark(Phase::Prepass);
     match boxed(&run, floor, &environment) {
         Ok(boxed) => run_on_thread(&run, boxed),
         Err(error) => error.report(),
@@ -391,6 +399,7 @@ fn boxed(
     phases::open();
     let networked = closed.enter_network().map_err(BoxStartError::Step)?;
     let hardened = networked.harden().map_err(BoxStartError::Step)?;
+    phases::mark(Phase::Network);
     // read before the environment points it into the private directory
     let (temp_path, temp_variable) = temp_dir(environment);
     let temp_path = real_temp_dir(&run.root.join(temp_path));
@@ -398,12 +407,15 @@ fn boxed(
     // sweep reaches
     let in_project = lies_in(&temp_path, &run.root);
     let temp = gro_sys::beneath::open_root(&temp_path);
+    // a priced build can leave the sweep out (`gro_runtime::prices`)
     if let Ok(temp) = &temp
         && !in_project
+        && !prices::off(RunDefault::Sweep)
     {
         // availability alone: a sweep that fails leaves the leftovers
         let _ = gro_sys::private_dir::sweep_private_dirs(temp.as_fd());
     }
+    phases::mark(Phase::Sweep);
     let spec = verb_spec(run);
     let mut granted = granted_dirs(&run.dirs, &run.root, false)?;
     for note in &granted.notes {
@@ -422,7 +434,9 @@ fn boxed(
         root: run.root.clone(),
         source,
     })?;
+    phases::mark(Phase::Facts);
     let plan = BoxPlan::for_run(&inputs, &facts).map_err(BoxStartError::Plan)?;
+    phases::mark(Phase::Plan);
     if let Some(note) = plan.note() {
         stderr_line(escape_controls(&note));
     }
@@ -470,6 +484,7 @@ fn boxed(
         .map_err(BoxStartError::Rule)?
         .confine()
         .map_err(BoxStartError::Confine)?;
+    phases::mark(Phase::Confine);
     options.denied_write_cause = Some(denied_write_cause(run, &wall_rules(&confined)));
     if let RunNetwork::InetRefused { cause, .. } = confined.network() {
         stderr_line(format_args!(

@@ -62,6 +62,32 @@
 //!   variant per default turned off, on the eval fixture and a config that
 //!   declares nothing (`tiny/`), with zap's driver and equal values
 //!   (`parity`); see [`prices`].
+//! - `verb`: a command of Gro's on the binary, `fgro` with no arguments (the
+//!   listing) and `fgro -v`, each in its kernel box, beside the Node Gro and
+//!   judged against it, both run from the root of a copy of `fuz_util`'s
+//!   collection whose `node_modules` is laid out as a real install's: Gro's
+//!   peers the commands load, copied from the checkout's own `node_modules`,
+//!   beside stubs for the breadth of `fuz_util`'s. The Node row is the
+//!   process the Node Gro's launcher (`gro.js`) spawns, with the flags it
+//!   spawns it with: `node --import` the checkout's `dist/register.js`
+//!   (the launcher imports a `data:` module that registers the same
+//!   loader),
+//!   `--experimental-import-meta-resolve`, `-C development`, then its
+//!   `dist/invoke.js`; the launcher's own process, a `node` start of its
+//!   own before that one, is left out, so the row flatters Node. The copy
+//!   departs from a real install twice: its stubs are all unscoped, where a
+//!   real one's packages sit in scopes too, and it installs no
+//!   `@fuzdev/gro`, whose `package.json` the verb's pre-pass reads in a real
+//!   project. A row's kernel instructions grow with how deep the copy's path
+//!   lies, since the loader resolves each module's path a `readlink` per
+//!   component, so they read lower for a project at a shallower path, and
+//!   the box's kernel prices are shares of them. In a phases run, the box's
+//!   steps are phases of their own (`network`, `sweep`, `facts`, `plan`,
+//!   `confine`).
+//! - `verb_prices`: the priced build on the verb's workloads, with every
+//!   step of the box taken and as one variant per step turned off (the
+//!   namespace, the sweep, Landlock, the filter), and with all four off
+//!   (`run_box`); see [`prices`].
 //! - `memory`: a data module just under the loader's module cap, generated
 //!   into the copy at run time (a project's `generate`), evaluated by
 //!   `fgro eval` jitless and with `--jit`, Deno beside; run it under a memory

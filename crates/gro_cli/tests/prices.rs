@@ -1,8 +1,10 @@
 //! The `prices` feature from outside: a default build ignores `GRO_PRICES_OFF`,
-//! and a priced build turns off each default it names (each test turning off
-//! one it can see from outside) and refuses a name it doesn't know. The priced
-//! build's test runs from `cargo xtask build --verify`, which builds `fgro`
-//! with the feature for it.
+//! and a priced build turns off each default it names, eval's and the steps
+//! of a command's box (each test turning off one it can see from outside),
+//! and refuses a name it doesn't know. The priced build's test runs from
+//! `cargo xtask build --verify`, which builds `fgro` with the feature for it.
+//! The box's cases need what `verb_box.rs`'s do: Landlock ABI 6, `python3`,
+//! and the checkout's `node_modules`.
 
 // clippy's test allowance covers `#[test]` functions, not their helpers
 #![expect(clippy::unwrap_used, reason = "a test's setup fails by panicking")]
@@ -265,4 +267,147 @@ fn every_thread_sets_its_own_stack() {
         &[("RUST_MIN_STACK", "1099511627776")],
     );
     assert_eq!(value(&output)["b"], 1);
+}
+
+/// The genfile a priced command's box runs: the probe, under `python3`.
+#[cfg(feature = "prices")]
+const BOX_GENFILE: &str = "import {spawn} from '@fuzdev/gro/spawn.ts';
+export const gen = async () => {
+\tawait spawn.program('python3').run(['-I', 'probe.py']);
+\treturn '// probed\\n';
+};
+";
+
+/// The probe, run in the box: a read of a file in the home directory, the
+/// network namespace it's in, and the seccomp filters it holds, a line
+/// each.
+#[cfg(feature = "prices")]
+const BOX_PROBE: &str = r#"
+import errno, os
+try:
+    open(os.environ["HOME"] + "/secret.txt").read()
+    print("probe: home_secret ok", flush=True)
+except OSError as error:
+    print("probe: home_secret", errno.errorcode.get(error.errno, error.errno), flush=True)
+print("probe: net", os.readlink("/proc/self/ns/net"), flush=True)
+for line in open("/proc/self/status").read().splitlines():
+    if line.startswith("Seccomp_filters:"):
+        print("probe: filters", line.split()[1], flush=True)
+"#;
+
+/// A private directory a run gone left in the temporary directory, which
+/// the sweep removes: no process has its pid, above any `pid_max`.
+#[cfg(feature = "prices")]
+const GONE_PRIVATE_DIR: &str = "tmp/gro-4194305-1";
+
+/// What the probe of a boxed `fgro gen`, with `off` as the switches,
+/// printed, by name, and whether the gone run's private directory is still
+/// there after it.
+#[cfg(feature = "prices")]
+fn probed_box(off: &str) -> (std::collections::BTreeMap<String, String>, bool) {
+    let name = format!("box_{}", off.replace(',', "_"));
+    let scratch = support::Scratch::new(
+        &name,
+        &[
+            ("home/secret.txt", "secret"),
+            ("tmp/gro-4194305-1/.keep", ""),
+            ("project/package.json", r#"{"name": "p", "type": "module"}"#),
+            ("project/src/probe.gen.ts", BOX_GENFILE),
+            ("project/probe.py", BOX_PROBE),
+        ],
+    );
+    // the checkout's node_modules, linked whole, where Gro's embedded
+    // library finds its peers
+    let node_modules = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../node_modules")
+        .canonicalize()
+        .unwrap();
+    std::os::unix::fs::symlink(node_modules, scratch.0.join("project/node_modules")).unwrap();
+    let mut command = fgro_command(&["gen", "--allow-run=python3"]);
+    for name in [
+        "GRO_FALLBACK",
+        "NODE_ENV",
+        "TMP",
+        "TEMP",
+        "XDG_CONFIG_HOME",
+        "GIT_CONFIG_GLOBAL",
+    ] {
+        command.env_remove(name);
+    }
+    command
+        .current_dir(scratch.0.join("project"))
+        .env("HOME", scratch.0.join("home"))
+        .env("TMPDIR", scratch.0.join("tmp"));
+    let output = spawn(with_switches(command, Some(off)), b"");
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(output.status.success(), "{off}: {text}");
+    let probed = text
+        .lines()
+        .filter_map(|line| line.strip_prefix("probe: "))
+        .filter_map(|line| line.split_once(' '))
+        .map(|(name, what)| (name.to_owned(), what.to_owned()))
+        .collect();
+    (probed, scratch.0.join(GONE_PRIVATE_DIR).exists())
+}
+
+/// A priced build turns off each step of a command's box it names, each
+/// seen from inside the box by a program the command runs, every other
+/// step taken: `run_landlock` lets it read the home directory, `run_filter`
+/// leaves it only the filters its launcher holds, `run_namespace` leaves it
+/// in the host's network namespace, and `run_sweep` leaves a gone run's
+/// private directory where it was.
+#[cfg(feature = "prices")]
+#[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "a command of Gro's runs in its box only from a snapshot build"
+)]
+fn a_priced_build_turns_off_each_step_of_a_command_s_box() {
+    let own_filters: u32 = std::fs::read_to_string("/proc/self/status")
+        .unwrap()
+        .lines()
+        .find_map(|line| line.strip_prefix("Seccomp_filters:"))
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
+    let own_net = std::fs::read_link("/proc/self/ns/net")
+        .unwrap()
+        .display()
+        .to_string();
+    let boxed_filters = (own_filters + 1).to_string();
+    let (all, kept) = probed_box("");
+    assert_eq!(all["home_secret"], "EACCES", "{all:?}");
+    assert_eq!(all["filters"], boxed_filters, "{all:?}");
+    // where user namespaces are restricted the run takes the host's network
+    // by default too
+    let namespaced = all["net"] != own_net;
+    assert!(!kept, "{all:?}");
+
+    let (landlock, kept) = probed_box("run_landlock");
+    assert_eq!(landlock["home_secret"], "ok", "{landlock:?}");
+    assert_eq!(landlock["filters"], boxed_filters, "{landlock:?}");
+    assert!(!kept, "{landlock:?}");
+
+    let (filter, kept) = probed_box("run_filter");
+    assert_eq!(filter["filters"], own_filters.to_string(), "{filter:?}");
+    assert_eq!(filter["home_secret"], "EACCES", "{filter:?}");
+    assert!(!kept, "{filter:?}");
+
+    let (namespace, kept) = probed_box("run_namespace");
+    assert_eq!(namespace["net"], own_net, "{namespace:?}");
+    assert_eq!(namespace["home_secret"], "EACCES", "{namespace:?}");
+    assert_eq!(namespace["filters"], boxed_filters, "{namespace:?}");
+    assert!(!kept, "{namespace:?}");
+    if namespaced {
+        assert_ne!(landlock["net"], own_net, "{landlock:?}");
+    }
+
+    let (sweep, kept) = probed_box("run_sweep");
+    assert!(kept, "{sweep:?}");
+    assert_eq!(sweep["home_secret"], "EACCES", "{sweep:?}");
 }

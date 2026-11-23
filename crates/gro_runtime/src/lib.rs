@@ -81,8 +81,9 @@
 //!   are, their origin Gro's, which holds no grant
 //! - [`phases`]: a timestamp at each phase boundary of a run, for the
 //!   measurement harness, recorded only under the `phases` feature
-//! - [`prices`]: switches that each turn off one of eval's defaults, for the
-//!   measurement harness to price them, read only under the `prices` feature
+//! - [`prices`]: switches that each turn off one of eval's defaults or a step
+//!   of a command's box, for the measurement harness to price them, read only
+//!   under the `prices` feature
 //! - [`eval`]: `fgro eval`'s protocol: a module evaluated to JSON data, with
 //!   an optional driver module, the clock and randomness denied and the heap
 //!   and time limited, written by a strict host serializer into one
