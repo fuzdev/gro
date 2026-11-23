@@ -83,6 +83,7 @@ use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 
 use super::git::GitFault;
+use super::program::{GrantedBy, program_rights};
 use super::rules::{Need, RealRights, Rights};
 
 /// What a run is, as its box is derived from it: built from the verb's plan
@@ -262,6 +263,9 @@ pub struct BoxPlan {
     rules: Vec<PlannedRule>,
     /// Whether the run gets a directory private to it.
     private_temp: bool,
+    /// Whether the run may start a program, whose box nests in the run's
+    /// (`program::ProgramRules`).
+    spawns: bool,
     /// What got no rule, and why.
     skipped: Vec<Skipped>,
     /// Where the project's `node_modules` leads, when it's a symlink.
@@ -518,6 +522,7 @@ impl BoxPlan {
             root: inputs.root.clone(),
             rules: Vec::new(),
             private_temp: inputs.spawns || inputs.temp,
+            spawns: inputs.spawns,
             skipped: Vec::new(),
             node_modules_link: match &facts.node_modules {
                 NodeModules::Link { real } => Some(real.clone()),
@@ -593,6 +598,44 @@ impl BoxPlan {
     /// Whether the run gets a directory private to it.
     pub const fn private_temp(&self) -> bool {
         self.private_temp
+    }
+
+    /// The first rule a program's box would take (`program::program_rights`)
+    /// that is on `dir`, a real path, or on a directory holding it
+    /// (`holds`), with its absolute path and source, the private
+    /// directory's own rule aside: a run that starts a program and makes
+    /// its private directory in `dir` would give every program all of it
+    /// by such a rule, its siblings' temporary directories among them, so
+    /// the verb refuses one before the box.
+    pub fn holding(&self, dir: &Path) -> Option<(PathBuf, RuleSource)> {
+        self.rules.iter().find_map(|rule| {
+            let path = match &rule.opening {
+                Opening::Real { path, .. } => path.clone(),
+                Opening::Beneath {
+                    anchor: Anchor::Project,
+                    path,
+                    ..
+                } => self.root.join(path),
+                Opening::Beneath {
+                    anchor: Anchor::Slash,
+                    path,
+                    ..
+                } => Path::new("/").join(path),
+                Opening::Beneath {
+                    anchor: Anchor::PrivateTemp,
+                    ..
+                } => return None,
+            };
+            (program_rights(rule.source, rule.rights(), GrantedBy::Table).is_some()
+                && holds(&path, dir))
+            .then_some((path, rule.source))
+        })
+    }
+
+    /// Whether the run may start a program, each in a box of its own
+    /// nested in the run's (`program::ProgramRules`).
+    pub const fn spawns(&self) -> bool {
+        self.spawns
     }
 
     /// What got no rule, and why, in the order the plan met it.
@@ -826,6 +869,15 @@ impl BoxPlan {
             }
         }
     }
+}
+
+/// Whether the rule at the absolute path `rule` is on `dir` or on a
+/// directory holding it, compared by components, so `/tmp` holds
+/// `/tmp/x` and `/tmp` itself but not `/tmpx`, and a `.` (a rule beneath
+/// its anchor's own directory) names that directory. Landlock grants
+/// beneath a rule whatever its directory holds.
+pub(super) fn holds(rule: &Path, dir: &Path) -> bool {
+    dir.starts_with(rule)
 }
 
 /// Whether a write flag names `dir` or a directory holding it.

@@ -14,10 +14,10 @@
 //!
 //! The network form a case expects is the host's, read by the parent from
 //! the settings that refuse user namespaces: the run's own namespace where
-//! nothing refuses one, else the host's network with the cause. One case
-//! takes the host's network wherever it runs, under a seccomp filter
-//! refusing `unshare` that `python3` installs before it runs the child, so
-//! both forms' walls are held on every host. The parent also runs an
+//! nothing refuses one, else the host's network with the cause. Each case
+//! named `_inet_refused` takes the host's network wherever it runs, under a
+//! seccomp filter refusing `unshare` that `python3` installs before it runs
+//! the child, so both forms' walls are held on every host. The parent also runs an
 //! `unshare` and its maps on the host with no check first, prints what they
 //! did, and fails unless that agrees with the form the settings gave
 //! (`probe_agrees`), an oracle apart from the settings the box's own check
@@ -44,6 +44,22 @@
 //! and refused the rest (`.git`, `node_modules`, a new top-level file, the
 //! home directory).
 //!
+//! A program's own box, nested in the run's (`gro_runtime::confine::program`):
+//! the run's box up for a run that may start a program, writing its root
+//! and naming a write flag, its rules for programs' boxes taken, and two
+//! boxes built, a program of the table's and a flag's, each attacking from
+//! a program it starts what the other and the run hold (a tool directory,
+//! an entry the run writes, what the write flag names, the sibling's
+//! temporary directory, the private directory, the run and the sibling by
+//! a signal and by `/proc`, a link planted into the sibling's), beside the
+//! flag's program alive in its box; then a thread in the flag's box
+//! restricting itself by the table's, which widens nothing, and the run,
+//! whose own domain is as it was; in the run's own namespace and, under
+//! the same filter as the walls' twin, in the host's network, where the
+//! run's layer refuses a program's TCP as it refuses the run's. A third
+//! takes a umask that strips the owner's own bits, under which a program's
+//! temporary directory is its user's alone and written all the same.
+//!
 //! The cases that start V8 under the box need a snapshot build, so they
 //! run from `cargo xtask build --verify`: the one that shows each of its
 //! threads in it, and those whose `node_modules` is a symlink into another
@@ -69,7 +85,10 @@ use std::process::{Command, Stdio};
 use std::time::Duration;
 
 use gro_runtime::confine::Threads;
-use gro_runtime::confine::plan::{BoxFacts, BoxInputs, BoxPlan, ProgramFile};
+use gro_runtime::confine::plan::{
+    BoxFacts, BoxInputs, BoxPlan, DirFlag, GrantedFlagDir, ProgramFile,
+};
+use gro_runtime::confine::program::{GrantedBy, ProgramBox, ProgramBoxError};
 use gro_runtime::confine::rules::InstalledRule;
 use gro_runtime::confine::run::{
     RunClosed, RunHardened, RunNetwork, RunPrepared, check_stdio, probe_floor,
@@ -82,6 +101,7 @@ use support::{DEADLINE, KillOnDrop, Scratch};
 /// box is built for.
 const EPERM: i32 = 1;
 const EACCES: i32 = 13;
+const EEXIST: i32 = 17;
 const ENOSPC: i32 = 28;
 const ENOSYS: i32 = 38;
 const ENETUNREACH: i32 = 101;
@@ -114,6 +134,9 @@ const CASES: &[&str] = &[
     "planned",
     "planned_check",
     "private_dir_reused",
+    "program_box",
+    "program_box_inet_refused",
+    "program_box_umask",
     #[cfg(feature = "snapshot")]
     "v8",
     #[cfg(feature = "snapshot")]
@@ -299,7 +322,7 @@ fn agent_socket(parent: u32) -> PathBuf {
 
 /// What `case` prints, then what the parent reads of it from outside.
 fn expected(case: &str) -> String {
-    let network = expected_network(case == "walls_inet_refused");
+    let network = expected_network(case.ends_with("_inet_refused"));
     let namespace = network == "namespace";
     let own = std::fs::read_to_string("/proc/self/status").unwrap();
     let uid = status_field(&own, "Uid:");
@@ -432,6 +455,62 @@ fn expected(case: &str) -> String {
             line(&format!("network: {network}"));
             line("prepared with a reused descriptor: PrivateDirChanged");
         }
+        "program_box_umask" => {
+            line("umask: 0277");
+            line(&format!("network: {network}"));
+            line("its temporary directory's mode: 700");
+            line("write its own temporary directory: ok");
+        }
+        "program_box" | "program_box_inet_refused" => {
+            line(&format!("network: {network}"));
+            line("confined");
+            line("taken once: true");
+            line("temporary directories: program_0, program_1");
+            line("a second box for pin 0: EEXIST");
+            let loopback = if namespace { "ok" } else { "EPERM" };
+            for probe in [
+                "read the project: ok",
+                "write a tool directory: ok",
+                "write an entry the run writes: EACCES",
+                "write what a write flag names: EACCES",
+                "read what a write flag names: ok",
+                "write /dev/null: ok",
+                "write its own temporary directory: ok",
+                "run a program in it: ok",
+                "write the sibling's temporary directory: EACCES",
+                "read the sibling's temporary directory: EACCES",
+                "read the private directory: EACCES",
+                "list the private directory: EACCES",
+                "run a program in the private directory: EACCES",
+                "signal the run: EPERM",
+                "signal the sibling: EPERM",
+                "read the run's environ: EACCES",
+                "read the sibling's environ: EACCES",
+                "read the sibling's cwd: EACCES",
+                "plant a link into the sibling's: ok",
+                "write through it: EACCES",
+            ] {
+                line(&format!("table: {probe}"));
+            }
+            line(&format!("table: loopback: {loopback}"));
+            for probe in [
+                "read the project: ok",
+                "write a tool directory: EACCES",
+                "write /dev/null: ok",
+                "write its own temporary directory: ok",
+                "write the table's temporary directory: EACCES",
+                "write through the table's link: ok",
+            ] {
+                line(&format!("flag: {probe}"));
+            }
+            line(&format!("flag: loopback: {loopback}"));
+            line("the link's write landed in the flag's own: true");
+            line("the flag's box, then the table's: restricted");
+            line("a tool directory written from that thread: denied");
+            line("the run writes a tool directory: ok");
+            line("the run writes a program's temporary directory: ok");
+            line("the run reads the sibling's environ: ok");
+        }
         "planned" | "planned_check" => {
             let writes = if case == "planned" { "ok" } else { "denied" };
             line(&format!("network: {network}"));
@@ -476,7 +555,7 @@ fn expected(case: &str) -> String {
 
 /// Runs `case` in a child, which `/bin/sh` starts with a descriptor on a
 /// file outside the box and a soft limit of 256 descriptors (and
-/// `walls_inet_refused`'s under `python3`'s filter), reading it from
+/// each `_inet_refused` case's under `python3`'s filter), reading it from
 /// outside when it prints `inspect`; returns its
 /// status, stdout, stderr, and what the parent read.
 fn run_case(
@@ -489,7 +568,7 @@ fn run_case(
         return run_stdio_case(case, &exe, scratch, port);
     }
     let secret = scratch.join("outside/secret.txt");
-    let mut command = if case == "walls_inet_refused" {
+    let mut command = if case.ends_with("_inet_refused") {
         filtered()
     } else {
         Command::new("/bin/sh")
@@ -499,7 +578,12 @@ fn run_case(
         // steps raise
         .args([
             "-c",
-            r#"ulimit -Sn 256 && exec "$0" child "$1" "$2" "$3" 3<"$4""#,
+            if case == "program_box_umask" {
+                // a umask that takes the owner's own bits off
+                r#"umask 0277 && ulimit -Sn 256 && exec "$0" child "$1" "$2" "$3" 3<"$4""#
+            } else {
+                r#"ulimit -Sn 256 && exec "$0" child "$1" "$2" "$3" 3<"$4""#
+            },
         ])
         .arg(&exe)
         .arg(case)
@@ -980,6 +1064,8 @@ fn child(case: &str, scratch: &Path, port: u16) {
         "tool_dirs_planted" => tool_dirs_planted(scratch),
         "planned" => planned(scratch, true),
         "private_dir_reused" => private_dir_reused(scratch),
+        "program_box" | "program_box_inet_refused" => program_box(scratch, case),
+        "program_box_umask" => program_box_umask(scratch),
         "planned_check" => planned(scratch, false),
         #[cfg(feature = "snapshot")]
         "v8" => v8::run(&project, &outside),
@@ -1347,6 +1433,358 @@ fn private_dir_reused(scratch: &Path) {
     // the descriptors the directory held are the reused ones now: end here
     std::mem::forget(reused);
     std::process::exit(0);
+}
+
+/// What a program's probes print, each line `label: result`: a spec
+/// `label|op|path[|target]` per argument, the result `ok` or the error's
+/// name.
+const PROBES: &str = r"
+import errno, os, socket, stat, subprocess, sys
+for spec in sys.argv[1:]:
+    label, op, *args = spec.split('|')
+    try:
+        if op == 'read':
+            open(args[0], 'rb').read()
+        elif op == 'list':
+            os.listdir(args[0])
+        elif op == 'write':
+            with open(args[0], 'w') as f:
+                f.write('x')
+        elif op == 'script':
+            with open(args[0], 'w') as f:
+                f.write('#!/bin/sh\nexit 0\n')
+            os.chmod(args[0], 0o755)
+            subprocess.run([args[0]], stdin=subprocess.DEVNULL, check=True)
+        elif op == 'exec':
+            subprocess.run([args[0]], stdin=subprocess.DEVNULL, check=True)
+        elif op == 'kill':
+            os.kill(int(args[0]), 0)
+        elif op == 'readlink':
+            os.readlink(args[0])
+        elif op == 'link':
+            os.symlink(args[1], args[0])
+        elif op == 'loopback':
+            listener = socket.socket()
+            listener.bind(('127.0.0.1', 0))
+            listener.listen()
+            socket.create_connection(listener.getsockname()).close()
+        print(f'{label}: ok')
+    except OSError as error:
+        print(f'{label}: {errno.errorcode.get(error.errno, error.errno)}')
+    except subprocess.CalledProcessError as error:
+        print(f'{label}: exit {error.returncode}')
+";
+
+/// Runs `run` on a thread of its own restricted by `program_box`, as a
+/// launch does, and returns what it returns.
+fn in_box<T: Send>(program_box: &ProgramBox, run: impl FnOnce() -> T + Send) -> T {
+    std::thread::scope(|scope| {
+        scope
+            .spawn(|| {
+                program_box.restrict_thread().unwrap();
+                run()
+            })
+            .join()
+            .unwrap()
+    })
+}
+
+/// Prints what `python3` prints for `probes`, run in `program_box`, each
+/// line after `label`.
+fn probe(program_box: &ProgramBox, label: &str, probes: &[String]) {
+    let output = in_box(program_box, || {
+        Command::new("python3")
+            .args(["-I", "-c", PROBES])
+            .args(probes)
+            .stdin(Stdio::piped())
+            .output()
+            .unwrap()
+    });
+    for line in String::from_utf8_lossy(&output.stdout).lines() {
+        say(&format!("{label}: {line}"));
+    }
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    if !stderr.is_empty() {
+        say(&format!("{label}: stderr {stderr}"));
+    }
+}
+
+/// A program's own box, nested in the run's: a run that writes its root,
+/// grants a tool of the table, and names a write flag, boxed, its child
+/// rules taken, then two programs' boxes built, a table's (pin 0) and a
+/// flag's (pin 1), each attacking from inside a program it starts what the
+/// other holds and what the run holds, beside the flag's sibling alive in
+/// its box; then a thread restricted by the flag's box trying to widen
+/// itself by the table's, and the run's own domain, as it was. Its
+/// `_inet_refused` twin takes the host's network, so a program's TCP is
+/// held to each form the run's layer decides.
+fn program_box(scratch: &Path, case: &str) {
+    let base = scratch.join(case);
+    for dir in [
+        "project/src",
+        "project/node_modules",
+        "project/.git",
+        "home",
+        "tmp",
+        "flagged",
+    ] {
+        std::fs::create_dir_all(base.join(dir)).unwrap();
+    }
+    std::fs::write(base.join("project/package.json"), "{}").unwrap();
+    std::fs::write(base.join("flagged/kept.txt"), "").unwrap();
+    let base = std::fs::canonicalize(base).unwrap();
+    let at = |path: &str| base.join(path);
+    let project = at("project");
+    let inputs = BoxInputs {
+        root: project.clone(),
+        writes_root: true,
+        tools: ["svelte-kit".to_owned()].into(),
+        spawns: true,
+        declared: ["@sveltejs/kit".to_owned()].into(),
+        flags: vec![GrantedFlagDir {
+            flag: DirFlag::Write,
+            dir: "../flagged".to_owned(),
+            real: at("flagged"),
+        }],
+        home: Some(at("home")),
+        ..BoxInputs::default()
+    };
+    let plan = BoxPlan::for_run(&inputs, &BoxFacts::read(&inputs).unwrap()).unwrap();
+    let hardened = hardened();
+    let parent: std::os::fd::OwnedFd = std::fs::File::open(at("tmp")).unwrap().into();
+    let private = hardened
+        .make_private_dir(parent.as_fd(), &at("tmp"))
+        .unwrap();
+    drop(parent);
+    hardened.make_tool_dirs(&plan).unwrap();
+    // what the run keeps in its private directory, beside its programs'
+    let private_dir = private.path().to_owned();
+    std::fs::create_dir(private_dir.join("xdg_data")).unwrap();
+    std::fs::write(private_dir.join("xdg_data/token"), "secret").unwrap();
+    let script = private_dir.join("run.sh");
+    std::fs::write(&script, "#!/bin/sh\nexit 0\n").unwrap();
+    std::fs::set_permissions(&script, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+    let mut confined = hardened
+        .prepare(&plan, Some(private))
+        .unwrap()
+        .confine()
+        .unwrap();
+    say("confined");
+    let programs = confined.take_program_rules().unwrap();
+    say(&format!(
+        "taken once: {}",
+        confined.take_program_rules().is_none()
+    ));
+    let table = programs.program_box(GrantedBy::Table, 0).unwrap();
+    let flag = programs.program_box(GrantedBy::Flag, 1).unwrap();
+    let named = |program_box: &ProgramBox| {
+        assert_eq!(program_box.temp_dir().parent(), Some(private_dir.as_path()));
+        program_box
+            .temp_dir()
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .into_owned()
+    };
+    say(&format!(
+        "temporary directories: {}, {}",
+        named(&table),
+        named(&flag)
+    ));
+    say(&format!(
+        "a second box for pin 0: {}",
+        match programs.program_box(GrantedBy::Table, 0) {
+            Err(ProgramBoxError::TempDir { source, .. })
+                if source.raw_os_error() == Some(EEXIST) =>
+            {
+                "EEXIST".to_owned()
+            }
+            other => format!("{other:?}"),
+        }
+    ));
+    // written by the run, the outer domain, before either program runs
+    std::fs::write(flag.temp_dir().join("kept.txt"), "").unwrap();
+    let mut sibling = KillOnDrop(in_box(&flag, || {
+        Command::new("sleep")
+            .arg("600")
+            .stdin(Stdio::piped())
+            .spawn()
+            .unwrap()
+    }));
+    let sibling_pid = sibling.id().to_string();
+    let run_pid = std::process::id().to_string();
+    let spec = |label: &str, op: &str, path: &Path| format!("{label}|{op}|{}", path.display());
+    let svelte_kit = project.join(".svelte-kit/written.txt");
+    let link = table.temp_dir().join("link");
+    let victim = flag.temp_dir().join("victim");
+    probe(
+        &table,
+        "table",
+        &[
+            spec("read the project", "read", &project.join("package.json")),
+            spec("write a tool directory", "write", &svelte_kit),
+            spec(
+                "write an entry the run writes",
+                "write",
+                &project.join("src/a.txt"),
+            ),
+            spec(
+                "write what a write flag names",
+                "write",
+                &at("flagged/written.txt"),
+            ),
+            spec(
+                "read what a write flag names",
+                "read",
+                &at("flagged/kept.txt"),
+            ),
+            spec("write /dev/null", "write", Path::new("/dev/null")),
+            spec(
+                "write its own temporary directory",
+                "write",
+                &table.temp_dir().join("a.txt"),
+            ),
+            spec(
+                "run a program in it",
+                "script",
+                &table.temp_dir().join("run.sh"),
+            ),
+            spec(
+                "write the sibling's temporary directory",
+                "write",
+                &flag.temp_dir().join("a.txt"),
+            ),
+            spec(
+                "read the sibling's temporary directory",
+                "read",
+                &flag.temp_dir().join("kept.txt"),
+            ),
+            spec(
+                "read the private directory",
+                "read",
+                &private_dir.join("xdg_data/token"),
+            ),
+            spec("list the private directory", "list", &private_dir),
+            spec("run a program in the private directory", "exec", &script),
+            format!("signal the run|kill|{run_pid}"),
+            format!("signal the sibling|kill|{sibling_pid}"),
+            format!("read the run's environ|read|/proc/{run_pid}/environ"),
+            format!("read the sibling's environ|read|/proc/{sibling_pid}/environ"),
+            format!("read the sibling's cwd|readlink|/proc/{sibling_pid}/cwd"),
+            format!(
+                "plant a link into the sibling's|link|{}|{}",
+                link.display(),
+                victim.display()
+            ),
+            spec("write through it", "write", &link),
+            "loopback|loopback".to_owned(),
+        ],
+    );
+    probe(
+        &flag,
+        "flag",
+        &[
+            spec("read the project", "read", &project.join("package.json")),
+            spec("write a tool directory", "write", &svelte_kit),
+            spec("write /dev/null", "write", Path::new("/dev/null")),
+            spec(
+                "write its own temporary directory",
+                "write",
+                &flag.temp_dir().join("a.txt"),
+            ),
+            spec(
+                "write the table's temporary directory",
+                "write",
+                &table.temp_dir().join("b.txt"),
+            ),
+            spec("write through the table's link", "write", &link),
+            "loopback|loopback".to_owned(),
+        ],
+    );
+    say(&format!(
+        "the link's write landed in the flag's own: {}",
+        victim.exists()
+    ));
+    in_box(&flag, || {
+        say(&format!(
+            "the flag's box, then the table's: {}",
+            table
+                .restrict_thread()
+                .map_or_else(|error| format!("{error}"), |()| "restricted".to_owned())
+        ));
+        say(&format!(
+            "a tool directory written from that thread: {}",
+            outcome(std::fs::write(project.join(".svelte-kit/widened.txt"), ""))
+        ));
+    });
+    say(&format!(
+        "the run writes a tool directory: {}",
+        outcome(std::fs::write(project.join(".svelte-kit/run.txt"), ""))
+    ));
+    say(&format!(
+        "the run writes a program's temporary directory: {}",
+        outcome(std::fs::write(flag.temp_dir().join("run.txt"), ""))
+    ));
+    say(&format!(
+        "the run reads the sibling's environ: {}",
+        outcome(std::fs::read(format!("/proc/{sibling_pid}/environ")))
+    ));
+    sibling.kill().unwrap();
+    sibling.wait().unwrap();
+}
+
+/// A program's temporary directory under a umask that takes the owner's
+/// own bits off (`0277`, which `/bin/sh` set before this process): its
+/// user's alone all the same, and written from inside its box. The case's
+/// own directories are given their modes as they're made.
+fn program_box_umask(scratch: &Path) {
+    use std::os::unix::fs::PermissionsExt as _;
+    let status = std::fs::read_to_string("/proc/self/status").unwrap();
+    say(&format!("umask: {}", status_field(&status, "Umask:")));
+    let base = scratch.join("program_box_umask");
+    let made = |path: &Path| {
+        std::fs::create_dir(path).unwrap();
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    };
+    made(&base);
+    for dir in ["project", "home", "tmp"] {
+        made(&base.join(dir));
+    }
+    std::fs::write(base.join("project/package.json"), "{}").unwrap();
+    let base = std::fs::canonicalize(base).unwrap();
+    let inputs = BoxInputs {
+        root: base.join("project"),
+        spawns: true,
+        home: Some(base.join("home")),
+        ..BoxInputs::default()
+    };
+    let plan = BoxPlan::for_run(&inputs, &BoxFacts::read(&inputs).unwrap()).unwrap();
+    let hardened = hardened();
+    let parent: std::os::fd::OwnedFd = std::fs::File::open(base.join("tmp")).unwrap().into();
+    let private = hardened
+        .make_private_dir(parent.as_fd(), &base.join("tmp"))
+        .unwrap();
+    drop(parent);
+    let mut confined = hardened
+        .prepare(&plan, Some(private))
+        .unwrap()
+        .confine()
+        .unwrap();
+    let programs = confined.take_program_rules().unwrap();
+    let program_box = programs.program_box(GrantedBy::Flag, 0).unwrap();
+    let mode = std::fs::metadata(program_box.temp_dir())
+        .unwrap()
+        .permissions()
+        .mode();
+    say(&format!(
+        "its temporary directory's mode: {:o}",
+        mode & 0o777
+    ));
+    let temp = program_box.temp_dir().join("a.txt");
+    say(&format!(
+        "write its own temporary directory: {}",
+        in_box(&program_box, || outcome(std::fs::write(&temp, "")))
+    ));
 }
 
 /// The process's capability sets, as `/proc/self/status` shows them.

@@ -45,7 +45,11 @@
 //! 5. [`RunPrepared::confine`]: the thread count checked, then the
 //!    process's descriptors (`gro_sys::unboxed_descriptors`), then
 //!    Landlock, then the seccomp denylist (`seccomp::denylist`), each
-//!    thread the process starts afterward inheriting both.
+//!    thread the process starts afterward inheriting both. The rules'
+//!    handles are closed once the box takes them, but for a run that may
+//!    start a program those its programs' boxes name, held past the box
+//!    ([`ProgramRules`], `program.rs`), so no rule a program's box names is
+//!    opened again by its path once the run's box is up.
 //!
 //! A priced build (`crate::prices`, `RunDefault`) can leave out the second
 //! step's namespace, its box then built for the run's own network form, and
@@ -134,6 +138,7 @@ use gro_sys::private_dir::{self, PrivateDir, PrivateDirError};
 
 use super::landlock::{self, TcpWall};
 use super::plan::{Anchor, BoxPlan, Opening};
+use super::program::ProgramRules;
 use super::rules::{BoxRules, InstalledRule, RuleError};
 use super::{ConfineError, NetForm, Threads, alone};
 use crate::prices::{self, RunDefault};
@@ -208,6 +213,9 @@ pub struct RunHardened {
 pub struct RunPrepared {
     /// Landlock's rules.
     rules: BoxRules,
+    /// Whether the run may start a program, whose box is built from the
+    /// rules' handles, held past the run's.
+    spawns: bool,
     /// The network the box is for.
     network: RunNetwork,
     /// The run's private directory, if it has one, held, its lock with it,
@@ -229,6 +237,10 @@ pub struct RunConfined {
     /// as long as the box is: a sweep by another run removes it only once
     /// this process is gone.
     private: Option<RunPrivateDir>,
+    /// For a run that may start a program, the rules its programs' boxes
+    /// are built from, their handles held past the run's box, until taken
+    /// ([`RunConfined::take_program_rules`]).
+    programs: Option<ProgramRules>,
 }
 
 /// The network a run's box holds it in, which decides its TCP wall and its
@@ -541,6 +553,7 @@ impl RunHardened {
         }
         Ok(RunPrepared {
             rules,
+            spawns: plan.spawns(),
             network: self.network,
             private,
         })
@@ -567,7 +580,9 @@ fn held_private(private: &RunPrivateDir) -> Result<(), RuleError> {
 impl RunPrepared {
     /// Confines the process to the run's box, from its one thread, as the
     /// [module doc](self) says. The box goes up once: this takes the rules'
-    /// handles, which are closed once Landlock names them.
+    /// handles, which are closed once Landlock names them, but for a run
+    /// that may start a program those its programs' boxes name, held past
+    /// the run's box (`ProgramRules::hold`).
     ///
     /// # Errors
     ///
@@ -620,11 +635,13 @@ impl RunPrepared {
             seccompiler::apply_filter(denylist).map_err(ConfineError::Seccomp)?;
         }
         let (rules, absent) = self.rules.into_installed();
+        let (rules, programs) = ProgramRules::hold(rules, self.spawns);
         Ok(RunConfined {
             rules,
             absent,
             network: self.network,
             private: self.private,
+            programs,
         })
     }
 }
@@ -662,5 +679,12 @@ impl RunConfined {
     /// The network the box holds the process in.
     pub const fn network(&self) -> &RunNetwork {
         &self.network
+    }
+
+    /// The rules its programs' boxes are built from, taken: for a run that
+    /// may start a program, once, and none after, or for one that starts
+    /// none.
+    pub const fn take_program_rules(&mut self) -> Option<ProgramRules> {
+        self.programs.take()
     }
 }

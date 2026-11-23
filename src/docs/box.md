@@ -158,6 +158,9 @@ anything else that keeps a rule from opening, like a symlink on its path, refuse
   A run with no private directory keeps those variables as they were.
   An OS temporary directory inside the project, by its path or by its identity (a bind mount counts), refuses such a run, exit 2, before anything is made,
   since the run's tools would write an entry there that later commands read; the refusal names the variable that set it, or says it's the default.
+  For a command that may start a program, a rule holding the OS temporary directory, like `--allow-read=/tmp`, `--allow-run-in=/tmp`, or `--allow-read=/`,
+  refuses it too, exit 2, before anything is made, since through that rule each program would read the whole of the run's temp directory, the others' places in it included;
+  the refusal names the flag or rule, and says to narrow the flag or to point the variable that set it elsewhere.
   The run holds its directory by a lock, and a later start removes one no running process holds, never following a link inside it
   and never inside the project, which keeps leftovers from piling up and is no wall.
 - **Execute:** for a command that may start a program, the system's programs, each pinned program's file (`node`'s among them),

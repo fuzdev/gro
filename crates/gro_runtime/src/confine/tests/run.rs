@@ -4,7 +4,7 @@
 //! itself is tested from inside a process holding it, harness off
 //! (`gro_cli`'s `tests/run_box.rs`).
 
-use std::os::fd::AsFd as _;
+use std::os::fd::{AsFd as _, AsRawFd as _};
 use std::path::Path;
 
 use gro_sys::namespace::{MapStep, NamespaceError, Refusal};
@@ -55,7 +55,8 @@ fn each_network_builds_its_form_s_walls() {
 }
 
 /// The rules a box keeps once installed are its rules' paths, kinds,
-/// rights, and sources, in order, and the absent ones' paths.
+/// rights, and sources, in order, each beside the handle it opened, and the
+/// absent ones' paths.
 #[test]
 fn an_installed_box_keeps_its_rules_as_data() {
     let scratch = Scratch::new("installed");
@@ -94,7 +95,15 @@ fn an_installed_box_keeps_its_rules_as_data() {
     let (installed, absent) = rules.into_installed();
     let kept: Vec<_> = installed
         .iter()
-        .map(|rule| {
+        .map(|(rule, handle)| {
+            // each handed back with the handle it opened
+            assert_eq!(
+                std::fs::read_link(format!("/proc/self/fd/{}", handle.as_raw_fd()))
+                    .unwrap()
+                    .components()
+                    .collect::<std::path::PathBuf>(),
+                rule.path().components().collect::<std::path::PathBuf>()
+            );
             (
                 rule.path().to_owned(),
                 rule.kind(),

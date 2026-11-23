@@ -1,7 +1,7 @@
 //! Tests for confinement: shared scratch directories here, then the link
 //! closure, the BPF interpreter and the seccomp tables and filters read by
 //! it (eval's, the tree assembler's, and the run's denylist), the Landlock
-//! floor, the rules, and the run's steps, by topic.
+//! floor, the rules, the run's steps, and a program's own box, by topic.
 
 use std::path::{Path, PathBuf};
 
@@ -17,6 +17,7 @@ mod denylist;
 mod facts;
 mod landlock;
 mod plan;
+mod program;
 mod rules;
 mod run;
 mod seccomp;

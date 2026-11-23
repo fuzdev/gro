@@ -683,3 +683,64 @@ fn allow_temp_gets_the_private_directory() {
     lines.insert(lines.len() - 2, "temp . rwx req PrivateTemp".to_owned());
     assert_eq!(render(&plan), lines);
 }
+
+/// The rule that holds the temporary directory a spawning run makes its
+/// private directory in: a flag on its parent, on the directory itself, on
+/// `/`, each of the three flags (a write flag's read is what a program
+/// keeps), and the project's own read, compared by components, so `/tmpx`
+/// holds nothing of `/tmp`, nor `/tmp/a` of `/tmp`; the system's rules hold
+/// none of `/tmp`'s, and the private directory's own rule is never one.
+#[test]
+fn a_rule_holding_the_temporary_directory_is_found() {
+    use crate::confine::plan::RuleSource;
+    let spawning = |flags: &[(DirFlag, &str, &str)]| BoxInputs {
+        spawns: true,
+        programs: vec![node()],
+        ..flagged(flags)
+    };
+    let holding = |flags: &[(DirFlag, &str, &str)], dir: &str| {
+        BoxPlan::for_run(&spawning(flags), &facts())
+            .unwrap()
+            .holding(std::path::Path::new(dir))
+    };
+    let flag = |flag| Some((PathBuf::from("/tmp"), RuleSource::Flag(flag)));
+    assert_eq!(
+        holding(&[(DirFlag::Read, "/tmp", "/tmp")], "/tmp/base"),
+        flag(DirFlag::Read)
+    );
+    assert_eq!(
+        holding(&[(DirFlag::Read, "/tmp", "/tmp")], "/tmp"),
+        flag(DirFlag::Read)
+    );
+    assert_eq!(
+        holding(&[(DirFlag::RunIn, "/tmp", "/tmp")], "/tmp"),
+        flag(DirFlag::RunIn)
+    );
+    assert_eq!(
+        holding(&[(DirFlag::Write, "/tmp", "/tmp")], "/tmp"),
+        flag(DirFlag::Write)
+    );
+    assert_eq!(
+        holding(&[(DirFlag::Read, "/", "/")], "/tmp"),
+        Some((PathBuf::from("/"), RuleSource::Flag(DirFlag::Read)))
+    );
+    assert_eq!(holding(&[(DirFlag::Read, "/tmpx", "/tmpx")], "/tmp"), None);
+    assert_eq!(holding(&[(DirFlag::Read, "/tmp", "/tmp")], "/tmpx"), None);
+    assert_eq!(
+        holding(&[(DirFlag::Read, "/tmp/a", "/tmp/a")], "/tmp"),
+        None
+    );
+    assert_eq!(holding(&[], "/tmp"), None);
+    assert_eq!(
+        holding(&[], "/p/src"),
+        Some((PathBuf::from("/p/."), RuleSource::Project))
+    );
+    // `--allow-temp`'s private directory is the run's alone
+    let temp = BoxInputs {
+        temp: true,
+        ..spawning(&[])
+    };
+    let plan = BoxPlan::for_run(&temp, &facts()).unwrap();
+    assert!(plan.private_temp());
+    assert_eq!(plan.holding(std::path::Path::new("/tmp")), None);
+}

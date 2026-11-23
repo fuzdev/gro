@@ -37,7 +37,10 @@
 //! 10. What the box names made: the run's private directory, where it has
 //!     one, refused when the OS's temporary directory lies in the project,
 //!     since it would be an entry the box lets the run's tools write and
-//!     later commands read; then its tool directories.
+//!     later commands read, and, for a run that starts a program, when a
+//!     rule of the plan a program's box would take holds it, since every
+//!     program would read the others' temporary directories through it;
+//!     then its tool directories.
 //! 11. The run's environment, set in the process so the run, its tools,
 //!     and the libraries that read the process's own see one: the
 //!     temporary variables and `XDG_DATA_HOME`, `XDG_CACHE_HOME`, and
@@ -71,9 +74,9 @@
 //!
 //! Exit codes ([`BoxStartError::exit_code`]): `2` for what the caller
 //! changes, `-A`, a socket on stdio, what the plan refuses, a temporary
-//! directory in the project, and every path planted where the box opens a
-//! rule or makes a tool directory; `1` for a build with no snapshot and a
-//! step that failed. A fallback exits with the Node Gro's code.
+//! directory in the project or held by a rule a program's box would take,
+//! and every path planted where the box opens a rule or makes a tool
+//! directory; `1` for a build with no snapshot and a step that failed. A fallback exits with the Node Gro's code.
 //!
 //! Kinds: the box is a boundary, the kernel's, against the project's code
 //! and tests, the tools and their children, and an exploit of the engine;
@@ -216,6 +219,24 @@ pub enum BoxStartError {
         /// for the default.
         variable: Option<&'static str>,
     },
+    /// A rule of the box's plan that a program's box would take is on the
+    /// OS's temporary directory or a directory holding it, where a run that
+    /// starts a program makes its private directory: Landlock grants beneath
+    /// a rule whatever its directory holds, so every program would read all
+    /// of the private directory, its siblings' temporary directories among
+    /// them.
+    #[error("{}", temp_held_message(path, rule, *from, *variable))]
+    TempHeldByRule {
+        /// The temporary directory's real path, as the run resolved it.
+        path: PathBuf,
+        /// The rule's absolute path.
+        rule: PathBuf,
+        /// Why the rule is there.
+        from: RuleSource,
+        /// The variable that named the temporary directory, `TMPDIR`,
+        /// `TMP`, or `TEMP`, or none for the default.
+        variable: Option<&'static str>,
+    },
     /// Where a symlinked `node_modules` leads couldn't be looked at, for the
     /// realm's read root there.
     #[error(
@@ -282,6 +303,7 @@ impl BoxStartError {
             | Self::Confine(ConfineError::StdioSocket { .. })
             | Self::Plan(_)
             | Self::TempInProject { .. }
+            | Self::TempHeldByRule { .. }
             | Self::ToolDir(ToolDirError::NotADirectory { .. } | ToolDirError::Symlink { .. })
             | Self::Rule(
                 RuleError::Symlink { .. } | RuleError::Escapes { .. } | RuleError::NotReal { .. },
@@ -299,6 +321,38 @@ impl BoxStartError {
             | Self::Rule(_)
             | Self::Thread(_) => EXIT_FAILURE,
         }
+    }
+}
+
+/// [`BoxStartError::TempHeldByRule`]'s message: the temporary directory
+/// `temp`, named by `variable` (none for the default), held by the rule on
+/// `rule` from `from`, and the fix, narrowing a flag's rule or moving the
+/// temporary directory.
+fn temp_held_message(
+    temp: &Path,
+    rule: &Path,
+    from: RuleSource,
+    variable: Option<&'static str>,
+) -> String {
+    let temp = escape_controls(&temp.to_string_lossy()).to_string();
+    let rule = escape_controls(&rule.to_string_lossy()).to_string();
+    let elsewhere = variable.map_or_else(
+        || "it's the default, so set TMPDIR elsewhere".to_owned(),
+        |variable| format!("point {variable} elsewhere"),
+    );
+    let start = format!(
+        "the kernel box makes the run's private directory in the OS's temporary directory, {temp}"
+    );
+    match from {
+        RuleSource::Flag(flag) => format!(
+            "{start}, and {flag}={rule} holds it, so every program the run starts could read the \
+             others' temporary directories there: narrow {flag} to a directory that doesn't hold \
+             {temp}, or {elsewhere}"
+        ),
+        _ => format!(
+            "{start}, and the box's rule on {rule}, which every program the run starts reads, \
+             holds it, so each could read the others' temporary directories there: {elsewhere}"
+        ),
     }
 }
 
@@ -458,6 +512,17 @@ fn boxed(
         if in_project {
             return Err(BoxStartError::TempInProject {
                 path: temp_path,
+                variable: temp_variable,
+            }
+            .into());
+        }
+        if plan.spawns()
+            && let Some((rule, from)) = plan.holding(&temp_path)
+        {
+            return Err(BoxStartError::TempHeldByRule {
+                path: temp_path,
+                rule,
+                from,
                 variable: temp_variable,
             }
             .into());

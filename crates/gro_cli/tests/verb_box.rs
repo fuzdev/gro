@@ -860,6 +860,99 @@ fn a_check_mode_run_writes_nothing_of_the_project() {
     assert!(!scratch.0.join("project/src/x.txt").exists(), "{output}");
 }
 
+/// A grant flag holding the temporary directory, which would give every
+/// program the run starts all of its private directory, is refused for a
+/// run that starts a program, before anything is made: a flag on its
+/// parent, on itself, and on `/`, each naming the flag and the fix, a
+/// write flag on it, and a read flag on it under a `TMPDIR` that's a
+/// symlink to it, refused by its real path; a flag beside it runs, as does
+/// a run that starts no program under the same flag.
+#[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "a command of Gro's runs in its box only from a snapshot build"
+)]
+fn a_flag_holding_the_temporary_directory_is_refused() {
+    let scratch = probe_tree("verb_box_temp_held");
+    let root = std::fs::canonicalize(&scratch.0).unwrap();
+    let temp = root.join("tmp");
+    for (flag, rule) in [
+        (format!("--allow-read={}", root.display()), root.clone()),
+        (format!("--allow-run-in={}", temp.display()), temp.clone()),
+        ("--allow-read=/".to_owned(), PathBuf::from("/")),
+    ] {
+        let mut args = probe_args();
+        args.push(flag.clone());
+        let args: Vec<&str> = args.iter().map(String::as_str).collect();
+        let (code, stdout, stderr) = run(in_tree(fgro_command(&args), &scratch));
+        assert_eq!(code, Some(2), "{flag}: {stdout}{stderr}");
+        let spelled = flag.split_once('=').unwrap().0;
+        assert!(
+            stderr.ends_with(&format!(
+                "error: the kernel box makes the run's private directory in the OS's temporary \
+                 directory, {}, and {spelled}={} holds it, so every program the run starts could \
+                 read the others' temporary directories there: narrow {spelled} to a directory \
+                 that doesn't hold {}, or point TMPDIR elsewhere\n",
+                temp.display(),
+                rule.display(),
+                temp.display()
+            )),
+            "{flag}: {stderr}"
+        );
+        let made: Vec<_> = std::fs::read_dir(&temp)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+            .filter(|name| name.starts_with("gro-"))
+            .collect();
+        assert!(made.is_empty(), "{flag}: {made:?}");
+    }
+    // a write flag holds it too, by the read a program would keep
+    let mut args = probe_args();
+    args.push(format!("--allow-write={}", temp.display()));
+    let args: Vec<&str> = args.iter().map(String::as_str).collect();
+    let (code, stdout, stderr) = run(in_tree(fgro_command(&args), &scratch));
+    assert_eq!(code, Some(2), "{stdout}{stderr}");
+    assert!(
+        stderr.contains(&format!("and --allow-write={} holds it", temp.display())),
+        "{stderr}"
+    );
+    // a `TMPDIR` that's a symlink to it is held by its real path, which the
+    // refusal names
+    let linked = root.join("tmp_link");
+    std::os::unix::fs::symlink(&temp, &linked).unwrap();
+    let mut args = probe_args();
+    args.push(format!("--allow-read={}", temp.display()));
+    let args: Vec<&str> = args.iter().map(String::as_str).collect();
+    let mut command = in_tree(fgro_command(&args), &scratch);
+    command.env("TMPDIR", &linked);
+    let (code, stdout, stderr) = run(command);
+    assert_eq!(code, Some(2), "{stdout}{stderr}");
+    assert!(
+        stderr.contains(&format!(
+            "temporary directory, {}, and --allow-read={} holds it",
+            temp.display(),
+            temp.display()
+        )),
+        "{stderr}"
+    );
+    // beside it, not holding it
+    std::fs::create_dir(root.join("tmpx")).unwrap();
+    let mut args = probe_args();
+    args.push(format!("--allow-read={}", root.join("tmpx").display()));
+    let args: Vec<&str> = args.iter().map(String::as_str).collect();
+    let (code, stdout, stderr) = run(in_tree(fgro_command(&args), &scratch));
+    assert_ne!(code, Some(2), "{stdout}{stderr}");
+    assert!(!stderr.contains("holds it"), "{stderr}");
+    // `format --check` starts no program, so makes no private directory
+    let flag = format!("--allow-read={}", root.display());
+    let (code, stdout, stderr) = run(in_tree(
+        fgro_command(&["format", "--check", &flag]),
+        &scratch,
+    ));
+    assert_ne!(code, Some(2), "{stdout}{stderr}");
+    assert!(!stderr.contains("holds it"), "{stderr}");
+}
+
 /// A temporary directory inside the project is refused for a run that
 /// makes its private directory there, before anything is made, and isn't
 /// swept; a run that makes none runs.

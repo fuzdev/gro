@@ -3,7 +3,7 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 use gro_runtime::confine::ConfineError;
-use gro_runtime::confine::plan::{DirFlag, GrantedFlagDir, PlanRefusal};
+use gro_runtime::confine::plan::{DirFlag, GrantedFlagDir, PlanRefusal, RuleSource};
 use gro_runtime::resolver::InstalledPackage;
 use gro_runtime::{BINARY_NAME, RunPins};
 
@@ -265,6 +265,12 @@ fn a_planted_path_exits_2_and_a_failed_step_1() {
             path: path(),
             variable: Some("TMPDIR"),
         },
+        BoxStartError::TempHeldByRule {
+            path: path(),
+            rule: PathBuf::from("/"),
+            from: RuleSource::Flag(DirFlag::Read),
+            variable: Some("TMPDIR"),
+        },
         BoxStartError::ToolDir(ToolDirError::NotADirectory { path: path() }),
         BoxStartError::ToolDir(ToolDirError::Symlink { path: path() }),
         BoxStartError::Rule(RuleError::Symlink { path: path() }),
@@ -333,11 +339,7 @@ fn a_planted_path_exits_2_and_a_failed_step_1() {
 }
 
 /// A rule as the wall texts read it.
-fn wall(
-    path: &str,
-    source: gro_runtime::confine::plan::RuleSource,
-    writes: bool,
-) -> super::WallRule {
+fn wall(path: &str, source: RuleSource, writes: bool) -> super::WallRule {
     super::WallRule {
         path: PathBuf::from(path),
         source,
@@ -353,7 +355,7 @@ fn wall(
 /// path no write rule holds.
 #[test]
 fn the_wall_texts_follow_the_rules() {
-    use gro_runtime::confine::plan::{DirFlag, RuleSource, ToolDir};
+    use gro_runtime::confine::plan::ToolDir;
     use gro_runtime::confine::run::RunNetwork;
 
     let generating = VerbRun {
@@ -479,4 +481,35 @@ fn a_temporary_directory_lies_in_the_project_by_text_or_identity() {
         .collect();
     std::fs::remove_dir_all(&base).unwrap();
     assert_eq!(found, cases.map(|(_, expected)| expected));
+}
+
+/// A rule holding the temporary directory is refused naming it: a flag by
+/// its spelling and the fix of narrowing it, any other rule by its path,
+/// and the variable to move, or `TMPDIR` for the default; each path
+/// escaped.
+#[test]
+fn a_rule_holding_the_temporary_directory_names_its_fix() {
+    let held = |rule: &str, from, variable| {
+        BoxStartError::TempHeldByRule {
+            path: PathBuf::from("/tmp\u{1b}[2J"),
+            rule: PathBuf::from(rule),
+            from,
+            variable,
+        }
+        .to_string()
+    };
+    assert_eq!(
+        held("/", RuleSource::Flag(DirFlag::RunIn), Some("TMP")),
+        "the kernel box makes the run's private directory in the OS's temporary directory, \
+         /tmp\\u{1b}[2J, and --allow-run-in=/ holds it, so every program the run starts could \
+         read the others' temporary directories there: narrow --allow-run-in to a directory \
+         that doesn't hold /tmp\\u{1b}[2J, or point TMP elsewhere"
+    );
+    assert_eq!(
+        held("/usr", RuleSource::System, None),
+        "the kernel box makes the run's private directory in the OS's temporary directory, \
+         /tmp\\u{1b}[2J, and the box's rule on /usr, which every program the run starts reads, \
+         holds it, so each could read the others' temporary directories there: it's the \
+         default, so set TMPDIR elsewhere"
+    );
 }

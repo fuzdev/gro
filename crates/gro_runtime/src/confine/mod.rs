@@ -113,6 +113,7 @@ mod facts;
 pub mod git;
 mod landlock;
 pub mod plan;
+pub mod program;
 pub mod rules;
 pub mod run;
 pub mod seccomp;

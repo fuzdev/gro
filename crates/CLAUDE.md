@@ -207,7 +207,11 @@ and the contracts no one module doc owns.
   alone allowed, never dropped. A run's rules open only from its plan
   (`confine/plan.rs`, derived purely from the run and the disk's facts),
   by `RunHardened::prepare`, so none opens before the inherited
-  descriptors close.
+  descriptors close. A program's own box (`confine/program.rs`), nested
+  in the run's, names only handles the run's box held past it, none on
+  the private directory or a directory holding it, and its own temporary
+  directory, made beneath the held private directory's handle, an entry
+  already there refused.
 - One thread until the box: `fgro eval` keeps its process single-threaded
   until it's confined, in the step order written once, in `confine_eval`'s
   doc in `crates/gro_cli/src/eval.rs`; the run's box takes its steps on one

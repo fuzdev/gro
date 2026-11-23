@@ -149,7 +149,8 @@ for Linux x86_64 only, built from source ([install](../src/docs/runtime.md#insta
     and the tools share the one box and see the run's whole environment.
   - Before the box it refuses `-A` before the command word, or after it for a command the binary runs itself, a `node` on `PATH` that's a script, a write flag naming a directory that holds the project root,
     a `node_modules` symlink to anything but another checkout's `node_modules`, git's files it can't read when the command may start a program,
-    a socket on stdio that isn't a connected unix stream, an OS temporary directory inside the project, and a path planted where the box opens a rule or makes a tool directory,
+    a socket on stdio that isn't a connected unix stream, an OS temporary directory inside the project,
+    a flag or rule holding the OS temporary directory when the command may start a program (like `--allow-read=/tmp` or `--allow-read=/`), and a path planted where the box opens a rule or makes a tool directory,
     each exit 2, and a binary built without its snapshot, exit 1; a step of the box that fails exits 1.
     A `node_modules` linked from another checkout is read and executed there, by the box and Gro's own `fs` alike, its packages resolving within it,
     and written there, its tool directories included, only when a write flag names it.

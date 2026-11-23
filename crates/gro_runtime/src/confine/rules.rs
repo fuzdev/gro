@@ -105,6 +105,20 @@ impl Rights {
         self.write
     }
 
+    /// These without writing: what a program's box keeps of a rule it only
+    /// reads beneath (`program::program_rights`).
+    pub(super) const fn without_write(self) -> Self {
+        Self {
+            write: false,
+            ..self
+        }
+    }
+
+    /// Whether these grant nothing.
+    pub(super) const fn is_empty(self) -> bool {
+        !(self.read || self.write || self.execute)
+    }
+
     /// The Landlock rights these grant on a handle of `kind`, at
     /// [`LANDLOCK_ABI`]: on anything but a directory, only those Landlock
     /// applies to a file (`AccessFs::from_file`), since the kernel refuses
@@ -235,8 +249,9 @@ impl Rule {
     }
 }
 
-/// A rule as the box installed it: what it named and granted, its handle
-/// closed once the box took it.
+/// A rule as the box installed it: what it named and granted, without its
+/// handle, which the box's install hands back beside it
+/// (`BoxRules::into_installed`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InstalledRule {
     /// Its absolute path when it opened, for messages.
@@ -391,18 +406,22 @@ impl BoxRules {
         &self.absent
     }
 
-    /// The rules as installed, their handles closed, in the order they
-    /// were added, and the paths of the optional ones that had nothing to
-    /// name: what a box that took them keeps.
-    pub(super) fn into_installed(self) -> (Vec<InstalledRule>, Vec<PathBuf>) {
+    /// The rules as installed, each with its handle, in the order they were
+    /// added, and the paths of the optional ones that had nothing to name:
+    /// what a box that took them keeps, the handles closed by the caller
+    /// but those it holds for a program's box (`program::ProgramRules::hold`).
+    pub(super) fn into_installed(self) -> (Vec<(InstalledRule, OwnedFd)>, Vec<PathBuf>) {
         let rules = self
             .rules
             .into_iter()
-            .map(|rule| InstalledRule {
-                path: rule.path,
-                kind: rule.kind,
-                rights: rule.rights,
-                source: rule.source,
+            .map(|rule| {
+                let installed = InstalledRule {
+                    path: rule.path,
+                    kind: rule.kind,
+                    rights: rule.rights,
+                    source: rule.source,
+                };
+                (installed, rule.handle)
             })
             .collect();
         (rules, self.absent)
