@@ -310,6 +310,12 @@ pub enum Confinement {
 
 /// Why a box couldn't go up: eval's ([`EvalPrepared::confine`]) or the run's
 /// ([`run::RunPrepared::confine`]).
+///
+/// A variant wrapping the `landlock` or `seccompiler` crate's error, or the
+/// denylist's, writes that error into its message and names no source:
+/// those crates' messages already hold their own causes, and the
+/// denylist's has none, so a reader that follows the chain of sources
+/// would print each cause again.
 #[derive(Debug, thiserror::Error)]
 pub enum ConfineError {
     /// The process has more than one thread, so a box installed now would
@@ -383,7 +389,7 @@ pub enum ConfineError {
     },
     /// The Landlock rules couldn't be made or installed.
     #[error("failed to make or install the box's Landlock rules: {0}")]
-    Landlock(#[source] ::landlock::RulesetError),
+    Landlock(::landlock::RulesetError),
     /// The kernel installed only part of the Landlock rules.
     #[error("the kernel enforced the box's Landlock rules only in part, so none can be relied on")]
     LandlockPartial,
@@ -396,13 +402,13 @@ pub enum ConfineError {
     },
     /// The seccomp filters couldn't be compiled.
     #[error("failed to compile the box's seccomp filters: {0}")]
-    SeccompFilter(#[source] seccompiler::BackendError),
+    SeccompFilter(seccompiler::BackendError),
     /// The run's seccomp denylist couldn't be assembled from its table.
     #[error("failed to assemble the run's seccomp denylist: {0}")]
-    Denylist(#[source] seccomp::tree::TreeError),
+    Denylist(seccomp::tree::TreeError),
     /// The kernel refused the seccomp filters.
     #[error("failed to install the box's seccomp filters: {0}")]
-    Seccomp(#[source] seccompiler::Error),
+    Seccomp(seccompiler::Error),
 }
 
 impl ConfineError {

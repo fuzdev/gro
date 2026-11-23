@@ -25,6 +25,9 @@ thiserror.workspace = true
 blake3.workspace = true
 # the box's socket and signal cases
 gro_sys = { path = "../gro_sys", features = ["testing"] }
+# the observer of a launch's steps, which the boxed launch's cases signal
+# its threads between
+gro_runtime = { path = "../gro_runtime", features = ["testing"] }
 serde_json.workspace = true
 socket2.workspace = true
 url.workspace = true
@@ -39,6 +42,12 @@ harness = false
 # harness would break
 [[test]]
 name = "run_box"
+harness = false
+
+# a launch in a program's box from inside a process holding the run's, whose
+# one thread libtest's harness would break
+[[test]]
+name = "boxed_launch"
 harness = false
 
 [features]

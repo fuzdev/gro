@@ -56,6 +56,9 @@ phases = []
 # box, read from `GRO_PRICES_OFF`, for the bench's prices suites; the binary
 # that ships never enables it
 prices = []
+# an observer of each launch's steps, for the tests that signal a launch's
+# threads between two (`gro_cli`'s `boxed_launch`); only tests enable it
+testing = []
 
 [lints]
 workspace = true

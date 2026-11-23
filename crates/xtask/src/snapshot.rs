@@ -326,6 +326,7 @@ const INTEGRATION_TESTS: [(Measurement, &[&str]); 3] = [
             "eval",
             "confine",
             "run_box",
+            "boxed_launch",
             "verb",
             "verb_box",
             "verb_differential",

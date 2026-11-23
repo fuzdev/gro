@@ -150,7 +150,7 @@ impl Guard {
     /// Frees the slot, returning whether the child may be reaped now:
     /// `false` once the handler has begun ending the process, which may
     /// have read its id and not signaled it yet.
-    fn release(self) -> bool {
+    pub fn release(self) -> bool {
         match self {
             Self::Group(guard) => guard.release(),
             Self::Forward(forward) => forward.release(),

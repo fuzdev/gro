@@ -36,7 +36,9 @@
 //!   hangup, or a `SIGTERM` ends it, since a child in a group of its own
 //!   doesn't get the terminal's signals, and pass a `SIGTERM` on to the
 //!   children sharing its group, which a supervisor's `SIGTERM` of it alone
-//!   wouldn't reach.
+//!   wouldn't reach; [`check_hand_off`] asks whether the calling thread may
+//!   hand the handler's signal on to the main thread, as a thread in a
+//!   nested Landlock domain may only on some kernels.
 //! - [`cloexec_inherited_fds`] marks every descriptor above stderr
 //!   close-on-exec, so a child is handed none the process inherited.
 //! - [`raise_open_files_limit`] raises the soft limit on the process's open
@@ -1694,13 +1696,24 @@ impl ForwardReservation {
 /// another, waits for it rather than end the process mid-scan; one a
 /// thread of the process handles meanwhile does all of it again.
 ///
-/// The handler run on a thread that holds a slot reserved and not armed,
-/// which can't arm it while the handler waits, sends the signal on to the
-/// process's main thread (`tgkill`) and returns, so the thread arms its
-/// slot and the main thread's handler waits for it. That needs the main
-/// thread live, not blocking the three signals, and not itself holding a
-/// reservation: where it's the thread that holds one, its handler doesn't
-/// wait, and the child that slot is for, if started, isn't killed.
+/// The handler run on any thread but the process's main one sends the
+/// signal on to the main thread (`tgkill`) and returns, so the main
+/// thread's handler does the work, from the process's own domain: a
+/// thread mid-launch, holding a slot reserved and not armed, which it
+/// can't arm while the handler waits, goes on to arm it while the main
+/// thread's handler waits for it, and a thread the kernel lets signal
+/// less than the main thread may, as Landlock's signal scope narrows a
+/// thread that restricted itself to a domain nested in the process's
+/// (every process outside that domain refused, its own earlier children
+/// among them, each in a sibling domain of its own), kills only its own
+/// child itself. That needs the main thread live, not blocking the three
+/// signals, not itself holding a reservation, and reachable by the
+/// `tgkill`, which Landlock allows between threads of one process on
+/// kernels that exempt a process's own threads from its signal scope
+/// ([`check_hand_off`] asks): where the hand-off fails the handler goes on
+/// where it runs, and where the main thread holds a reservation, its
+/// handler doesn't wait, and the child that slot is for, if started, isn't
+/// killed.
 ///
 /// The handler is async-signal-safe: it reads the ids from fixed arrays of
 /// atomics, and its calls are `kill`, `tgkill`, `nanosleep`,
@@ -1754,26 +1767,26 @@ pub fn guard_children_on_signal() -> io::Result<()> {
 }
 
 /// [`guard_children_on_signal`]'s handler: sets [`ENDING`], hands the
-/// signal on to the main thread from a thread mid-launch, else waits for
-/// the slots reserved, kills each guarded group, sends a `SIGTERM` on to
-/// each named child, sets the signal's default back, and raises it again,
-/// which ends the process when the handler returns.
+/// signal on to the main thread from any other thread, else waits for the
+/// slots reserved, unless this thread holds one, kills each guarded group,
+/// sends a `SIGTERM` on to each named child, sets the signal's default
+/// back, and raises it again, which ends the process when the handler
+/// returns.
 #[expect(
     unsafe_code,
     reason = "a signal handler calls libc's async-signal-safe calls, which are `unsafe`"
 )]
 extern "C" fn on_guarding_signal(signal: libc::c_int) {
     ENDING.store(true, Ordering::SeqCst);
+    if hand_off_to_main_thread(signal) {
+        return;
+    }
     // a const-initialized thread local with no destructor, read without
     // any lazy step, so reading it here is safe
     let reserving = RESERVING
         .try_with(|count| count.load(Ordering::SeqCst) > 0)
         .unwrap_or(false);
-    if reserving {
-        if hand_off_to_main_thread(signal) {
-            return;
-        }
-    } else {
+    if !reserving {
         await_arming();
     }
     for slot in &GUARDED {
@@ -1809,8 +1822,8 @@ extern "C" fn on_guarding_signal(signal: libc::c_int) {
 }
 
 /// Sends `signal` to the process's main thread, by `tgkill`, for the
-/// handler on another thread mid-launch; `false` when this is the main
-/// thread, or the call failed, so the handler goes on here.
+/// handler on any other thread; `false` when this is the main thread, or
+/// the call failed, so the handler goes on here.
 #[expect(
     unsafe_code,
     reason = "std has no `gettid` or `tgkill`, and libc's calls are `unsafe`"
@@ -1915,11 +1928,37 @@ fn send(target: libc::pid_t, signal: libc::c_int) -> io::Result<()> {
 /// Landlock scope among the reasons), `ESRCH` when no such thread exists, or
 /// `EINVAL` for an invalid signal or a `tgid` or `tid` not above 0.
 #[cfg(feature = "testing")]
+pub fn signal_thread(tgid: libc::pid_t, tid: libc::pid_t, signal: libc::c_int) -> io::Result<()> {
+    tgkill(tgid, tid, signal)
+}
+
+/// Checks that the calling thread may hand a signal on to the process's
+/// main thread, as [`guard_children_on_signal`]'s handler does from any
+/// other thread: `tgkill` with no signal, which sends nothing.
+///
+/// A thread restricted to a Landlock domain nested in the process's may
+/// signal no process outside that domain, and only a kernel that exempts a
+/// process's own threads from that scope lets it signal the main thread.
+/// On one that doesn't, the handler on that thread can't hand off, kills
+/// what that thread's own domain holds alone, and ends the process, so a
+/// launch from such a thread checks first and starts nothing when this
+/// fails.
+///
+/// # Errors
+///
+/// Returns the call's error: `EPERM` when the kernel refuses the signal,
+/// Landlock's signal scope among the reasons.
+pub fn check_hand_off() -> io::Result<()> {
+    let pid = positive_pid(std::process::id())?;
+    tgkill(pid, pid, 0)
+}
+
+/// `tgkill(tgid, tid, signal)`.
 #[expect(
     unsafe_code,
     reason = "std has no `tgkill`, and a raw system call is `unsafe`"
 )]
-pub fn signal_thread(tgid: libc::pid_t, tid: libc::pid_t, signal: libc::c_int) -> io::Result<()> {
+fn tgkill(tgid: libc::pid_t, tid: libc::pid_t, signal: libc::c_int) -> io::Result<()> {
     // SAFETY: `tgkill` takes three integers and reads or writes none of this
     // process's memory, so the call itself can't break memory safety; what a
     // signal's handler then does is that handler's own concern, as with
@@ -1930,6 +1969,15 @@ pub fn signal_thread(tgid: libc::pid_t, tid: libc::pid_t, signal: libc::c_int) -
     } else {
         Err(io::Error::last_os_error())
     }
+}
+
+/// How many slots of the handler's tables the calling thread holds
+/// reserved and not armed, for tests that check a launch's steps are
+/// where they say.
+#[cfg(feature = "testing")]
+#[must_use]
+pub fn reserving_on_this_thread() -> u32 {
+    RESERVING.with(|count| count.load(Ordering::SeqCst))
 }
 
 /// The length [`map_anonymous`] and [`protect_anonymous`] map, which the
@@ -2261,6 +2309,16 @@ mod tests {
                 .iter()
                 .all(|slot| slot.load(Ordering::SeqCst) == 0)
         );
+    }
+
+    /// A thread of a process in no Landlock domain may hand a signal on to
+    /// the main thread, whichever thread asks.
+    #[test]
+    fn any_thread_of_an_unconfined_process_may_hand_off() {
+        super::check_hand_off().unwrap();
+        std::thread::spawn(|| super::check_hand_off().unwrap())
+            .join()
+            .unwrap();
     }
 
     /// A thread's stack start lies above every frame of the thread and no

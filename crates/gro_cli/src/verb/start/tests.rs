@@ -513,3 +513,16 @@ fn a_rule_holding_the_temporary_directory_names_its_fix() {
          default, so set TMPDIR elsewhere"
     );
 }
+
+/// A box that fails to go up says the failure's cause once: the wrapped
+/// error's message holds it already, so the variant names no source for the
+/// box's start to print again.
+#[test]
+fn a_box_that_fails_to_go_up_says_its_cause_once() {
+    use gro_runtime::confine::seccomp::tree::TreeError;
+
+    assert_eq!(
+        BoxStartError::Confine(ConfineError::Denylist(TreeError::Twice { nr: 1 })).to_string(),
+        "failed to assemble the run's seccomp denylist: the call number 1 is classified twice"
+    );
+}

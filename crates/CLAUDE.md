@@ -211,7 +211,16 @@ and the contracts no one module doc owns.
   in the run's, names only handles the run's box held past it, none on
   the private directory or a directory holding it, and its own temporary
   directory, made beneath the held private directory's handle, an entry
-  already there refused.
+  already there refused. A launch in a program's box reserves its slot of
+  the signal handler's tables, spawns, takes the pidfd, and arms on the
+  box's own short-lived thread, never splitting those across threads
+  (`host/spawn/launch.rs`'s `spawn_held`), and the handler on any thread
+  but the main one hands the signal to the main thread
+  (`gro_sys::guard_children_on_signal`), since a thread in a program's box
+  may signal its own child alone; the box's thread checks that hand-off
+  first (`gro_sys::check_hand_off`) and starts nothing where the kernel
+  refuses it. `gro_cli`'s `boxed_launch` injects signals between those
+  steps to hold them.
 - One thread until the box: `fgro eval` keeps its process single-threaded
   until it's confined, in the step order written once, in `confine_eval`'s
   doc in `crates/gro_cli/src/eval.rs`; the run's box takes its steps on one
@@ -303,6 +312,12 @@ child and reads it from inside and from outside: its cases run in any
 build, but those that start V8 under the box, which need a snapshot.
 They need Landlock ABI 6, and expect the network form the host's settings
 give (the run's own namespace unless user namespaces are restricted).
+`tests/boxed_launch.rs`, harness off, launches in programs' boxes from
+inside the run's, in a child, with `gro_runtime`'s `testing` feature
+observing each launch's steps, so its cases signal a launch's threads
+between two of them and herd launches under signals from outside; it
+needs Landlock ABI 6, and `python3` for the seccomp filter that stands in
+for a kernel refusing the hand-off.
 A command of Gro's runs on the binary only from a snapshot build, in its
 box, so `tests/verb.rs`'s runs, `tests/verb_box.rs`, which attacks each
 wall from inside a boxed `fgro gen` and holds the refusals before the box

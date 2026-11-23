@@ -84,6 +84,12 @@
 //! - [`prices`]: switches that each turn off one of eval's defaults or a step
 //!   of a command's box, for the measurement harness to price them, read only
 //!   under the `prices` feature
+//! - with the `testing` feature, which only tests enable (`gro_cli`'s, from
+//!   its dev-dependencies): a launch's spawn step (`spawn_held`, `Spawned`,
+//!   `Unspawned`, `Guard`) and an observer of its steps
+//!   (`observe_launch_steps`, `LaunchStep`), so a test outside the crate
+//!   launches in a program's box and signals a launch's threads between two
+//!   of its steps
 //! - [`eval`]: `fgro eval`'s protocol: a module evaluated to JSON data, with
 //!   an optional driver module, the clock and randomness denied and the heap
 //!   and time limited, written by a strict host serializer into one
@@ -154,7 +160,13 @@ use crate::snapshot::StartupSnapshot;
 
 pub use crate::host::exit::{Exit, ExitStep};
 pub use crate::host::spawn::RunPins;
+#[cfg(feature = "testing")]
+pub use crate::host::spawn::launch::{
+    LaunchStep, Spawned, Unspawned, observe_launch_steps, spawn_held,
+};
 pub use crate::host::spawn::pins::find_on_path;
+#[cfg(feature = "testing")]
+pub use crate::host::spawn::watch::Guard;
 pub use crate::loader::refused::{
     FsNeed, MAX_LISTED_MESSAGE, MAX_LISTED_REFUSALS, NameKind, NeededGrant, Refusal, Refusals,
     RefusedBy,
@@ -269,8 +281,10 @@ pub struct RuntimeOptions {
     /// (`gro_sys::cloexec_inherited_fds`), or a child is handed them; the
     /// soft limit on open descriptors raised (`gro_sys::raise_open_files_limit`),
     /// as Node raises it; and no other waiter on its children, and its main
-    /// thread live and not blocking those three signals, which the handler
-    /// on a thread mid-launch hands on to it.
+    /// thread live, not blocking those three signals, and not the thread the
+    /// run launches from, since the handler on any other thread hands a
+    /// signal on to it and the main thread's handler can't wait for a launch
+    /// of its own.
     pub spawn_env: EnvVars,
 }
 

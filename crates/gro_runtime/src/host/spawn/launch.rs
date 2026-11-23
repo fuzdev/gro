@@ -16,13 +16,14 @@
 //!   a native binary's descriptor still the file pinned, its change time
 //!   the one pinned, and a script's path still leading to its pin, with
 //!   its change time.
-//! - A slot of the signal handler's tables is reserved: its group's guard
-//!   for a child that leads one, else a place among the children a
-//!   `SIGTERM` passes on to; past `gro_sys`'s caps the launch fails, so no
-//!   child runs unguarded, and so does one once a signal the handler
-//!   guards against has begun ending the run. The handler is installed at
-//!   the run's first launch, and one that arrives between a reservation
-//!   and its arming waits for the arming, so the child is killed too.
+//! - The signal handler is installed at the run's first launch.
+//! - A slot of the handler's tables is reserved: its group's guard for a
+//!   child that leads one, else a place among the children a `SIGTERM`
+//!   passes on to; past `gro_sys`'s caps the launch fails, so no child
+//!   runs unguarded, and so does one once a signal the handler guards
+//!   against has begun ending the run. A signal that arrives between a
+//!   reservation and its arming waits for the arming, so the child is
+//!   killed too.
 //! - The child is started by std's `Command`, on `posix_spawn`, with no
 //!   code run between its fork and its exec: a native binary by its pin's
 //!   descriptor (`/proc/self/fd/N`), so the file pinned is the file run
@@ -41,6 +42,12 @@
 //!   step that fails from there kills and reaps it before the launch
 //!   fails.
 //!
+//! A launch given a program's box takes the reservation, the spawn, the
+//! pidfd, and the arming on a short-lived thread of its own that installs
+//! the box on itself first, so the child starts in it ([`spawn_held`]),
+//! and the isolate's thread then joins the child to the run's table and
+//! watches it.
+//!
 //! The result is a frozen null-prototype record, as the Node module's:
 //! `kind` and `code` for `exited`, `signal` and `signal_number` for
 //! `signaled`, or `code`, `signal`, and `signal_number` for `timed_out`,
@@ -54,7 +61,7 @@
 
 use std::os::fd::{AsRawFd as _, OwnedFd};
 use std::os::unix::process::CommandExt as _;
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -74,6 +81,7 @@ use super::{
     own_option, read_handle, run_state, throw,
 };
 use crate::BINARY_NAME;
+use crate::confine::program::{ProgramBox, ProgramBoxError};
 use crate::host::error_class::DeclaredFamily;
 use crate::host::fs::{HandleDirFault, open_handle_dir};
 use crate::host::handle::{FS_READ_DIR, SPAWN_PROGRAM};
@@ -445,6 +453,241 @@ fn not_started(program: &Program, path: &str, why: String) -> Failure {
     }
 }
 
+/// A child started by [`spawn_held`]: std's handle, which never waits for
+/// it, its pidfd, opened before anything could reap it, and its slot of
+/// the signal handler's tables, armed with its id.
+#[derive(Debug)]
+pub struct Spawned {
+    /// The child, its piped streams on it.
+    pub child: Child,
+    /// Its pidfd.
+    pub pidfd: Arc<Pidfd>,
+    /// Its slot, armed.
+    pub guard: Guard,
+}
+
+/// Why [`spawn_held`] started no child, or started one and killed and
+/// reaped it, as the text of the launch's `launch_failed`.
+#[derive(Debug, thiserror::Error)]
+pub enum Unspawned {
+    /// No slot of the signal handler's tables was free, or a signal is
+    /// ending the run; `grouped` when the child would lead a group.
+    #[error("{}", unreserved_why(*.why, *.grouped))]
+    Unreserved {
+        /// Why.
+        why: Unreserved,
+        /// Whether the child would lead a group.
+        grouped: bool,
+    },
+    /// The program's box couldn't be installed on the thread that starts
+    /// the child.
+    #[error(
+        "its box couldn't be installed on the thread that starts it: {}",
+        with_causes(.0)
+    )]
+    Restricted(ProgramBoxError),
+    /// The kernel refuses the thread in the program's box a signal to the
+    /// run's main thread, which the signal handler on that thread hands a
+    /// signal ending the run on to, so none of the run's other children
+    /// would be killed (`gro_sys::check_hand_off`).
+    #[error(
+        "the kernel refuses its box's thread a signal to the run's main thread, which a signal \
+         ending the run is handed on to, so a child started there could outlive the run: {0}"
+    )]
+    HandOffRefused(std::io::Error),
+    /// The thread that starts the child in its box couldn't be started.
+    #[error("the thread that starts it in its box couldn't be started: {0}")]
+    Thread(std::io::Error),
+    /// `Command::spawn` failed.
+    #[error("{0}")]
+    Spawn(std::io::Error),
+    /// The child couldn't be held by its pidfd; it was killed and reaped.
+    #[error("it couldn't be held by its pidfd: {0}")]
+    Pidfd(std::io::Error),
+    /// Its slot couldn't be armed; it was killed and reaped.
+    #[error("its slot of the signal handler's tables couldn't be armed: {0}")]
+    Arm(std::io::Error),
+}
+
+/// `error`'s message, then each of its causes', joined by `: `.
+fn with_causes(error: &dyn std::error::Error) -> String {
+    let mut text = error.to_string();
+    let mut cause = error.source();
+    while let Some(next) = cause {
+        text.push_str(": ");
+        text.push_str(&next.to_string());
+        cause = next.source();
+    }
+    text
+}
+
+/// Starts `command`, held by its pidfd and guarded, in `program_box` when
+/// given one.
+///
+/// It sets the command to lead a process group of its own when `grouped`,
+/// so the slot and the group always agree, reserves the child's slot of
+/// the signal handler's tables, spawns it, holds it by its pidfd, and arms
+/// the slot with its id. With no `program_box`, on the calling thread.
+/// Given one, on a thread of its own, which installs the box on itself
+/// first ([`ProgramBox::restrict_thread`]), checks that it may hand a
+/// signal on to the main thread (`gro_sys::check_hand_off`), starting
+/// nothing where the kernel refuses it, then takes every step above
+/// itself, so the child starts in the box and the slot is made, armed, or
+/// freed on the thread that reserved it, then ends; the caller's thread
+/// and the run's others keep the run's box. A panic on that thread is
+/// Gro's own bug, raised again on the caller's.
+///
+/// The slot's steps stay on the one thread because of how the handler
+/// waits: as it begins, it waits for each slot reserved to be armed or
+/// freed, unless the thread it runs on holds one, which that thread can't
+/// arm meanwhile. Every thread but the main one hands the signal on to the
+/// main thread, so the handler runs there: a caller on the main thread
+/// that reserved a slot and armed it once the box's thread was joined
+/// would have the handler skip the wait, and the child that slot is for
+/// would outlive the run, while a slot whose steps all run on the box's
+/// thread is always waited for. The hand-off matters for the box's thread
+/// besides: Landlock's signal scope lets it signal its own child alone,
+/// each earlier child being in a sibling domain of its own, so the handler
+/// kills only that child there, and the main thread, in the run's domain, kills
+/// every guarded group and passes the `SIGTERM` on to every other child
+/// (`gro_sys::guard_children_on_signal`).
+///
+/// Kind: a guardrail against Gro's own bug, and an availability measure
+/// (children outliving the run), not a security boundary. Its adversary
+/// is a change to the launch that splits the slot's steps across threads:
+/// `gro_sys`'s reservation is neither `Send` nor `Sync`, so it's made and
+/// dropped on one thread, but nothing makes the thread that arms it the
+/// one that spawned the child, and that split compiles; the injection
+/// tests of a launch in a box (`gro_cli`'s `boxed_launch`) are its review
+/// signal. It's defeated by a `SIGKILL` of the run, which orphans every
+/// child, and, for a child sharing the run's group, by a `SIGINT` from a
+/// sender that isn't the terminal, which the handler doesn't pass on. A
+/// kernel that refuses the hand-off doesn't defeat it: the check before
+/// the reservation refuses the launch there instead.
+///
+/// # Errors
+///
+/// Returns [`Unspawned`]: no slot free, or the run ending; the box not
+/// installed, its thread not started, or the hand-off refused; the spawn
+/// failing; or the pidfd not opened or the slot not armed, the child
+/// killed and reaped first.
+///
+/// # Panics
+///
+/// Raises again a panic of the box's thread, which is a bug of Gro's; a
+/// child it had started may be left running.
+pub fn spawn_held(
+    command: &mut Command,
+    grouped: bool,
+    program_box: Option<&ProgramBox>,
+) -> Result<Spawned, Unspawned> {
+    if grouped {
+        command.process_group(0);
+    }
+    let Some(program_box) = program_box else {
+        return spawn_here(command, grouped);
+    };
+    std::thread::scope(|scope| {
+        let thread = std::thread::Builder::new()
+            .spawn_scoped(scope, || {
+                program_box
+                    .restrict_thread()
+                    .map_err(Unspawned::Restricted)?;
+                gro_sys::check_hand_off().map_err(Unspawned::HandOffRefused)?;
+                #[cfg(feature = "testing")]
+                testing::observe(LaunchStep::Restricted);
+                spawn_here(command, grouped)
+            })
+            .map_err(Unspawned::Thread)?;
+        thread
+            .join()
+            .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+    })
+}
+
+/// [`spawn_held`]'s steps on the calling thread.
+fn spawn_here(command: &mut Command, grouped: bool) -> Result<Spawned, Unspawned> {
+    let reserved = if grouped {
+        GroupGuard::reserve().map(Reserved::Group)
+    } else {
+        TermForward::reserve().map(Reserved::Forward)
+    };
+    let reserved = reserved.map_err(|why| Unspawned::Unreserved { why, grouped })?;
+    #[cfg(feature = "testing")]
+    testing::observe(LaunchStep::Reserved);
+    let mut child = command.spawn().map_err(Unspawned::Spawn)?;
+    let pid = child.id();
+    #[cfg(feature = "testing")]
+    testing::observe(LaunchStep::Spawned(pid));
+    let pidfd = match Pidfd::open(pid) {
+        Ok(pidfd) => Arc::new(pidfd),
+        Err(error) => {
+            // unreaped, so its pid is still its own
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(Unspawned::Pidfd(error));
+        }
+    };
+    let guard = match reserved.arm(pid) {
+        Ok(guard) => guard,
+        Err(error) => {
+            // unreaped, so its pid is still its own
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(Unspawned::Arm(error));
+        }
+    };
+    #[cfg(feature = "testing")]
+    testing::observe(LaunchStep::Armed);
+    Ok(Spawned {
+        child,
+        pidfd,
+        guard,
+    })
+}
+
+/// A step of [`spawn_held`], told to the observer a test sets
+/// ([`observe_launch_steps`]) on the thread that took it, so the test can
+/// signal a thread between two steps.
+#[cfg(feature = "testing")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LaunchStep {
+    /// The program's box installed on the launch's own thread, and the
+    /// hand-off to the main thread checked.
+    Restricted,
+    /// The child's slot reserved.
+    Reserved,
+    /// The child spawned, by its pid, and its slot not armed yet.
+    Spawned(u32),
+    /// The child's slot armed.
+    Armed,
+}
+
+/// Sets the observer every launch tells its steps to, once per process;
+/// `false`, changing nothing, when one is set already.
+#[cfg(feature = "testing")]
+pub fn observe_launch_steps(observer: fn(LaunchStep)) -> bool {
+    testing::OBSERVER.set(observer).is_ok()
+}
+
+/// The observer of a launch's steps.
+#[cfg(feature = "testing")]
+mod testing {
+    use std::sync::OnceLock;
+
+    use super::LaunchStep;
+
+    /// The observer, set once.
+    pub(super) static OBSERVER: OnceLock<fn(LaunchStep)> = OnceLock::new();
+
+    /// Tells the observer, if one is set, of `step`.
+    pub(super) fn observe(step: LaunchStep) {
+        if let Some(observer) = OBSERVER.get() {
+            observer(step);
+        }
+    }
+}
+
 /// A child launched: held, its pidfd watched, and its piped streams.
 #[derive(Debug)]
 pub struct Launched {
@@ -533,13 +776,6 @@ pub(super) fn launch_child(
         })?;
     let path = pin.run_path.as_str();
     let grouped = !stdio.contains(&Stream::Inherit);
-    let reserved = if grouped {
-        GroupGuard::reserve().map(Reserved::Group)
-    } else {
-        TermForward::reserve().map(Reserved::Forward)
-    };
-    let reserved = reserved
-        .map_err(|unreserved| not_started(program, path, unreserved_why(unreserved, grouped)))?;
     run.guard_on_signal()
         .map_err(|error| not_started(program, path, error))?;
     let cwd = match cwd {
@@ -582,39 +818,13 @@ pub(super) fn launch_child(
         .stdin(to_stdio(stdio[0]))
         .stdout(to_stdio(stdio[1]))
         .stderr(to_stdio(stdio[2]));
-    if grouped {
-        command.process_group(0);
-    }
-    let mut child = command
-        .spawn()
-        .map_err(|error| not_started(program, path, error.to_string()))?;
+    let Spawned {
+        mut child,
+        pidfd,
+        guard,
+    } = spawn_held(&mut command, grouped, None)
+        .map_err(|unspawned| not_started(program, path, unspawned.to_string()))?;
     let pid = child.id();
-    let pidfd = match Pidfd::open(pid) {
-        Ok(pidfd) => Arc::new(pidfd),
-        Err(error) => {
-            // unreaped, so its pid is still its own
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err(not_started(
-                program,
-                path,
-                format!("it couldn't be held by its pidfd: {error}"),
-            ));
-        }
-    };
-    let guard = match reserved.arm(pid) {
-        Ok(guard) => guard,
-        Err(error) => {
-            // unreaped, so its pid is still its own
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err(not_started(
-                program,
-                path,
-                format!("its slot of the signal handler's tables couldn't be armed: {error}"),
-            ));
-        }
-    };
     let group = grouped.then_some(pid);
     let held = Held::track(Arc::clone(&pidfd), group, guard, &run.children);
     let stdin = child.stdin.take();
@@ -804,7 +1014,61 @@ pub(super) fn finish<'s>(
 mod tests {
     use gro_sys::{FORWARDED_CHILDREN, GUARDED_GROUPS, Unreserved};
 
-    use super::{signal_name, unreserved_why};
+    use super::{Unspawned, signal_name, unreserved_why};
+    use crate::confine::ConfineError;
+    use crate::confine::program::ProgramBoxError;
+
+    /// A launch that failed says why as its `launch_failed`'s text: the
+    /// steps every launch takes as they've always said it, and a launch in
+    /// a box, whose thread couldn't install the box, with each cause its
+    /// message doesn't hold already, couldn't start, or panicked.
+    #[test]
+    fn a_launch_that_failed_says_which_step() {
+        let os = std::io::Error::from_raw_os_error;
+        assert_eq!(
+            Unspawned::Unreserved {
+                why: Unreserved::Ending,
+                grouped: true
+            }
+            .to_string(),
+            "a signal is ending the run"
+        );
+        assert_eq!(
+            Unspawned::Spawn(os(libc::ENOENT)).to_string(),
+            "No such file or directory (os error 2)"
+        );
+        assert_eq!(
+            Unspawned::Pidfd(os(libc::EMFILE)).to_string(),
+            "it couldn't be held by its pidfd: Too many open files (os error 24)"
+        );
+        assert_eq!(
+            Unspawned::Arm(os(libc::EINVAL)).to_string(),
+            "its slot of the signal handler's tables couldn't be armed: Invalid argument (os \
+             error 22)"
+        );
+        assert_eq!(
+            Unspawned::Restricted(ProgramBoxError::Duplicate(os(libc::EMFILE))).to_string(),
+            "its box couldn't be installed on the thread that starts it: failed to duplicate \
+             the program's box's ruleset: Too many open files (os error 24)"
+        );
+        assert_eq!(
+            Unspawned::Restricted(ProgramBoxError::Landlock(ConfineError::LandlockPartial))
+                .to_string(),
+            "its box couldn't be installed on the thread that starts it: the kernel enforced \
+             the box's Landlock rules only in part, so none can be relied on"
+        );
+        assert_eq!(
+            Unspawned::Thread(os(libc::EAGAIN)).to_string(),
+            "the thread that starts it in its box couldn't be started: Resource temporarily \
+             unavailable (os error 11)"
+        );
+        assert_eq!(
+            Unspawned::HandOffRefused(os(libc::EPERM)).to_string(),
+            "the kernel refuses its box's thread a signal to the run's main thread, which a \
+             signal ending the run is handed on to, so a child started there could outlive the \
+             run: Operation not permitted (os error 1)"
+        );
+    }
 
     /// A launch refused once a signal is ending the run says so, whichever
     /// table it would take a slot of, and one refused at a table's cap
