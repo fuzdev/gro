@@ -368,15 +368,20 @@ As designed, except where marked built:
   under `check`, `test`, `typecheck`, `lint`, and `gen --check` the project is read-only to every process in the run but for the tool directories,
   `format --check`, which starts no tool, writes nothing at all,
   and `gen`, `format`, and `sync` write the project's top-level entries but `.git`, `node_modules`, and the other dot-entries.
-  The declared differences from the Node Gro follow, first those of the binary, then those of the box.
+  The declared differences from the Node Gro follow, first those of the binary, then those of the box;
+  the verb's differential (`crates/gro_cli/tests/verb_differential.rs`) holds the binary's output for a set of commands to what the Node Gro prints,
+  normalizing only the differences here that each case names.
   Gro's logger colors its output even under `NO_COLOR` or when piped.
-  `fgro --help` and `fgro help` print the binary's own help, where `gro --help` lists the builtins.
+  `fgro --help` and `fgro help` print the binary's own help, where `gro --help` lists the builtins,
+  and `fgro --version` the binary's own line, where `gro --version` prints Gro's version, which `fgro -v` prints.
   The console prints a string inside an array or object with double quotes, where Node's prints single ones,
   so a list Gro logs, like `gen`'s files, reads differently.
   A forwarded section that turns off a check its command runs, like `fgro check -- gro gen --no-check`,
   is refused before anything runs, exit 2, where the Node Gro writes,
   since the closure keeps an invoke's `check` mark whatever the command line forwards,
   and the refusal names the command that writes on the binary (`fgro gen`) and the whole command on the Node Gro.
+  Gro's `library_load.ts`, which reaches Node's builtins, isn't in the binary's embedded code, so a genfile that imports it, like a library's API docs genfile, fails to load, the error naming the Node Gro;
+  and `sveltekit_tsconfig_is_unsynced` fails on the binary, since it reads `tsconfig.json` through TypeScript, whose package has no `"exports"`, which the resolver requires ([resolver](resolver.md#departures-from-node)).
   A project's typecheck reads the types of the Gro it installed while the command runs the binary's embedded code.
   Another installed version falls back, so the two can differ when the installed Gro has the binary's version but not its code,
   like a build of a later commit before the version moves, or when the project installed no Gro, whose typecheck then finds no Gro types.

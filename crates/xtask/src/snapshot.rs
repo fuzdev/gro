@@ -320,7 +320,14 @@ const INTEGRATION_TESTS: [(Measurement, &[&str]); 3] = [
     (
         Measurement::None,
         &[
-            "run", "host", "eval", "confine", "run_box", "verb", "verb_box",
+            "run",
+            "host",
+            "eval",
+            "confine",
+            "run_box",
+            "verb",
+            "verb_box",
+            "verb_differential",
         ],
     ),
     // the phases build's marks, eval's written from inside its box

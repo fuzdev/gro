@@ -300,11 +300,15 @@ build, but those that start V8 under the box, which need a snapshot.
 They need Landlock ABI 6, and expect the network form the host's settings
 give (the run's own namespace unless user namespaces are restricted).
 A command of Gro's runs on the binary only from a snapshot build, in its
-box, so `tests/verb.rs`'s runs and `tests/verb_box.rs`, which attacks each
+box, so `tests/verb.rs`'s runs, `tests/verb_box.rs`, which attacks each
 wall from inside a boxed `fgro gen` and holds the refusals before the box
-and the floor's fallback, run from `--verify`, ignored in a plain
-`cargo test`; they need Landlock ABI 6, `python3`, the checkout's
-`node_modules`, and a `node` on `PATH` that is no version manager's shim.
+and the floor's fallback, and `tests/verb_differential.rs`, which holds
+commands' output to the Node Gro's
+(`tests/fixtures/verb_differential/expected.json`, which `node oracle.js
+--write` there regenerates under Node) but for the declared differences
+each case names, run from `--verify`, ignored in a plain `cargo test`;
+they need Landlock ABI 6, `python3`, the checkout's `node_modules`, and a
+`node` on `PATH` that is no version manager's shim.
 `--verify` names each of `gro_cli`'s integration tests with the features it
 runs under (`INTEGRATION_TESTS` in `crates/xtask/src/snapshot.rs`), and an
 xtask unit test fails on a file of `crates/gro_cli/tests/` no run names.

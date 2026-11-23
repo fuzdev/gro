@@ -1,0 +1,155 @@
+{
+	"description": "The verb's differential: each case's command line run in a fresh copy of `project`, its `files` written over it, by the Node gro (`oracle.js`, which writes what it printed to `expected.json`) and by `fgro` (`tests/verb_differential.rs`), each output's project root, gro's version, and durations normalized alike. A case's `differs` names the declared differences that test applies to the binary's output, each a line of `src/docs/runtime.md`'s list, and `binary` is the binary's whole output where a difference replaces Node's.",
+	"project": {
+		"package.json": "{\n  \"name\": \"p\",\n  \"type\": \"module\",\n  \"devDependencies\": {\n    \"typescript\": \"*\"\n  }\n}\n",
+		"tsconfig.json": "{\"compilerOptions\": {\"strict\": true, \"module\": \"nodenext\", \"noEmit\": true, \"allowImportingTsExtensions\": true}, \"include\": [\"src\"]}\n",
+		"src/lib/a.ts": "export const a = 1;\n",
+		"src/lib/w.gen.ts": "export const gen = () => '// w\\n';\n",
+		"src/lib/w.ts": "// w\n"
+	},
+	"cases": [
+		{
+			"name": "listing",
+			"args": [],
+			"differs": [
+				"linked_node_modules",
+				"logger_colors"
+			]
+		},
+		{
+			"name": "version",
+			"args": [
+				"-v"
+			],
+			"differs": [
+				"linked_node_modules",
+				"logger_colors"
+			]
+		},
+		{
+			"name": "binary_version",
+			"args": [
+				"--version"
+			],
+			"differs": [
+				"binary_version"
+			]
+		},
+		{
+			"name": "format_check",
+			"args": [
+				"format",
+				"--check"
+			],
+			"differs": [
+				"linked_node_modules",
+				"logger_colors"
+			]
+		},
+		{
+			"name": "format_check_unformatted",
+			"args": [
+				"format",
+				"--check"
+			],
+			"files": {
+				"src/lib/b.ts": "export const   b=1\n"
+			},
+			"differs": [
+				"linked_node_modules",
+				"logger_colors"
+			]
+		},
+		{
+			"name": "gen_check",
+			"args": [
+				"gen",
+				"--check"
+			],
+			"differs": [
+				"linked_node_modules",
+				"logger_colors",
+				"console_quotes"
+			]
+		},
+		{
+			"name": "gen_check_stale",
+			"args": [
+				"gen",
+				"--check"
+			],
+			"files": {
+				"src/lib/w.ts": "// stale\n"
+			},
+			"differs": [
+				"linked_node_modules",
+				"logger_colors",
+				"console_quotes"
+			]
+		},
+		{
+			"name": "check",
+			"args": [
+				"check"
+			],
+			"differs": [
+				"linked_node_modules",
+				"logger_colors",
+				"console_quotes"
+			]
+		},
+		{
+			"name": "check_forwarded_gen_write",
+			"args": [
+				"check",
+				"--",
+				"gro",
+				"gen",
+				"--no-check"
+			],
+			"files": {
+				"src/lib/w.ts": "// stale\n"
+			},
+			"differs": [
+				"check_turned_off_refused"
+			],
+			"binary": {
+				"code": 2,
+				"stdout": "",
+				"stderr": "error: {binary} check runs gen in check mode, writing no source, and the forwarded `-- gro gen` turns that check off, a write it never grants: run {binary} gen for the writes, or node_modules/.bin/gro check -- gro gen --no-check on the project's Node gro, unconfined\n"
+			}
+		},
+		{
+			"name": "allow_all_after_command",
+			"args": [
+				"format",
+				"-A",
+				"--check"
+			],
+			"differs": [
+				"allow_all_refused"
+			],
+			"binary": {
+				"code": 2,
+				"stdout": "",
+				"stderr": "error: -A would run a command of Gro's unconfined, and the binary runs each in a kernel box: the project's Node gro is the unconfined spelling (node_modules/.bin/gro format --check)\n"
+			}
+		},
+		{
+			"name": "allow_all_before_command",
+			"args": [
+				"-A",
+				"format",
+				"--check"
+			],
+			"differs": [
+				"allow_all_refused"
+			],
+			"binary": {
+				"code": 2,
+				"stdout": "",
+				"stderr": "error: -A comes before the command, and the binary runs each command of Gro's in a kernel box, which -A can't lift: the project's Node gro is the unconfined spelling (node_modules/.bin/gro format)\n"
+			}
+		}
+	]
+}

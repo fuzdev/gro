@@ -1,0 +1,57 @@
+{
+	"listing": {
+		"code": 0,
+		"stdout": "[gro] \n\n18 builtin tasks:\n\nbuild      build the project\nchangeset  call changeset with gro patterns\ncheck      check that everything is ready to commit\nclean      remove build files, and optionally prune git branches\ncommit     commit and push to a new branch\ndeploy     deploy to a branch\ndev        start SvelteKit and other dev plugins\nformat     format source files\ngen        run code generation scripts\nlint       run eslint\npublish    bump version, publish to the configured registry, and git push\nreinstall  refreshes package-lock.json with the latest and cleanest deps\nrelease    publish and deploy\nrun        execute a file with the loader, like `node` but works for TypeScript\nsync       optionally install packages, sync SvelteKit, update `package.json`, and run `gro gen`\ntest       run tests with vitest\ntypecheck  run svelte-check or tsc on the project without emitting any files\nupgrade    upgrade deps\n\nRun a builtin:        gro [name]\nView its help:        gro [name] --help\nRun a project task:   gro task [path/to/file.task.ts]\nList project tasks:   gro task [dir], defaults to src/\n\n",
+		"stderr": ""
+	},
+	"version": {
+		"code": 0,
+		"stdout": "[gro] v{version}\n",
+		"stderr": ""
+	},
+	"binary_version": {
+		"code": 0,
+		"stdout": "[gro] v{version}\n",
+		"stderr": ""
+	},
+	"format_check": {
+		"code": 0,
+		"stdout": "[format] invoking format\n[format] → format format source files\n[format] ✓ format\n┆debug┆ [format] {ms} ← run task format\n[format] 🕒 {ms}\n",
+		"stderr": ""
+	},
+	"format_check_unformatted": {
+		"code": 1,
+		"stdout": "[format] invoking format\n[format] → format format source files\n[format] 🞩 format\n",
+		"stderr": "🞩error🞩 [format] 1 file(s) need formatting:\n🞩error🞩 [format]   {root}/src/lib/b.ts\n🞩error🞩 [format] Failed formatting check.\n"
+	},
+	"gen_check": {
+		"code": 0,
+		"stdout": "[gen] invoking gen\n[gen] → gen run code generation scripts\n[gen] gen files [ '{root}/src/lib/w.gen.ts' ]\n[gen] checking generated files for changes\n[gen] check passed, no files have changed\n[gen] gen results:\n\t○  {ms}  ./src/lib/w.gen.ts → ./src/lib/w.ts\n\n\t0 new, 0 changed, 1 unchanged from 1 input file\n[gen] ✓ gen\n┆debug┆ [gen] {ms} ← run task gen\n┆debug┆ [gen] {ms} ← resolve input paths\n┆debug┆ [gen] {ms} ← find files\n┆debug┆ [gen] {ms} ← load modules\n┆debug┆ [gen] {ms} ← generate code\n┆debug┆ [gen] {ms} ← run_gen\n┆debug┆ [gen] {ms} ← {root}/src/lib/w.gen.ts\n┆debug┆ [gen] {ms} ← check results for changes\n[gen] 🕒 {ms}\n",
+		"stderr": ""
+	},
+	"gen_check_stale": {
+		"code": 1,
+		"stdout": "[gen] invoking gen\n[gen] → gen run code generation scripts\n[gen] gen files [ '{root}/src/lib/w.gen.ts' ]\n[gen] checking generated files for changes\n[gen] 🞩 gen\n",
+		"stderr": "🞩error🞩 [gen] Generated file ./src/lib/w.ts via ./src/lib/w.gen.ts has changed.\n🞩error🞩 [gen] Failed gen check. Some generated files have unexpectedly changed. Run `gro gen` and try again.\n"
+	},
+	"check": {
+		"code": 0,
+		"stdout": "[check] invoking check\n[check] → check check that everything is ready to commit\n[check] the install wasn't checked: the project has no package-lock.json\n[check:typecheck] invoking typecheck\n[check:typecheck] → typecheck run svelte-check or tsc on the project without emitting any files\n[check:typecheck] [running command] tsc --noEmit\n[check:typecheck] ✓ typecheck\n[check] vitest is not declared and no test files were found; skipping tests\n[check:gen] invoking gen\n[check:gen] → gen run code generation scripts\n[check:gen] gen files [ '{root}/src/lib/w.gen.ts' ]\n[check:gen] checking generated files for changes\n[check:gen] check passed, no files have changed\n[check:gen] gen results:\n\t○  {ms}  ./src/lib/w.gen.ts → ./src/lib/w.ts\n\n\t0 new, 0 changed, 1 unchanged from 1 input file\n[check:gen] ✓ gen\n[check] no changes to exports in package.json\n[check] check passed for package.json\n[check:format] invoking format\n[check:format] → format format source files\n[check:format] ✓ format\n[check] eslint is not declared and the project root has no ESLint config; skipping lint\n[check] ✓ check\n┆debug┆ [check] {ms} ← run task check\n┆debug┆ [check] {ms} ← run task typecheck\n┆debug┆ [check] {ms} ← run task gen\n┆debug┆ [check] {ms} ← resolve input paths\n┆debug┆ [check] {ms} ← find files\n┆debug┆ [check] {ms} ← load modules\n┆debug┆ [check] {ms} ← generate code\n┆debug┆ [check] {ms} ← run_gen\n┆debug┆ [check] {ms} ← {root}/src/lib/w.gen.ts\n┆debug┆ [check] {ms} ← check results for changes\n┆debug┆ [check] {ms} ← run task format\n[check] 🕒 {ms}\n",
+		"stderr": ""
+	},
+	"check_forwarded_gen_write": {
+		"code": 0,
+		"stdout": "[check] invoking check\n[check] → check check that everything is ready to commit\n[check] the install wasn't checked: the project has no package-lock.json\n[check:typecheck] invoking typecheck\n[check:typecheck] → typecheck run svelte-check or tsc on the project without emitting any files\n[check:typecheck] [running command] tsc --noEmit\n[check:typecheck] ✓ typecheck\n[check] vitest is not declared and no test files were found; skipping tests\n[check:gen] invoking gen\n[check:gen] → gen run code generation scripts\n[check:gen] gen files [ '{root}/src/lib/w.gen.ts' ]\n[check:gen] writing changed ./src/lib/w.ts generated from ./src/lib/w.gen.ts\n[check:gen] gen results:\n\t◐  {ms}  ./src/lib/w.gen.ts → ./src/lib/w.ts\n\n\t0 new, 1 changed, 0 unchanged from 1 input file\n[check:gen] ✓ gen\n[check] no changes to exports in package.json\n[check] check passed for package.json\n[check:format] invoking format\n[check:format] → format format source files\n[check:format] ✓ format\n[check] eslint is not declared and the project root has no ESLint config; skipping lint\n[check] ✓ check\n┆debug┆ [check] {ms} ← run task check\n┆debug┆ [check] {ms} ← run task typecheck\n┆debug┆ [check] {ms} ← run task gen\n┆debug┆ [check] {ms} ← resolve input paths\n┆debug┆ [check] {ms} ← find files\n┆debug┆ [check] {ms} ← load modules\n┆debug┆ [check] {ms} ← generate code\n┆debug┆ [check] {ms} ← run_gen\n┆debug┆ [check] {ms} ← {root}/src/lib/w.gen.ts\n┆debug┆ [check] {ms} ← output results\n┆debug┆ [check] {ms} ← run task format\n[check] 🕒 {ms}\n",
+		"stderr": ""
+	},
+	"allow_all_after_command": {
+		"code": 0,
+		"stdout": "[format] invoking format\n[format] → format format source files\n[format] ✓ format\n┆debug┆ [format] {ms} ← run task format\n[format] 🕒 {ms}\n",
+		"stderr": "grant flags have no effect on the Node gro, which confines nothing: `-A`\n"
+	},
+	"allow_all_before_command": {
+		"code": 1,
+		"stdout": "",
+		"stderr": "🞩error🞩 [gro] `-A` comes before the command: grant flags go right after the command word, like `gro format -A`\n"
+	}
+}
