@@ -148,7 +148,7 @@
 			"binary": {
 				"code": 2,
 				"stdout": "",
-				"stderr": "error: -A comes before the command, and the binary runs each command of Gro's in a kernel box, which -A can't lift: the project's Node gro is the unconfined spelling (node_modules/.bin/gro format)\n"
+				"stderr": "error: -A comes before the command, and the binary runs each command of Gro's in a kernel box, which -A can't lift: the project's Node gro is the unconfined spelling (node_modules/.bin/gro format --check)\n"
 			}
 		}
 	]

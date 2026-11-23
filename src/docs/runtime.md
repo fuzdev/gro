@@ -381,7 +381,7 @@ As designed, except where marked built:
   since the closure keeps an invoke's `check` mark whatever the command line forwards,
   and the refusal names the command that writes on the binary (`fgro gen`) and the whole command on the Node Gro.
   Gro's `library_load.ts`, which reaches Node's builtins, isn't in the binary's embedded code, so a genfile that imports it, like a library's API docs genfile, fails to load, the error naming the Node Gro;
-  and `sveltekit_tsconfig_is_unsynced` fails on the binary, since it reads `tsconfig.json` through TypeScript, whose package has no `"exports"`, which the resolver requires ([resolver](resolver.md#departures-from-node)).
+  and `sveltekit_tsconfig_is_unsynced` fails on the binary, since it reads `tsconfig.json` through TypeScript, whose package has no `"exports"` and is CommonJS, both refused ([resolver](resolver.md#specifiers)).
   A project's typecheck reads the types of the Gro it installed while the command runs the binary's embedded code.
   Another installed version falls back, so the two can differ when the installed Gro has the binary's version but not its code,
   like a build of a later commit before the version moves, or when the project installed no Gro, whose typecheck then finds no Gro types.
@@ -495,7 +495,7 @@ where the host modules and grants land with their first consumer.
 - [ ] the first release, Gro running on this runtime, for Linux x86_64, once each tool has its own box;
       the tool that installs it records the binary's hash as a pin,
       which the caller of `gro eval` verifies before every spawn
-      (no release is tagged, and `fgro` isn't released on its own)
+      (no binary release is attached yet, and `fgro` isn't released on its own)
 - [ ] macOS and Windows builds, each with its own sandbox design
 - [ ] binary-only, where `fgro` becomes `gro`, the npm package carries types, and the crates publish
 - [ ] serving and types from the binary, so fuz_app's server side runs on Gro
@@ -535,7 +535,7 @@ Maybe later or never:
 
 ## Install
 
-No release is tagged, and `fgro` isn't released on its own:
+No binary release is attached yet, and `fgro` isn't released on its own:
 the first published version will be Gro running on this runtime ([roadmap](#roadmap)),
 the binary attached as `gro` to the GitHub Release of the npm package's own tag, `v<version>`.
 Until then, build it from source, for Linux x86_64 ([the README](../../README.md#develop)),

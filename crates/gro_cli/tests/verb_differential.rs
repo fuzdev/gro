@@ -19,11 +19,12 @@
 //! the checkout's `node_modules` (`npm ci`), which each project links whole,
 //! where `check`'s `tsc` and Gro's peers are installed, and a `node` on
 //! `PATH` that is the runtime itself, not a version manager's shim. Each
-//! project sits in the system's temporary directory, under no
+//! project sits under `/tmp`, whatever `TMPDIR` says, under no
 //! `package.json`, with an empty home directory of its own, as the oracle's
-//! do, its root's path kept short on both sides: the console breaks an
-//! inspected array longer than its line onto lines of its own, which
-//! `{root}` doesn't hide.
+//! do, so its root's path is short on both sides: both consoles break an
+//! inspected array whose string reaches [`WRAP_BOUND`] characters onto lines
+//! of their own, which `{root}` doesn't hide, and a root that would reach it
+//! fails the test before anything runs.
 
 #![expect(
     clippy::unwrap_used,
@@ -40,6 +41,14 @@ use std::process::Output;
 use gro_runtime::BINARY_NAME;
 use serde_json::Value;
 use support::{Scratch, fgro_command, spawn, version};
+
+/// The length of a string at which Node's console, and the binary's, break
+/// an inspected array holding it onto lines of their own.
+const WRAP_BOUND: usize = 66;
+
+/// The longest path under a project's root the cases print in an inspected
+/// array, `gen`'s list of its genfiles.
+const LONGEST_PRINTED: &str = "/src/lib/w.gen.ts";
 
 /// The fixtures directory.
 fn fixtures() -> PathBuf {
@@ -352,8 +361,15 @@ fn each_case_prints_what_the_node_gro_printed() {
             .map(|(path, content)| (path.as_str(), content.as_str()))
             .collect();
         // one case at a time, each dropping its scratch before the next makes its own
-        let scratch = Scratch::in_system_temp("vd", &listed);
+        let scratch = Scratch::in_tmp("vd", &listed);
         let root = scratch.0.join("p");
+        let longest = root.display().to_string().len() + LONGEST_PRINTED.len();
+        assert!(
+            longest < WRAP_BOUND,
+            "{}: the project's root is too long for the cases' inspected arrays, which break \
+             onto lines of their own at {WRAP_BOUND} characters, and `{{root}}` can't hide that",
+            root.display()
+        );
         let home = scratch.0.join("home");
         std::fs::create_dir(&home).unwrap();
         std::os::unix::fs::symlink(checkout_node_modules(), root.join("node_modules")).unwrap();

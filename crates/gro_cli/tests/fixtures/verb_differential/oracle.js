@@ -7,9 +7,10 @@
 //
 // A case runs in a fresh copy of the project, its `files` written over it, beside a
 // `node_modules` that links the checkout's, where the project's tools and Gro's peers are
-// installed, in a directory of the OS's temporary directory, so no `package.json` above it is
-// read, its path kept short: the console breaks an inspected array longer than its line onto lines
-// of its own, which `{root}` doesn't hide. Its environment holds `PATH`, for the tools' `node`, and a `HOME` that's an empty directory
+// installed, in a directory under `/tmp`, whatever `TMPDIR` says, so no `package.json` above it is
+// read and its path is short: both consoles break an inspected array whose string reaches
+// `WRAP_BOUND` characters onto lines of their own, which `{root}` doesn't hide, and a root that
+// would reach it fails before anything runs. Its environment holds `PATH`, for the tools' `node`, and a `HOME` that's an empty directory
 // of its own, never the developer's. What it printed is normalized as the binary's test normalizes
 // it: the project's root as `{root}`, gro's version as `{version}`, and each duration as `{ms}`.
 //
@@ -26,7 +27,6 @@ import {
 	symlinkSync,
 	writeFileSync
 } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -34,6 +34,11 @@ const dir = realpathSync(import.meta.dirname);
 const expected_path = join(dir, 'expected.json');
 const checkout = join(dir, '../../../../..');
 const lib = join(checkout, 'src/lib');
+
+// the length of a string at which Node's console breaks an inspected array holding it, and the
+// longest path under a root the cases print in one, `gen`'s list of its genfiles
+const WRAP_BOUND = 66;
+const LONGEST_PRINTED = '/src/lib/w.gen.ts';
 
 /** @typedef {{code: number, stdout: string, stderr: string}} Output */
 /** @typedef {{name: string, args: Array<string>, files?: Record<string, string>}} Case */
@@ -77,9 +82,15 @@ const normalize = (text, root) =>
  * @returns {Output}
  */
 const run = (test_case) => {
-	const scratch = realpathSync(mkdtempSync(join(tmpdir(), 'gro_vd_')));
+	const scratch = realpathSync(mkdtempSync('/tmp/gro_vd_'));
 	try {
 		const root = join(scratch, 'p');
+		if (root.length + LONGEST_PRINTED.length >= WRAP_BOUND) {
+			throw new Error(
+				`${root}: the project's root is too long for the cases' inspected arrays, which break ` +
+					`onto lines of their own at ${WRAP_BOUND} characters, and \`{root}\` can't hide that`
+			);
+		}
 		const home = join(scratch, 'home');
 		mkdirSync(home);
 		for (const [path, content] of Object.entries({ ...project, ...test_case.files })) {

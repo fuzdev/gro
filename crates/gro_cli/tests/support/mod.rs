@@ -245,8 +245,19 @@ pub fn drain(mut pipe: impl Read + Send + 'static) -> JoinHandle<Vec<u8>> {
 /// Panics, naming `TMPDIR`, when it isn't, which the tests that expect the
 /// walks to stop there would fail on misleadingly.
 pub fn system_temp() -> PathBuf {
+    checked_temp(&std::env::temp_dir())
+}
+
+/// `dir`, a temporary directory, canonical, checked as [`system_temp`]
+/// checks the system's.
+///
+/// # Panics
+///
+/// Panics, naming `TMPDIR`, when it isn't world-writable or a
+/// `package.json` is at or above it.
+pub fn checked_temp(dir: &Path) -> PathBuf {
     use std::os::unix::fs::PermissionsExt as _;
-    let temp = std::env::temp_dir().canonicalize().unwrap();
+    let temp = dir.canonicalize().unwrap();
     let mode = std::fs::metadata(&temp).unwrap().permissions().mode();
     assert!(
         mode & 0o002 != 0,
@@ -298,12 +309,31 @@ impl Scratch {
         Self::under(&system_temp(), name, files)
     }
 
+    /// `files`, each at its relative path, under `/tmp`, whatever `TMPDIR`
+    /// says, checked as [`system_temp`] checks the system's temporary
+    /// directory, in a directory named `gro_<name>_<pid>`, so a test whose
+    /// output holds the path keeps it short wherever it runs.
+    ///
+    /// # Panics
+    ///
+    /// Panics when `/tmp` isn't world-writable or a `package.json` is at or
+    /// above it.
+    pub fn in_tmp(name: &str, files: &[(&str, &str)]) -> Self {
+        let dir = checked_temp(Path::new("/tmp")).join(format!("gro_{name}_{}", std::process::id()));
+        Self::at(dir, files)
+    }
+
     fn under(base: &Path, name: &str, files: &[(&str, &str)]) -> Self {
         let dir = base.join(format!(
             "gro_cli_{}_{}_{name}",
             env!("CARGO_CRATE_NAME"),
             std::process::id()
         ));
+        Self::at(dir, files)
+    }
+
+    /// `files`, each at its relative path, in `dir`, made afresh.
+    fn at(dir: PathBuf, files: &[(&str, &str)]) -> Self {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         set_mode(&dir, 0o755);
