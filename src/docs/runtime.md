@@ -12,18 +12,20 @@
 >   its heap, memory, and time limited, and its process in a kernel box read-only to its project
 >   ([eval](eval.md))
 > - `fgro <command>` runs a command of Gro's, like `fgro check`, from Gro's own code embedded in the binary,
->   its grants read natively from the command's closure, unboxed, or runs the project's Node Gro and says why
+>   its grants read natively from the command's closure, in the run's kernel box with every tool it starts,
+>   or runs the project's Node Gro and says why
 >   ([Gro's workflow](#gros-workflow-on-the-runtime))
 >
 > Designed, not built: the host modules not marked built in [host modules](host_modules.md#the-modules) (`net`, `watch`, and the standard streams among them;
 > every host module exists as its Node implementation), the grant flags beyond those listed in [run](run.md#usage), the policy file,
 > and the seal on the global object.
-> The kernel backstop for `run` and a command of Gro's is built in parts and installed by no command ([backstop](backstop.md)).
-> Until they land and the backstop is installed, `fgro run` gives code no API past its own module graph, the console, and the builtin modules [host modules](host_modules.md#the-modules) marks built,
+> So are the box for `fgro run` and a box for each tool inside a command's ([box](box.md)).
+> Until they land, `fgro run` gives code no API past its own module graph, the console, and the builtin modules [host modules](host_modules.md#the-modules) marks built,
 > but the process itself isn't confined or limited: against code that exploits V8 it's an ordinary process with your user's authority,
 > the same class as Deno with no permissions granted;
-> and with no exploit at all, a run that `--allow-run=` or `--allow-run-in=` grants a program is close to `-A`, as Deno's `--allow-run` is,
-> and so is a command of Gro's whose closure grants a tool.
+> and with no exploit at all, a run that `--allow-run=` or `--allow-run-in=` grants a program is close to `-A`, as Deno's `--allow-run` is.
+> A command of Gro's runs in the run's box, so a tool its closure grants is bounded by that box's rules
+> ([box](box.md#what-a-commands-box-admits)), not by the grants.
 > The [roadmap](#roadmap) marks what's built, the design doesn't have every answer yet
 > ([open questions](#open-questions)), and feedback is welcome in [discussions](https://github.com/fuzdev/gro/discussions).
 
@@ -31,7 +33,7 @@ The runtime's docs:
 
 - [runtime](runtime.md) (this doc) - why it exists, the model in a page, the design, and the roadmap
 - [authority](authority.md) - the security model: grants and the policy file, run kinds, what holds by construction, the threat model, imports or globals
-- [backstop](backstop.md) - the kernel layer under the runtime's checks: what Landlock and seccomp hold and can't, the one namespace the box takes, the box designed for runs and children, the terminal, and limits
+- [box](box.md) - the kernel layer under the runtime's checks: what Landlock and seccomp hold and can't, the one namespace the box takes, the box a command of Gro's runs in and the one designed for each child, the terminal, and limits
 - [run](run.md) - the reference for `fgro run` as built today: what loads, the globals, errors, and exit codes
 - [eval](eval.md) - the reference for `fgro eval` as built today: the engine and its limits, determinism, the protocol, the box, the driver, the serializer, the envelope, the graph, and exit codes
 - [host modules](host_modules.md) - the imports that reach the OS: `fs`, `spawn`, `net`, `watch`, and the process modules, how to hand them down, and the Node implementation's gaps
@@ -112,16 +114,17 @@ any language compiled to it (see [polyglot confinement](#what-the-design-opens-u
 - **Nothing to declare for the common case.** Reads under the project root, writes to declared write roots,
   and declared public env names run as project code's own imports without acceptance;
   the network, processes, reads outside the project, private env names, and any host module a dependency imports wait for it;
-  `.env*`, credential files, and writes under `.git` or `node_modules` stay denied short of `-A`.
+  `.env*`, credential files, and writes under `.git` or `node_modules` are designed to stay denied short of `-A`
+  (the box a command of Gro's runs in refuses those writes at the kernel, and leaves `.env*` readable).
 - **Three run kinds.** Hermetic (no network or spawn, clock and randomness fixed or denied, every read recorded, replays),
   confined (bounded by grants, the default), and unconfined (`-A` and the named phases that push and use credentials).
   `gro eval` and Gro's gen files are hermetic.
 - **Handles, narrowed and handed down.** A host module exports a handle (a directory, a program, `net` bound to hosts)
   that's narrowed on the value and passed as a parameter, so authority is visible at every use site
   and library code takes it as a parameter rather than importing it ([host modules](host_modules.md#where-to-import-them)).
-- **A kernel backstop under it.** On Linux a coarsening of the grant set becomes Landlock and seccomp rules
+- **A kernel box under it.** On Linux a coarsening of the grant set becomes Landlock and seccomp rules
   for the whole invocation and every child, so an op-check bug, an engine escape, or a spawned tool still lands in a box;
-  children get the project read-only and only the declared write roots writable ([backstop](backstop.md)).
+  children get the project read-only and only the declared write roots writable ([box](box.md)).
 - **No prompts.** A grant denial fires at link time, before any confined code has written to your terminal
   (scoped checks inside a grant fail at the call and are reported, failing the run, so a `try/catch` can't hide them:
   built for `env`, `fs`, and `spawn`, designed for the modules to come),
@@ -132,13 +135,14 @@ any language compiled to it (see [polyglot confinement](#what-the-design-opens-u
 
 Of all this, the omissions are built (`fgro` has no runtime namespace, no Node compat, no remote imports, and no authority globals),
 `fgro eval`'s box is built, the link-time grant check is built, over the builtin modules [host modules](host_modules.md#the-modules) marks built, which are its only host APIs,
-the grant flags [run](run.md#usage) lists are built, and the rest of the host modules, the other grant flags, the policy file, and the seal are designed, and the box for runs is built in parts and installed by no command.
+the grant flags [run](run.md#usage) lists are built, the run's box is built for every command of Gro's on the binary,
+and the rest of the host modules, the other grant flags, the policy file, the seal, and the box for `fgro run` are designed.
 
 ## Design
 
 The runtime prioritizes, in order:
 
-1. security, with no ambient authority, confinement as the default, and a kernel backstop under it,
+1. security, with no ambient authority, confinement as the default, and a kernel box under it,
    measured by a gate suite of escape probes the way speed is measured by the bench
 2. web-standards conformance, to the WinterTC minimum common API less its one member that carries authority,
    `fetch`, which is an import here (`net.fetch`) because security comes first;
@@ -206,10 +210,11 @@ Each bullet marks what's built; anything unmarked past the omissions is designed
   so an ungranted module fails at link time, not at the first call.
   The network is an import too, never a global, and the global object is sealed after bootstrap
   with named exceptions ([authority](authority.md#imports-or-globals) has the trade-off and the how-to).
-- **A kernel backstop.** On Linux a coarsening of the grant set also becomes kernel rules for the whole invocation,
+- **A kernel box.** On Linux a coarsening of the grant set also becomes kernel rules for the whole invocation,
   installed before V8 starts a thread and inherited by every child process.
-  Installed so far for `fgro eval` alone, as a fixed box with no grants to enforce yet, and the run's box built in parts
-  ([eval](eval.md#the-box) has its exact walls; [backstop](backstop.md) has what each layer holds, the one namespace the box takes, and the box designed for runs and children).
+  Installed for `fgro eval`, as a fixed box with no grants to enforce yet, and for every command of Gro's on the binary, as the run's box,
+  derived from the command's closure and the grant flags; designed for `fgro run`, and for each child inside the run's
+  ([eval](eval.md#the-box) has eval's exact walls; [box](box.md) has what each layer holds, the one namespace the box takes, and the run's walls).
 - **Native code: first-party crates linked in, WASM as the portable path, FFI as a grant.**
   blake3 and tsv are exposed as builtin modules (`@fuzdev/gro/blake3.ts`, `@fuzdev/gro/tsv.ts`), with no boundary to cross.
   Third-party native code arrives as WASM, or as an embedder's own host modules.
@@ -221,7 +226,7 @@ Each bullet marks what's built; anything unmarked past the omissions is designed
   [discussions](https://github.com/fuzdev/gro/discussions):
   if a measured need brings it (chatty calls, callbacks into JS, a library tied to its process),
   it comes as a grant of its own, never part of `-A`,
-  shown in the policy diff as leaving the runtime's checks, with the kernel backstop still around the process.
+  shown in the policy diff as leaving the runtime's checks, with the box still around the process.
 - **A toolchain, grown by need.** Run and eval (built) and tasks come first,
   then serving (TCP, TLS, WebSocket) so fuz_app's TS backends run on it,
   a test runner, bundled dev and build, and types emitted from the binary.
@@ -245,7 +250,7 @@ Each bullet marks what's built; anything unmarked past the omissions is designed
   and compiled from that copy when a run first imports one of its modules (built for `fgro run` and `fgro <command>`),
   and `gro eval` and hermetic runs never read a cache.
   A writer outside the box, compiling from source itself, is the route if a measurement on third-party graphs shows a cache worth it,
-  and a cache for unconfined runs is undecided ([backstop](backstop.md#open)).
+  and a cache for unconfined runs is undecided ([box](box.md#open)).
 - **Fewer platform-isms** (designed). URL resolution with no path separators (built) and argv-only spawn
   (never a shell string, as the Node `spawn` host module already is) keep platform differences in a handful of files.
 
@@ -264,11 +269,12 @@ with no exception for the network.
 The second is that the module graph is closed and on disk, never fetched at run time.
 Both are guarantees by omission, so they hold for every run,
 where Deno's equivalents are flags that hold for the runs that pass them.
-The rest, like the kernel backstop, no prompts, and deterministic runs,
+The rest, like the kernel box, no prompts, and deterministic runs,
 are defaults Deno could adopt without breaking anyone, and Gro's design turns them on;
 with Deno in maintenance until its end of life in October 2027 ([Why](#why)), we don't expect them to land there.
-Until the backstop lands for runs, Gro's checks are, like Deno's, in-process checks in a process that holds your user's authority;
-the difference is where authority enters, not yet how strongly it's contained.
+Until the box lands for `fgro run`, its checks are, like Deno's, in-process checks in a process that holds your user's authority,
+and there the difference is where authority enters, not yet how strongly it's contained;
+a command of Gro's on the binary already runs in the kernel's box.
 
 ## What the design opens up
 
@@ -295,14 +301,14 @@ the difference is where authority enters, not yet how strongly it's contained.
 - **Polyglot confinement.** V8 runs WASM, and a WASM module imported as an ES module
   declares its capabilities by its imports, the same thing a JS module's imports are
   (one instantiated from bytes at run time gets exactly the import object the JS hands it, which is handing, not a grant).
-  So one policy file, one inference, and one kernel backstop cover every language that targets WASM,
+  So one policy file, one inference, and one kernel box cover every language that targets WASM,
   and a tool, a plugin, or an agent's script written in Rust, C, Go, Zig, or Python
   runs under the grants its imports declare, beside the TS that calls it, in one process.
   The WASI shape maps onto it directly, with the grant set as the host side of the module's world
   and read roots as its preopens.
   This is where code treated as hostile can go instead of under a looser grant,
   which is what lets the runtime's scope grow past JS without widening the boundary;
-  WASM needs the JIT, so against an engine exploit it leans on the kernel backstop more than jitless JS under `gro eval` does.
+  WASM needs the JIT, so against an engine exploit it leans on the box more than jitless JS under `gro eval` does.
 
 ## Open questions
 
@@ -312,8 +318,8 @@ The design's open questions live with the layer they belong to:
 - the authority model's, in [authority](authority.md#open-questions): keeping an agent out of the policy file,
   deterministic scheduling for replay, interposition within one realm and how freezing the intrinsics opts a package out,
   free names through the global's prototype, and which files under the project count as secrets
-- the kernel layer's, in [backstop](backstop.md#open): the network for a run granted it, a code cache for unconfined runs,
-  children that need `/proc`, hard links, browser tests, and the platforms
+- the kernel layer's, in [box](box.md#open): the network for a run granted it, a code cache for unconfined runs,
+  hard links, browser tests, and the platforms
 - **how a package's reach into the project is accepted**: a package's bare import that resolves into the project root
   is refused (built), so a workspace package that imports the app by name, and a tool package that imports the project's config by name,
   wait on a policy-file acceptance naming the package or on workspace support ([resolver](resolver.md#departures-from-node))
@@ -333,7 +339,7 @@ As designed, except where marked built:
   Each builtin's `host` is cut from that union by its own grants, a [guardrail](glossary.md#guardrail) against Gro's own mistakes,
   while the project's code in the same realm holds the whole union, which only the native checks and the run's box bound
   ([threat model](authority.md#threat-model)).
-  A Node tool the invocation spawns is designed to be held by the box, by paths and the network, not by the grant set.
+  A Node tool the invocation spawns is held by the run's box (built), by paths and the network, not by the grant set.
 - `gro check` is the project's check: it infers each task's and gen file's grants,
   diffs them against the committed policy file, and fails on a widening until `gro policy accept` records it.
   On the Node Gro it runs advisory first, since Node enforces none of it.
@@ -343,7 +349,7 @@ As designed, except where marked built:
 - The builtins' grants live in Gro: each builtin's `task.grants`, generated into a table the binary carries
   and reads into a [command's closure](glossary.md#commands-closure) before any JS runs
   (built; [task](task.md#a-builtins-host-and-grants)).
-- `fgro <command>` runs a command of Gro's on the binary (built, without the box):
+- `fgro <command>` runs a command of Gro's on the binary (built, in the run's box):
   every first argument but the binary's own (`run`, `eval`, `--version`, `--help` and `help`, and the internal `make-snapshot` and `make-embed`) is one,
   bare `fgro` lists them, and `fgro -v` prints Gro's version while `fgro --version` keeps the binary's line.
   Its pre-pass, the binary's native step before any thread starts, reads the command's closure,
@@ -356,11 +362,13 @@ As designed, except where marked built:
   so in a project that installed none even bare `fgro` fails, naming the fix.
   The command then runs Gro's CLI from an entry it generates at `gro:main`, the project's origin,
   with the closure's grants joined to the flags' and packages matching the `development` condition unless `NODE_ENV` is `production`.
-  Until the run's box is installed, the tools those grants pass the whole environment
-  (svelte-kit, vitest, eslint, svelte-check, tsc, and npm under `sync`) run the project's code unconfined,
-  so of the commands that load the project's code only `format --check` holds it to read-only grants:
-  `gen --check` grants svelte-kit, which a genfile can start, synced or not, and which loads the project's `vite.config.ts`.
-  The declared differences from the Node Gro follow.
+  It runs in the run's kernel box, which its pre-pass and the steps before V8 put up ([box](box.md#how-it-goes-up)),
+  so the tools those grants pass the whole environment (svelte-kit, vitest, eslint, svelte-check, tsc, and npm under `sync`)
+  run the project's code bounded by the box's rules rather than by the grants ([box](box.md#what-a-commands-box-admits)):
+  under `check`, `test`, `typecheck`, `lint`, and `gen --check` the project is read-only to every process in the run but for the tool directories,
+  `format --check`, which starts no tool, writes nothing at all,
+  and `gen`, `format`, and `sync` write the project's top-level entries but `.git`, `node_modules`, and the other dot-entries.
+  The declared differences from the Node Gro follow, first those of the binary, then those of the box.
   Gro's logger colors its output even under `NO_COLOR` or when piped.
   `fgro --help` and `fgro help` print the binary's own help, where `gro --help` lists the builtins.
   The console prints a string inside an array or object with double quotes, where Node's prints single ones,
@@ -374,12 +382,63 @@ As designed, except where marked built:
   A run that fails after the resolver refused a `node:` specifier, caught or not, ends with a hint naming the cause
   and the whole command on the Node Gro, which confines nothing (`node_modules/.bin/gro` and the command line, its grant flags stripped),
   a [review signal](glossary.md#review-signal) the run's code controls: project code can print it at will by catching a `node:` import and failing.
+  The box adds these, each a cost of holding the tools where the box holds them:
+  - A tool reaches no network but the run's own loopback, so a test that connects to a service outside the run, like a database on the host, fails, its connection refused or its network unreachable.
+    Where the system restricts unprivileged user namespaces, every internet socket is refused instead, loopback's included,
+    so a test that binds `127.0.0.1` fails too, and a `note:` line after the box goes up says why.
+  - A tool reads nothing under the home directory but what git reads there (its global config, its ignore and attributes files, and the files the config includes or names)
+    and the programs the run pins, like `node`'s file where a version manager installed it there, beside the project's own trees wherever they sit,
+    so one that reads its own config or cache there finds it unreadable, failing with `EACCES` or running as though there's none,
+    and git's credential store stays unreadable unless your own git config names it as a file git reads.
+  - A git config the box can't read as git does, or a `.git` file that isn't a linked worktree's or a submodule's leading back to the project,
+    is refused before the box goes up, exit 2, for a command that may start a program.
+    A project inside a repository whose `.git` is at the home directory or above, like a dotfiles repository, runs, but git run there fails, unable to read it.
+  - In a run that may start a program, or that `--allow-temp` grants, `TMPDIR` names a directory private to the run, which a later start removes once the run has ended,
+    and so do `TMP` and `TEMP` where they were set,
+    and `XDG_DATA_HOME`, `XDG_CACHE_HOME`, and `XDG_STATE_HOME` name directories inside it,
+    so a tool that keeps state there (Vitest's token among it) gets a fresh, private place, nothing under the home directory is touched for it,
+    and a tool that caches in either place starts cold every run.
+    An OS temporary directory inside the project is refused for such a run, exit 2, the refusal naming the variable that set it, or saying it's the default.
+  - A write outside the command's write roots is refused at the kernel:
+    in Gro's own code a `permission_denied` `FsError` whose cause names where the box lets the command write and what stays read-only,
+    and in a tool `EACCES` or `EPERM`, after which, when the run exits nonzero, a closing `note:` line names the box's network and writes and the flags that widen it
+    ([box](box.md#what-a-commands-box-admits) has both texts and when each appears).
+    So a genfile's new top-level output fails, as does any write under `.git`, `node_modules`, or a dot-entry,
+    where the Node Gro writes each.
+  - Nothing in the project executes outside `node_modules`, so a script there run by its path fails with `EACCES`, while its interpreter runs it (`node scripts/x.js`).
+  - A tool reads `/proc` as on Node, but the environment, memory, and working directory of a process outside the run are refused.
+  - The run is not dumpable, so attaching to it (`perf -p`, `gdb -p`) is refused; starting `fgro` under `perf` or `gdb` works.
+  - The `core` limit is 0 for the run and every tool, so a crash writes no core file.
+  - A setuid or setcap program, like `sudo` or `ping`, runs without its privileges, since the box sets `no_new_privs`.
+  - A tool can't make a user namespace, so a browser that sandboxes itself with one, like Chromium under a test, fails to start.
+  - A tool can signal only processes inside the run, never one outside it, like an editor or a dev server it didn't start.
+  - A socket on stdin, stdout, or stderr that isn't a connected unix stream is refused before anything runs, exit 2,
+    so an inetd-style launch fails, while a pipe, a file, a terminal, `/dev/null`, and a connected socket pair, like Node's `spawn` makes, pass.
+  - `DENO_STARTUP_PHASES`, `DENO_LOG_LAZY_LOAD`, and `DENO_SNAPSHOT_IMPORT_GRAPH`, which the vendored `deno_core` reads, are removed for the run and its tools.
+  - `-A` is refused, exit 2, after the command word as
+    `error: -A would run a command of Gro's unconfined, and the binary runs each in a kernel box: the project's Node gro is the unconfined spelling (node_modules/.bin/gro format --check)`,
+    and before it as `-A comes before the command, and the binary runs each command of Gro's in a kernel box, which -A can't lift: …`, with the same command;
+    before `run`, as in `fgro -A run x.ts`, the refusal says grant flags go after the command word, like `fgro run -A`.
+  - A `node` on `PATH` that's a script, like an asdf or nodenv shim, is refused before the box goes up, exit 2, naming the shim and the fix
+    (the real `node` first on `PATH`, or `--allow-run-in=` naming the version manager's directory),
+    since the shim reads its manager's tree under the home directory, which the box refuses.
+    A native shim, like volta's, can't be told apart from `node`, and its tools fail inside the box.
+  - A `node_modules` that's a symlink to another checkout's `node_modules` is followed, read and executed there, with a `note:` line naming where it leads,
+    and Gro's own code reads through it too, read-only;
+    its packages resolve within it, reading nothing of the checkout holding it,
+    and its tool directories are made, and anything written there, only when an `--allow-write=` names it, so a tool that needs one fails without the flag.
+    A `node_modules` linked to anything else is refused before the box goes up, exit 2.
+  - A binary built with a plain `cargo build`, which has no snapshot, refuses every command of Gro's it would run in its box, exit 1,
+    since it reads its own sources from its build tree, which no rule of the box admits.
 - A command the binary leaves to Node, like `dev`, `build`, `clean`, `check --build`, a project task, or `task`'s listing,
-  or one in a project that installed another version of Gro, runs on the Node Gro the project installed (built):
+  or one in a project that installed another version of Gro, or any command where Landlock is missing, off, below its sixth ABI (Linux 6.12), or refused by a seccomp filter, which can't put up the box,
+  runs on the Node Gro the project installed (built):
   one `note:` line says why, then `node`, found on `PATH` by its absolute entries with `node_modules/.bin` ones skipped,
   replaces the process, running `node_modules/@fuzdev/gro/dist/invoke.js` with the command line as written
   and Gro's loader registered as the Node Gro registers it, `development` condition included unless `NODE_ENV` is `production`.
-  `GRO_FALLBACK=command` refuses a fallback the project's files decide, the version;
+  The host's fallback names its reason, like
+  `note: fgro check runs on the Node gro in node_modules/@fuzdev/gro <version>, which confines nothing, because Landlock isn't available here (the kernel has none, or a seccomp filter refuses its calls), which the kernel box needs at ABI 6 (Linux 6.12) or later`.
+  `GRO_FALLBACK=command` refuses a fallback the project's files decide, the version, and one the host decides, the kernel's, exit 2;
   a fallback the command decides still runs the project's installed `dist`, which confines nothing
   ([authority](authority.md#what-the-first-release-is-for)).
   So a project's policy file is designed to hold its own tasks alone,
@@ -407,7 +466,7 @@ where the host modules and grants land with their first consumer.
       keeping every module inside its project's or package's root,
       and the loader reading only the file the resolver found
 - [x] `gro eval` (as `fgro eval` for now), a confined, deterministic one-shot eval of a TS module to JSON
-      under the kernel backstop, for any tool that evaluates config;
+      under the box, for any tool that evaluates config;
       zap evaluates its config on it, replacing Deno for config eval in the Fuz stack
 - [ ] the security gate, a suite of escape probes run under every grant set,
       with every web global and member classified by the three tests for [authority](glossary.md#authority-globals) as its oracle,
@@ -422,9 +481,12 @@ where the host modules and grants land with their first consumer.
 - [ ] the seal on the global object, with named exceptions, and a free `fetch`'s error naming the import
 - [ ] the host modules (fs, spawn, watch, net, and the process modules), the grants
       (built so far: the link-time check, the modules [host modules](host_modules.md#the-modules) marks built, and the flags [run](run.md#usage) lists),
-      and the policy file, enforced, with the kernel backstop under every run and its children
-      ([backstop](backstop.md#the-box-for-runs-and-children)), landing with Gro on Gro
-- [ ] the first release, Gro running on this runtime, for Linux x86_64;
+      and the policy file, enforced, with the box under every run and its children
+      (built for every command of Gro's on the binary, designed for `fgro run` and for each child's own box,
+      [box](box.md#the-box-for-runs-and-children)), landing with Gro on Gro
+- [ ] each tool in a box of its own inside the run's, writing only the directories the grants table names for it
+      ([box](box.md#a-box-for-each-tool))
+- [ ] the first release, Gro running on this runtime, for Linux x86_64, once each tool has its own box;
       the tool that installs it records the binary's hash as a pin,
       which the caller of `gro eval` verifies before every spawn
       (no release is tagged, and `fgro` isn't released on its own)
@@ -445,7 +507,7 @@ where the host modules and grants land with their first consumer.
 - [x] the Deno exit: config eval is on `fgro eval`, and the stack's other Deno uses moved to Node,
       `deno task` becoming npm scripts or gro tasks
 - [ ] Gro on Gro, with tasks, gen, and check running on the runtime and enforcing the policy file
-      (built so far, `fgro <command>` runs the builtins on the runtime, held to their closure's grants, unboxed,
+      (built so far, `fgro <command>` runs the builtins on the runtime, held to their closure's grants, in the run's box,
       unless the command needs a fallback to Node, as a project task does; until the policy file the CLI passes every host module)
 - [ ] bundled dev and build on the same host, and Vite leaves the loop
 - [ ] a test runner on the runtime, and with serving, Node leaves the stack's toolchain
@@ -471,7 +533,8 @@ No release is tagged, and `fgro` isn't released on its own:
 the first published version will be Gro running on this runtime ([roadmap](#roadmap)).
 Until then, build it from source, for Linux x86_64 ([the README](../../README.md#develop)),
 and see [crates/CHANGELOG.md](../../crates/CHANGELOG.md) for what the binary built from `main` does;
-`fgro eval` needs Linux 6.12 or later too ([eval](eval.md#usage)).
+`fgro eval` needs Linux 6.12 or later too ([eval](eval.md#usage)),
+and below it `fgro <command>` runs the Node Gro instead ([Gro's workflow](#gros-workflow-on-the-runtime)).
 
 ```bash
 cargo xtask build --release   # makes target/gro_snapshot/release/fgro, its startup snapshot and Gro's own code embedded

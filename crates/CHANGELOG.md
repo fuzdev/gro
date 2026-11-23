@@ -132,11 +132,28 @@ for Linux x86_64 only, built from source ([install](../src/docs/runtime.md#insta
 - `fgro --help` and `fgro help` print the binary's own help.
 - `fgro <command> [<args>]`, for every other first argument and for none, runs a command of Gro's
   (`fgro check`, `fgro gen --check`; bare `fgro` lists them, and `fgro -v` prints Gro's version)
-  from Gro's own code embedded in the binary, with no kernel box.
+  from Gro's own code embedded in the binary.
   Before any JS runs it reads the command's grants from the grants table it carries, joins the grant flags right after the command word,
   and starts from an entry it generates, packages matching the `development` condition unless `NODE_ENV` is `production`.
-  A program the table grants takes the table's environment policy, and the tools given the whole environment
-  (svelte-kit, vitest, eslint, svelte-check, tsc, and npm under `sync`) run the project's code unconfined, so such a run is close to `-A`.
+  A program the table grants takes the table's environment policy.
+  - The command runs in a kernel box with every tool it starts ([box](../src/docs/box.md#what-a-commands-box-admits)):
+    the project read-only but for the command's write roots (a rule per top-level entry but `.git`, `node_modules`, and the other dot-entries under `gen`, `format`, and `sync`,
+    and the tool directories, like `.svelte-kit` and `node_modules/.vite`, under a command that starts a tool from `node_modules/.bin`, as the project's dependencies call for),
+    nothing under the home directory but the project's own trees, what git reads there (its global config, ignore and attributes files, and the files the config includes or names, never its credential store unless that config names it) and the programs the run pins, `node`'s file among them,
+    no network but the run's own loopback,
+    for a run that may start a program, a temp directory private to the run that `TMPDIR`, `TMP` and `TEMP` where set, and the XDG data, cache, and state variables name,
+    not dumpable, and the `core` limit 0.
+    `.env*` in the project stays readable, `/proc` is readable but for the environment, memory, and working directory of a process outside the box,
+    and the tools share the one box and see the run's whole environment.
+  - Before the box it refuses `-A` before the command word, or after it for a command the binary runs itself, a `node` on `PATH` that's a script, a write flag naming a directory that holds the project root,
+    a `node_modules` symlink to anything but another checkout's `node_modules`, git's files it can't read when the command may start a program,
+    a socket on stdio that isn't a connected unix stream, an OS temporary directory inside the project, and a path planted where the box opens a rule or makes a tool directory,
+    each exit 2, and a binary built without its snapshot, exit 1; a step of the box that fails exits 1.
+    A `node_modules` linked from another checkout is read and executed there, by the box and Gro's own `fs` alike, its packages resolving within it,
+    and written there, its tool directories included, only when a write flag names it.
+  - A write the box refuses gains a cause naming where it lets the command write, and a run that fails after a tool did ends with a `note:` line naming the box's network and writes.
+  - It needs Linux 6.12 or later (Landlock ABI 6); where Landlock is missing, off, or older, or a seccomp filter refuses its calls, the command runs the project's Node Gro after one `note:` line saying why.
+
   A command left to Node (like `dev`, `build`, `clean`, an install, a project task, or `task`'s listing),
   or any command in a project that installed another version of Gro, runs the project's Node Gro after one `note:` line saying why;
-  `GRO_FALLBACK=command` refuses a fallback the project's files decide.
+  `GRO_FALLBACK=command` refuses a fallback the project's files or the host decide.

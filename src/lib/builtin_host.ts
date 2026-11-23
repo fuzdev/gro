@@ -28,7 +28,7 @@ On the binary the cut sits inside the run's grant set, the CLI's row and the gra
 beside the grant flags. The project's code shares the realm, and though no project task runs there,
 the config and genfiles run as the project's own modules, at its origin by their paths, imported through the generated entry, and import any host module the set holds,
 and a package they import, granted nothing itself, can patch a shared prototype the builtins' handles pass through,
-so that code holds the whole set, which only the native checks bound until the run's box is installed.
+so that code holds the whole set, which only the native checks and the run's box bound.
 `Object.freeze` and `Object.hasOwn` are copied when this module loads, the host and its
 `programs` are null-prototype records, and `GRO_BUILTIN_TASK_GRANTS` is deep-frozen with
 null-prototype objects, so a property added to `Object.prototype` widens no host:

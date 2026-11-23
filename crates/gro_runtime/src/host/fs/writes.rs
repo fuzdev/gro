@@ -66,8 +66,8 @@ use deno_core::{OpState, v8};
 
 use super::roots::{Held, MoveRefusal, RenameEnd};
 use super::{
-    Access, End, Failure, FsErrorKind, Op, finish, gains_scope_failure, holds_a_root_failure,
-    is_missing, read_flag, read_follow, read_option, sys,
+    Access, End, Failure, FsErrorKind, Op, Resolve, finish, finish_write, gains_scope_failure,
+    holds_a_root_failure, is_missing, read_flag, read_follow, read_option, sys,
 };
 use crate::host::error_class::DeclaredFamily;
 use crate::host::handle::FS_DIR;
@@ -119,9 +119,11 @@ pub fn write<'s>(
     options: v8::Local<'s, v8::Value>,
     errors: DeclaredFamily,
 ) -> Option<v8::Local<'s, v8::Value>> {
+    let mut written: Vec<(String, Resolve)> = Vec::new();
     let result = (|| {
         let op = Op::new(state, scope, &FS_DIR, receiver)?;
         let end = op.path(scope, path)?;
+        written.push((end.target.clone(), Resolve::Whole));
         let bytes = data_bytes(scope, data)?;
         let create_new = read_flag(scope, options, "create_new")?;
         let mode = write_mode(scope, options)?;
@@ -140,7 +142,7 @@ pub fn write<'s>(
         };
         string(scope, answer).map(Into::into).ok_or(Failure::Thrown)
     })();
-    finish(state, scope, Some(errors), result)
+    finish_write(state, scope, Some(errors), result, &written)
 }
 
 /// `data` as the bytes `write` writes: a string as UTF-8, each lone
@@ -213,9 +215,11 @@ pub fn mkdir<'s>(
     options: v8::Local<'s, v8::Value>,
     errors: DeclaredFamily,
 ) -> Option<v8::Local<'s, v8::Value>> {
+    let mut written: Vec<(String, Resolve)> = Vec::new();
     let result = (|| {
         let op = Op::new(state, scope, &FS_DIR, receiver)?;
         let end = op.path(scope, path)?;
+        written.push((end.target.clone(), Resolve::Parent));
         let recursive = read_flag(scope, options, "recursive")?;
         let exists_ok = read_flag(scope, options, "exists_ok")?;
         op.check(Access::Write, &[&end], false)?;
@@ -223,7 +227,7 @@ pub fn mkdir<'s>(
         sys::mkdir(fd, dir, rel, recursive, exists_ok).map_err(|error| op.failure(&end, error))?;
         Ok(v8::undefined(scope).into())
     })();
-    finish(state, scope, Some(errors), result)
+    finish_write(state, scope, Some(errors), result, &written)
 }
 
 /// `remove(path, options?)` called on `receiver`: removes the entry at
@@ -239,9 +243,11 @@ pub fn remove<'s>(
     options: v8::Local<'s, v8::Value>,
     errors: DeclaredFamily,
 ) -> Option<v8::Local<'s, v8::Value>> {
+    let mut written: Vec<(String, Resolve)> = Vec::new();
     let result = (|| {
         let op = Op::new(state, scope, &FS_DIR, receiver)?;
         let end = op.path(scope, path)?;
+        written.push((end.target.clone(), Resolve::Parent));
         let recursive = read_flag(scope, options, "recursive")?;
         let missing_ok = read_flag(scope, options, "missing_ok")?;
         if end.is_own() {
@@ -265,7 +271,7 @@ pub fn remove<'s>(
         }
         Ok(v8::undefined(scope).into())
     })();
-    finish(state, scope, Some(errors), result)
+    finish_write(state, scope, Some(errors), result, &written)
 }
 
 /// `rename(from, to)` called on `receiver`: moves the entry at `from` to
@@ -284,10 +290,15 @@ pub fn rename<'s>(
     to: v8::Local<'s, v8::Value>,
     errors: DeclaredFamily,
 ) -> Option<v8::Local<'s, v8::Value>> {
+    let mut written: Vec<(String, Resolve)> = Vec::new();
     let result = (|| {
         let op = Op::new(state, scope, &FS_DIR, receiver)?;
         let source = op.path(scope, from)?;
         let destination = op.path(scope, to)?;
+        written.extend([
+            (destination.target.clone(), Resolve::Parent),
+            (source.target.clone(), Resolve::Parent),
+        ]);
         if source.is_own() {
             return Err(source.own_refused("renamed"));
         }
@@ -321,7 +332,7 @@ pub fn rename<'s>(
         })?;
         Ok(v8::undefined(scope).into())
     })();
-    finish(state, scope, Some(errors), result)
+    finish_write(state, scope, Some(errors), result, &written)
 }
 
 /// The latest time `set_times` takes, in milliseconds since the epoch, the
@@ -362,6 +373,8 @@ pub fn set_times<'s>(
             .map_err(|error| op.failure(&end, error))?;
         Ok(v8::undefined(scope).into())
     })();
+    // no box's cause: Landlock gates no mode or time, so the box never
+    // refuses one
     finish(state, scope, Some(errors), result)
 }
 
@@ -429,6 +442,8 @@ pub fn set_mode<'s>(
         sys::set_mode(fd, dir, rel, mode).map_err(|error| op.failure(&end, error))?;
         Ok(v8::undefined(scope).into())
     })();
+    // no box's cause: Landlock gates no mode or time, so the box never
+    // refuses one
     finish(state, scope, Some(errors), result)
 }
 
@@ -457,9 +472,11 @@ pub fn symlink<'s>(
     target: v8::Local<'s, v8::Value>,
     errors: DeclaredFamily,
 ) -> Option<v8::Local<'s, v8::Value>> {
+    let mut written: Vec<(String, Resolve)> = Vec::new();
     let result = (|| {
         let op = Op::new(state, scope, &FS_DIR, receiver)?;
         let end = op.path(scope, path)?;
+        written.push((end.target.clone(), Resolve::Parent));
         let target = link_target(scope, target)?;
         if end.lexical.dir {
             return Err(Failure::Type(format!(
@@ -482,7 +499,7 @@ pub fn symlink<'s>(
         };
         string(scope, answer).map(Into::into).ok_or(Failure::Thrown)
     })();
-    finish(state, scope, Some(errors), result)
+    finish_write(state, scope, Some(errors), result, &written)
 }
 
 /// `value` as a symlink's target, as the Node module's `assert_link_target`
@@ -526,10 +543,12 @@ pub fn copy<'s>(
     options: v8::Local<'s, v8::Value>,
     errors: DeclaredFamily,
 ) -> Option<v8::Local<'s, v8::Value>> {
+    let mut written: Vec<(String, Resolve)> = Vec::new();
     let result = (|| {
         let op = Op::new(state, scope, &FS_DIR, receiver)?;
         let source = op.path(scope, from)?;
         let destination = op.path(scope, to)?;
+        written.push((destination.target.clone(), Resolve::Whole));
         let recursive = read_flag(scope, options, "recursive")?;
         op.check(Access::Read, &[&source], false)?;
         op.check(Access::Write, &[&destination], false)?;
@@ -554,5 +573,5 @@ pub fn copy<'s>(
         })?;
         Ok(v8::undefined(scope).into())
     })();
-    finish(state, scope, Some(errors), result)
+    finish_write(state, scope, Some(errors), result, &written)
 }

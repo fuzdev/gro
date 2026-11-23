@@ -17,15 +17,19 @@
 //!   thread starts, whether it runs on the binary from a generated entry,
 //!   held to its closure's grants and the grant flags right after the
 //!   command word, or on the Node Gro the project installed, which it execs
-//!   after one line saying why (`verb::fallback`), or neither; the
-//!   reference is `src/docs/runtime.md` (§Gro's workflow on the runtime)
+//!   after one line saying why (`verb::fallback`), or neither; a run on the
+//!   binary then starts in the run's kernel box, its steps taken on the
+//!   main thread in the order `verb::start`'s module doc writes, or on a
+//!   kernel that can't hold the box, falls back as well; the reference is
+//!   `src/docs/runtime.md` (§Gro's workflow on the runtime)
 //!
-//! Every command but `eval` and a command of Gro's pre-pass runs on one
-//! thread with [`gro_runtime::STACK_SIZE`] reserved, not on the main
-//! thread, so a debug build stays inside the stack tsv's TypeScript strip
-//! is sized for, whatever the platform's main thread has. `eval` keeps its
-//! process at one thread until it is confined; the order of its steps is
-//! `eval::confine_eval`'s.
+//! Every command but `eval` and the steps a command of Gro's takes before
+//! its runtime runs on one thread with [`gro_runtime::STACK_SIZE`]
+//! reserved, not on the main thread, so a debug build stays inside the
+//! stack tsv's TypeScript strip is sized for, whatever the platform's main
+//! thread has. `eval` keeps its process at one thread until it is confined;
+//! the order of its steps is `eval::confine_eval`'s, and a command of
+//! Gro's keeps it until the run's box is up.
 //!
 //! Exit codes, the same for `run` and `eval`: `0` success, `1` a run that
 //! fails, `2` a usage error, an entry the resolver refuses included (one
@@ -41,7 +45,10 @@
 //! refuses, or a fallback with no installed or built Node Gro or no `node`
 //! to run it), `1` when the grants table or the working directory can't be
 //! read or `node` fails to start; and with the Node Gro's code when it
-//! falls back.
+//! falls back. Its box adds its own (`verb::start`'s module doc has them):
+//! `2` for what the caller changes (`-A`, a socket on stdio, what the box's
+//! plan refuses, a tool directory planted as something else), `1` for a
+//! build with no snapshot and a step of the box that failed.
 //!
 //! Features (the binary that ships never enables `phases` or `prices`):
 //!
@@ -155,8 +162,8 @@ fn main_code() -> u8 {
         // eval's process must keep one thread until it is confined, so it
         // runs here and starts its own
         Ok(Invocation::Eval(args)) => eval::eval(args),
-        // its pre-pass runs here, before any thread starts, and a fallback
-        // execs the Node Gro from here
+        // its pre-pass and its box's steps run here, before any thread
+        // starts, and a fallback execs the Node Gro from here
         Ok(Invocation::Verb(args)) => run::verb(&args),
         Ok(Invocation::Sized(task)) => run_on_sized_stack(&task),
         Err(error) => error.report(),
@@ -198,9 +205,8 @@ fn run(task: &Task) -> u8 {
         Task::Help(text) => stdout_line(text.trim_end()).map_err(CliError::Stdout),
         Task::MakeSnapshot(dir) => make_snapshot(dir),
         Task::MakeEmbed(src, dir) => make_embed(src, dir),
-        // each prints its own failure, before the imports it was refused
+        // it prints its own failure, before the imports it was refused
         Task::Run(invocation) => return run::run_module(invocation),
-        Task::Verb(plan) => return run::run_verb(plan),
     };
     result.map_or_else(|error| error.report(), |()| 0)
 }

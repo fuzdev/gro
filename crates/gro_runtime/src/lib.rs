@@ -101,7 +101,8 @@
 //! printed to stderr) and its import graph file (`DENO_SNAPSHOT_IMPORT_GRAPH`,
 //! which it appends every module's imports to), and ICU's locale. So an
 //! embedder that wants none read clears its environment before it starts a
-//! thread, as `fgro eval` does and `fgro run` doesn't.
+//! thread, as `fgro eval` does and `fgro run` doesn't; a command of Gro's
+//! removes those three.
 //!
 //! Without a [`RuntimeOptions::snapshot`], the runtime starts from source:
 //! `deno_web`'s JS is read from its crate's path on the build machine, so such
@@ -243,6 +244,10 @@ pub struct RuntimeOptions {
     /// directories anywhere. An embedder names it only for a run that
     /// grants it, so a run that doesn't learns nothing of where it is.
     pub temp_dir: Option<PathBuf>,
+    /// What a write through the fs host module that the kernel refuses
+    /// gains as its cause after the OS's, in a run the embedder holds in a
+    /// box whose rules are narrower than its grants ([`DeniedWriteCause`]).
+    pub denied_write_cause: Option<DeniedWriteCause>,
     /// The environment variables the spawn host module may hand a child, as
     /// the embedder read them once, before the run: data, not authority,
     /// which no member a script calls returns. A program's environment is
@@ -266,6 +271,33 @@ pub struct RuntimeOptions {
     /// thread live and not blocking those three signals, which the handler
     /// on a thread mid-launch hands on to it.
     pub spawn_env: EnvVars,
+}
+
+/// What a write the kernel refuses gains as its cause, in a run the
+/// embedder holds in a box.
+///
+/// It's data: text the embedder made of its box's write rules, naming
+/// where the box lets the run write, and those rules' paths. A refusal
+/// gains it when what Landlock checks for a path the op writes, resolved as
+/// `fs.real_path` resolves it within the run's roots, lies beneath none of
+/// them: for an op on the entry itself (`remove`, both ends of a rename,
+/// `symlink`, `mkdir`) the directory holding it, and for one through it
+/// (`write`, a copy's destination) the entry, a final symlink followed, or
+/// the directory that would hold it. A refusal of a path the box writes
+/// gains nothing, since something else refused it (a file's own mode); nor
+/// does a refusal the run's grants make, or one of `set_mode` or
+/// `set_times`, which Landlock never gates. Two refusals the box made print
+/// no cause: a write through a dangling symlink, resolved only to its own
+/// parent, and a recursive `mkdir` or copy through a symlink on the way,
+/// whose parent doesn't exist yet and so isn't followed.
+///
+/// Kind: a review signal; the box is the wall.
+#[derive(Debug, Clone)]
+pub struct DeniedWriteCause {
+    /// The text the refusal's cause gains, after the OS's.
+    pub cause: String,
+    /// The absolute real paths the box's rules let the run write.
+    pub writable: Vec<PathBuf>,
 }
 
 /// The console's output: which stream each level writes to, and whether each

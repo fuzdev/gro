@@ -98,7 +98,7 @@ fn planned(cli_args: &[&str]) -> Result<VerbPlan, VerbError> {
 
 fn run(cli_args: &[&str]) -> VerbRun {
     match planned(cli_args) {
-        Ok(VerbPlan::Run(run)) => run,
+        Ok(VerbPlan::Run(run)) => *run,
         other => panic!("{cli_args:?} runs on the binary: {other:?}"),
     }
 }

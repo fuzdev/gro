@@ -1,7 +1,10 @@
 //! End-to-end tests of a command of gro's on `fgro`: its routing, a run on
 //! the binary from the generated entry with its closure's grants, the
 //! fallback to the Node Gro the project installed, and the refusals before
-//! anything runs.
+//! anything runs. A run on the binary starts in the run's kernel box, which
+//! only a snapshot build does, so those tests run from `cargo xtask build
+//! --verify`, and a plain build's refusal is held here instead; the box's
+//! walls are `verb_box`'s.
 //!
 //! A project that runs on the binary links the checkout's `node_modules`
 //! whole, where Gro's embedded library finds its peers. One that falls back
@@ -65,6 +68,10 @@ fn run(command: Command) -> (Option<i32>, String, String) {
 /// Bare `fgro` lists gro's commands through the embed, `-v` prints gro's
 /// version, and `--version` keeps the binary's own line.
 #[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "a command of Gro's runs on the binary only from a snapshot build"
+)]
 fn every_first_argument_but_the_binary_s_own_is_a_command_of_gro_s() {
     let project = linked_project("verb_routing", &[]);
     let (code, stdout, stderr) = run(fgro_in(&project.0, &[]));
@@ -91,6 +98,10 @@ fn every_first_argument_but_the_binary_s_own_is_a_command_of_gro_s() {
 /// it would format; the grant flags never reach gro's args, where the
 /// Node Gro would warn of them.
 #[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "a command of Gro's runs on the binary only from a snapshot build"
+)]
 fn format_check_runs_on_the_binary() {
     let project = linked_project("verb_format", &[("src/lib/a.ts", "export const a = 1;\n")]);
     let (code, stdout, stderr) = run(fgro_in(
@@ -110,12 +121,17 @@ fn format_check_runs_on_the_binary() {
 
 /// `gen --check` runs the project's genfiles with no write to the
 /// project, which `gen` grants: a genfile's own write is refused there,
-/// failing the run, and made under `gen`.
+/// failing the run, and made under `gen`, beneath a top-level directory,
+/// which the box writes.
 #[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "a command of Gro's runs on the binary only from a snapshot build"
+)]
 fn gen_check_holds_a_genfile_to_reads() {
     let genfile = "import { fs } from '@fuzdev/gro/fs.ts';\n\
                    export const gen = async () => {\n\
-                   \tawait fs.project.write('wrote.txt', 'x');\n\
+                   \tawait fs.project.write('src/lib/wrote.txt', 'x');\n\
                    \treturn '// w\\n';\n\
                    };\n";
     let project = linked_project(
@@ -125,10 +141,30 @@ fn gen_check_holds_a_genfile_to_reads() {
     let (code, stdout, stderr) = run(fgro_in(&project.0, &["gen", "--check"]));
     assert_eq!(code, Some(1), "{stdout}{stderr}");
     assert!(stderr.contains("fs refused a write"), "{stdout}{stderr}");
-    assert!(!project.0.join("wrote.txt").exists());
+    assert!(!project.0.join("src/lib/wrote.txt").exists());
     let (code, stdout, stderr) = run(fgro_in(&project.0, &["gen"]));
     assert_eq!(code, Some(0), "{stdout}{stderr}");
-    assert!(project.0.join("wrote.txt").exists());
+    assert!(project.0.join("src/lib/wrote.txt").exists());
+}
+
+/// A build with no snapshot refuses a command of Gro's that would run on
+/// the binary, before anything runs: started from source, the runtime
+/// reads its JS from the build tree, which the run's box doesn't admit.
+#[cfg(not(feature = "snapshot"))]
+#[test]
+fn a_plain_build_refuses_a_command_of_gro_s() {
+    let project = linked_project("verb_plain", &[]);
+    let (code, stdout, stderr) = run(fgro_in(&project.0, &["format", "--check"]));
+    assert_eq!(code, Some(1), "{stdout}{stderr}");
+    assert_eq!(
+        stderr,
+        format!(
+            "error: {BINARY_NAME} format runs in a kernel box, which starts only from a startup \
+             snapshot embedded in the binary, and this build has none: started from source, the \
+             runtime reads its JS from the build tree, outside the box. Build {BINARY_NAME} with \
+             its snapshot: cargo xtask build\n"
+        )
+    );
 }
 
 /// A project that installs `@fuzdev/gro` at `gro_version`, built or not,
@@ -288,6 +324,10 @@ fn a_fallback_skips_a_node_the_project_plants() {
 /// is `production`, as the Node Gro's loader does, and `fgro run` never
 /// does.
 #[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "a command of Gro's runs on the binary only from a snapshot build"
+)]
 fn a_command_s_run_matches_the_development_condition() {
     let package = r##"{"name": "p", "type": "module", "imports": {"#c": {"development": "./dev.js", "default": "./prod.js"}}}"##;
     let report = "import { which } from '#c';\nconsole.error(`which: ${which}`);\n";
@@ -320,6 +360,10 @@ fn a_command_s_run_matches_the_development_condition() {
 /// says how to run the command on the Node Gro; one that fails otherwise
 /// doesn't.
 #[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "a command of Gro's runs on the binary only from a snapshot build"
+)]
 fn a_refused_node_specifier_hints_at_the_node_gro() {
     let genfile = "export const gen = async () => {\n\
                    \ttry { await import('node:fs'); } catch {}\n\
@@ -351,6 +395,10 @@ fn a_refused_node_specifier_hints_at_the_node_gro() {
 /// A flag's directory refused under a command of gro's names no `fgro run`
 /// help, and the command word is the closure's, past a flag before it.
 #[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "a command of Gro's runs on the binary only from a snapshot build"
+)]
 fn a_command_s_refusals_name_the_command() {
     let project = linked_project("verb_refusals", &[]);
     let (code, _, stderr) = run(fgro_in(
@@ -377,6 +425,10 @@ fn a_command_s_refusals_name_the_command() {
 /// refused a `node:` specifier and still passed prints none, and so does
 /// `fgro run`, which has no Node Gro to name.
 #[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "a command of Gro's runs on the binary only from a snapshot build"
+)]
 fn the_node_hint_follows_only_a_failed_command() {
     let config = "try { await import('node:fs'); } catch {}\n\
                   export default (config: unknown) => config;\n";

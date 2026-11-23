@@ -339,7 +339,9 @@ Crates (detail in [crates/CLAUDE.md](crates/CLAUDE.md#crates)):
 - `gro_runtime` - the JS host over a patched `deno_core`; start at its `lib.rs`
 - `gro_cli` - the `fgro` binary (`run`, `eval`, `--version`, `--help` and `help`, the internal
   `make-snapshot` and `make-embed`, and every other first argument a command of Gro's,
-  like `fgro check`; bare `fgro` lists them, and `GRO_FALLBACK` governs a fallback)
+  like `fgro check`, run in the run's kernel box with every tool it starts
+  ([box](src/docs/box.md#what-a-commands-box-admits)); bare `fgro` lists them,
+  and `GRO_FALLBACK` governs a fallback)
 - `gro_sys` - the raw system calls the safe std API lacks, behind a safe API
 - `gro_v8` - the V8 calls rusty_v8 exposes only as `unsafe`, behind a safe API
 - `gro_bench` - the measurement harness
@@ -379,7 +381,7 @@ lists them).
   `<target>/gro_snapshot/<profile>/fgro`, with Gro's own code embedded and
   `package.json`'s version stamped; a plain `cargo build` makes an
   `fgro` with no snapshot that runs only from its build tree, can't
-  `eval`, and names Cargo's `0.0.0`
+  `eval` or run a command of Gro's in its box, and names Cargo's `0.0.0`
 - `cargo xtask check-reproducible` - two release builds and a clone, so
   `check` leaves it to CI
 

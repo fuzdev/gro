@@ -9,7 +9,8 @@
 //! (`gro_sys::beneath::Links::Refused`), and the last made by `mkdirat` in
 //! the directory so held. One there already passes only as a directory: a
 //! symlink (`node_modules/.vite` linked to the home directory, `.svelte-kit`
-//! to `/tmp`) or a file is refused, and nothing is made where it leads. A
+//! to `/tmp`) or a file is refused, as is a file on the way to one (`.fuz`
+//! for `.fuz/cache`), and nothing is made where it leads. A
 //! missing directory on the way is made only beneath the project's root
 //! (`.fuz` for `.fuz/cache`); beneath `/`, one missing fails.
 //!
@@ -35,10 +36,11 @@ const TOOL_DIR_MODE: u32 = 0o777;
 /// Why a tool directory couldn't be made.
 #[derive(Debug, thiserror::Error)]
 pub enum ToolDirError {
-    /// Something other than a directory is at its path.
+    /// Something other than a directory is at its path or on the way to it
+    /// (a file at `.fuz` for `.fuz/cache`).
     #[error(
-        "the box's tool directory {} is refused: something other than a directory is there, and \
-         a tool directory is made only as a real one",
+        "the box's tool directory {} is refused: something other than a directory is there or on \
+         the way to it, and a tool directory is made only as a real one",
         path.display()
     )]
     NotADirectory {
@@ -101,12 +103,13 @@ impl RunHardened {
 }
 
 /// The error for the tool directory at `path` whose call failed with
-/// `source`: a symlink's refusal named as one.
+/// `source`: a symlink's refusal named as one, and a non-directory on the
+/// way to it (`ENOTDIR`) as what's planted there.
 fn refused(path: PathBuf, source: io::Error) -> ToolDirError {
-    if source.raw_os_error() == Some(libc::ELOOP) {
-        ToolDirError::Symlink { path }
-    } else {
-        ToolDirError::Make { path, source }
+    match source.raw_os_error() {
+        Some(libc::ELOOP) => ToolDirError::Symlink { path },
+        Some(libc::ENOTDIR) => ToolDirError::NotADirectory { path },
+        _ => ToolDirError::Make { path, source },
     }
 }
 

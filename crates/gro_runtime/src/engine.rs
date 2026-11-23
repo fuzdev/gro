@@ -15,11 +15,13 @@
 //! installed after them would leave them outside. [`init_eval_engine`]
 //! returns an [`EvalEngine`], the token [`crate::eval::eval`] takes, which
 //! only an engine in eval's box has, so no caller can evaluate a module
-//! outside the box. An engine in eval's box must run the JIT its box was
-//! installed for ([`EvalConfined::jit`]), since a jitless box refuses the
-//! executable mappings the JIT makes: [`init_engine`] refuses a disagreement
-//! before V8 starts. The run's box polices no executable mapping, so it
-//! takes either.
+//! outside the box; [`init_run_engine`] a [`RunEngine`], the token
+//! [`crate::run_generated`] takes, which only an engine in the run's box
+//! has, so a command of Gro's never runs outside it. An engine in eval's
+//! box must run the JIT its box was installed for ([`EvalConfined::jit`]),
+//! since a jitless box refuses the executable mappings the JIT makes:
+//! [`init_engine`] refuses a disagreement before V8 starts. The run's box
+//! polices no executable mapping, so it takes either.
 //!
 //! Whatever the options, the engine draws V8's entropy from the operating
 //! system's random source (`getrandom`), not from V8's own: left alone, V8
@@ -45,6 +47,7 @@ use std::sync::OnceLock;
 
 use deno_core::v8;
 
+use crate::confine::run::RunConfined;
 use crate::confine::{Confinement, EvalConfined, Jit};
 
 /// The engine's process-wide options. The default is what `fgro run` uses:
@@ -199,6 +202,48 @@ impl EvalEngine {
     #[must_use]
     pub const fn confined(self) -> &'static EvalConfined {
         self.confined
+    }
+}
+
+/// An [`Engine`] set up in a process held in the run's box.
+///
+/// The token [`crate::run_generated`] takes: made only by
+/// [`init_run_engine`], from a [`RunConfined`] that only the run's box's
+/// installation makes, so a command of Gro's never runs its generated entry
+/// in a process the box doesn't hold. A guardrail against gro's own bug,
+/// held by the compiler; the box itself is the boundary.
+#[derive(Debug, Clone, Copy)]
+pub struct RunEngine {
+    /// The engine.
+    engine: Engine,
+}
+
+impl RunEngine {
+    /// The engine, for what any engine's token answers.
+    #[must_use]
+    pub const fn engine(self) -> Engine {
+        self.engine
+    }
+}
+
+/// [`init_engine`] in a process held in the run's box, `confined`,
+/// returning the token only an engine in that box has.
+///
+/// # Errors
+///
+/// As [`init_engine`]: the engine was set up already with other options,
+/// or confined otherwise (unconfined among them).
+pub fn init_run_engine(
+    confined: RunConfined,
+    options: &EngineOptions,
+) -> Result<RunEngine, EngineError> {
+    let engine = init_engine(Confinement::Run(confined), options)?;
+    match engine.confinement() {
+        Confinement::Run(_) => Ok(RunEngine { engine }),
+        // `init_engine` returns only an engine confined as asked
+        confinement => Err(EngineError::ConfinementConflict {
+            set_up: SetUpConfinement::of(confinement),
+        }),
     }
 }
 

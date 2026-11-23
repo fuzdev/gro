@@ -44,7 +44,7 @@
 use std::future::Future;
 use std::io;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::task::{Context, Poll};
 use std::time::Duration;
@@ -75,16 +75,29 @@ const READ_CHUNK: usize = 64 * 1024;
 /// leads, if any.
 type Live = (u64, Arc<Pidfd>, Option<u32>);
 
-/// The run's children not reaped yet, each by a number of its own.
+/// The run's children not reaped yet, each by a number of its own, and
+/// whether one reaped ended other than by exiting 0, the run never having
+/// signaled it.
 #[derive(Debug, Default)]
 pub struct Children {
     /// The number the next child takes.
     next: AtomicU64,
     /// The children.
     live: Mutex<Vec<Live>>,
+    /// Whether a child reaped ended other than by exiting 0, the run never
+    /// having signaled it.
+    failed: AtomicBool,
 }
 
 impl Children {
+    /// Whether a child reaped ended other than by exiting 0, by a signal or
+    /// a code of its own, the run never having signaled it: what an
+    /// embedder that confines the run's programs says of the walls a failed
+    /// run's tools may have met.
+    pub fn any_failed(&self) -> bool {
+        self.failed.load(Ordering::Relaxed)
+    }
+
     /// Adds a child, returning its number.
     fn track(&self, pidfd: Arc<Pidfd>, group: Option<u32>) -> u64 {
         let id = self.next.fetch_add(1, Ordering::Relaxed);
@@ -161,6 +174,11 @@ pub struct Held {
     id: u64,
     /// Whether it's reaped, or abandoned, so dropping it kills nothing.
     pub(super) done: bool,
+    /// Whether the run signaled it, or its group, while it ran: a timeout,
+    /// an abort, a stop, a program's own `kill`, so an end by that signal
+    /// is the run's doing, not the child's failure; a signal to the group
+    /// after the child ended (members still holding its pipes) leaves it.
+    signaled: AtomicBool,
 }
 
 impl Held {
@@ -180,6 +198,7 @@ impl Held {
             children: Arc::clone(children),
             id,
             done: false,
+            signaled: AtomicBool::new(false),
         }
     }
 
@@ -189,6 +208,11 @@ impl Held {
     pub(super) fn send(&self, signal: libc::c_int) {
         if self.done {
             return;
+        }
+        // a signal after it ended, to its group's members left, isn't how
+        // it ended
+        if !matches!(self.pidfd.ended(), Ok(Some(_))) {
+            self.signaled.store(true, Ordering::Relaxed);
         }
         let _ = self.group.map_or_else(
             || self.pidfd.send_signal(signal),
@@ -205,11 +229,15 @@ impl Held {
         self.children.untrack(self.id);
         let freed = self.guard.take().is_none_or(Guard::release);
         self.done = true;
-        if freed {
+        let ended = if freed {
             self.pidfd.reap()
         } else {
             self.pidfd.wait_ended()
+        };
+        if !matches!(ended, Ok(Ended::Exited(0))) && !self.signaled.load(Ordering::Relaxed) {
+            self.children.failed.store(true, Ordering::Relaxed);
         }
+        ended
     }
 
     /// Kills it, its group with it, and reaps it: for a launch that failed
@@ -229,6 +257,9 @@ impl Held {
     /// Kills it, through its pidfd alone unless it's known unreaped, which
     /// keeps the group's id its own, then reaps it.
     fn kill_and_reap(&mut self, unreaped: bool) -> io::Result<Ended> {
+        if !matches!(self.pidfd.ended(), Ok(Some(_))) {
+            self.signaled.store(true, Ordering::Relaxed);
+        }
         if unreaped {
             self.send(libc::SIGKILL);
         }

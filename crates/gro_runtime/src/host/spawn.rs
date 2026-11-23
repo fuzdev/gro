@@ -335,6 +335,12 @@ impl SpawnRun {
         })
     }
 
+    /// Whether a child the run launched ended other than by exiting 0
+    /// ([`Children::any_failed`]).
+    pub fn any_child_failed(&self) -> bool {
+        self.children.any_failed()
+    }
+
     /// Kills every child launched and not reaped yet, each group it leads
     /// with it ([`Children::kill_all`]): what a run's end, and its `exit`,
     /// do before the process goes on, so no child outlives the run that

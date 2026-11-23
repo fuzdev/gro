@@ -113,12 +113,13 @@ and writes only beneath the directories `--allow-write=` names and those `fs.tem
 it starts only the programs `--allow-run=` names and those found beneath what `--allow-run-in=` names, through `@fuzdev/gro/spawn.ts` (any under `-A`), and no module gives it the network.
 That is the whole of today's confinement: the process itself has no kernel box and no resource limits, the JIT is on,
 and console output reaches the terminal unescaped: it's the program's own, and can imitate `fgro`'s lines, an `error:` or a `hint:` among them.
-The vendored `deno_core` reads three diagnostic variables of its own, which `fgro run` leaves in place (only `fgro eval` clears its environment):
+The vendored `deno_core` reads three diagnostic variables of its own, which `fgro run` leaves in place
+(`fgro eval` clears its environment, and a command of Gro's removes the three for its run and its tools):
 `DENO_STARTUP_PHASES` and `DENO_LOG_LAZY_LOAD` print startup timings and lazy loads to stderr,
 and `DENO_SNAPSHOT_IMPORT_GRAPH` names a file every module's imports are appended to, a write outside every grant,
 the process stopping when the file can't be opened.
 So `fgro run` is not yet for code you treat as hostile
-([authority](authority.md#threat-model) and [backstop](backstop.md) have what's designed).
+([authority](authority.md#threat-model) and [box](box.md) have what's designed).
 The event loop drains before the run ends, so timers and pending promises complete,
 and a top-level `await` on a promise nothing settles or waits on ends the run as an error, not a hang;
 a call's child is waited on until it ends, so a run awaiting a child that never ends waits for it, as on Node.
@@ -127,7 +128,7 @@ A run that grants a program (`--allow-run=`, `--allow-run-in=`, or `-A`) raises 
 and each child inherits the raised limit; a raise the kernel refuses leaves the limit as it was and the run going, as on Node.
 Linux x86_64 only.
 A binary from `cargo xtask build` starts from its embedded snapshot and runs anywhere,
-while a plain `cargo build` runs only from its build tree.
+while a plain `cargo build` runs only from its build tree, and refuses every command of Gro's it would run in its box, which needs the snapshot.
 The snapshot build is reproducible: a clean checkout of one commit, with the same toolchain (Rust's, and the system's C compiler and C library) and cargo home (whose registry paths the binary names), builds the same `fgro`, byte for byte, from any path.
 The binary embeds the commit, so a dirty tree (a changed file, or an untracked one git doesn't ignore) builds other bytes, and so does one git can't read as its own checkout (outside git, or a copy inside another repo), which embeds none.
 
@@ -365,12 +366,17 @@ Whether a stream is colored is decided once per process, in order:
 | 2              | a usage error (an unknown flag of `eval`, or one after `--version`, `--help`, or `help`, a flag before `run`'s file other than `--help`, `--allow-env=`, `--allow-read=`, `--allow-write=`, `--allow-temp`, `--allow-run=`, `--allow-run-in=`, `--allow-run-env=`, or `-A`, a bare one of these or a name it can't grant, `--allow-temp` given a value, `--allow-run-env=` without `--allow-run=` or `--allow-run-in=`, a directory missing, no directory, or one that can't be looked at, no file, an extra argument to `eval`, a non-UTF-8 argument, the script's included, `--version` with a subcommand), or an entry that doesn't resolve (missing, the wrong extension, a `.js` file not under `"type": "module"`) |
 
 Every other first argument, a flag among them, and none run a command of Gro's ([runtime](runtime.md#gros-workflow-on-the-runtime)),
-which exits with Gro's code as a run does, `2` when its pre-pass refuses it
-(its grant flags, `GRO_FALLBACK`'s value, a working directory with no project's `package.json`,
-a project's `package.json` or installed Gro's that can't be read,
-a fallback `GRO_FALLBACK=command` refuses, or a fallback with no installed or built Node Gro or no `node` to run it),
-`1` when the grants table or the working directory can't be read or `node` fails to start,
-and the Node Gro's code when it falls back.
+which runs in the run's kernel box ([box](box.md#how-it-goes-up)) and exits with Gro's code as a run does,
+`2` when it's refused before anything runs
+(its grant flags, `-A` before or after the command word among them, a write flag naming a directory that holds the project root, `GRO_FALLBACK`'s value, a working directory with no project's `package.json`,
+a project's `package.json` or installed Gro's that can't be read, a `node` on `PATH` that's a script,
+a `node_modules` symlink to anything but another checkout's `node_modules`, git's files the box can't read for a command that may start a program,
+a socket on stdin, stdout, or stderr that isn't a connected unix stream, an OS temporary directory inside the project,
+a path planted where the box opens a rule or makes a tool directory, like a symlink,
+a fallback `GRO_FALLBACK=command` refuses, the one the host decides where Landlock can't hold the box among them, or a fallback with no installed or built Node Gro or no `node` to run it),
+`1` when the grants table or the working directory can't be read, `node` fails to start, the binary was built without its snapshot,
+or a step of the box fails once the first has changed the process (a namespace left unusable, a tool directory that can't be made, where a linked `node_modules` leads that can't be looked at, a process with more than one thread),
+and the Node Gro's code when it falls back, where Landlock can't hold the box too.
 
 An entry that fails to resolve on an I/O error or a symlink loop exits 1, not 2.
 A program's code passes as it is, so `1` and `2` are shared between the program and `fgro`'s own failures.

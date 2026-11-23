@@ -67,7 +67,8 @@ until the module's source, the config, or the lockfile changes,
 so code a test wrote into the cache would run in the next Vitest run, an unconfined one included.
 On the Fuz stack's suites, a warm cache measured no faster than a cold one, within the runs' noise.
 The flag is not a protection: it keeps `gro test` from reading or making the cache,
-and test code can still write one, which a plain `vitest` run, like an editor's, would read.
+and on the Node Gro test code can still write one, which a plain `vitest` run, like an editor's, would read.
+On the binary the run's [box](box.md#what-a-commands-box-admits) keeps `node_modules` read-only but for its tool directories, so a test there can't.
 
 A forwarded `fsModuleCache` flag decides instead, in camel or kebab case,
 like `gro test -- --fsModuleCache` or `--no-fs-module-cache`.

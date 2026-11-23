@@ -30,10 +30,10 @@ an unconfined run (`-A`) is the escape hatch when you need it.
 The runtime grew out of the loader Gro already uses to run tasks, config, and codegen,
 and makes a clean break from Node toward web standards.
 Its model, authority by import with nothing ambient, is why it's a new runtime and not Deno with other defaults.
-It's an in-progress design, and of the confinement `fgro eval`'s kernel box and the link-time grant check of `fgro run` and `fgro <command>` are built so far.
-The experimental build runs modules with little API to the OS (fs reads beneath the project's root and the directories `--allow-read=` names, and writes, renames, and removes beneath those `--allow-write=` names, or everywhere under `-A`, the programs `--allow-run=` names and those beneath the directories `--allow-run-in=` names, started outside any box, so granting one is close to `-A`, no network, and the environment only as `--allow-env=` or `-A` grants it,
+It's an in-progress design, and of the confinement `fgro eval`'s kernel box, the kernel box every `fgro <command>` runs in, and the link-time grant check of `fgro run` and `fgro <command>` are built so far.
+The experimental build runs modules with little API to the OS (fs reads beneath the project's root and the directories `--allow-read=` names, and writes, renames, and removes beneath those `--allow-write=` names, or everywhere under `fgro run -A`, the programs `--allow-run=` names and those beneath the directories `--allow-run-in=` names, which `fgro run` starts outside any box, so granting one there is close to `-A`, no network, and the environment only as `--allow-env=` or `-A` grants it,
 and under `fgro <command>` also what the command's closure grants, tools given the whole environment among it),
-though neither `fgro run`'s process nor `fgro <command>`'s is sandboxed yet - see
+though `fgro run`'s process isn't sandboxed yet, while `fgro <command>`'s runs with its tools in a kernel box that leaves the project read-only but for the command's write roots - see
 [the runtime docs](/src/docs/runtime.md) for why it exists, the model in a page, the design, and the roadmap,
 and feedback is invited in [discussions](https://github.com/fuzdev/gro/discussions).
 
@@ -83,7 +83,7 @@ AI disclosure: much of this codebase is LLM-generated with uneven human review.
 - [`gen`](/src/docs/gen.md) code generation
 - the experimental [runtime](/src/docs/runtime.md), what [`fgro run`](/src/docs/run.md), [`fgro eval`](/src/docs/eval.md),
   and [`fgro <command>`](/src/docs/runtime.md#gros-workflow-on-the-runtime) do today,
-  its [security model](/src/docs/authority.md) and the [kernel backstop](/src/docs/backstop.md) under it,
+  its [security model](/src/docs/authority.md) and the [box](/src/docs/box.md) under it,
   how it [resolves modules](/src/docs/resolver.md) and [strips types](/src/docs/typescript.md),
   and how it [compares](/src/docs/comparison.md) to Node, Deno, and Bun
 - full [docs index](/src/docs#readme)
@@ -271,6 +271,7 @@ Run `cargo xtask fetch-v8` before any plain cargo command, since every build lin
 the pinned V8 archive it downloads and verifies.
 `cargo xtask build --release` builds `fgro` with its startup snapshot,
 `target/gro_snapshot/release/fgro run file.ts` runs a module,
+in a project `fgro check` runs a command of Gro's in its kernel box (an `fgro` from a plain `cargo build`, with no snapshot, refuses one),
 and `cargo xtask check` runs every gate, the Rust and JS halves together.
 
 ## Credits 🐢<sub>🐢</sub><sub><sub>🐢</sub></sub>

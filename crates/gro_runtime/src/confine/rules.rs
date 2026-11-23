@@ -100,6 +100,11 @@ impl Rights {
         execute: true,
     };
 
+    /// Whether these grant writing.
+    pub const fn writes(self) -> bool {
+        self.write
+    }
+
     /// The Landlock rights these grant on a handle of `kind`, at
     /// [`LANDLOCK_ABI`]: on anything but a directory, only those Landlock
     /// applies to a file (`AccessFs::from_file`), since the kernel refuses

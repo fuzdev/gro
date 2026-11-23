@@ -99,6 +99,10 @@ pub struct HostData {
     /// whose `fs` grant makes temporary directories
     /// ([`RuntimeOptions::temp_dir`](crate::RuntimeOptions::temp_dir)).
     pub temp_dir: Option<std::path::PathBuf>,
+    /// What a write the kernel refuses gains as its cause, in a run the
+    /// embedder boxed
+    /// ([`RuntimeOptions::denied_write_cause`](crate::RuntimeOptions::denied_write_cause)).
+    pub denied_write_cause: Option<crate::DeniedWriteCause>,
     /// The run's spawn state, made as it starts, for a run that grants
     /// `spawn` ([`spawn::SpawnRun`]).
     pub spawn: Option<std::rc::Rc<spawn::SpawnRun>>,

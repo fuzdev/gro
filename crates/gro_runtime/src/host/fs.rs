@@ -373,6 +373,105 @@ fn finish<'s>(
         .ok()
 }
 
+/// How a path an op writes is resolved for the box's cause, as Landlock
+/// checks the op: an op on the entry itself (`remove`, both ends of
+/// `rename`, `symlink`, `mkdir`) by the directory holding it, which the
+/// kernel checks; one through the entry (`write`, a copy's destination)
+/// by the entry, a final symlink followed, or by the directory that would
+/// hold it where there's none yet. Landlock gates no mode or time, so
+/// `set_mode` and `set_times` gain no cause.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Resolve {
+    /// The entry, a final symlink followed, else its parent.
+    Whole,
+    /// The parent.
+    Parent,
+}
+
+/// `result` as a write member returns it, as [`finish`] does, a
+/// `permission_denied` the kernel answered given the run's box's cause after
+/// the OS's own ([`HostData::denied_write_cause`]) when a path in `written`,
+/// what the op writes, absolute, with how the kernel checks it, lies
+/// beneath none of the box's writable paths once resolved to what the
+/// kernel checks ([`resolved_for_cause`]): a write the run's grants allow
+/// and its box refuses, which no grant flag's hint would explain.
+fn finish_write<'s>(
+    state: &OpState,
+    scope: &v8::PinScope<'s, '_>,
+    errors: Option<DeclaredFamily>,
+    result: Result<v8::Local<'s, v8::Value>, Failure>,
+    written: &[(String, Resolve)],
+) -> Option<v8::Local<'s, v8::Value>> {
+    let result = result.map_err(|failure| match failure {
+        Failure::Fs {
+            kind: FsErrorKind::PermissionDenied,
+            path,
+            cause,
+        } => {
+            let walled = state
+                .try_borrow::<HostData>()
+                .and_then(|data| data.denied_write_cause.as_ref())
+                .filter(|walled| {
+                    written.iter().any(|(target, how)| {
+                        let resolved = resolved_for_cause(state, target, *how);
+                        !walled
+                            .writable
+                            .iter()
+                            .any(|writable| std::path::Path::new(&resolved).starts_with(writable))
+                    })
+                });
+            let cause = match (cause, walled) {
+                (Some(cause), Some(walled)) => Some(format!("{cause}: {}", walled.cause)),
+                (None, Some(walled)) => Some(walled.cause.clone()),
+                (cause, None) => cause,
+            };
+            Failure::Fs {
+                kind: FsErrorKind::PermissionDenied,
+                path,
+                cause,
+            }
+        }
+        failure => failure,
+    });
+    finish(state, scope, errors, result)
+}
+
+/// What the kernel checks for an op writing `target`, an absolute path,
+/// resolved for the box's cause as `fs.real_path` resolves it, within the
+/// run's roots and following no symlink that leaves them: the entry where
+/// `how` says and it exists, else the directory holding it, resolved where
+/// it exists, else as given. It reads nothing outside the roots, so it
+/// tells the run nothing `fs.real_path` wouldn't.
+fn resolved_for_cause(state: &OpState, target: &str, how: Resolve) -> String {
+    let parent = || match target.rsplit_once('/') {
+        Some(("", _)) => "/",
+        Some((parent, _)) => parent,
+        None => target,
+    };
+    let Ok(table) = run_roots(state) else {
+        return parent().to_owned();
+    };
+    let real = |path: &str| {
+        walk::reach(
+            table.roots(),
+            table.project(),
+            path,
+            "fs.real_path",
+            sys::Opened::Entry,
+            Scope::READ,
+        )
+        .ok()
+        .map(|(_, root, beneath)| join(root.handle_base(), &beneath))
+    };
+    let whole = match how {
+        Resolve::Whole => real(target),
+        Resolve::Parent => None,
+    };
+    whole
+        .or_else(|| real(parent()))
+        .unwrap_or_else(|| parent().to_owned())
+}
+
 /// The run's fs state, or a plain `Error` in a runtime made outside a
 /// run's start.
 fn run_state(state: &OpState) -> Result<&FsState, Failure> {

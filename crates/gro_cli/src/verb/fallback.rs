@@ -14,18 +14,22 @@
 //! files decide ([`DecidedBy::ProjectFiles`]) is the project author's, the
 //! adversary for code the user hasn't vetted, who can pin another Gro in
 //! one line of `package.json` and so run the project's code unconfined, the
-//! line the only sign. So each reason says who decided it, and a strict
-//! mode refuses every fallback the project's files decide
+//! line the only sign; and one the host decides ([`DecidedBy::Host`]), a
+//! kernel below the run's box's Landlock floor, is where the command runs,
+//! which neither the user typing it nor a sandbox that launched it chose.
+//! So each reason says who decided it, and a strict mode refuses every
+//! fallback the command line didn't decide
 //! ([`FallbackReason::is_refused_when_strict`]), `GRO_FALLBACK=command`
 //! ([`FallbackPolicy`]).
 //!
 //! Kind of the strict mode: a boundary, a native check before anything
 //! runs, read from the process's environment alone, never the project's
 //! files. The adversary is a project that pins another Gro to leave the
-//! binary; the asset, what the binary confines. Unsetting the variable
-//! defeats it, and so does running the project's own Gro some other way
-//! (a package script's `gro`, `node_modules/.bin/gro`), each the user's
-//! choice, not the project's.
+//! binary, or a host that would run the project's code unconfined where
+//! the box can't go up; the asset, what the binary confines. Unsetting the
+//! variable defeats it, and so does running the project's own Gro some
+//! other way (a package script's `gro`, `node_modules/.bin/gro`), each the
+//! user's choice, not the project's.
 
 use std::ffi::{OsStr, OsString};
 use std::fmt::{self, Write as _};
@@ -34,6 +38,7 @@ use std::os::unix::process::CommandExt as _;
 use std::path::Path;
 use std::process::Command;
 
+use gro_runtime::confine::{ConfineError, REQUIRED_LANDLOCK_ABI};
 use gro_runtime::find_on_path;
 use gro_runtime::resolver::{GRO_PACKAGE, InstalledPackage};
 use gro_runtime::verb::closure::{ClosureFallback, CommandClosure};
@@ -55,7 +60,7 @@ pub enum FallbackPolicy {
     #[default]
     All,
     /// `command`: only the fallbacks the command line decides; one the
-    /// project's files decide is refused, and nothing runs.
+    /// project's files or the host decide is refused, and nothing runs.
     Command,
 }
 
@@ -79,8 +84,8 @@ impl FallbackPolicy {
     }
 
     /// Whether it refuses the fallback `reasons` make: under
-    /// [`FallbackPolicy::Command`], when any is one the project's files
-    /// decide.
+    /// [`FallbackPolicy::Command`], when any is one the command line
+    /// didn't decide.
     pub fn refuses(self, reasons: &[FallbackReason]) -> bool {
         self == Self::Command && reasons.iter().any(FallbackReason::is_refused_when_strict)
     }
@@ -173,6 +178,57 @@ pub enum DecidedBy {
     Command,
     /// The project's files, which the project's author wrote.
     ProjectFiles,
+    /// The host: a kernel that can't hold the run's box.
+    Host,
+}
+
+/// What the kernel has of Landlock, where it's below the run's box's floor
+/// (`gro_runtime::confine::run::probe_floor`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum KernelLandlock {
+    /// No Landlock to reach: the kernel has none, or a seccomp filter on
+    /// the process answers its calls `ENOSYS`, as a container's may.
+    Absent,
+    /// Built in, but not enabled: missing from the boot's `lsm=` list.
+    Disabled,
+    /// Landlock at this ABI, below the floor.
+    Abi(u32),
+}
+
+impl KernelLandlock {
+    /// What the floor probe's refusal `error` says the kernel has, or
+    /// `None` for an error that isn't the floor's, as one reading the
+    /// status.
+    pub const fn from_floor_error(error: &ConfineError) -> Option<Self> {
+        match error {
+            ConfineError::NoLandlock { built: false } => Some(Self::Absent),
+            ConfineError::NoLandlock { built: true } => Some(Self::Disabled),
+            ConfineError::LandlockAbi { abi } => Some(Self::Abi(*abi)),
+            _ => None,
+        }
+    }
+}
+
+impl fmt::Display for KernelLandlock {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let floor = format!("ABI {REQUIRED_LANDLOCK_ABI} (Linux 6.12)");
+        match self {
+            Self::Absent => write!(
+                f,
+                "Landlock isn't available here (the kernel has none, or a seccomp filter refuses \
+                 its calls), which the kernel box needs at {floor} or later"
+            ),
+            Self::Disabled => write!(
+                f,
+                "the kernel's Landlock isn't enabled (it is missing from the boot's lsm= list), \
+                 which the kernel box needs at {floor} or later"
+            ),
+            Self::Abi(abi) => write!(
+                f,
+                "the kernel's Landlock is ABI {abi}, below the {floor} the kernel box needs"
+            ),
+        }
+    }
 }
 
 /// Why a command runs on the Node Gro.
@@ -204,6 +260,9 @@ pub enum FallbackReason {
     /// The command is `task` with no task's path: it lists the project's
     /// tasks, importing each, whose grants no table holds.
     TaskListing,
+    /// The kernel can't hold the run's box: its Landlock is below the
+    /// floor the box needs.
+    KernelFloor(KernelLandlock),
 }
 
 impl FallbackReason {
@@ -216,13 +275,15 @@ impl FallbackReason {
             | Self::Install
             | Self::ProjectTask
             | Self::TaskListing => DecidedBy::Command,
+            Self::KernelFloor(_) => DecidedBy::Host,
         }
     }
 
     /// Whether a strict mode refuses it rather than run the Node Gro: every
-    /// fallback the project's files decide.
+    /// fallback the command line didn't decide, the project's files' and
+    /// the host's.
     pub const fn is_refused_when_strict(&self) -> bool {
-        matches!(self.decided_by(), DecidedBy::ProjectFiles)
+        matches!(self.decided_by(), DecidedBy::ProjectFiles | DecidedBy::Host)
     }
 }
 
@@ -254,6 +315,7 @@ impl fmt::Display for FallbackReason {
                 "`task` lists the project's tasks by importing each, and their grants are in no \
                  table",
             ),
+            Self::KernelFloor(kernel) => kernel.fmt(f),
         }
     }
 }

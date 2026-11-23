@@ -10,10 +10,11 @@
 //! any thread starts (`verb::prepass`), from the command line, the grants
 //! table, the project at the working directory, and `GRO_FALLBACK`,
 //! `NODE_ENV`, and `HOME`, read here once: it runs on the binary from its
-//! generated entry, unconfined by any box yet, so the tools it grants run
-//! the project's code with the environment their grants pass; or it execs
-//! the Node Gro the project installed (`verb::fallback`); or it's refused
-//! before anything runs.
+//! generated entry in the run's kernel box, which its process enters on
+//! the main thread before the run's thread starts (`verb::start`), so the
+//! project's code, the tools it grants, and an exploit of the engine are
+//! held to the box's walls; or it execs the Node Gro the project installed
+//! (`verb::fallback`); or it's refused before anything runs.
 //!
 //! **What a run is handed.** `gro_runtime` reads no environment variable of
 //! its own but its features' (its module doc), so what a run takes from the
@@ -22,8 +23,9 @@
 //!
 //! - color, decided from the environment ([`color::console_options`]), as
 //!   `RuntimeOptions::console`;
-//! - the working directory, read here and passed beside the entry, and
-//!   `fgro`'s own name and version, as `RuntimeOptions::runtime_version`;
+//! - the working directory, read here and passed beside the entry (a
+//!   verb's, the project's root its pre-pass read), and `fgro`'s own name
+//!   and version, as `RuntimeOptions::runtime_version`;
 //! - the variables `--allow-env=` grants (every variable under `-A`), read
 //!   through the [`Environment`] seam ([`env_vars`]), as
 //!   `RuntimeOptions::env`;
@@ -49,15 +51,17 @@
 //! The host asks the OS for the process's id, `pid`, when a run first
 //! imports the module. `fgro run` leaves the process's environment as it
 //! was, so the vendored `deno_core` still reads its own diagnostic
-//! variables (`gro_runtime`'s module doc names them); only `fgro eval`
-//! clears it.
+//! variables (`gro_runtime`'s module doc names them); `fgro eval` clears
+//! it, and a command of Gro's removes those and points the temporary and
+//! `XDG_*` data, cache, and state directories into the run's private
+//! directory before it reads any of the above (`verb::start`).
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 use gro_runtime::confine::Confinement;
-use gro_runtime::confine::plan::DirFlag;
+use gro_runtime::confine::plan::{DirFlag, GrantedFlagDir};
 use gro_runtime::engine::{EngineOptions, init_engine};
 use gro_runtime::file_id::FileId;
 use gro_runtime::phases::{self, Phase};
@@ -68,24 +72,24 @@ use gro_runtime::resolver::{
 use gro_runtime::verb::table::BuiltinGrantsTable;
 use gro_runtime::{
     ArgsGrant, Authority, CHILD_BASE_ENV, EnvGrant, EnvPattern, EnvVars, ExecRootGrant, Exit,
-    ExitGrant, FsGrant, FsNeed, GeneratedEntry, GrantedDir, Grants, NameKind, NeededGrant,
-    PassEnvGrant, ProgramGrant, Refusal, Refusals, RefusedBy, RunOutcome, RunPins, RuntimeOptions,
-    SpawnGrant, StderrGrant, StdoutGrant, env_name_fault,
+    ExitGrant, FsGrant, FsNeed, GrantedDir, Grants, NameKind, NeededGrant, PassEnvGrant,
+    ProgramGrant, Refusal, Refusals, RefusedBy, RunOutcome, RuntimeOptions, SpawnGrant,
+    StderrGrant, StdoutGrant, env_name_fault,
 };
 
 use crate::EXIT_FAILURE;
 use crate::cli::{
     ALLOW_ENV, ALLOW_READ, ALLOW_RUN, ALLOW_RUN_ENV, ALLOW_RUN_IN, ALLOW_TEMP, ALLOW_WRITE,
-    FlagDirs, RunGrant, RunInvocation, Task,
+    FlagDirs, RunGrant, RunInvocation,
 };
 use crate::color;
 use crate::embed::load_embed;
 use crate::error::{CliError, DirFault};
 use crate::print::{escape_controls, stderr_line};
 use crate::snapshot::STARTUP_SNAPSHOT;
-use crate::thread::run_on_sized_stack;
 use crate::verb::fallback::{GRO_FALLBACK, exec_node_gro};
-use crate::verb::prepass::{ProjectReads, VerbInputs, VerbPlan, VerbRun, node_gro_command, plan};
+use crate::verb::prepass::{ProjectReads, VerbInputs, VerbPlan, VerbRun, plan};
+use crate::verb::start::run_boxed;
 use crate::version::RUNTIME_VERSION;
 use crate::version::VERSION;
 
@@ -107,7 +111,7 @@ enum Ended {
 
 /// What a run is handed beside its entry: `fgro run`'s flags, or a verb's
 /// plan.
-struct RunSpec<'a> {
+pub struct RunSpec<'a> {
     /// What the run grants by the flags' shape.
     grant: &'a RunGrant,
     /// The directories it grants, as listed.
@@ -146,7 +150,7 @@ impl RunInvocation {
 }
 
 /// What a verb's plan hands the run.
-fn verb_spec(run: &VerbRun) -> RunSpec<'_> {
+pub fn verb_spec(run: &VerbRun) -> RunSpec<'_> {
     RunSpec {
         grant: &run.grant,
         dirs: &run.dirs,
@@ -161,8 +165,8 @@ fn verb_spec(run: &VerbRun) -> RunSpec<'_> {
 
 /// Runs the command of gro's `cli_args` names, the args after the
 /// binary's own path: plans it on the calling thread, the main one, before
-/// any thread starts ([`plan`]), then runs it on a thread with a stated
-/// stack ([`run_verb`]), or execs the Node Gro the project installed
+/// any thread starts ([`plan`]), then runs it in the run's box
+/// ([`run_boxed`]), or execs the Node Gro the project installed
 /// ([`exec_node_gro`]), or prints why it can't run, returning the exit
 /// code.
 pub fn verb(cli_args: &[String]) -> u8 {
@@ -190,7 +194,7 @@ pub fn verb(cli_args: &[String]) -> u8 {
         root: &root,
     };
     match plan(&inputs, &table, &DiskProject { root: &root }) {
-        Ok(VerbPlan::Run(run)) => run_on_sized_stack(&Task::Verb(run)),
+        Ok(VerbPlan::Run(run)) => run_boxed(*run, cli_args),
         Ok(VerbPlan::Fallback(fallback)) => exec_node_gro(
             &fallback,
             cli_args,
@@ -204,7 +208,7 @@ pub fn verb(cli_args: &[String]) -> u8 {
 
 /// The variable that turns off the `development` condition when it's
 /// `production`, for a verb's run and the Node Gro alike.
-const NODE_ENV: &str = "NODE_ENV";
+pub const NODE_ENV: &str = "NODE_ENV";
 
 /// The project at `root`, read from the disk as resolution reads it.
 struct DiskProject<'a> {
@@ -222,23 +226,6 @@ impl ProjectReads for DiskProject<'_> {
     }
 }
 
-/// Runs a verb's planned run from its generated entry, as [`run_module`]
-/// runs `fgro run`'s file, returning the exit code.
-pub fn run_verb(run: &VerbRun) -> u8 {
-    let entry = GeneratedEntry {
-        source: run.entry.clone(),
-        root: run.root.clone(),
-    };
-    let node_hint = format!(
-        "hint: a node: specifier was refused in this run; the Node gro runs it, unconfined: {}",
-        node_gro_command(&run.cli_args)
-    );
-    finish(
-        start_and_run(&verb_spec(run), Main::Generated(&entry)),
-        Some(&node_hint),
-    )
-}
-
 /// Runs the module `run.file` names (a path relative to the working
 /// directory, or absolute), handing the runtime the script's arguments,
 /// prints its failure if it failed, then the `import()`s and host
@@ -246,24 +233,32 @@ pub fn run_verb(run: &VerbRun) -> u8 {
 /// program that calls `exit` never gets here: [`exit_now`] ends the process
 /// from inside the call.
 pub fn run_module(run: &RunInvocation) -> u8 {
-    finish(start_and_run(&run.spec(), Main::File(&run.file)), None)
+    finish(start_and_run(&run.spec(), &run.file), None, None)
 }
 
 /// How a run that `started` ended, printed: its failure, then the refusals,
 /// then `node_hint` when the run failed after the resolver refused a
-/// `node:` specifier in it, returning the exit code ([`exit_code`]).
+/// `node:` specifier in it, then `walls` when the run failed after a
+/// program it started ended other than by exiting 0, returning the exit
+/// code ([`exit_code`]).
 ///
-/// Kind of the hint: a review signal the run's code controls, which can
-/// set its flag by catching a `node:` import and then fail, steering the
-/// reader to the Node Gro, which confines nothing; it could print the
-/// same line itself.
-fn finish(started: Result<RunOutcome, CliError>, node_hint: Option<&str>) -> u8 {
+/// Kind of the hint and the note: review signals the run's code controls,
+/// which can set the hint's flag by catching a `node:` import and then
+/// fail, steering the reader to the Node Gro, which confines nothing, and
+/// the note's by starting a program that fails; it could print the same
+/// lines itself.
+pub fn finish(
+    started: Result<RunOutcome, CliError>,
+    node_hint: Option<&str>,
+    walls: Option<&str>,
+) -> u8 {
     let RunOutcome {
         result,
         refused,
         exit_code: set,
         runtime,
         node_specifier_refused,
+        child_failed,
     } = match started {
         Ok(outcome) => outcome,
         Err(error) => return error.report(),
@@ -284,6 +279,12 @@ fn finish(started: Result<RunOutcome, CliError>, node_hint: Option<&str>) -> u8 
         && let Some(hint) = node_hint
     {
         stderr_line(hint);
+    }
+    if code != 0
+        && child_failed
+        && let Some(walls) = walls
+    {
+        stderr_line(walls);
     }
     code
 }
@@ -324,29 +325,20 @@ const fn exit_code(ended: Ended, refused: bool) -> u8 {
     }
 }
 
-/// The module a run starts from.
-#[derive(Clone, Copy)]
-enum Main<'a> {
-    /// `fgro run`'s file.
-    File(&'a Path),
-    /// The entry a verb's pre-pass generated.
-    Generated(&'a GeneratedEntry),
-}
-
-/// Starts the engine and runs `main` as `spec` says, returning how the run
-/// ended.
+/// Starts the engine, named unconfined, and runs `fgro run`'s `file` as
+/// `spec` says, returning how the run ended.
 ///
 /// # Errors
 ///
 /// Returns why the working directory, a directory a flag grants
 /// ([`granted_dirs`]), or the engine failed, before anything ran.
-fn start_and_run(spec: &RunSpec<'_>, main: Main<'_>) -> Result<RunOutcome, CliError> {
+fn start_and_run(spec: &RunSpec<'_>, file: &Path) -> Result<RunOutcome, CliError> {
     // read here, not in the runtime, which takes it as an input
     let cwd = std::env::current_dir().map_err(CliError::Cwd)?;
-    let (dirs, notes) = granted_dirs(spec.dirs, &cwd, !spec.verb)?;
+    let granted = granted_dirs(spec.dirs, &cwd, true)?;
     // a directory `-A` names grants nothing more, so there's nothing to note
     if !matches!(spec.grant, RunGrant::All) {
-        for note in notes {
+        for note in granted.notes {
             stderr_line(note);
         }
     }
@@ -355,23 +347,13 @@ fn start_and_run(spec: &RunSpec<'_>, main: Main<'_>) -> Result<RunOutcome, CliEr
     }
     let engine = init_engine(Confinement::Unconfined, &EngineOptions::default())?;
     phases::mark(Phase::Engine);
-    let options = runtime_options(spec, &ProcessEnvironment, dirs, &cwd);
-    Ok(match main {
-        Main::File(file) => gro_runtime::run_main(engine, &options, file, &cwd),
-        Main::Generated(entry) => {
-            let pins = RunPins::pin(
-                &options.authority,
-                options.spawn_env.get("PATH"),
-                &entry.root,
-            );
-            gro_runtime::run_generated(engine, &options, entry, pins, &cwd)
-        }
-    })
+    let options = runtime_options(spec, &ProcessEnvironment, granted.dirs, &cwd);
+    Ok(gro_runtime::run_main(engine, &options, file, &cwd))
 }
 
 /// Whether the run may start a program: `-A`, a program `--allow-run=`
 /// names in `grant`, or an exec root `--allow-run-in=` lists in `dirs`.
-fn grants_programs(grant: &RunGrant, dirs: &FlagDirs) -> bool {
+pub fn grants_programs(grant: &RunGrant, dirs: &FlagDirs) -> bool {
     match grant {
         RunGrant::All => true,
         RunGrant::Named { run, .. } => !run.is_empty() || !dirs.run_in.is_empty(),
@@ -403,13 +385,25 @@ fn ready_to_spawn(raise: fn() -> std::io::Result<u64>) -> std::io::Result<()> {
 /// The directories the flags grant: the fs grant's, read and written, and
 /// the spawn grant's exec roots.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-struct GrantedDirs {
+pub struct GrantedDirs {
     /// The fs grant of the directories `--allow-read=` and
     /// `--allow-write=` list.
-    fs: FsGrant,
+    pub fs: FsGrant,
     /// The exec roots `--allow-run-in=` lists, each by the path it was
     /// granted as.
-    exec_roots: BTreeMap<PathBuf, GrantedDir>,
+    pub exec_roots: BTreeMap<PathBuf, GrantedDir>,
+}
+
+/// The directories a run's flags list, resolved once ([`granted_dirs`]).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Granted {
+    /// Their grants.
+    pub dirs: GrantedDirs,
+    /// The notes for the directories whose real path isn't their text.
+    pub notes: Vec<String>,
+    /// Each directory with its flag, as listed, and its real path, the
+    /// one the grants hold.
+    pub resolved: Vec<GrantedFlagDir>,
 }
 
 /// The grants of the directories `dirs` lists, each resolved against `cwd`
@@ -421,19 +415,17 @@ struct GrantedDirs {
 /// starts, and holds it to that identity, so a directory moved or replaced
 /// between, like one gone by then, fails every op through it, and the fs
 /// roots nest as these real paths do. With them, the notes
-/// ([`grant_note`]) for the directories whose real path isn't their text.
+/// ([`grant_note`]) for the directories whose real path isn't their text,
+/// and each directory's real path beside its flag, for the run's box.
 ///
 /// # Errors
 ///
 /// Returns [`CliError::NoDir`] for the first that's missing, isn't a
 /// directory, or can't be looked at, naming `fgro run`'s help when
 /// `run_help` says its flags listed them.
-fn granted_dirs(
-    dirs: &FlagDirs,
-    cwd: &Path,
-    run_help: bool,
-) -> Result<(GrantedDirs, Vec<String>), CliError> {
+pub fn granted_dirs(dirs: &FlagDirs, cwd: &Path, run_help: bool) -> Result<Granted, CliError> {
     let mut notes = Vec::new();
+    let mut resolved = Vec::new();
     let mut check = |flag: DirFlag, dir: &String| {
         let path = cwd.join(dir);
         let found = std::fs::canonicalize(&path)
@@ -442,6 +434,11 @@ fn granted_dirs(
             Ok((real, metadata)) if metadata.is_dir() => {
                 let id = FileId::of(&metadata);
                 notes.extend(grant_note(flag, dir, &path, &real));
+                resolved.push(GrantedFlagDir {
+                    flag,
+                    dir: dir.clone(),
+                    real: real.clone(),
+                });
                 return Ok((path, GrantedDir { real, id }));
             }
             Ok(_) => DirFault::NotADirectory,
@@ -476,7 +473,11 @@ fn granted_dirs(
         .iter()
         .map(|dir| check(DirFlag::RunIn, dir))
         .collect::<Result<_, _>>()?;
-    Ok((GrantedDirs { fs, exec_roots }, notes))
+    Ok(Granted {
+        dirs: GrantedDirs { fs, exec_roots },
+        notes,
+        resolved,
+    })
 }
 
 /// The note, if one is due, that `flag` listing `dir`, the text typed,
@@ -665,7 +666,7 @@ fn hint_program(name: &str) -> bool {
 
 /// Where `fgro run` reads the environment variables it hands the runtime:
 /// the process's environment ([`ProcessEnvironment`]), or a test's.
-trait Environment {
+pub trait Environment {
     /// The value of the variable `name`, if it's set.
     fn var(&self, name: &str) -> Option<OsString>;
     /// Every variable, in the order the environment holds them.
@@ -673,7 +674,7 @@ trait Environment {
 }
 
 /// The process's own environment.
-struct ProcessEnvironment;
+pub struct ProcessEnvironment;
 
 impl Environment for ProcessEnvironment {
     fn var(&self, name: &str) -> Option<OsString> {
@@ -693,7 +694,7 @@ impl Environment for ProcessEnvironment {
 /// `environment` too, resolved against `cwd` ([`temp_dir`]), by its real
 /// path now ([`real_temp_dir`]); the exit step [`exit_now`]; its
 /// arguments and conditions; and the runtime's name and version.
-fn runtime_options(
+pub fn runtime_options(
     spec: &RunSpec<'_>,
     environment: &impl Environment,
     dirs: GrantedDirs,
@@ -731,7 +732,8 @@ fn runtime_options(
         authority: authority(spec, dirs),
         env,
         spawn_env,
-        temp_dir: temp.then(|| real_temp_dir(&cwd.join(temp_dir(environment)))),
+        temp_dir: temp.then(|| real_temp_dir(&cwd.join(temp_dir(environment).0))),
+        denied_write_cause: None,
         exit_step: Some(exit_now),
         conditions: spec.conditions,
         snapshot: STARTUP_SNAPSHOT,
@@ -753,7 +755,7 @@ fn runtime_options(
 /// each by the table's policy where `spec.programs` holds one, else
 /// forwarded what `--allow-run-env=` lists, and exec roots, each forwarded
 /// what `--allow-run-env=` lists.
-fn authority(spec: &RunSpec<'_>, dirs: GrantedDirs) -> Authority {
+pub fn authority(spec: &RunSpec<'_>, dirs: GrantedDirs) -> Authority {
     let GrantedDirs { fs, exec_roots } = dirs;
     match spec.grant {
         RunGrant::All => Authority::Unconfined,
@@ -844,20 +846,23 @@ fn spawn_env(
 
 /// The OS's temporary directory, as Node's `os.tmpdir()` names it, read
 /// from `environment`: the first of `TMPDIR`, `TMP`, and `TEMP` that's set
-/// and not empty, else `/tmp`, a trailing `/` dropped but from `/` itself.
-/// A value that isn't UTF-8 is decoded with U+FFFD in place of each invalid
-/// sequence, as Node reads one.
-fn temp_dir(environment: &impl Environment) -> PathBuf {
-    let set = ["TMPDIR", "TMP", "TEMP"]
-        .into_iter()
-        .filter_map(|name| environment.var(name))
-        .map(|value| value.to_string_lossy().into_owned())
-        .find(|value| !value.is_empty());
-    let mut dir = set.unwrap_or_else(|| "/tmp".to_owned());
+/// and not empty, else `/tmp`, a trailing `/` dropped but from `/` itself;
+/// and the variable that named it, none for the default. A value that isn't
+/// UTF-8 is decoded with U+FFFD in place of each invalid sequence, as Node
+/// reads one.
+pub fn temp_dir(environment: &impl Environment) -> (PathBuf, Option<&'static str>) {
+    let set = ["TMPDIR", "TMP", "TEMP"].into_iter().find_map(|name| {
+        let value = environment.var(name)?.to_string_lossy().into_owned();
+        (!value.is_empty()).then_some((value, name))
+    });
+    let (mut dir, variable) = set.map_or_else(
+        || ("/tmp".to_owned(), None),
+        |(dir, name)| (dir, Some(name)),
+    );
     if dir.len() > 1 && dir.ends_with('/') {
         dir.pop();
     }
-    PathBuf::from(dir)
+    (PathBuf::from(dir), variable)
 }
 
 /// `dir`, the OS's temporary directory, an absolute path, by its real path
@@ -867,7 +872,7 @@ fn temp_dir(environment: &impl Environment) -> PathBuf {
 /// and `..` resolved by their text ([`normalize`]): `fs.temp_dir` fails
 /// on it until the run makes it, by no symlink, and always when a symlink
 /// is on it.
-fn real_temp_dir(dir: &Path) -> PathBuf {
+pub fn real_temp_dir(dir: &Path) -> PathBuf {
     std::fs::canonicalize(dir).unwrap_or_else(|_| normalize(dir))
 }
 
@@ -1578,6 +1583,12 @@ mod tests {
                 run_env: BTreeSet::new(),
             },
             dirs: FlagDirs::default(),
+            flag_dirs: FlagDirs::default(),
+            writes_root: false,
+            tools: BTreeSet::new(),
+            declared: BTreeSet::new(),
+            policy: crate::verb::fallback::FallbackPolicy::All,
+            gro: None,
             programs: programs
                 .iter()
                 .map(|(name, program)| ((*name).to_owned(), (*program).clone()))

@@ -17,6 +17,7 @@ use thiserror::Error;
 use crate::cli::GrantListError;
 use crate::print::{echo_argument, escape_controls, stderr_line};
 use crate::verb::prepass::{VerbError, command_line};
+use crate::verb::start::BoxStartError;
 use crate::{EXIT_FAILURE, EXIT_USAGE};
 
 /// Why `fgro` failed, outside eval's envelope.
@@ -177,6 +178,9 @@ pub enum CliError {
     /// pre-pass decided before anything ran.
     #[error(transparent)]
     Verb(#[from] VerbError),
+    /// A command of gro's couldn't start in the run's box.
+    #[error(transparent)]
+    BoxStart(#[from] BoxStartError),
     /// The grants table the binary carries can't be read, which its tests
     /// hold against.
     #[error("the grants table this binary carries can't be read: {0}")]
@@ -262,6 +266,7 @@ impl CliError {
     pub const fn exit_code(&self) -> u8 {
         match self {
             Self::Verb(error) => error.exit_code(),
+            Self::BoxStart(error) => error.exit_code(),
             Self::Prices(_)
             | Self::NotUtf8(_)
             | Self::InvalidArguments { .. }

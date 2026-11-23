@@ -9,10 +9,10 @@ use super::builtins::granted;
 use super::embedded::TEST_EMBED;
 use crate::confine::Confinement;
 use crate::engine::{EngineOptions, init_engine};
+use crate::run::run_generated_on;
 use crate::test_support::{TestDir, never_exits};
 use crate::{
     Authority, GENERATED_ENTRY_URL, GeneratedEntry, RunError, RunPins, RuntimeOptions, STACK_SIZE,
-    run_generated,
 };
 
 /// Runs `source` as a generated entry whose root is `root`, started in
@@ -46,7 +46,7 @@ fn run_flagged(
         .stack_size(STACK_SIZE)
         .spawn(move || {
             let pins = RunPins::pin(&options.authority, None, &entry.root);
-            let outcome = run_generated(engine, &options, &entry, pins, &cwd);
+            let outcome = run_generated_on(engine, &options, &entry, pins, &cwd);
             (outcome.result, outcome.node_specifier_refused)
         })
         .unwrap()

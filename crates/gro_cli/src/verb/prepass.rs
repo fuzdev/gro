@@ -100,7 +100,7 @@ pub trait ProjectReads {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum VerbPlan {
     /// It runs on the binary.
-    Run(VerbRun),
+    Run(Box<VerbRun>),
     /// It runs on the Node Gro the project installed.
     Fallback(VerbFallback),
 }
@@ -121,6 +121,25 @@ pub struct VerbRun {
     /// closure's, relative to the root, joined to the flags', relative to
     /// the working directory, which is the root.
     pub dirs: FlagDirs,
+    /// The directories the grant flags list, apart from the closure's:
+    /// what widens the run's box past its plan's own rules.
+    pub flag_dirs: FlagDirs,
+    /// Whether the closure writes the project's root, its check mode's
+    /// writes dropped.
+    pub writes_root: bool,
+    /// The project's local programs the closure grants, each by its bare
+    /// name (`vitest`, `svelte-kit`).
+    pub tools: BTreeSet<String>,
+    /// The packages the project's `package.json` declares in
+    /// `dependencies` or `devDependencies`, by name.
+    pub declared: BTreeSet<String>,
+    /// Which fallbacks `GRO_FALLBACK` takes, for one the host decides once
+    /// the run's box is probed ([`floor_fallback`]).
+    pub policy: FallbackPolicy,
+    /// The Gro the project installed, at the binary's version, if it
+    /// installed one: what runs in the binary's place on a host that can't
+    /// hold the box.
+    pub gro: Option<InstalledPackage>,
     /// The policy of each program the closure grants, by the name it's
     /// granted as; a program only a flag grants is in none.
     pub programs: BTreeMap<String, ProgramGrant>,
@@ -203,6 +222,18 @@ pub enum VerbError {
         /// The binary's version.
         binary: String,
     },
+    /// `GRO_FALLBACK=command` refuses a fallback the host decides.
+    #[error(
+        "GRO_FALLBACK=command refuses running the project's own gro, which confines nothing, in \
+         the kernel box's place: {reason}. Run {} for the project's, unconfined",
+        node_gro_command(.cli_args)
+    )]
+    StrictHost {
+        /// The command line, its grant flags split off.
+        cli_args: Vec<String>,
+        /// Why the box can't go up.
+        reason: FallbackReason,
+    },
     /// The command runs on the Node Gro, and the project installed none.
     #[error(
         "{} runs on the Node gro, because {}, and this project installs none: npm i -D \
@@ -255,6 +286,7 @@ impl VerbError {
             | Self::TypeMarker { .. }
             | Self::Project { .. }
             | Self::Strict { .. }
+            | Self::StrictHost { .. }
             | Self::NoNodeGro { .. } => EXIT_USAGE,
         }
     }
@@ -281,6 +313,13 @@ fn help_pointer(command: Option<&str>) -> String {
         || format!("; {BINARY_NAME} --help lists the binary's own commands"),
         |_| String::new(),
     )
+}
+
+/// The command word of `cli_args`, the command line without its grant
+/// flags, as the closure reads it: none for the listing, or for a path,
+/// which names no command.
+pub fn command_of(cli_args: &[String]) -> Option<String> {
+    command_word(cli_args).filter(|word| !is_task_path_input(word))
 }
 
 /// `fgro` and the command word, as a message names the command line.
@@ -317,13 +356,12 @@ pub fn plan(
 ) -> Result<VerbPlan, VerbError> {
     let policy = FallbackPolicy::read(inputs.fallback)?;
     let split = split_grant_flags(inputs.cli_args)?;
-    // as the closure reads it, a path naming no command
-    let command = command_word(&split.cli_args).filter(|word| !is_task_path_input(word));
+    let command = command_of(&split.cli_args);
     let project_error = |kind| VerbError::Project {
         command: command.clone(),
         kind,
     };
-    match reads.package().map_err(project_error)? {
+    let declared = match reads.package().map_err(project_error)? {
         None => {
             return Err(VerbError::NoPackageJson {
                 command,
@@ -336,8 +374,8 @@ pub fn plan(
                 path: package.path,
             });
         }
-        Some(_) => {}
-    }
+        Some(package) => package.declared,
+    };
     let installed = reads.installed_gro().map_err(project_error)?;
     let closure = command_closure(table, &split.cli_args);
     let mut reasons = fallback_reasons(&closure, installed.as_ref(), inputs.binary_version);
@@ -364,7 +402,8 @@ pub fn plan(
             gro,
         }));
     }
-    let (grant, mut dirs) = to_run_grant(&split.grant_flags)?;
+    let (grant, flags) = to_run_grant(&split.grant_flags)?;
+    let mut dirs = flags.clone();
     let no_flags = (BTreeSet::new(), BTreeSet::new());
     let (flag_programs, forwards) = match &grant {
         RunGrant::Named { run, run_env, .. } => (run, run_env),
@@ -392,16 +431,60 @@ pub fn plan(
     dirs.read.extend(closure.grants.read.iter().cloned());
     dirs.write.extend(closure.grants.write.iter().cloned());
     let home = inputs.home.map(|home| home.to_string_lossy());
-    Ok(VerbPlan::Run(VerbRun {
+    let tools = closure
+        .grants
+        .programs
+        .iter()
+        .filter(|program| program.grant.local)
+        .map(|program| program.grant.name.clone())
+        .collect();
+    Ok(VerbPlan::Run(Box::new(VerbRun {
         cli_args: split.cli_args,
         root: inputs.root.to_owned(),
         grant,
         dirs,
+        flag_dirs: flags,
+        writes_root: closure.grants.write.contains(ROOT_DIR),
+        tools,
+        declared,
+        policy,
+        gro: installed,
         programs,
         development: inputs.node_env != Some(OsStr::new(NODE_ENV_PRODUCTION)),
         entry: main_entry(home.as_deref(), inputs.binary_version),
-    }))
+    })))
 }
+
+/// What runs in the binary's place for `run` when the host can't hold the
+/// run's box, `reason` saying why: the project's installed Gro, run as a
+/// fallback is ([`VerbPlan::Fallback`]).
+///
+/// # Errors
+///
+/// Returns [`VerbError::StrictHost`] when `GRO_FALLBACK=command` refuses a
+/// fallback the host decides, and [`VerbError::NoNodeGro`] when the
+/// project installed no Gro.
+pub fn floor_fallback(run: VerbRun, reason: FallbackReason) -> Result<VerbFallback, VerbError> {
+    if run.policy.refuses(std::slice::from_ref(&reason)) {
+        return Err(VerbError::StrictHost {
+            cli_args: run.cli_args,
+            reason,
+        });
+    }
+    let command = command_of(&run.cli_args);
+    let reasons = vec![reason];
+    let Some(gro) = run.gro else {
+        return Err(VerbError::NoNodeGro { command, reasons });
+    };
+    Ok(VerbFallback {
+        command,
+        reasons,
+        gro,
+    })
+}
+
+/// The project's root as a closure's write set names it.
+const ROOT_DIR: &str = ".";
 
 /// The policy of each program `closure` grants, by the name Gro's TS asks
 /// for it by: `node_modules/.bin/<name>` for a `local` one, else its bare

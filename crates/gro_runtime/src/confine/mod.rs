@@ -17,10 +17,10 @@
 //!   off ([`Jit`]), which the box records and the engine is checked against.
 //!
 //! The run's ends in [`run::RunConfined`], made only by
-//! [`run::RunPrepared::confine`]. [`Confinement`] names one of the two, or
+//! [`run::RunPrepared::confine`], the box every command of Gro's runs in
+//! (`gro_cli`'s `verb::start`). [`Confinement`] names one of the two, or
 //! [`Confinement::Unconfined`]: named by the caller, for a process that
-//! holds no box (`fgro run`, a command of Gro's, the snapshot builder, and
-//! tests).
+//! holds no box (`fgro run`, the snapshot builder, and tests).
 //!
 //! The rest of this doc is eval's box; [`run`]'s module doc has the run's.
 //! A box must hold every thread the process has, so it is installed while
@@ -469,9 +469,9 @@ fn listed(items: impl IntoIterator<Item = String>) -> String {
     }
 }
 
-/// The Landlock ABI the box requires, for its scope walls:
-/// [`LANDLOCK_ABI`](landlock::LANDLOCK_ABI)'s number, for the messages.
-const REQUIRED_LANDLOCK_ABI: u32 = landlock::LANDLOCK_ABI as u32;
+/// The Landlock ABI the box requires, for its scope walls: the number of
+/// the ABI its rules are written for, for the messages.
+pub const REQUIRED_LANDLOCK_ABI: u32 = landlock::LANDLOCK_ABI as u32;
 
 /// Installs the box `prepared`, for an engine whose JIT is `jit`, on the
 /// calling thread, the process's only one.

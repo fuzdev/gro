@@ -9,7 +9,7 @@ use deno_core::PollEventLoopOptions;
 use deno_core::error::{CoreError, CoreErrorKind};
 use url::Url;
 
-use crate::engine::Engine;
+use crate::engine::{Engine, RunEngine};
 use crate::host::HostData;
 use crate::host::spawn::{RunPins, SpawnRun};
 use crate::loader::Loader;
@@ -125,6 +125,14 @@ pub struct RunOutcome {
     /// so it says only that one was asked for, never that the program
     /// needs Node.
     pub node_specifier_refused: bool,
+    /// Whether a program the run started ended other than by exiting 0, by
+    /// a signal or a code of its own, the run never having signaled it (a
+    /// timeout, an abort, a stop, a program's own `kill`), so an embedder
+    /// that boxed the run can say what walls its tools may have met.
+    ///
+    /// Kind: a review signal the run's code controls, which can start a
+    /// program that fails on purpose.
+    pub child_failed: bool,
 }
 
 impl RunOutcome {
@@ -137,6 +145,7 @@ impl RunOutcome {
             exit_code: None,
             runtime: None,
             node_specifier_refused: false,
+            child_failed: false,
         }
     }
 }
@@ -204,7 +213,22 @@ fn pins_of(options: &RuntimeOptions, loader: &Loader) -> RunPins {
 /// entry's origin is the project's, its imports resolve from that root,
 /// and the cwd host module's `cwd` returns `cwd`. The entry's own
 /// resolution reads nothing, so it never fails.
+///
+/// It takes a [`RunEngine`], so the run's process is held in the run's box
+/// before any of the entry's code runs.
 pub fn run_generated(
+    engine: RunEngine,
+    options: &RuntimeOptions,
+    entry: &GeneratedEntry,
+    pins: RunPins,
+    cwd: &Path,
+) -> RunOutcome {
+    run_generated_on(engine.engine(), options, entry, pins, cwd)
+}
+
+/// Runs `entry` as [`run_generated`] does, on any engine: what that runs,
+/// and what this crate's tests of a generated entry run unboxed.
+fn run_generated_on(
     engine: Engine,
     options: &RuntimeOptions,
     entry: &GeneratedEntry,
@@ -308,6 +332,7 @@ fn run_resolved(
             env: options.env.clone(),
             project: Some(project),
             temp_dir: options.temp_dir.clone(),
+            denied_write_cause: options.denied_write_cause.clone(),
             spawn,
         },
         exit_step: options.exit_step,
@@ -322,6 +347,9 @@ fn run_resolved(
     );
     // the event loop has returned, however the run ended: no child it
     // launched outlives it
+    let child_failed = children
+        .as_ref()
+        .is_some_and(|spawn| spawn.any_child_failed());
     if let Some(spawn) = children {
         spawn.kill_children();
     }
@@ -334,6 +362,7 @@ fn run_resolved(
         exit_code,
         runtime,
         node_specifier_refused: loader.node_specifier_refused(),
+        child_failed,
     }
 }
 

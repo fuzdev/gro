@@ -23,7 +23,7 @@ use thiserror::Error;
 
 use crate::cli::{
     ALLOW_ALL, ALLOW_RUN, ALLOW_RUN_ENV, ALLOW_RUN_IN, ALLOW_TEMP, FlagDirs, GrantFlag,
-    GrantListError, ListFlag, RunGrant, RunGrantBuilder,
+    GrantListError, ListFlag, RUN, RunGrant, RunGrantBuilder,
 };
 use crate::print::{echo_argument, escape_controls};
 
@@ -37,18 +37,40 @@ pub struct GrantFlagsSplit {
     pub cli_args: Vec<String>,
 }
 
+/// The refusal of `flag` before the command word `command` (none when no
+/// argument names one): where grant flags go, and for `-A` before a
+/// command of Gro's, the spelling that runs unconfined; `run` takes `-A`
+/// after its word.
+fn before_command(flag: &str, command: Option<&str>) -> String {
+    let boxed = flag == "-A" && command != Some(RUN);
+    let command = command.map_or_else(|| "<command>".into(), escape_controls);
+    if boxed {
+        format!(
+            "-A comes before the command, and the binary runs each command of Gro's in a kernel \
+             box, which -A can't lift: the project's Node gro is the unconfined spelling \
+             (node_modules/.bin/gro {command})"
+        )
+    } else {
+        format!(
+            "{} comes before the command: grant flags go right after the command word, like \
+             `{BINARY_NAME} {command} {}`",
+            echo_argument(flag),
+            echo_argument(flag)
+        )
+    }
+}
+
 /// Why a command line's grant flags are refused. Each names the flag as
 /// [`echo_argument`] prints it, up to its first `=`.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum GrantFlagsError {
     /// A grant flag before the command word, where it would be the CLI's
-    /// arg, or Gro's.
+    /// arg, or Gro's. `-A` is named apart: right after the command word it
+    /// is refused too, for every command the binary runs in its box, the
+    /// project's Node Gro being the unconfined spelling.
     #[error(
-        "{flag} comes before the command: grant flags go right after the command word, like \
-         `{bin} {command} {flag}`",
-        flag = echo_argument(.flag),
-        command = .command.as_deref().map_or_else(|| "<command>".into(), escape_controls),
-        bin = BINARY_NAME
+        "{}",
+        before_command(.flag, .command.as_deref())
     )]
     BeforeCommand {
         /// The flag, as written.
@@ -297,9 +319,21 @@ mod tests {
         );
         assert_eq!(
             refused(&["-A"]),
+            "-A comes before the command, and the binary runs each command of Gro's in a kernel \
+             box, which -A can't lift: the project's Node gro is the unconfined spelling \
+             (node_modules/.bin/gro <command>)"
+        );
+        assert_eq!(
+            refused(&["-A", "check"]),
+            "-A comes before the command, and the binary runs each command of Gro's in a kernel \
+             box, which -A can't lift: the project's Node gro is the unconfined spelling \
+             (node_modules/.bin/gro check)"
+        );
+        assert_eq!(
+            refused(&["-A", "run", "x.ts"]),
             format!(
                 "-A comes before the command: grant flags go right after the command word, like \
-                 `{BINARY_NAME} <command> -A`"
+                 `{BINARY_NAME} run -A`"
             )
         );
         assert_eq!(

@@ -328,6 +328,7 @@ fn host_data() -> HostData {
             .collect(),
         project: None,
         temp_dir: None,
+        denied_write_cause: None,
         spawn: None,
     }
 }

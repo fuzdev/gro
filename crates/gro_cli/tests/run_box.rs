@@ -425,6 +425,8 @@ fn expected(case: &str) -> String {
             line("made where it leads: false");
             line("node_modules swapped for a link to .git: Symlink");
             line("made in .git: false");
+            line(".fuz a file: NotADirectory");
+            line("node_modules a file: NotADirectory");
         }
         "private_dir_reused" => {
             line(&format!("network: {network}"));
@@ -1105,6 +1107,15 @@ fn tool_dirs_planted(scratch: &Path) {
     let swapped_plan = tools_plan(&swapped, &["vitest"], &["vitest"]);
     std::fs::rename(swapped.join("node_modules"), swapped.join("moved")).unwrap();
     std::os::unix::fs::symlink(".git", swapped.join("node_modules")).unwrap();
+    // a file on the way to a tool directory: `.fuz` for `.fuz/cache`, and a
+    // `node_modules` swapped for one after the plan, for `node_modules/.vite`
+    let filed = tools_project(scratch, "tools_filed");
+    std::fs::write(filed.join(".fuz"), "").unwrap();
+    let fuz_plan = tools_plan(&filed, &["vitest"], &["@fuzdev/fuz_css"]);
+    let filed_modules = tools_project(scratch, "tools_filed_modules");
+    let filed_plan = tools_plan(&filed_modules, &["vitest"], &["vitest"]);
+    std::fs::remove_dir(filed_modules.join("node_modules")).unwrap();
+    std::fs::write(filed_modules.join("node_modules"), "").unwrap();
     let hardened = hardened();
     say(&format!(
         ".svelte-kit linked to /tmp: {}",
@@ -1123,6 +1134,14 @@ fn tool_dirs_planted(scratch: &Path) {
     say(&format!(
         "made in .git: {}",
         swapped.join(".git/.vite").exists() || swapped.join(".git/.vite-temp").exists()
+    ));
+    say(&format!(
+        ".fuz a file: {}",
+        tool_dir_refusal(hardened.make_tool_dirs(&fuz_plan))
+    ));
+    say(&format!(
+        "node_modules a file: {}",
+        tool_dir_refusal(hardened.make_tool_dirs(&filed_plan))
     ));
 }
 

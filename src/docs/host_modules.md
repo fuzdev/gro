@@ -159,7 +159,9 @@ The module's TSDoc has each op's contract.
 
 On `fgro`, `@fuzdev/gro/fs.ts` is a builtin module with the Node module's members, each of the same `length`, its records and functions frozen.
 It needs the `fs` grant, which `fgro run` and `fgro <command>` give the project's own modules, `-A` every module,
-and its roots are the directories the run's flags grant ([run](run.md#usage)), and under `fgro <command>` its closure's too.
+and its roots are the directories the run's flags grant ([run](run.md#usage)), and under `fgro <command>` its closure's too,
+with, where the project's `node_modules` is a symlink the run's box follows to another checkout's, a read-only root there, under the link's own path,
+so a read through it isn't refused as a symlink leaving the project ([box](box.md#what-a-commands-box-admits)).
 Every member is built.
 How each part is built is in the module docs of `crates/gro_runtime/src/host/fs.rs` and its children.
 
@@ -281,6 +283,9 @@ How each part is built is in the module docs of `crates/gro_runtime/src/host/fs.
 - `fs` lands before the [deny overlays](glossary.md#deny-overlays) and before `fgro run` has a kernel box,
   so a program can read the project's `.env` files and any file inside a directory the run reads,
   and write under `.git` and `node_modules` inside a directory it writes.
+  In a run of `fgro <command>` the run's box refuses such a write at the kernel, outside the [tool directories](glossary.md#tool-directory) and what a grant flag names,
+  as an `FsError` of kind `permission_denied` whose cause names where the box lets the command write and what stays read-only
+  ([box](box.md#what-a-commands-box-admits)), and leaves the `.env` files readable.
 
 `fs_search` (`@fuzdev/gro/fs_search.ts`) is library code over a handle,
 finding the files beneath a directory through `list`, recursively.
@@ -329,7 +334,8 @@ const result = await check.closed;
   and any other failure, like `not_executable`, still throws.
 - A program handle bounds which binary runs, not what it does: for most tools the arguments are code
   (`git -c core.sshCommand=…`, `node -e`, `ssh -o ProxyCommand=`, `find -exec`), and a tool reads its own config from the project and `HOME`,
-  so on `fgro` a spawn grant is designed to be bounded by the kernel backstop around the child, and the policy diff shows it that way ([backstop](backstop.md#the-box-for-runs-and-children)).
+  so on `fgro` a spawn grant is bounded by the box around the child, built for a command of Gro's, whose tools run in the run's box,
+  and designed for `fgro run`, and the policy diff is designed to show it that way ([box](box.md#the-box-for-runs-and-children)).
 - A bare name walks the host's `PATH` synchronously, absolute entries only, to the first regular executable.
   The child's own `PATH` lookups use the host `PATH` as it is, so a relative or empty entry in it resolves against the child's cwd,
   and its `node_modules/.bin` entries stay, so a child's own lookup, like a `#!/usr/bin/env node` script's, still searches them.
@@ -529,7 +535,7 @@ a program's `run`, `out`, `out_bytes`, and `start`, and a started child's `Spawn
 Not built: a call's `signal` option, which, given, rejects with a plain `Error`.
 How it's built is in the module docs of `crates/gro_runtime/src/host/spawn.rs` and its children, `spawn/pins.rs`, `spawn/exec_roots.rs`, `spawn/launch.rs`, `spawn/watch.rs`, `spawn/start.rs`, and `spawn/child.rs`.
 
-- Until each child is held in a box of its own ([native requirements](#native-requirements)), granting any program is close to granting what `-A` grants:
+- In `fgro run`, which has no box yet ([native requirements](#native-requirements)), granting any program is close to granting what `-A` grants:
   most programs can be made to run code by their arguments or environment, a shell, git, and cargo among them,
   and the root's `env` values set any variable for a program, `LD_PRELOAD` and `PATH` among them.
   Hand library code a narrowed root, which refuses `env` values.
@@ -580,7 +586,8 @@ How it's built is in the module docs of `crates/gro_runtime/src/host/spawn.rs` a
   though a value it leaves unset lets the host's own value of that variable through where `pass_env` passes it, the base set's `FORCE_COLOR` among them.
   A call asking for more is `not_granted`, with no hint, since no flag widens the table's policy, and the refusal names a variable but never a value.
   This bounds what the run's code can hand a child against code built to defeat it, a native check; a granted tool's arguments and config are still code,
-  and before the child is boxed it can read its parent's environment from `/proc`.
+  and under `fgro run`, which has no box, it can read its parent's environment from `/proc`;
+  in a command of Gro's the run is not dumpable, so its tools can't, though they can read one another's until each has a box of its own (the environment always, the memory where Yama allows, [box](box.md#what-a-commands-box-admits)).
 - A child is started by `posix_spawn`, no code run between its fork and its exec: a native binary by its pin's descriptor, a script by its path,
   so a native child's process name, which `ps` and `pkill` read, is that descriptor's number, where Node's is the binary's name;
   its working directory by a descriptor too, the `cwd` handle's directory opened beneath its root, or the project's, opened as the run started,
@@ -1507,13 +1514,14 @@ what can fail for a reason of the run's fails in what the module exports, as `cw
 - Create a link with `symlinkat` on the parent's descriptor, never checking the target, which is data (built).
   Landlock's `MAKE_SYM` limits where links are made, the write roots, and Landlock's own walk refuses to follow one
   out of a granted hierarchy for the confined process and its children;
-  a link a later unconfined tool follows is the time-shifted case [backstop](backstop.md#the-box-for-runs-and-children) accepts for writes.
+  a link a later unconfined tool follows is the time-shifted case [box](box.md#the-box-for-runs-and-children) accepts for writes.
 - Set times and mode, following a final symlink, on an entry opened as a path beneath the handle,
   through its `/proc/self/fd` link (built).
   Landlock gates neither at any ABI, so the run box has to admit them by form (designed, and open:
   the descriptor forms `utimensat(fd, NULL, …)` and `fchmod(fd)`, which seccomp could pin, aren't the built one), bounded by what the process can open:
   code that escapes V8 can retime and rechmod any file it can open, every read root included, not only the write roots.
   Bounding them to the write roots would take a broker outside the box.
+  The run's box, built, allows both, a stated gap ([box](box.md#what-a-commands-box-admits)).
 - Refuse `set_times` with `follow: false` in the run box with `permission_denied`, unless a broker outside the box does it (designed).
   A link's own times take `utimensat` on a name in the link's parent with `AT_SYMLINK_NOFOLLOW`, the built form,
   which the kernel refuses with a `NULL` path, and seccomp can't read the name, so nothing pins that form to the handle:
@@ -1524,7 +1532,7 @@ what can fail for a reason of the run's fails in what the module exports, as `cw
 - Return owned buffers from `read`, never a view of memory the runtime reuses (built).
 - Keep `/proc/*/environ`, `/proc/*/mem`, and `/proc/*/cmdline` in the read-deny overlay, always on, `-A` included,
   since they're regular files, not magic links (designed; the [deny overlays](glossary.md#deny-overlays)).
-- Refuse a read that reaches a denied file through another name (a hard link), by the rule [backstop](backstop.md#open) settles on (designed).
+- Refuse a read that reaches a denied file through another name (a hard link), by the rule [box](box.md#open) settles on (designed).
 
 ### spawn
 
@@ -1540,9 +1548,10 @@ what can fail for a reason of the run's fails in what the module exports, as `cw
 - Confine the child with the run's kernel rules:
   the project and the linked packages readable, only the run's write roots writable (the tool directories among them), never the project root,
   the network the run's own loopback (or, where user namespaces are restricted, no internet socket), and seccomp refusing unix sockets by path, nested user namespaces, and terminal input injection (`TIOCSTI`, `TIOCLINUX`)
-  ([backstop](backstop.md#the-box-for-runs-and-children)) (built in parts and installed by no command, so a child runs unboxed).
+  ([box](box.md#what-a-commands-box-admits)) (built for a command of Gro's, whose children start in the run's box; designed for `fgro run`, whose children run unboxed).
 - Keep the runtime's own environment and memory from a child that can read `/proc`:
-  the run marks itself not dumpable before its box goes up (built in the box's steps, installed by no command).
+  the run marks itself not dumpable before its box goes up (built for a command of Gro's, whose box reads `/proc` whole,
+  refusing the environment, memory, and working directory of a process outside it, [box](box.md#what-a-commands-box-admits)).
 - Hand the child a `PATH` filtered to absolute entries (built).
 - Refuse a name or argument holding a NUL byte or a lone surrogate before it reaches the kernel (built).
 - Report a child killed by any signal, real-time ones included, from what `waitid` reports on its pidfd (built).
@@ -1572,7 +1581,7 @@ what can fail for a reason of the run's fails in what the module exports, as `cw
   `/proc/self/fd/N` through `posix_spawn`, and a script by its found path, checked by identity as above (built).
   Refuse a handle the runtime didn't make, a resource rather than a shape,
   and check that the handle's directory is beneath an exec root of the spawn root's scope before resolving, else `not_granted` (built).
-  An exec root may also be a write root, as a build's output directory is ([backstop](backstop.md#the-box-for-runs-and-children)).
+  An exec root may also be a write root, as a build's output directory is ([box](box.md#the-box-for-runs-and-children)).
 - Refuse `env`, `pass_env: 'all'`, and `pass_env` globs on a narrowed root natively,
   so a patched `String.prototype.endsWith` can't pass a glob through (built).
 - Read a started child's output without passing a bare chunk through promise resolution:

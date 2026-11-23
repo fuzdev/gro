@@ -30,8 +30,9 @@ arm (a `cfg` on the architecture or the C library is fine).
   its `verb/` holds the verb's pre-pass (`prepass.rs`: the grant flags,
   split as `fgro run` spells them, the closure's grants joined to theirs,
   the generated entry, and why a command runs on the Node Gro, run
-  before any thread starts so the run's box can follow it) and the
-  fallback's exec of the project's Node Gro
+  before any thread starts and holding no descriptor when it returns), the
+  fallback's exec of the project's Node Gro, and the run's start in its
+  box (`start.rs`)
 - `gro_sys` - the raw system calls the safe std API lacks (descriptors, the
   environment, `RLIMIT_DATA` and `RLIMIT_NOFILE`, a hard limit lowered, the
   thread count once settled, the default thread stack, a thread's stack
@@ -187,12 +188,14 @@ and the contracts no one module doc owns.
   run's, `confine::run`'s tokens in its order (`probe_floor`'s
   `LandlockFloor` → `RunClosed` → `RunNetworked` → `RunHardened` →
   `RunPrepared` → `RunPrepared::confine` → `RunConfined`), named
-  `Confinement::Run`, which no command installs yet; or
-  `Confinement::Unconfined` named by `fgro run`, a command of Gro's,
-  `make-snapshot`, and unit tests. `engine::init_engine` takes a
-  `Confinement` and returns an `Engine`, which `run_main` and
-  `make_snapshot` require, and `init_eval_engine` takes an `EvalConfined`
-  and returns the `EvalEngine` `eval::eval` requires.
+  `Confinement::Run`, which every command of Gro's runs in; or
+  `Confinement::Unconfined` named by `fgro run`, `make-snapshot`, and unit
+  tests. `engine::init_engine` takes a `Confinement` and returns an
+  `Engine`, which `run_main` and `make_snapshot` require;
+  `init_eval_engine` takes an `EvalConfined` and returns the `EvalEngine`
+  `eval::eval` requires; and `init_run_engine` takes a `RunConfined` and
+  returns the `RunEngine` `run_generated` requires, so a command of Gro's
+  never runs outside the box.
   No runtime starts before the process is confined or named unconfined; an
   engine in eval's box whose JIT disagrees with the box's is
   `EngineError::JitConflict`; the run's box takes either.
@@ -209,7 +212,10 @@ and the contracts no one module doc owns.
   until it's confined, in the step order written once, in `confine_eval`'s
   doc in `crates/gro_cli/src/eval.rs`; the run's box takes its steps on one
   thread too, in the order `confine/run.rs`'s module doc writes and its
-  tokens hold, and each step that needs one thread reads the count settled.
+  tokens hold, and each step that needs one thread reads the count settled;
+  a command of Gro's takes them, from the pre-pass to the box, in the order
+  written once in `crates/gro_cli/src/verb/start.rs`'s module doc, every
+  fallback an exec before the first change.
   Every other command runs its runtime on a thread of its own, not the main
   one, sized `gro_runtime::STACK_SIZE`.
 - `bootstrap::extensions` drops every lazy ES module and every other
@@ -245,7 +251,9 @@ and the contracts no one module doc owns.
 - `gro_runtime` reads no environment variable but the `phases` feature's
   `GRO_PHASES_FILE` and the `prices` feature's `GRO_PRICES_OFF` (`lib.rs`'s
   module doc, which also names the vendored `deno_core`'s own diagnostic
-  reads, which only eval clears). What a run takes from the process, `fgro`
+  reads, which eval clears and a command of Gro's removes, with the
+  temporary and `XDG_*` directories pointed into its private directory).
+  What a run takes from the process, `fgro`
   reads once as the run starts and hands in through `RuntimeOptions`, as
   `gro_cli/src/run.rs`'s module doc lists (§What a run is handed). The
   `phases` and `prices` features (on `gro_cli`, enabling `gro_runtime`'s) are
@@ -262,7 +270,8 @@ and the contracts no one module doc owns.
   (`lib.rs`'s module doc), beside the signal handler a run that grants a
   program installs at its first launch, which ends the process by the
   signal; such a run needs the process made ready first
-  (`RuntimeOptions::spawn_env`). A program's `exit` calls the step the embedder
+  (`RuntimeOptions::spawn_env`), which for a command of Gro's is the box's
+  own steps. A program's `exit` calls the step the embedder
   gave (`RuntimeOptions::exit_step`; `host/exit.rs` has why), and a run that
   grants `exit` without one fails before it starts. `fgro`'s step is
   `run::exit_now`, and `run::exit_code` is the one place a run's exit code
@@ -290,6 +299,12 @@ child and reads it from inside and from outside: its cases run in any
 build, but those that start V8 under the box, which need a snapshot.
 They need Landlock ABI 6, and expect the network form the host's settings
 give (the run's own namespace unless user namespaces are restricted).
+A command of Gro's runs on the binary only from a snapshot build, in its
+box, so `tests/verb.rs`'s runs and `tests/verb_box.rs`, which attacks each
+wall from inside a boxed `fgro gen` and holds the refusals before the box
+and the floor's fallback, run from `--verify`, ignored in a plain
+`cargo test`; they need Landlock ABI 6, `python3`, the checkout's
+`node_modules`, and a `node` on `PATH` that is no version manager's shim.
 `--verify` names each of `gro_cli`'s integration tests with the features it
 runs under (`INTEGRATION_TESTS` in `crates/xtask/src/snapshot.rs`), and an
 xtask unit test fails on a file of `crates/gro_cli/tests/` no run names.

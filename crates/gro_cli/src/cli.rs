@@ -16,7 +16,6 @@ use thiserror::Error;
 
 use crate::error::CliError;
 use crate::print::{echo_argument, escape_controls};
-use crate::verb::prepass::VerbRun;
 
 /// The internal subcommand that writes the snapshot, handled before argh so
 /// it stays out of `--help`.
@@ -72,7 +71,7 @@ impl SubCommand for RunArgs {
 }
 
 /// `run`'s name.
-const RUN: &str = "run";
+pub const RUN: &str = "run";
 
 /// `run`'s description, in `fgro --help`'s list of commands and at the top of
 /// its own help.
@@ -895,9 +894,9 @@ pub enum Invocation {
     /// `fgro eval`, which confines its process and so runs on the main
     /// thread.
     Eval(EvalInvocation),
-    /// A command of gro's, every argument as written: its pre-pass runs on
-    /// the main thread before any thread starts, then it runs on a thread
-    /// with a stated stack or on the Node Gro.
+    /// A command of gro's, every argument as written: its pre-pass and its
+    /// box's steps run on the main thread before any thread starts, then
+    /// it runs on a thread with a stated stack, or on the Node Gro.
     Verb(Vec<String>),
     /// Every other command, run on a thread with a stated stack.
     Sized(Task),
@@ -916,8 +915,6 @@ pub enum Task {
     MakeEmbed(PathBuf, PathBuf),
     /// `run <file> [<args...>]`.
     Run(RunInvocation),
-    /// A command of gro's, run on the binary as its pre-pass planned.
-    Verb(VerbRun),
 }
 
 /// The `N` paths an internal subcommand takes, `args` its name and them,

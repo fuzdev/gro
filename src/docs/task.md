@@ -104,6 +104,11 @@ The Node gro takes the same grammar and confines nothing,
 so it runs the command without them and warns once, on stderr, that they have no effect.
 It checks only their spelling, not the names and directories they list,
 so `--allow-read=,`, whose empty entries the binary refuses, passes there.
+On the binary a command of Gro's refuses `-A` before the command word, and after it when the binary runs the command itself, since that run is always in the run's kernel box
+(a command left to Node passes it to the Node Gro),
+and refuses a write flag naming a directory that holds the project root
+([box](box.md#what-a-commands-box-admits) has how the flags widen the box);
+`fgro run -A <file>`, the binary's own run and not a command of Gro's, keeps it ([run](run.md#usage)).
 A grant flag before the command word, one in the run spelled `--allow-*` that's no grant flag,
 one with no list after its `=`, and `--allow-temp` with a value are usage errors;
 after the run a flag spelled `--allow-*` is the task's, and `--` forwards as written.
@@ -285,13 +290,13 @@ A project task can import a host module itself, as every module can on Node.
 The cut above is a [guardrail](glossary.md#guardrail) on either runtime, against a builtin's own mistakes,
 never a boundary. On Node `env` is narrowed and `programs` refuses an ungranted role,
 but `fs_paths` is the root's whole `FsPaths`.
-On the binary (built, without the box), a command runs under one grant set, its closure's,
+On the binary (built, in the run's kernel box), a command runs under one grant set, its closure's,
 the CLI's row and the grants of every builtin the command invokes, directly or in turn, as its `invokes` mark them, beside the grant flags,
 and the cut gives each builtin its own part of that set.
 The project's code shares the realm. On the binary no project task runs (`gro task <path>` runs on the Node Gro),
 but the config and genfiles run as the project's own modules, at its [origin](glossary.md#origin) by their paths, imported through the [generated entry](glossary.md#generated-entry), and import any host module the set holds,
 and a package they import, granted nothing itself, can patch a shared prototype a builtin's handles pass through,
-so that code holds the whole set, which only the native checks bound, until the box is installed
+so that code holds the whole set, which only the native checks and the run's box bound
 ([threat model](authority.md#threat-model)).
 `GRO_BUILTIN_TASK_GRANTS` is deep-frozen with null-prototype objects,
 and the cut copies `Object.hasOwn` when it loads,
