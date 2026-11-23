@@ -457,3 +457,71 @@ fn a_replaced_script_is_named_by_where_its_path_now_leads() {
         format!("a at {project}/bin/a.sh is no longer the file pinned")
     );
 }
+
+/// A pin names the file the run's box grants: a native binary and a script
+/// reached by a plain name their own, a `node_modules/.bin` script the
+/// `node` it runs under, native or a script, and a script granted as
+/// `node` itself a script `node`, whichever grant names it.
+#[test]
+fn a_pin_names_the_file_the_box_grants() {
+    use std::path::PathBuf;
+
+    use crate::confine::plan::ProgramFile;
+
+    let dir = TestDir::in_system_temp("spawn_pins_files");
+    let root = dir.path();
+    let project = text(root);
+    file(root, "tools/native", ELF, 0o755);
+    file(root, "tools/script", SCRIPT, 0o755);
+    file(root, "tools/node", ELF, 0o755);
+    file(root, "shims/node", SCRIPT, 0o755);
+    file(root, "pkg/cli.js", b"#!/usr/bin/env node\n", 0o755);
+    std::fs::create_dir_all(root.join("node_modules/.bin")).unwrap();
+    std::os::unix::fs::symlink("../../pkg/cli.js", root.join("node_modules/.bin/cli")).unwrap();
+    let at = |path: &str| PathBuf::from(format!("{project}/{path}"));
+    let file_of = |name: &str, path: &str| {
+        ProgramFile::from(&resolve(name, Some(&format!("{project}/{path}")), project).unwrap())
+    };
+    assert_eq!(
+        file_of("native", "tools"),
+        ProgramFile::Direct {
+            real: at("tools/native")
+        }
+    );
+    assert_eq!(
+        file_of("script", "tools"),
+        ProgramFile::Direct {
+            real: at("tools/script")
+        }
+    );
+    assert_eq!(
+        file_of("node_modules/.bin/cli", "tools"),
+        ProgramFile::Node {
+            found: at("tools/node"),
+            real: at("tools/node"),
+            script: false,
+        }
+    );
+    assert_eq!(
+        file_of("node_modules/.bin/cli", "shims"),
+        ProgramFile::Node {
+            found: at("shims/node"),
+            real: at("shims/node"),
+            script: true,
+        }
+    );
+    assert_eq!(
+        file_of("node", "shims"),
+        ProgramFile::Node {
+            found: at("shims/node"),
+            real: at("shims/node"),
+            script: true,
+        }
+    );
+    assert_eq!(
+        file_of("node", "tools"),
+        ProgramFile::Direct {
+            real: at("tools/node")
+        }
+    );
+}

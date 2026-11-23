@@ -8,8 +8,9 @@
 //! run has; and a frozen null-prototype record of names for each root
 //! `narrow` makes, which names its parent's scope. A scope is what its
 //! roots may make: in a confined run, the programs its grant names, each
-//! pinned as the run started ([`pins`]), with what each may be given of the
-//! environment ([`ProgramGrant`]): the variables `--allow-run-env=`
+//! pinned before the run's runtime started ([`RunPins`]), with what each
+//! may be given of the environment ([`ProgramGrant`]): the variables
+//! `--allow-run-env=`
 //! forwards to a program `--allow-run=` granted, or a program's policy in
 //! the grants table; in an unconfined one, any program, found when it's
 //! asked for, passed any variable. Every method decides from the root it's
@@ -93,6 +94,7 @@ use super::handle::{self, FS_READ_DIR, HandleKind, SPAWN, SPAWN_PROGRAM};
 use super::{
     HostData, NO_ERROR_CLASSES, name, native, own_data, string, throw_error, throw_type_error,
 };
+use crate::confine::plan::ProgramFile;
 use crate::loader::RefusalLog;
 use crate::loader::refused::{NOT_GRANTED, NotGranted, SpawnNeed};
 use crate::{
@@ -193,15 +195,83 @@ struct GrantedProgram {
     grant: ProgramGrant,
 }
 
+/// The programs a confined run's spawn grant names, each pinned once before
+/// the run's runtime starts.
+///
+/// They're pinned by the spawn host module's rules: a bare name found on
+/// the `PATH` children are handed, a name holding `/` beneath the project's
+/// root. The run's spawn state takes them as they are, and a box made for
+/// the run grants the files they pinned ([`RunPins::files`]), so the box
+/// and the run hold one resolution.
+#[derive(Debug, Default)]
+pub struct RunPins {
+    /// Each program's pin, or why it pinned nothing, by the name it's
+    /// granted as.
+    pinned: BTreeMap<String, Result<Pin, Fault>>,
+}
+
+impl RunPins {
+    /// The pins of the programs `authority`'s spawn grant names, a bare one
+    /// found on `path`, the `PATH` the embedder read for children, one
+    /// holding `/` beneath `project`, the project's root: none for a run
+    /// that grants no `spawn`, and none for an unconfined one, whose
+    /// programs are found when they're asked for.
+    pub fn pin(authority: &Authority, path: Option<&str>, project: &Path) -> Self {
+        let Authority::Confined(Grants {
+            spawn: Some(grant), ..
+        }) = authority
+        else {
+            return Self::default();
+        };
+        let project = project.to_str();
+        Self {
+            pinned: grant
+                .programs
+                .keys()
+                .map(|name| (name.clone(), pin(name, path, project)))
+                .collect(),
+        }
+    }
+
+    /// The file each program pinned executes, each once, in the order of
+    /// the names they're granted as ([`ProgramFile`]'s conversion), for the
+    /// run's box: a name that pinned nothing names no file.
+    pub fn files(&self) -> Vec<ProgramFile> {
+        let mut files: Vec<ProgramFile> = Vec::new();
+        for file in self.pinned.values().flatten().map(ProgramFile::from) {
+            if !files.contains(&file) {
+                files.push(file);
+            }
+        }
+        files
+    }
+
+    /// The pin of `name`, taken: the pin made for it, or, for a name the
+    /// pins weren't made for, a fault saying so, which a launch of it meets.
+    fn take(&mut self, name: &str) -> Result<Pin, Fault> {
+        self.pinned.remove(name).unwrap_or_else(|| {
+            Err(Fault::Unresolved {
+                cause: format!("{name} wasn't pinned as the run started"),
+                why: "the run's pins were made for another grant".to_owned(),
+            })
+        })
+    }
+}
+
 impl SpawnRun {
     /// The spawn state of a run whose authority is `authority`, `env` the
     /// variables the embedder read for children, `project` the project's
     /// root: none for a run that doesn't grant `spawn`; for one whose grant
-    /// names programs, each pinned now, by the rules [`pins::resolve`]
-    /// mirrors, a bare name found on `env`'s `PATH`, and each exec root it
-    /// names opened now and held to the identity it was granted with
+    /// names programs, each held by its pin from `pins`, made for that
+    /// grant before the run started ([`RunPins::pin`]), and each exec root
+    /// it names opened now and held to the identity it was granted with
     /// ([`ExecRoot::open`]); for an unconfined one, `/` its exec root.
-    pub fn start(authority: &Authority, env: &EnvVars, project: &Path) -> Option<Self> {
+    pub fn start(
+        authority: &Authority,
+        env: &EnvVars,
+        project: &Path,
+        mut pinned: RunPins,
+    ) -> Option<Self> {
         let grant = match authority {
             Authority::Unconfined => None,
             Authority::Confined(Grants { spawn: None, .. }) => return None,
@@ -223,7 +293,7 @@ impl SpawnRun {
                         .programs
                         .iter()
                         .map(|(name, program)| {
-                            let pin = pin(name, env, project.as_deref()).map(|pin| {
+                            let pin = pinned.take(name).map(|pin| {
                                 pins.push(pin);
                                 pins.len() - 1
                             });
@@ -313,7 +383,7 @@ impl SpawnRun {
     /// `name` resolved and pinned now, for an unconfined run's root, and
     /// its place in the table ([`SpawnRun::hold_pin`]).
     fn pin_now(&self, name: &str) -> Result<usize, Fault> {
-        let found = pin(name, &self.env, self.project.as_deref())?;
+        let found = pin(name, self.env.get("PATH"), self.project.as_deref())?;
         Ok(self.hold_pin(found))
     }
 
@@ -329,16 +399,16 @@ impl SpawnRun {
     }
 }
 
-/// `name` resolved by [`pins::resolve`], a bare one on `env`'s `PATH` and
-/// one holding `/` beneath `project`, which it can't be when the project's
-/// root has no path a string can name.
-fn pin(name: &str, env: &EnvVars, project: Option<&str>) -> Result<Pin, Fault> {
+/// `name` resolved by [`pins::resolve`], a bare one on `path` and one
+/// holding `/` beneath `project`, which it can't be when the project's root
+/// has no path a string can name.
+fn pin(name: &str, path: Option<&str>, project: Option<&str>) -> Result<Pin, Fault> {
     match project {
-        Some(project) => pins::resolve(name, env.get("PATH"), project),
+        Some(project) => pins::resolve(name, path, project),
         None if name.contains('/') => Err(Fault::NotGranted(format!(
             "{name} resolves beneath the project, whose root has no path a string can name"
         ))),
-        None => pins::resolve(name, env.get("PATH"), "/"),
+        None => pins::resolve(name, path, "/"),
     }
 }
 

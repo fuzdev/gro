@@ -66,7 +66,9 @@
 use std::fs::File;
 use std::os::fd::{AsRawFd as _, OwnedFd};
 use std::os::unix::fs::{FileExt as _, OpenOptionsExt as _};
+use std::path::PathBuf;
 
+use crate::confine::plan::ProgramFile;
 use crate::file_id::FileId;
 use crate::host::fs::reads::escaped;
 
@@ -234,6 +236,31 @@ pub enum PinKind {
         /// The flags its `#!/usr/bin/env -S node` line passes, in order.
         flags: Vec<String>,
     },
+}
+
+/// The file a pin executes, as the run's box grants it: a native binary's
+/// or a script's own real path, and for a `node_modules/.bin` script, the
+/// `node` it runs under, whose file is what executes. A script granted by
+/// the bare name `node` is that `node` too, a script, so the box refuses a
+/// version manager's shim whichever grant names it.
+impl From<&Pin> for ProgramFile {
+    fn from(pin: &Pin) -> Self {
+        match &pin.kind {
+            PinKind::NodeScript { node, .. } => Self::Node {
+                found: PathBuf::from(&node.run_path),
+                real: PathBuf::from(&node.real),
+                script: matches!(node.kind, PinKind::Script),
+            },
+            PinKind::Script if pin.argv0 == NODE => Self::Node {
+                found: PathBuf::from(&pin.run_path),
+                real: PathBuf::from(&pin.real),
+                script: true,
+            },
+            PinKind::Native(_) | PinKind::Script => Self::Direct {
+                real: PathBuf::from(&pin.real),
+            },
+        }
+    }
 }
 
 /// The interpreter a `node_modules/.bin` script runs under, by its name on

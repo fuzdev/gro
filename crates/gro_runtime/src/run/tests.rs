@@ -12,7 +12,7 @@ use crate::confine::Confinement;
 use crate::engine::{EngineOptions, init_engine};
 use crate::loader::graph::Recording;
 use crate::test_support::TestDir;
-use crate::{RuntimeOptions, STACK_SIZE, bootstrap};
+use crate::{RunPins, RuntimeOptions, STACK_SIZE, bootstrap};
 
 mod attributes;
 mod builtins;
@@ -103,7 +103,7 @@ fn loader_shares(name: &str, end: fn(crate::SpentRuntime)) -> (usize, usize, boo
             let options = RuntimeOptions::default();
             let engine = init_engine(Confinement::Unconfined, &EngineOptions::default()).unwrap();
             let (url, loader) = resolve_main(&options, &entry, &cwd, Recording::Off).unwrap();
-            let outcome = run_resolved(engine, &options, &url, &cwd, &loader);
+            let outcome = run_resolved(engine, &options, &url, &cwd, &loader, RunPins::default());
             outcome.result.unwrap();
             let held = std::rc::Rc::strong_count(&loader);
             end(outcome.runtime.unwrap());

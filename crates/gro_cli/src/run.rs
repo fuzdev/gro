@@ -69,7 +69,7 @@ use gro_runtime::verb::table::BuiltinGrantsTable;
 use gro_runtime::{
     ArgsGrant, Authority, CHILD_BASE_ENV, EnvGrant, EnvPattern, EnvVars, ExecRootGrant, Exit,
     ExitGrant, FsGrant, FsNeed, GeneratedEntry, GrantedDir, Grants, NameKind, NeededGrant,
-    PassEnvGrant, ProgramGrant, Refusal, Refusals, RefusedBy, RunOutcome, RuntimeOptions,
+    PassEnvGrant, ProgramGrant, Refusal, Refusals, RefusedBy, RunOutcome, RunPins, RuntimeOptions,
     SpawnGrant, StderrGrant, StdoutGrant, env_name_fault,
 };
 
@@ -358,7 +358,14 @@ fn start_and_run(spec: &RunSpec<'_>, main: Main<'_>) -> Result<RunOutcome, CliEr
     let options = runtime_options(spec, &ProcessEnvironment, dirs, &cwd);
     Ok(match main {
         Main::File(file) => gro_runtime::run_main(engine, &options, file, &cwd),
-        Main::Generated(entry) => gro_runtime::run_generated(engine, &options, entry, &cwd),
+        Main::Generated(entry) => {
+            let pins = RunPins::pin(
+                &options.authority,
+                options.spawn_env.get("PATH"),
+                &entry.root,
+            );
+            gro_runtime::run_generated(engine, &options, entry, pins, &cwd)
+        }
     })
 }
 

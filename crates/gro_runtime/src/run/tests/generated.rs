@@ -11,7 +11,7 @@ use crate::confine::Confinement;
 use crate::engine::{EngineOptions, init_engine};
 use crate::test_support::{TestDir, never_exits};
 use crate::{
-    Authority, GENERATED_ENTRY_URL, GeneratedEntry, RunError, RuntimeOptions, STACK_SIZE,
+    Authority, GENERATED_ENTRY_URL, GeneratedEntry, RunError, RunPins, RuntimeOptions, STACK_SIZE,
     run_generated,
 };
 
@@ -45,7 +45,8 @@ fn run_flagged(
     std::thread::Builder::new()
         .stack_size(STACK_SIZE)
         .spawn(move || {
-            let outcome = run_generated(engine, &options, &entry, &cwd);
+            let pins = RunPins::pin(&options.authority, None, &entry.root);
+            let outcome = run_generated(engine, &options, &entry, pins, &cwd);
             (outcome.result, outcome.node_specifier_refused)
         })
         .unwrap()

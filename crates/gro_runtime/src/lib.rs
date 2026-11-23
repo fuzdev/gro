@@ -151,6 +151,7 @@ use crate::resolver::Capability;
 use crate::snapshot::StartupSnapshot;
 
 pub use crate::host::exit::{Exit, ExitStep};
+pub use crate::host::spawn::RunPins;
 pub use crate::host::spawn::pins::find_on_path;
 pub use crate::loader::refused::{
     FsNeed, MAX_LISTED_MESSAGE, MAX_LISTED_REFUSALS, NameKind, NeededGrant, Refusal, Refusals,

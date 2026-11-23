@@ -11,7 +11,7 @@ use url::Url;
 
 use crate::engine::Engine;
 use crate::host::HostData;
-use crate::host::spawn::SpawnRun;
+use crate::host::spawn::{RunPins, SpawnRun};
 use crate::loader::Loader;
 #[cfg(test)]
 use crate::loader::graph::Graph;
@@ -178,11 +178,27 @@ pub fn run_main(engine: Engine, options: &RuntimeOptions, entry: &Path, cwd: &Pa
         Ok(resolved) => resolved,
         Err(error) => return RunOutcome::unstarted(error),
     };
-    run_resolved(engine, options, &entry, cwd, &loader)
+    let pins = pins_of(options, &loader);
+    run_resolved(engine, options, &entry, cwd, &loader, pins)
+}
+
+/// The pins of the programs a run as `options` says grants, made once its
+/// entry has resolved into `loader`'s graph, so a name holding `/` has the
+/// project's root, and before any module evaluates ([`RunPins::pin`]).
+fn pins_of(options: &RuntimeOptions, loader: &Loader) -> RunPins {
+    RunPins::pin(
+        &options.authority,
+        options.spawn_env.get("PATH"),
+        &loader.graph().roots().project().dir,
+    )
 }
 
 /// Runs `entry`, an entry module the embedder generated, as [`run_main`]
-/// runs one from a file.
+/// runs one from a file, its granted programs held by `pins`.
+///
+/// The embedder made `pins` for the run's authority beneath `entry.root`
+/// before the run ([`RunPins::pin`]), so a box it made for the run's
+/// process grants the same files the run launches.
 ///
 /// `entry.root` is the project's root, which a file's walk would find: the
 /// entry's origin is the project's, its imports resolve from that root,
@@ -192,10 +208,11 @@ pub fn run_generated(
     engine: Engine,
     options: &RuntimeOptions,
     entry: &GeneratedEntry,
+    pins: RunPins,
     cwd: &Path,
 ) -> RunOutcome {
     let (url, loader) = generated_main(options, entry, Recording::Off);
-    run_resolved(engine, options, &url, cwd, &loader)
+    run_resolved(engine, options, &url, cwd, &loader, pins)
 }
 
 /// The URL of the generated `entry` and the loader of its graph, which
@@ -262,23 +279,25 @@ fn run_recorded(
     };
     // the runtime is torn down here, so its share of the loader is gone
     // and the graph is taken whole
-    let ended = Ended::from(run_resolved(engine, options, &entry, cwd, &loader));
+    let pins = pins_of(options, &loader);
+    let ended = Ended::from(run_resolved(engine, options, &entry, cwd, &loader, pins));
     (ended, Some(loader.take_graph()))
 }
 
-/// Runs the resolved `entry` with `loader`, started in `cwd`, returning
-/// the result with the `import()`s refused by rule and the spent runtime.
+/// Runs the resolved `entry` with `loader`, started in `cwd`, its granted
+/// programs held by `pins`, returning the result with the `import()`s
+/// refused by rule and the spent runtime.
 fn run_resolved(
     engine: Engine,
     options: &RuntimeOptions,
     entry: &Url,
     cwd: &Path,
     loader: &Rc<Loader>,
+    pins: RunPins,
 ) -> RunOutcome {
     let project = loader.graph().roots().project().dir.clone();
-    // pinned once the entry has resolved, so a name holding `/` has the
-    // project's root, and before any module evaluates
-    let spawn = SpawnRun::start(&options.authority, &options.spawn_env, &project).map(Rc::new);
+    let spawn =
+        SpawnRun::start(&options.authority, &options.spawn_env, &project, pins).map(Rc::new);
     let children = spawn.clone();
     let host = HostState {
         authority: options.authority.clone(),
