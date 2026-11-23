@@ -21,11 +21,11 @@ use gro_runtime::BINARY_NAME;
 use gro_runtime::verb::closure::{RUN_TASK_NAME, is_task_path_input};
 use thiserror::Error;
 
+use super::prepass::node_gro_command;
 use crate::cli::{
     ALLOW_ALL, ALLOW_RUN, ALLOW_RUN_ENV, ALLOW_RUN_IN, ALLOW_TEMP, FlagDirs, GrantFlag,
     GrantListError, ListFlag, RUN, RunGrant, RunGrantBuilder,
 };
-use super::prepass::node_gro_command;
 use crate::print::{echo_argument, escape_controls};
 
 /// A command line with its grant flags split off.

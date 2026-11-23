@@ -125,6 +125,50 @@ const CASES: Array<ClosureCase> = [
 		argv: ['check', '--', 'gro', 'gen', '--no-check', '--', 'gro', 'gen']
 	},
 	{ name: 'check_forwarded_gen_valued', argv: ['check', '--', 'gro', 'gen', '--check=1'] },
+	{
+		name: 'check_forwarded_gen_write_unknown_arg',
+		argv: ['check', '--', 'gro', 'gen', '--no-check', '--x']
+	},
+	{
+		name: 'check_no_gen_forwarded_gen_write',
+		argv: ['check', '--no-gen', '--', 'gro', 'gen', '--no-check']
+	},
+	{
+		name: 'check_invalid_forwarded_gen_write',
+		argv: ['check', '--no-no-gen=x', '--', 'gro', 'gen', '--no-check']
+	},
+	// positionals after the name are the command's `_` arg, which `gen` holds and `check` doesn't
+	{ name: 'gen_positional', argv: ['gen', 'src/lib'] },
+	{ name: 'gen_forwarded_positional', argv: ['gen', '--', 'gro', 'gen', 'src/lib', '--check'] },
+	{ name: 'check_positional', argv: ['check', 'extra'] },
+	{
+		name: 'check_positional_forwarded_gen_write',
+		argv: ['check', 'extra', '--', 'gro', 'gen', '--no-check']
+	},
+	{
+		name: 'check_forwarded_positional_forwarded_gen_write',
+		argv: ['check', '--', 'gro', 'check', 'extra', '--', 'gro', 'gen', '--no-check']
+	},
+	{
+		name: 'check_forwarded_gen_positional_write',
+		argv: ['check', '--', 'gro', 'gen', 'src/lib', '--no-check']
+	},
+	{ name: 'check_no_test', argv: ['check', '--no-test'] },
+	{ name: 'check_no_test_then_test', argv: ['check', '--no-test', '--test'] },
+	{ name: 'check_test_false', argv: ['check', '--test=false'] },
+	// a dual given beside its base key, the later of the two deciding
+	{ name: 'check_test_then_no_no_test', argv: ['check', '--test', '--no-no-test'] },
+	{ name: 'check_no_test_then_no_no_test', argv: ['check', '--no-test', '--no-no-test'] },
+	{ name: 'check_no_no_test_then_no_test', argv: ['check', '--no-no-test', '--no-test'] },
+	{
+		name: 'check_no_test_no_no_test_forwarded_no_test',
+		argv: ['check', '--no-test', '--no-no-test', '--', 'gro', 'check', '--no-test']
+	},
+	{ name: 'check_forwarded_no_lint', argv: ['check', '--', 'gro', 'check', '--no-lint'] },
+	{
+		name: 'check_steps_off',
+		argv: ['check', '--no-typecheck', '--no-test', '--no-gen', '--no-format', '--no-lint']
+	},
 	{ name: 'check_forwarded_sync_install', argv: ['check', '--', 'gro', 'sync', '--install'] },
 	{ name: 'check_grant_flags', argv: ['check', '--allow-read=.', '-A', '--build'] },
 	{ name: 'check_workspace', argv: ['check', '--workspace'] },
@@ -143,6 +187,10 @@ const CASES: Array<ClosureCase> = [
 	// Node runs no builtin for these
 	{ name: 'check_help', argv: ['check', '--help'] },
 	{ name: 'check_forwarded_help', argv: ['check', '--', 'gro', 'check', '--help'] },
+	{
+		name: 'check_help_forwarded_gen_write',
+		argv: ['check', '--help', '--', 'gro', 'gen', '--no-check']
+	},
 	{ name: 'check_forwarded_malformed', argv: ['check', '--', 'gro'] },
 	{ name: 'check_build_valued', argv: ['check', '--build=true'] },
 	{ name: 'check_build_spaced_value', argv: ['check', '--build', 'false'] },

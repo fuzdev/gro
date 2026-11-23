@@ -376,10 +376,13 @@ As designed, except where marked built:
   and `fgro --version` the binary's own line, where `gro --version` prints Gro's version, which `fgro -v` prints.
   The console prints a string inside an array or object with double quotes, where Node's prints single ones,
   so a list Gro logs, like `gen`'s files, reads differently.
-  A forwarded section that turns off a check its command runs, like `fgro check -- gro gen --no-check`,
+  A forwarded section that turns off a check its command runs, like `fgro check -- gro gen --no-check`, where the command runs that step (not under `--no-gen`)
+  and the command's args and the section's are each their builtin's keys, none a boolean given a value, no `--help`,
+  and positionals after the name only for a builtin that takes them (`gro gen src/lib`, never `gro check extra`), as Node runs the section only then,
   is refused before anything runs, exit 2, where the Node Gro writes,
   since the closure keeps an invoke's `check` mark whatever the command line forwards,
   and the refusal names the command that writes on the binary (`fgro gen`) and the whole command on the Node Gro.
+  A section whose values Node refuses by type, like `-- gro gen --no-check --root_dirs x`, is refused the same way, exit 2, where the Node Gro fails the step's args, exit 1, writing nothing either way.
   Gro's `library_load.ts`, which reaches Node's builtins, isn't in the binary's embedded code, so a genfile that imports it, like a library's API docs genfile, fails to load, the error naming the Node Gro;
   and `sveltekit_tsconfig_is_unsynced` fails on the binary, since it reads `tsconfig.json` through TypeScript, whose package has no `"exports"` and is CommonJS, both refused ([resolver](resolver.md#specifiers)).
   A project's typecheck reads the types of the Gro it installed while the command runs the binary's embedded code.

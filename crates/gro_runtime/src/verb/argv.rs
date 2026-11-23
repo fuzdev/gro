@@ -4,13 +4,13 @@
 //!
 //! [`parse_argv`] is `fuz_util`'s `argv_parse` (`@fuzdev/fuz_util/args.ts`),
 //! the parse every Gro command line and forwarded section goes through, and
-//! [`ArgvKeys::is_set`] is `args_parse`'s reading of a boolean arg once its
-//! `no-` pair is synced, without the builtin's `Args`: a key the schema
-//! doesn't hold makes Node refuse the args, running no builtin, so reading
-//! every `no-` key as the schema's pair is what Node reads wherever it runs
-//! one. A value `argv_parse` coerces (`--x=1`, `--x v`) is never a boolean, so
-//! it's [`ArgValue::Other`], and a repeated valued flag an array, `Other`
-//! too.
+//! [`ArgvKeys::flag`] and [`ArgvKeys::fits`] are `args_parse`'s reading of
+//! them against a builtin's `Args`, as the grants table records them
+//! ([`BuiltinArgs`]): a boolean's value given or its default, synced with
+//! its `no-` pair where both are booleans, and whether Node refuses the args
+//! for a key the schema doesn't hold or a value given a boolean. A value
+//! `argv_parse` coerces (`--x=1`, `--x v`) is never a boolean, so it's
+//! [`ArgValue::Other`], and a repeated valued flag an array, `Other` too.
 //!
 //! The positionals are `argv_parse`'s `_` key, so a flag keyed `_` reaches
 //! them: a value given it (`--_=check`, `--_ check`) joins them in place,
@@ -18,11 +18,16 @@
 //! names no builtin, refusing them or reading a list led by `true` or
 //! `false` ([`ParsedArgv::replaced`]). A coerced number given `_` is kept
 //! as its text, which names no builtin, `task`, or task path either way.
+//! The first positional names the command, and any after it stay the
+//! command's `_` arg ([`ParsedArgv::command_keys`]), which `fits` reads
+//! as it reads any key.
 //!
 //! Two departures, neither reaching a builtin's boolean arg: JS lists an
 //! integer-like key (`--5`) before every other, where here it keeps its place,
 //! and a short flag's keys are its characters, where JS takes UTF-16 code
 //! units.
+
+use super::table::BuiltinArgs;
 
 /// A key's value, as far as the closure reads it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -76,31 +81,40 @@ impl ArgvKeys {
         Self(merged)
     }
 
-    /// Whether the boolean arg `key` is `false` once `args_parse` syncs it
-    /// with `no-<key>`, as [`Self::is_set`] reads it, with neither given a
-    /// value, which a boolean's schema refuses.
-    pub fn is_false(&self, key: &str) -> bool {
-        !self.is_set(key)
-            && [key.to_owned(), format!("no-{key}")].iter().all(|key| {
-                self.get(key)
-                    .is_none_or(|(_, value)| value != ArgValue::Other)
-            })
-    }
-
-    /// Whether the boolean arg `key`, `false` by default, is `true` once
-    /// `args_parse` syncs it with `no-<key>`: the later given of the two
-    /// wins, `no-<key>` setting the opposite of its value, and neither
-    /// leaves the default. A non-boolean value is no `true`.
-    pub fn is_set(&self, key: &str) -> bool {
-        let negated = self.get(&format!("no-{key}"));
+    /// The boolean arg `key` as `args_parse` reads it against `args`, the
+    /// builtin's `Args` (`None` for one with none, whose args Node passes
+    /// unparsed): its value given, or its default when none is (`false`
+    /// with no `Args`), synced with `no-<key>` when `args` holds both as
+    /// booleans, the later given of the two winning and `no-<key>` setting
+    /// the opposite of its value. A value given it is no `true`.
+    pub fn flag(&self, key: &str, args: Option<&BuiltinArgs>) -> bool {
+        let dual = format!("no-{key}");
+        let default = args.and_then(|args| args.boolean_default(key));
+        let synced =
+            default.is_some() && args.is_some_and(|args| args.boolean_default(&dual).is_some());
+        let negated = synced.then(|| self.get(&dual)).flatten();
         match (self.get(key), negated) {
-            (None, None) => false,
+            (None, None) => default.unwrap_or(false),
             (Some((_, value)), None) => value == ArgValue::True,
             (Some((index, value)), Some((negated_index, _))) if index > negated_index => {
                 value == ArgValue::True
             }
             (_, Some((_, negated))) => negated == ArgValue::False,
         }
+    }
+
+    /// Whether these keys pass the two checks of `args_parse` the table
+    /// records enough to make against `args`, the builtin's `Args`: each is a
+    /// key it holds, and none it holds as a boolean is given a value. A
+    /// non-boolean arg's type isn't checked, so keys that fit can still be
+    /// refused by `Args`. With no `Args`, Node passes any.
+    pub fn fits(&self, args: Option<&BuiltinArgs>) -> bool {
+        args.is_none_or(|args| {
+            self.0.iter().all(|(key, value)| {
+                args.holds(key)
+                    && (args.boolean_default(key).is_none() || *value != ArgValue::Other)
+            })
+        })
     }
 }
 
@@ -146,6 +160,20 @@ impl ParsedArgv {
         if !self.replaced {
             self.positionals.push(positional.to_owned());
         }
+    }
+
+    /// The keys of the command its first positional names, as Gro's
+    /// `to_task_args` and `to_forwarded_args_by_command` leave them once the
+    /// name is taken off: `_` among them, first, as `argv_parse` sets it,
+    /// when positionals remain after the name, which the builtin's `Args`
+    /// must then hold, and not when none do.
+    pub fn command_keys(&self) -> ArgvKeys {
+        let mut keys = self.keys.clone();
+        if self.positionals.len() > 1 {
+            keys.0
+                .insert(0, (POSITIONALS_KEY.to_owned(), ArgValue::Other));
+        }
+        keys
     }
 }
 
@@ -205,6 +233,18 @@ pub fn parse_argv(argv: &[String]) -> ParsedArgv {
 #[cfg(test)]
 mod tests {
     use super::{ArgValue, ArgvKeys, ParsedArgv, parse_argv};
+    use crate::verb::table::BuiltinArgs;
+
+    /// `Args` holding each of `booleans` with its default, and `others`.
+    fn args(booleans: &[(&str, bool)], others: &[&str]) -> BuiltinArgs {
+        BuiltinArgs(
+            booleans
+                .iter()
+                .map(|&(key, default)| (key.to_owned(), Some(default)))
+                .chain(others.iter().map(|&key| (key.to_owned(), None)))
+                .collect(),
+        )
+    }
 
     fn parse(argv: &[&str]) -> ParsedArgv {
         parse_argv(&argv.iter().map(|&arg| arg.to_owned()).collect::<Vec<_>>())
@@ -294,8 +334,34 @@ mod tests {
     }
 
     #[test]
+    fn positionals_after_the_name_are_the_command_s_underscore_key() {
+        use ArgValue::{Other, True};
+        let command_keys = |argv: &[&str]| parse(argv).command_keys();
+        assert_eq!(command_keys(&["check", "--x"]), keys(&[("x", True)]));
+        assert_eq!(command_keys(&[]), keys(&[]));
+        // `_` first, as `argv_parse` sets it before any flag
+        assert_eq!(
+            command_keys(&["--x=1", "check", "a", "--y"]),
+            keys(&[("_", Other), ("x", Other), ("y", True)])
+        );
+        assert_eq!(command_keys(&["--y", "check", "a"]), keys(&[("y", Other)]));
+        assert_eq!(
+            command_keys(&["check", "--y", "a", "b"]),
+            keys(&[("_", Other), ("y", Other)])
+        );
+        assert_eq!(command_keys(&["check", "--", "--y"]), keys(&[("_", Other)]));
+        assert_eq!(command_keys(&["--_=check", "a"]), keys(&[("_", Other)]));
+        let gen_args = args(&[("check", false)], &["_"]);
+        let check_args = args(&[("check", false)], &[]);
+        assert!(command_keys(&["gen", "src"]).fits(Some(&gen_args)));
+        assert!(!command_keys(&["check", "src"]).fits(Some(&check_args)));
+        assert!(command_keys(&["check", "--check"]).fits(Some(&check_args)));
+    }
+
+    #[test]
     fn a_boolean_arg_is_set_as_args_parse_syncs_its_no_pair() {
-        let set = |argv: &[&str]| parse(argv).keys.is_set("build");
+        let paired = args(&[("build", false), ("no-build", true)], &[]);
+        let set = |argv: &[&str]| parse(argv).keys.flag("build", Some(&paired));
         assert!(set(&["--build"]));
         assert!(!set(&[]));
         assert!(!set(&["--no-build"]));
@@ -316,6 +382,48 @@ mod tests {
     }
 
     #[test]
+    fn a_boolean_arg_defaults_and_pairs_as_its_args_declare() {
+        let on = args(&[("test", true), ("no-test", false)], &[]);
+        let flag = |argv: &[&str], args: Option<&BuiltinArgs>| parse(argv).keys.flag("test", args);
+        // the default when the command line gives neither
+        assert!(flag(&[], Some(&on)));
+        assert!(!flag(&["--no-test"], Some(&on)));
+        assert!(!flag(&["--no-no-test=x", "--no-test"], Some(&on)));
+        assert!(flag(&["--no-test", "--test"], Some(&on)));
+        // `no-test` given `false` turns it on, and given a value, which `Args` refuses, never
+        assert!(!flag(&["--no-test=1"], Some(&on)));
+        assert!(flag(&["--no-no-test"], Some(&on)));
+        // no pair without both booleans: `no-test` is then an arg of its own
+        let unpaired = args(&[("test", true)], &["no-test"]);
+        assert!(flag(&["--no-no-test"], Some(&unpaired)));
+        assert!(flag(&["--no-test=1"], Some(&unpaired)));
+        assert!(!flag(&["--no-test"], Some(&unpaired)));
+        // with no `Args`, `false` unless given `true`, and no pair
+        assert!(!flag(&[], None));
+        assert!(flag(&["--test"], None));
+        assert!(flag(&["--test", "--no-no-test"], None));
+        assert!(!flag(&["--no-no-test"], None));
+    }
+
+    #[test]
+    fn args_fit_as_args_parse_takes_them() {
+        let gen_args = args(&[("check", false)], &["_", "root_dirs"]);
+        let fits = |argv: &[&str], args: Option<&BuiltinArgs>| parse(argv).keys.fits(args);
+        assert!(fits(&["--check", "--no-check"], Some(&gen_args)));
+        assert!(fits(
+            &["--root_dirs", "a", "--root_dirs=b"],
+            Some(&gen_args)
+        ));
+        // an unknown key, a boolean's `no-` key it doesn't hold, a value given a boolean
+        assert!(!fits(&["--no-check", "--x"], Some(&gen_args)));
+        assert!(!fits(&["--no-no-check"], Some(&gen_args)));
+        assert!(!fits(&["--check=1"], Some(&gen_args)));
+        assert!(!fits(&["--check", "false"], Some(&gen_args)));
+        // with no `Args`, any
+        assert!(fits(&["--x=1", "--check=1"], None));
+    }
+
+    #[test]
     fn forwarded_keys_merge_after_every_direct_one() {
         use ArgValue::{False, True};
         let direct = keys(&[("build", True), ("no-build", True), ("x", True)]);
@@ -325,11 +433,12 @@ mod tests {
             merged,
             keys(&[("no-build", True), ("x", True), ("build", False)])
         );
-        assert!(!merged.is_set("build"));
+        let paired = args(&[("build", false), ("no-build", true)], &[]);
+        assert!(!merged.flag("build", Some(&paired)));
         // a forwarded `--build` comes after a direct `--no-build`
         let merged = keys(&[("build", False)]).merge(&keys(&[("build", True)]));
-        assert!(merged.is_set("build"));
+        assert!(merged.flag("build", Some(&paired)));
         let merged = keys(&[("no-build", False)]).merge(&keys(&[("x", True)]));
-        assert!(merged.is_set("build"));
+        assert!(merged.flag("build", Some(&paired)));
     }
 }

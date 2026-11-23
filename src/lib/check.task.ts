@@ -97,12 +97,13 @@ const grants = {
 		sync: { when: 'install' },
 		// a plain `check` holds no build in its closure
 		build: { when: 'build' },
-		typecheck: {},
-		test: {},
+		// each step the command line can turn off, held only while it's on
+		typecheck: { when: 'typecheck' },
+		test: { when: 'test' },
 		// `gen --check` and `format --check`, writing no source
-		gen: { check: true },
-		format: { check: true },
-		lint: {}
+		gen: { when: 'gen', check: true },
+		format: { when: 'format', check: true },
+		lint: { when: 'lint' }
 	}
 } as const satisfies BuiltinTaskGrants;
 

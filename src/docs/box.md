@@ -144,7 +144,8 @@ anything else that keeps a rule from opening, like a symlink on its path, refuse
   Each is made as a real directory where it's absent before the box, every directory on its path opened with symlinks refused,
   and one already there as a symlink or anything but a directory refuses the run, exit 2, so a link planted by an earlier run can't send it elsewhere;
   one that can't be made fails the run, exit 1.
-  So a plain `check` writes the tool directories and nothing else in the project, and `format --check`, which starts no tool, writes nothing at all.
+  So a plain `check` writes the tool directories and nothing else in the project, and `format --check`, which starts no tool, writes nothing at all;
+  a step the command line turns off leaves the closure with its tool, so `check --no-test` grants no Vitest, and with it no `.fuz/cache`.
   Vitest's module cache under `node_modules` is never one: it holds transformed code that later Vitest runs load unverified,
   so a test that could write it could plant code for a run outside any box.
   `gro test` turns the cache off on either runtime ([test](test.md#vitests-module-cache)), and in the box a test can't write it either.

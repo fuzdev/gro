@@ -120,10 +120,13 @@ export interface BuiltinTaskGrants {
  */
 export interface BuiltinInvokeGrant {
 	/**
-	 * A boolean arg of the invoking task that defaults to `false`, the invoke running only
-	 * when it's `true`, so the closure holds the invoked builtin only when the command's args set it,
-	 * like `check`'s `build` under `--build`;
+	 * A boolean arg of the invoking task, the invoke running only when it's `true`
+	 * once parsed, its default and its `no-` dual applied,
+	 * so the closure holds the invoked builtin only when the command's args leave it on:
+	 * `check`'s `build` under `--build`, and its `test` unless `--no-test`;
 	 * an invoke when it's not is an error.
+	 * The table records each builtin's boolean args with their defaults for a runtime
+	 * that reads the command line before any JS runs.
 	 */
 	readonly when?: string;
 	/**

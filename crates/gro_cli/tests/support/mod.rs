@@ -319,8 +319,9 @@ impl Scratch {
     /// Panics when `/tmp` isn't world-writable or a `package.json` is at or
     /// above it.
     pub fn in_tmp(name: &str, files: &[(&str, &str)]) -> Self {
-        let dir = checked_temp(Path::new("/tmp")).join(format!("gro_{name}_{}", std::process::id()));
-        Self::at(dir, files)
+        let dir =
+            checked_temp(Path::new("/tmp")).join(format!("gro_{name}_{}", std::process::id()));
+        Self::at(&dir, files)
     }
 
     fn under(base: &Path, name: &str, files: &[(&str, &str)]) -> Self {
@@ -329,14 +330,14 @@ impl Scratch {
             env!("CARGO_CRATE_NAME"),
             std::process::id()
         ));
-        Self::at(dir, files)
+        Self::at(&dir, files)
     }
 
     /// `files`, each at its relative path, in `dir`, made afresh.
-    fn at(dir: PathBuf, files: &[(&str, &str)]) -> Self {
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        set_mode(&dir, 0o755);
+    fn at(dir: &Path, files: &[(&str, &str)]) -> Self {
+        let _ = std::fs::remove_dir_all(dir);
+        std::fs::create_dir_all(dir).unwrap();
+        set_mode(dir, 0o755);
         for (file, content) in files {
             let path = dir.join(file);
             for parent in path.ancestors().skip(1) {

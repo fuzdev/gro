@@ -8,8 +8,10 @@
 //! the types here are the TS ones (`BuiltinTaskGrants` and its parts in
 //! `src/lib/builtin_host.ts`), each field closed: an unknown field, a mark
 //! other than `true`, or a shape the TS types don't allow is refused. Beside
-//! the shape, a table is refused where the closure couldn't be read from it
-//! ([`TableError`]).
+//! the grants, the table holds each builtin's args as its `Args` declares
+//! them ([`BuiltinArgs`]), which the closure reads a command line against.
+//! Beside the shape, a table is refused where the closure couldn't be read
+//! from it ([`TableError`]).
 
 use std::collections::BTreeMap;
 
@@ -28,6 +30,31 @@ pub struct BuiltinGrantsTable {
     /// Each builtin's grants by name, `None` for one that declares none,
     /// whose reach nothing states.
     pub builtins: BTreeMap<String, Option<BuiltinTaskGrants>>,
+    /// Each builtin's args by name, `None` for one with no `Args`, whose
+    /// args Node passes unparsed.
+    pub args: BTreeMap<String, Option<BuiltinArgs>>,
+}
+
+/// The args a builtin's `Args` holds, by name: a boolean's default, `None`
+/// for any other arg.
+///
+/// Node's `args_parse` refuses a key it doesn't hold and a value given a
+/// boolean, and syncs a boolean `no-x` with a boolean `x`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(transparent)]
+pub struct BuiltinArgs(pub BTreeMap<String, Option<bool>>);
+
+impl BuiltinArgs {
+    /// Whether `key` is an arg it holds.
+    pub fn holds(&self, key: &str) -> bool {
+        self.0.contains_key(key)
+    }
+
+    /// The default of the boolean arg `key`, `None` for an arg that isn't a
+    /// boolean or isn't held.
+    pub fn boolean_default(&self, key: &str) -> Option<bool> {
+        self.0.get(key).copied().flatten()
+    }
 }
 
 impl BuiltinGrantsTable {
@@ -52,12 +79,33 @@ impl BuiltinGrantsTable {
             _description,
             cli,
             builtins,
+            args,
         } = serde_json::from_str(json).map_err(TableError::Json)?;
+        if let Some(name) = builtins
+            .keys()
+            .find(|name| !args.contains_key(*name))
+            .or_else(|| args.keys().find(|name| !builtins.contains_key(*name)))
+        {
+            return Err(TableError::ArgsUnmatched(name.clone()));
+        }
         if let Some(invoked) = cli.invokes.keys().next() {
             return Err(TableError::CliInvokes(invoked.clone()));
         }
         for (name, grants) in &builtins {
-            for invoked in grants.iter().flat_map(|grants| grants.invokes.keys()) {
+            for (invoked, invoke) in grants.iter().flat_map(|grants| &grants.invokes) {
+                if let Some(when) = &invoke.when
+                    && args
+                        .get(name)
+                        .and_then(Option::as_ref)
+                        .and_then(|args| args.boolean_default(when))
+                        .is_none()
+                {
+                    return Err(TableError::WhenNotBoolean {
+                        builtin: name.clone(),
+                        invoked: invoked.clone(),
+                        when: when.clone(),
+                    });
+                }
                 if !builtins.contains_key(invoked) {
                     return Err(TableError::UnknownInvoke {
                         builtin: name.clone(),
@@ -81,11 +129,21 @@ impl BuiltinGrantsTable {
                 }
             }
         }
-        Ok(Self { cli, builtins })
+        Ok(Self {
+            cli,
+            builtins,
+            args,
+        })
     }
 }
 
 impl BuiltinGrantsTable {
+    /// The args of the builtin `name`, `None` for one with no `Args` or a
+    /// name the table doesn't hold.
+    pub fn args_of(&self, name: &str) -> Option<&BuiltinArgs> {
+        self.args.get(name).and_then(Option::as_ref)
+    }
+
     /// Whether the builtin `name` has a check mode the table knows of:
     /// some invoke of it is marked `check`.
     pub fn is_check_capable(&self, name: &str) -> bool {
@@ -107,6 +165,23 @@ pub enum TableError {
     /// does.
     #[error("the grants table's CLI row invokes `{0}`, and the CLI's own steps invoke no builtin")]
     CliInvokes(String),
+    /// A builtin's grants and its args aren't listed for the same names.
+    #[error("the grants table lists `{0}` in one of its grants and its args, not both")]
+    ArgsUnmatched(String),
+    /// An invoke marked `when` names no boolean arg with a default of its
+    /// invoker's.
+    #[error(
+        "the grants table's `{builtin}` invokes `{invoked}` when its `{when}` arg is on, and \
+         `{builtin}`'s args hold no boolean `{when}` with a default"
+    )]
+    WhenNotBoolean {
+        /// The invoking builtin.
+        builtin: String,
+        /// The builtin it invokes.
+        invoked: String,
+        /// The arg.
+        when: String,
+    },
     /// A builtin invokes a name the table doesn't hold.
     #[error("the grants table's `{builtin}` invokes `{invoked}`, which isn't a builtin")]
     UnknownInvoke {
@@ -142,6 +217,7 @@ struct TableJson {
     _description: String,
     cli: BuiltinTaskGrants,
     builtins: BTreeMap<String, Option<BuiltinTaskGrants>>,
+    args: BTreeMap<String, Option<BuiltinArgs>>,
 }
 
 /// What a builtin task, or the CLI's own steps, may reach: the TS
@@ -232,8 +308,8 @@ pub enum AllKeyword {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BuiltinInvokeGrant {
-    /// The boolean arg of the invoking builtin, `false` by default, the
-    /// invoke running only when it's `true`.
+    /// A boolean arg of the invoking builtin, the invoke running only when
+    /// it's `true` once parsed, its default and its `no-` dual applied.
     #[serde(default, deserialize_with = "not_null")]
     pub when: Option<String>,
     /// Whether the invoke runs in check mode, writing no source, so the
@@ -265,15 +341,42 @@ fn literal_true<'de, D: Deserializer<'de>>(deserializer: D) -> Result<bool, D::E
     }
 }
 
+/// The JSON of a test table's `args` for `builtins`, the JSON of each
+/// builtin's row by name: each holds the booleans `x`, `build`, `install`,
+/// and `check`, `false` by default, and `on`, `true` by default, with its
+/// dual `no-on`.
+#[cfg(test)]
+pub(crate) fn test_args(builtins: &str) -> String {
+    let builtins: serde_json::Map<String, serde_json::Value> =
+        serde_json::from_str(builtins).unwrap_or_default();
+    let args: serde_json::Map<String, serde_json::Value> = builtins
+        .keys()
+        .map(|name| {
+            (
+                name.clone(),
+                serde_json::json!({
+                    "x": false, "build": false, "install": false, "check": false,
+                    "on": true, "no-on": false
+                }),
+            )
+        })
+        .collect();
+    serde_json::Value::Object(args).to_string()
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{BuiltinGrantsTable, PassEnv, TableError};
+    use super::{BuiltinGrantsTable, PassEnv, TableError, test_args};
 
     /// A table of `builtins`, the JSON of each builtin's row by name, with an
-    /// empty CLI row.
+    /// empty CLI row and [`test_args`].
     fn table(builtins: &str) -> Result<BuiltinGrantsTable, TableError> {
+        table_with_args(builtins, &test_args(builtins))
+    }
+
+    fn table_with_args(builtins: &str, args: &str) -> Result<BuiltinGrantsTable, TableError> {
         BuiltinGrantsTable::parse(&format!(
-            r#"{{"description": "", "cli": {{}}, "builtins": {builtins}}}"#
+            r#"{{"description": "", "cli": {{}}, "builtins": {builtins}, "args": {args}}}"#
         ))
     }
 
@@ -286,6 +389,13 @@ mod tests {
         assert_eq!(table.builtins.get("dev"), Some(&None));
         let check = table.builtins["check"].as_ref().unwrap();
         assert_eq!(check.invokes["build"].when.as_deref(), Some("build"));
+        assert_eq!(check.invokes["test"].when.as_deref(), Some("test"));
+        let check_args = table.args_of("check").unwrap();
+        assert_eq!(check_args.boolean_default("build"), Some(false));
+        assert_eq!(check_args.boolean_default("test"), Some(true));
+        assert_eq!(check_args.boolean_default("no-test"), Some(false));
+        assert!(table.args_of("gen").unwrap().holds("_"));
+        assert_eq!(table.args_of("gen").unwrap().boolean_default("_"), None);
         assert!(check.invokes["gen"].check && !check.invokes["test"].check);
         let typecheck = table.builtins["typecheck"].as_ref().unwrap();
         let svelte_check = &typecheck.programs["svelte_check_cli"];
@@ -326,19 +436,54 @@ mod tests {
             );
         }
         assert!(matches!(
-            BuiltinGrantsTable::parse(r#"{"cli": {}, "builtins": {}}"#),
+            BuiltinGrantsTable::parse(r#"{"cli": {}, "builtins": {}, "args": {}}"#),
             Err(TableError::Json(_))
         ));
+        // the args are a boolean's default or `null`, or `null` for a builtin with no `Args`
+        assert!(table_with_args(r#"{"a": {}}"#, r#"{"a": null}"#).is_ok());
+        assert!(table_with_args(r#"{"a": {}}"#, r#"{"a": {"b": null, "c": true}}"#).is_ok());
+        for refused in [r#"{"a": {"b": 1}}"#, r#"{"a": {"b": "x"}}"#, r#"{"a": []}"#] {
+            assert!(
+                matches!(
+                    table_with_args(r#"{"a": {}}"#, refused),
+                    Err(TableError::Json(_))
+                ),
+                "{refused}"
+            );
+        }
     }
 
     #[test]
     fn a_table_the_closure_can_t_read_is_refused() {
         assert!(matches!(
             BuiltinGrantsTable::parse(
-                r#"{"description": "", "cli": {"invokes": {"a": {}}}, "builtins": {"a": {}}}"#
+                r#"{"description": "", "cli": {"invokes": {"a": {}}}, "builtins": {"a": {}}, "args": {"a": null}}"#
             ),
             Err(TableError::CliInvokes(name)) if name == "a"
         ));
+        // the grants and the args list the same builtins
+        assert!(matches!(
+            table_with_args(r#"{"a": {}}"#, "{}"),
+            Err(TableError::ArgsUnmatched(name)) if name == "a"
+        ));
+        assert!(matches!(
+            table_with_args(r#"{"a": {}}"#, r#"{"a": null, "b": null}"#),
+            Err(TableError::ArgsUnmatched(name)) if name == "b"
+        ));
+        // a `when` names a boolean of the invoker's with a default
+        for args in [
+            r#"{"a": null, "b": null}"#,
+            r#"{"a": {"x": null}, "b": null}"#,
+        ] {
+            assert!(
+                matches!(
+                    table_with_args(r#"{"a": {"invokes": {"b": {"when": "x"}}}, "b": {}}"#, args),
+                    Err(TableError::WhenNotBoolean { builtin, invoked, when })
+                        if builtin == "a" && invoked == "b" && when == "x"
+                ),
+                "{args}"
+            );
+        }
         assert!(matches!(
             table(r#"{"a": {"invokes": {"b": {}}}}"#),
             Err(TableError::UnknownInvoke { builtin, invoked }) if builtin == "a" && invoked == "b"

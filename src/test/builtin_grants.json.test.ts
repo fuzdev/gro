@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { GRO_BUILTIN_TASK_GRANTS, GRO_CLI_GRANTS } from '#lib/gro_builtin_tasks.ts';
+import { get_schema_fields, unwrap_schema } from '@fuzdev/fuz_schema/introspect.ts';
 import { paths } from './test_helpers.ts';
 
 /*
@@ -26,6 +27,36 @@ test('the JSON holds the TS table, deep, in its order', () => {
 	assert.strictEqual(JSON.stringify(builtins), JSON.stringify(GRO_BUILTIN_TASK_GRANTS));
 });
 
-test('the JSON has only its description and the two tables', () => {
-	assert.deepEqual(Object.keys(read_json()), ['description', 'cli', 'builtins']);
+test('the JSON has only its description, the two tables, and the args', () => {
+	assert.deepEqual(Object.keys(read_json()), ['description', 'cli', 'builtins', 'args']);
+});
+
+test("the args are each builtin's `Args`, a boolean's default or `null`", async () => {
+	const { builtins, args } = read_json() as {
+		builtins: Record<string, unknown>;
+		args: Record<string, Record<string, boolean | null> | null>;
+	};
+	assert.deepEqual(Object.keys(args), Object.keys(builtins));
+	for (const name of Object.keys(builtins)) {
+		const { task } = await import(`#lib/${name}.task.ts`);
+		const record = args[name];
+		if (!task.Args) {
+			assert.isNull(record, name);
+			continue;
+		}
+		assert.isNotNull(record, name);
+		const fields = get_schema_fields(task.Args);
+		assert.deepEqual(
+			Object.keys(record!),
+			fields.map((f) => f.name),
+			name
+		);
+		for (const field of fields) {
+			const expected = unwrap_schema(field.schema).kind === 'boolean' ? field.default : null;
+			assert.strictEqual(record![field.name], expected, `${name}: ${field.name}`);
+		}
+	}
+	// `check`'s steps, each on by default with its `no-` dual, and `build` off
+	const check = args.check!;
+	assert.include(check, { test: true, 'no-test': false, gen: true, build: false });
 });

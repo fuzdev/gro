@@ -241,10 +241,11 @@ so a module re-exporting the `task` carries them:
 - `project_modules` - that it loads the project's modules, like `gen`'s genfiles,
   which run as the project's code
 - `invokes` - the builtins it invokes, by name, each a `BuiltinInvokeGrant`, `{}` or marked:
-  `when` names a boolean arg of the invoking task that the invoke runs only under,
-  so a [command's closure](glossary.md#commands-closure) holds the invoked builtin only when its args set it,
-  like `check`'s `build: {when: 'build'}` and `sync: {when: 'install'}`,
-  a plain `gro check` holding neither;
+  `when` names a boolean arg of the invoking task that the invoke runs only under, on once parsed, its default and its `no-` dual applied,
+  so a [command's closure](glossary.md#commands-closure) holds the invoked builtin only when its args leave it on,
+  like `check`'s `build: {when: 'build'}` and `sync: {when: 'install'}`, off by default, a plain `gro check` holding neither,
+  and its `test: {when: 'test'}`, on by default, so `gro check --no-test` holds no `test` and none of Vitest's grants
+  (the generated table records each builtin's boolean args with their defaults for the binary, which reads the command line before any JS runs);
   `check: true` marks an invoke run with its `check` arg set, writing no source, so the closure holds the invoked
   builtin, and the builtins it invokes in turn, without their writes to the project,
   like `check`'s `gen` and `format`, run with `check: true`,
@@ -274,7 +275,7 @@ each program's environment fixed by its grant, `stdout` and `stderr` when grante
 and with `project_modules` the root's project loader as `import_module`, the one every task loads through.
 A builtin invoking a task its `invokes` doesn't name fails with a `TaskError`,
 and its `invoke_task` is typed so that doesn't compile.
-One invoking a builtin marked `when` with that arg unset in its own parsed args fails the same way when it runs.
+One invoking a builtin marked `when` with that arg off in its own parsed args fails the same way when it runs.
 Each builtin it invokes gets a `host` cut from the root's by that builtin's own grants,
 so what a builtin can reach is its grants and those of every builtin it `invokes`, transitively.
 The project modules a builtin granted `project_modules` loads, like `gen`'s genfiles,
@@ -318,11 +319,11 @@ const grants = {
 	invokes: {
 		sync: {when: 'install'},
 		build: {when: 'build'},
-		typecheck: {},
-		test: {},
-		gen: {check: true},
-		format: {check: true},
-		lint: {},
+		typecheck: {when: 'typecheck'},
+		test: {when: 'test'},
+		gen: {when: 'gen', check: true},
+		format: {when: 'format', check: true},
+		lint: {when: 'lint'},
 	},
 } as const satisfies BuiltinTaskGrants;
 

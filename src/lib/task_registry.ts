@@ -150,12 +150,13 @@ export {}; // always a module, so the declaration augments rather than declares
 };
 
 /**
- * A builtin task with the summary `gro` lists it by
- * and its `task.grants`, `null` for a task that declares none.
+ * A builtin task with the summary `gro` lists it by,
+ * its `task.grants`, `null` for a task that declares none, and the schema its args are parsed by.
  */
 export interface BuiltinTaskEntry extends TaskRegistryEntry {
 	summary: string;
 	grants: BuiltinTaskGrants | null;
+	Args: AnySchema | undefined;
 }
 
 /**
@@ -183,7 +184,13 @@ export const task_registry_find_builtins = async (
 		if (!loaded.ok) throw new TaskError(loaded.reason);
 		const { task } = loaded.value.mod;
 		const { grants } = task as { grants?: BuiltinTaskGrants };
-		entries.push({ name, id, summary: task.summary ?? '', grants: grants ?? null });
+		entries.push({
+			name,
+			id,
+			summary: task.summary ?? '',
+			grants: grants ?? null,
+			Args: task.Args
+		});
 	}
 	return entries;
 };

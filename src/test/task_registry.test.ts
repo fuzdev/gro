@@ -246,9 +246,16 @@ describe('task_registry_render', () => {
 						env: ['CI'],
 						programs: { git_cli: { name: 'git', pass_env: ['GIT_*'] } },
 						invokes: { gen: {}, build: { when: 'build' } }
-					}
+					},
+					Args: undefined
 				},
-				{ name: 'quiet', id: '/p/src/lib/quiet.task.ts', summary: '', grants: null }
+				{
+					name: 'quiet',
+					id: '/p/src/lib/quiet.task.ts',
+					summary: '',
+					grants: null,
+					Args: undefined
+				}
 			],
 			{ programs: { a_cli: { name: 'a', local: true } }, stderr: true },
 			'/p/src/lib',

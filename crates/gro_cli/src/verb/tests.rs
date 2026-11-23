@@ -178,8 +178,8 @@ fn the_closure_is_node_s() {
                 );
                 assert_eq!(actual, closure(case), "{name}");
             }
-            // Node runs no builtin, and the closure, reading neither a
-            // builtin's `Args` nor `--help`, is the command's
+            // Node runs no builtin, and the closure is the command's as
+            // though its args were valid
             outcome @ ("help" | "refused") => {
                 let refused = case.get("refused").and_then(Value::as_str);
                 if outcome == "help" {
@@ -190,11 +190,13 @@ fn the_closure_is_node_s() {
                         "{name}"
                     );
                 }
-                let command = &split.cli_args[0];
+                // Node runs nothing, so no forwarded section writes and nothing is refused for one
+                assert!(actual.check_turned_off.is_empty(), "{name}");
+                let command = gro_runtime::verb::closure::command_word(&split.cli_args);
                 let holds_command = actual
                     .builtins
                     .iter()
-                    .any(|builtin| &builtin.name == command);
+                    .any(|builtin| Some(&builtin.name) == command.as_ref());
                 match refused {
                     None | Some("forwarded_args" | "forwarded_help" | "invalid_args") => {
                         assert!(holds_command, "{name}");

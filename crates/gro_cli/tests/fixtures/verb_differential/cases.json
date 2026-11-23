@@ -120,6 +120,42 @@
 			}
 		},
 		{
+			"name": "check_no_gen_forwarded_gen_write",
+			"args": [
+				"check",
+				"--no-gen",
+				"--",
+				"gro",
+				"gen",
+				"--no-check"
+			],
+			"files": {
+				"src/lib/w.ts": "// stale\n"
+			},
+			"differs": [
+				"linked_node_modules",
+				"logger_colors"
+			]
+		},
+		{
+			"name": "check_forwarded_gen_write_unknown_arg",
+			"args": [
+				"check",
+				"--",
+				"gro",
+				"gen",
+				"--no-check",
+				"--x"
+			],
+			"files": {
+				"src/lib/w.ts": "// stale\n"
+			},
+			"differs": [
+				"linked_node_modules",
+				"logger_colors"
+			]
+		},
+		{
 			"name": "allow_all_after_command",
 			"args": [
 				"format",

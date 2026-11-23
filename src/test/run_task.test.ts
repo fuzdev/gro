@@ -1,3 +1,4 @@
+import type { Args } from '@fuzdev/fuz_util/args.ts';
 import { test, expect, assert, vi } from 'vitest';
 import { resolve } from 'node:path';
 import { existsSync } from 'node:fs';
@@ -507,7 +508,7 @@ test('run_task refuses an invoke its grants mark `when` an arg the task was run 
 	assert.instanceOf(refused.error, TaskError);
 	assert.include(
 		refused.reason,
-		"invokes `build` with its `build` arg unset, and its grants invoke `build` only when it's set"
+		"invokes `build` with its `build` arg off, and its grants invoke `build` only when it's on"
 	);
 	assert.deepEqual(
 		invoke_task.mock.calls.map((c) => c[0]),
@@ -520,6 +521,46 @@ test('run_task refuses an invoke its grants mark `when` an arg the task was run 
 		invoke_task.mock.calls.map((c) => c[0]),
 		['gen', 'build']
 	);
+});
+
+test('run_task reads a `when` arg as parsed, its default and its `no-` dual applied', async () => {
+	const invoke_task = vi.fn((..._args: Array<unknown>) => Promise.resolve());
+	const options = await create_mock_run_task_options();
+	const run_with = (args: Args) =>
+		run_task(
+			{
+				name: 'greet',
+				id: '/p/src/lib/greet.task.ts',
+				mod: {
+					task: {
+						Args: s.object({
+							test: s.with_default(s.boolean, true),
+							'no-test': s.with_default(s.boolean, false)
+						}),
+						run: async (ctx) => {
+							await ctx.invoke_task('test');
+						}
+					}
+				}
+			},
+			args,
+			{ ...options, invoke_task, grants: { invokes: { test: { when: 'test' } } } }
+		);
+	// on by default
+	assert((await run_with({})).ok);
+	assert.deepEqual(
+		invoke_task.mock.calls.map((c) => c[0]),
+		['test']
+	);
+	invoke_task.mockClear();
+	// off by its dual
+	const refused = await run_with({ 'no-test': true });
+	assert(!refused.ok);
+	assert.include(
+		refused.reason,
+		"invokes `test` with its `test` arg off, and its grants invoke `test` only when it's on"
+	);
+	assert.deepEqual(invoke_task.mock.calls, []);
 });
 
 test("run_task reads a `when` arg as the task's own, never one added to `Object.prototype`", async () => {
@@ -541,7 +582,7 @@ test("run_task reads a `when` arg as the task's own, never one added to `Object.
 			}
 		);
 		assert(!result.ok);
-		assert.include(result.reason, 'with its `build` arg unset');
+		assert.include(result.reason, 'with its `build` arg off');
 	} finally {
 		delete polluted.build;
 	}

@@ -195,7 +195,8 @@ export const run_task = async (
 							`Task ${st('cyan', task_meta.name)} invokes \`${invoked_task_name}\`, which its grants don't name.`
 						);
 					}
-					// the closure holds the invoked builtin only when the arg is set: where the run is held
+					// the closure holds the invoked builtin only when the arg is on, as parsed with its default
+					// and its `no-` dual: where the run is held
 					// to its closure, an invoke without it fails on a grant the closure lacks, and this names
 					// the cause first, a guardrail against Gro's own drift, not a bound on project code;
 					// the arg is read as an own property, so one added to `Object.prototype` sets nothing
@@ -205,8 +206,8 @@ export const run_task = async (
 						!(hasOwn(args, when) && (args as Record<string, unknown>)[when] === true)
 					) {
 						throw new TaskError(
-							`Task ${st('cyan', task_meta.name)} invokes \`${invoked_task_name}\` with its \`${when}\` arg unset, ` +
-								`and its grants invoke \`${invoked_task_name}\` only when it's set.`
+							`Task ${st('cyan', task_meta.name)} invokes \`${invoked_task_name}\` with its \`${when}\` arg off, ` +
+								`and its grants invoke \`${invoked_task_name}\` only when it's on.`
 						);
 					}
 					await invoke_any_task(invoked_task_name, invoked_args, invoked_options);

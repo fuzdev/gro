@@ -18,10 +18,15 @@
 //!   nothing: Node refuses it.
 //! - The command's args are its direct args with the last `-- gro <name>`
 //!   section's merged over them (`argv.rs`). A flag keyed `_` reaches the
-//!   positionals that name the command, as Node's parse has it.
+//!   positionals that name the command, as Node's parse has it, and those
+//!   after the name are the command's `_` arg, in its direct args or its
+//!   section, as a forwarded section's are its builtin's.
 //! - Each builtin's invokes join transitively. One marked `when` joins only
-//!   when the command's args set that boolean arg; the table holds no
-//!   `when` on a builtin another invokes ([`super::table::TableError`]).
+//!   when that boolean arg of the command's is on, read against the
+//!   command's `Args` as the table records them, its default and its `no-`
+//!   dual applied (`check --no-test` holds no `test`, `check --build` its
+//!   `build`); the table holds no `when` on a builtin another invokes
+//!   ([`super::table::TableError`]).
 //! - An invoke marked `check` drops the writes of the invoked builtin's
 //!   grants, and of those it invokes in turn. The mark holds whatever the
 //!   command line forwards, where on Node a section turning its check mode
@@ -36,10 +41,16 @@
 //!   command's args with the `npm_cli` program in the closure
 //!   ([`ClosureFallback::Install`]).
 //!
-//! The closure reads no builtin's `Args`, so it doesn't know which args a
-//! builtin refuses, or a `--help`: for those Node runs no builtin, and the
-//! closure is the command's as though the args were valid, no more than the
-//! valid command would get, and more than a refusal needs.
+//! The closure reads each builtin's args as the table records them, a
+//! boolean's default or `null`, so it reads a boolean's value and whether a
+//! forwarded section's keys are the invoked builtin's, never a non-boolean
+//! arg's type or a `--help` as such; the command's own args only as
+//! `ArgvKeys::fits` (`argv.rs`) reads them, to drop `check_turned_off` for
+//! args Node refuses, a `--help` among them, as no builtin's `Args` hold
+//! `help`. Where Node refuses args or answers with help, it runs no builtin
+//! (or fails the invoked step), and the closure is the command's as though
+//! the args were valid, no more than the valid command would get, and more
+//! than a refusal needs.
 //!
 //! Kind: the boundary for what grants a run gets, the verb's run held to
 //! its closure joined to the grant flags. The adversary is the project's
@@ -175,10 +186,15 @@ pub fn command_closure(table: &BuiltinGrantsTable, cli_args: &[String]) -> Comma
         }
         Command::Builtin { name, args } => {
             if table.builtins.contains_key(&name) {
-                let check = args.is_set(CHECK_ARG) && table.is_check_capable(&name);
+                let own = table.args_of(&name);
+                let check = args.flag(CHECK_ARG, own) && table.is_check_capable(&name);
                 let rest = split_direct(cli_args).1;
                 visit(table, &mut closure, &name, Some(&args), rest, check);
-                if args.is_set(INSTALL_ARG)
+                // args its `Args` refuse run no builtin on Node, so no section's check turns off
+                if !args.fits(own) {
+                    closure.check_turned_off.clear();
+                }
+                if args.flag(INSTALL_ARG, own)
                     && closure
                         .grants
                         .programs
@@ -222,11 +238,11 @@ fn visit(
     for (invoked, invoke) in &grants.invokes {
         // the table holds a `when` only on the command's invokes
         if let Some(when) = &invoke.when
-            && !args.is_some_and(|args| args.is_set(when))
+            && !args.is_some_and(|args| args.flag(when, table.args_of(name)))
         {
             continue;
         }
-        if invoke.check && turns_check_off(rest, invoked) {
+        if invoke.check && turns_check_off(table, rest, invoked) {
             closure.check_turned_off.insert(invoked.clone());
         }
         visit(table, closure, invoked, None, rest, check || invoke.check);
@@ -235,12 +251,16 @@ fn visit(
 
 /// Whether the forwarded section of `rest` that runs the builtin `name`
 /// sets its `check` arg `false` once merged over the `check: true` an
-/// invoke marked `check` passes it, as `invoke_task` merges them: a value
-/// given it the builtin's `Args` refuses, running nothing.
-fn turns_check_off(rest: &[String], name: &str) -> bool {
+/// invoke marked `check` passes it, as `invoke_task` merges them and
+/// `run_task` parses them against the builtin's `Args`: args `Args`
+/// refuses, an unknown key or a value given a boolean, run nothing.
+fn turns_check_off(table: &BuiltinGrantsTable, rest: &[String], name: &str) -> bool {
     to_forwarded_args(rest, name).is_some_and(|forwarded| {
-        let invoked = parse_argv(&[format!("--{CHECK_ARG}")]).keys;
-        invoked.merge(&forwarded).is_false(CHECK_ARG)
+        let args = table.args_of(name);
+        let invoked = parse_argv(&[format!("--{CHECK_ARG}")])
+            .keys
+            .merge(&forwarded);
+        invoked.fits(args) && !invoked.flag(CHECK_ARG, args)
     })
 }
 
@@ -275,16 +295,15 @@ fn to_command(cli_args: &[String]) -> Command {
     let Some(name) = first_positional(&direct) else {
         return Command::None;
     };
-    let mut positionals = direct.positionals.into_iter().skip(1);
     if name == TASK_VERB {
-        return match positionals.next() {
-            Some(path) if is_task_path(&path) => Command::ProjectTask,
+        return match direct.positionals.get(1) {
+            Some(path) if is_task_path(path) => Command::ProjectTask,
             _ => Command::None,
         };
     }
     let forwarded = to_forwarded_args(rest, &name).unwrap_or_default();
     Command::Builtin {
-        args: direct.keys.merge(&forwarded),
+        args: direct.command_keys().merge(&forwarded),
         name,
     }
 }
@@ -326,7 +345,7 @@ fn to_forwarded_args(rest: &[String], name: &str) -> Option<ArgvKeys> {
         .find_map(|section| {
             let parsed = parse_argv(&section[1..]);
             (!parsed.replaced && parsed.positionals.first().map(String::as_str) == Some(name))
-                .then_some(parsed.keys)
+                .then(|| parsed.command_keys())
         })
 }
 
@@ -348,13 +367,14 @@ mod tests {
     use std::collections::BTreeSet;
 
     use super::{ClosureBuiltin, ClosureFallback, CommandClosure, command_closure};
-    use crate::verb::table::BuiltinGrantsTable;
+    use crate::verb::table::{BuiltinGrantsTable, test_args};
 
     /// A table of `builtins`, the JSON of each builtin's row by name, its CLI
     /// row reading `.`.
     fn table(builtins: &str) -> BuiltinGrantsTable {
+        let args = test_args(builtins);
         BuiltinGrantsTable::parse(&format!(
-            r#"{{"description": "", "cli": {{"fs": {{"read": ["."]}}}}, "builtins": {builtins}}}"#
+            r#"{{"description": "", "cli": {{"fs": {{"read": ["."]}}}}, "builtins": {builtins}, "args": {args}}}"#
         ))
         .unwrap()
     }
@@ -486,6 +506,16 @@ mod tests {
             turned_off(&["a", "--", "gro", "b", "--no-check=1"]),
             set(&[])
         );
+        // the command's own args refused by its `Args`: Node runs nothing, the section included
+        assert_eq!(
+            turned_off(&["a", "--no-no-x=y", "--", "gro", "b", "--no-check"]),
+            set(&[])
+        );
+        // an unknown key: the builtin's `Args` refuse the section, which runs nothing
+        assert_eq!(
+            turned_off(&["a", "--", "gro", "b", "--no-check", "--y"]),
+            set(&[])
+        );
         assert_eq!(
             turned_off(&["a", "--", "gro", "b", "--no-check", "--", "gro", "b"]),
             set(&[])
@@ -497,6 +527,64 @@ mod tests {
         assert_eq!(
             turned_off(&["e", "--", "gro", "b", "--no-check"]),
             set(&["b"])
+        );
+    }
+
+    #[test]
+    fn positionals_after_the_name_are_the_command_s_underscore_arg() {
+        // `a` and `b` hold no `_`, as `test_args` gives none; `h` and `i` hold it
+        let positional = |key: &str| format!(r#""{key}": {{"check": false, "_": null}}"#);
+        let table = BuiltinGrantsTable::parse(&format!(
+            r#"{{"description": "", "cli": {{}}, "builtins": {{
+                "a": {{"invokes": {{"b": {{"check": true}}, "i": {{"check": true}}}}}},
+                "b": {{"fs": {{"write": ["b"]}}}},
+                "h": {{"invokes": {{"b": {{"check": true}}}}}},
+                "i": {{"fs": {{"write": ["i"]}}}}
+            }}, "args": {{"a": {{"check": false}}, "b": {{"check": false}}, {}, {}}}}}"#,
+            positional("h"),
+            positional("i")
+        ))
+        .unwrap();
+        let turned_off = |cli_args: &[&str]| closure(&table, cli_args).check_turned_off;
+        // the command's `Args` refuse its positional, so Node runs no section
+        assert_eq!(
+            turned_off(&["a", "--", "gro", "b", "--no-check"]),
+            set(&["b"])
+        );
+        assert_eq!(
+            turned_off(&["a", "x", "--", "gro", "b", "--no-check"]),
+            set(&[])
+        );
+        assert_eq!(
+            turned_off(&["a", "--", "gro", "a", "x", "--", "gro", "b", "--no-check"]),
+            set(&[])
+        );
+        // a positional the command's `Args` hold, in its direct args or its section
+        assert_eq!(
+            turned_off(&["h", "x", "--", "gro", "b", "--no-check"]),
+            set(&["b"])
+        );
+        assert_eq!(
+            turned_off(&["h", "--", "gro", "h", "x", "--", "gro", "b", "--no-check"]),
+            set(&["b"])
+        );
+        // an invoked builtin's section with a positional its `Args` refuse, or hold
+        assert_eq!(
+            turned_off(&["a", "--", "gro", "b", "x", "--no-check"]),
+            set(&[])
+        );
+        assert_eq!(
+            turned_off(&["a", "--", "gro", "i", "x", "--no-check"]),
+            set(&["i"])
+        );
+        // a flag's value is no positional
+        assert_eq!(
+            turned_off(&["a", "--", "gro", "b", "--no-check", "--check", "x"]),
+            set(&[])
+        );
+        assert_eq!(
+            turned_off(&["a", "--x=1", "--", "gro", "b", "--no-check"]),
+            set(&[])
         );
     }
 
@@ -544,7 +632,8 @@ mod tests {
         assert!(!joins(&["a"]));
         assert!(joins(&["a", "--x"]));
         assert!(!joins(&["a", "--x", "--no-x"]));
-        assert!(joins(&["a", "--no-no-x"]));
+        // `x` has no `no-x` pair in its `Args`, so Node refuses `--no-no-x`, running nothing
+        assert!(!joins(&["a", "--no-no-x"]));
         // the last section forwarded to the command, merged over its args
         assert!(joins(&["a", "--", "gro", "a", "--x"]));
         assert!(!joins(&["a", "--x", "--", "gro", "a", "--no-x"]));
@@ -559,6 +648,37 @@ mod tests {
         assert!(!joins(&["a", "--", "vitest", "--x"]));
         // a value is no boolean's `true`
         assert!(!joins(&["a", "--x=true"]));
+    }
+
+    #[test]
+    fn a_when_invoke_on_by_default_leaves_with_its_flag() {
+        let table = table(
+            r#"{
+                "a": {"invokes": {"b": {"when": "on", "check": true}, "c": {}}},
+                "b": {"fs": {"write": ["b"]}, "env": ["B"]},
+                "c": {}
+            }"#,
+        );
+        let joins = |cli_args: &[&str]| {
+            closure(&table, cli_args)
+                .builtins
+                .iter()
+                .any(|builtin| builtin.name == "b")
+        };
+        // on by its default, off by its dual, the later given winning
+        assert!(joins(&["a"]));
+        assert!(!joins(&["a", "--no-on"]));
+        assert!(!joins(&["a", "--on=false"]));
+        assert!(joins(&["a", "--no-on", "--on"]));
+        assert!(!joins(&["a", "--on", "--no-on"]));
+        assert!(joins(&["a", "--no-no-on"]));
+        assert!(!joins(&["a", "--", "gro", "a", "--no-on"]));
+        // off, its grants leave the closure, and a forwarded section turning its check off runs nothing
+        let off = closure(&table, &["a", "--no-on", "--", "gro", "b", "--no-check"]);
+        assert!(off.grants.env.is_empty() && off.check_turned_off.is_empty());
+        let on = closure(&table, &["a", "--", "gro", "b", "--no-check"]);
+        assert_eq!(on.grants.env, set(&["B"]));
+        assert_eq!(on.check_turned_off, set(&["b"]));
     }
 
     #[test]

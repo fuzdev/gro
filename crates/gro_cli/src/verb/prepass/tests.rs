@@ -582,7 +582,7 @@ fn a_table_that_grants_a_program_two_ways_is_refused() {
             r#"{{"description": "", "cli": {{}}, "builtins": {{
                 "a": {{"programs": {programs_a}, "invokes": {{"b": {{}}}}}},
                 "b": {{"programs": {programs_b}}}
-            }}}}"#
+            }}, "args": {{"a": null, "b": null}}}}"#
         ))
         .unwrap()
     };

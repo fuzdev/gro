@@ -80,7 +80,7 @@ Not a builtin task, which Gro's CLI runs by name.
 
 What one of Gro's commands runs and may reach, read from its command line before any JS runs:
 the builtins it runs, each builtin's `invokes` joined in turn as their marks allow
-(one marked `when` only when the command's args set that arg, and one marked `check` without its writes,
+(one marked `when` only when that arg of the command's is on, its default and its `no-` dual applied, so `check --no-test` holds no `test`, and one marked `check` without its writes,
 as is the command itself under `--check` when an invoke anywhere marks it `check`, like `gro gen --check`),
 and the union of their grants with the CLI's own row,
 or why the command runs on the Node Gro instead, like a builtin that declares no grants, an install, or a project task.

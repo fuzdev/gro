@@ -102,11 +102,11 @@ export const GRO_BUILTIN_TASK_GRANTS: Record<keyof GroBuiltinTasks, BuiltinTaskG
 			invokes: {
 				sync: { when: 'install' },
 				build: { when: 'build' },
-				typecheck: {},
-				test: {},
-				gen: { check: true },
-				format: { check: true },
-				lint: {}
+				typecheck: { when: 'typecheck' },
+				test: { when: 'test' },
+				gen: { when: 'gen', check: true },
+				format: { when: 'format', check: true },
+				lint: { when: 'lint' }
 			}
 		},
 		clean: {

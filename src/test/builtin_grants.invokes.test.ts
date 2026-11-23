@@ -10,7 +10,7 @@ import { GRO_BUILTIN_TASK_GRANTS } from '#lib/gro_builtin_tasks.ts';
 import { GRO_BUILTIN_TASK_IMPORTS } from '#lib/gro_builtin_task_imports.ts';
 import { task as check_task, Args as CheckArgs } from '#lib/check.task.ts';
 
-test('each invoke names a builtin, and its `when` a boolean arg of the invoking task, off by default', async () => {
+test('each invoke names a builtin, and its `when` a boolean arg of the invoking task with a default', async () => {
 	for (const [task_name, grants] of Object.entries(GRO_BUILTIN_TASK_GRANTS)) {
 		if (!grants?.invokes) continue;
 		for (const [invoked, invoke] of Object.entries(grants.invokes)) {
@@ -22,10 +22,11 @@ test('each invoke names a builtin, and its `when` a boolean arg of the invoking 
 			assert.ok(task.Args, label);
 			const entries = get_schema_entries(task.Args);
 			assert.ok(entries && Object.hasOwn(entries, invoke.when), label);
+			assert.strictEqual(unwrap_schema(entries[invoke.when]!).kind, 'boolean', label);
+			// the default the grants table records, which a runtime reads when the command line gives none
 			const parsed = s.parse(task.Args, {});
 			assert(parsed.ok, label);
-			// off by default, so a runtime holds the invoke only when the command line turns it on
-			assert.strictEqual(parsed.value[invoke.when], false, label);
+			assert.strictEqual(typeof parsed.value[invoke.when], 'boolean', label);
 		}
 	}
 });
@@ -38,9 +39,10 @@ test("`check`'s closure holds `build` only under `--build`, which it defaults of
 	assert.strictEqual(parsed.value.build, false);
 });
 
-test('the args a native closure reads by spelling are booleans with no alias, off by default', async () => {
+test('the args a native closure reads by spelling are booleans with no alias', async () => {
 	// the binary reads a command's `when` args, `install`, and a check-capable command's `check`
-	// from the command line by their spelling (`--build`, `--no-build`), never through `Args`,
+	// from the command line by their spelling (`--build`, `--no-build`), with the defaults the grants
+	// table records, never through `Args`,
 	// so an alias on either side of a pair, or a non-boolean arg, would make it disagree with Node
 	// whether `name`'s closure can hold `npm_cli`, through any invoke, where the binary reads
 	// `install` from the command line and its default isn't read
@@ -86,7 +88,7 @@ test('the args a native closure reads by spelling are booleans with no alias, of
 				assert.strictEqual(get_schema_meta(entries[negated]!, 'aliases'), undefined, label);
 			}
 			assert(defaults?.ok, label);
-			assert.strictEqual(defaults.value[arg], false, label);
+			assert.strictEqual(typeof defaults.value[arg], 'boolean', label);
 			checked++;
 		}
 	}
