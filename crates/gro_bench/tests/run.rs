@@ -92,6 +92,7 @@ fn suite(runtimes: Vec<Runtime>, scripts: &[&str], samples: u32) -> Suite {
                 weight: 1,
                 collection: None,
                 node_modules: None,
+                git: false,
                 project: None,
                 runtimes: None,
             })
@@ -964,6 +965,77 @@ fn a_path_written_into_a_copy_discards_the_run() {
     let lock = dir.join("work/corpora/c/lock.json").canonicalize().unwrap();
     match result {
         Err(BenchError::ArtifactsChanged { paths }) => assert_eq!(paths, [lock]),
+        other => panic!("expected ArtifactsChanged, got {other:?}"),
+    }
+}
+
+#[test]
+fn an_empty_directory_made_in_a_copy_is_no_change() {
+    // as a boxed command makes its tool directories, which hold nothing
+    let dir = scratch(
+        "collection_empty_dir",
+        &[("makes.sh", "mkdir -p \"$(dirname \"$0\")/.tool\"\n")],
+    );
+    let (suite, context) = collection_suite(&dir, &["makes.sh"]);
+    let result = run(&suite, &dir, context);
+    assert!(result.is_ok(), "{result:?}");
+    // one holding a file is a change
+    let dir = scratch(
+        "collection_full_dir",
+        &[(
+            "fills.sh",
+            "mkdir -p \"$(dirname \"$0\")/.tool\" && : > \"$(dirname \"$0\")/.tool/f\"\n",
+        )],
+    );
+    let (suite, context) = collection_suite(&dir, &["fills.sh"]);
+    let result = run(&suite, &dir, context);
+    let tool = dir.join("work/corpora/c/.tool").canonicalize().unwrap();
+    match result {
+        Err(BenchError::ArtifactsChanged { paths }) => {
+            assert_eq!(paths, [tool.clone(), tool.join("f")]);
+        }
+        other => panic!("expected ArtifactsChanged, got {other:?}"),
+    }
+    // a symlink to an empty directory is a change, its directory not
+    let dir = scratch(
+        "collection_link_dir",
+        &[(
+            "links.sh",
+            "cd \"$(dirname \"$0\")\" && mkdir -p .e && ln -sfn .e .link\n",
+        )],
+    );
+    let (suite, context) = collection_suite(&dir, &["links.sh"]);
+    let result = run(&suite, &dir, context);
+    let link = dir
+        .join("work/corpora/c")
+        .canonicalize()
+        .unwrap()
+        .join(".link");
+    match result {
+        Err(BenchError::ArtifactsChanged { paths }) => assert_eq!(paths, [link]),
+        other => panic!("expected ArtifactsChanged, got {other:?}"),
+    }
+}
+
+#[test]
+fn an_empty_directory_made_by_a_timed_sample_is_a_change() {
+    // at the first timed sample, past the correctness run and the warmup,
+    // so the timed samples start from different states
+    let dir = scratch(
+        "collection_late_empty_dir",
+        &[(
+            "late.sh",
+            "n=$(cat \"$COUNT\" 2>/dev/null || echo 0); echo $((n + 1)) > \"$COUNT\"; \
+             if [ \"$n\" -ge 2 ]; then mkdir -p \"$(dirname \"$0\")/.tool\"; fi\n",
+        )],
+    );
+    let (mut suite, context) = collection_suite(&dir, &["late.sh"]);
+    let count = dir.canonicalize().unwrap().join("count");
+    suite.runtimes[0].env = BTreeMap::from([("COUNT".to_owned(), count.display().to_string())]);
+    let result = run(&suite, &dir, context);
+    let tool = dir.join("work/corpora/c/.tool").canonicalize().unwrap();
+    match result {
+        Err(BenchError::ArtifactsChanged { paths }) => assert_eq!(paths, [tool]),
         other => panic!("expected ArtifactsChanged, got {other:?}"),
     }
 }

@@ -126,6 +126,7 @@
 //! writes what it holds into a write root. The open-files raise is
 //! availability, no wall, and best-effort, as `fgro run`'s is.
 
+use std::collections::BTreeMap;
 use std::io;
 use std::os::fd::{AsFd as _, BorrowedFd};
 use std::os::unix::fs::MetadataExt as _;
@@ -217,6 +218,9 @@ pub struct RunPrepared {
     /// starts none, whose boxes are built from the rules' handles, held
     /// past the run's.
     programs: Vec<ProgramWrites>,
+    /// The write set of each program `--allow-run-write=` names, by the
+    /// name the run grants it as.
+    named: BTreeMap<String, ProgramWrites>,
     /// The network the box is for.
     network: RunNetwork,
     /// The run's private directory, if it has one, held, its lock with it,
@@ -241,7 +245,7 @@ pub struct RunConfined {
     /// For a run that may start a program, the rules its programs' boxes
     /// are built from, their handles held past the run's box, until taken
     /// ([`RunConfined::take_program_rules`]).
-    programs: Option<ProgramRules>,
+    programs: Option<Box<ProgramRules>>,
 }
 
 /// The network a run's box holds it in, which decides its TCP wall and its
@@ -555,6 +559,7 @@ impl RunHardened {
         Ok(RunPrepared {
             rules,
             programs: plan.program_writes(),
+            named: plan.named_writes(),
             network: self.network,
             private,
         })
@@ -636,7 +641,8 @@ impl RunPrepared {
             seccompiler::apply_filter(denylist).map_err(ConfineError::Seccomp)?;
         }
         let (rules, absent) = self.rules.into_installed();
-        let (rules, programs) = ProgramRules::hold(rules, &self.programs);
+        let (rules, programs) = ProgramRules::hold(rules, &self.programs, self.named);
+        let programs = programs.map(Box::new);
         Ok(RunConfined {
             rules,
             absent,
@@ -685,7 +691,7 @@ impl RunConfined {
     /// The rules its programs' boxes are built from, taken: for a run that
     /// may start a program, once, and none after, or for one that starts
     /// none.
-    pub const fn take_program_rules(&mut self) -> Option<ProgramRules> {
-        self.programs.take()
+    pub fn take_program_rules(&mut self) -> Option<ProgramRules> {
+        self.programs.take().map(|programs| *programs)
     }
 }

@@ -51,25 +51,39 @@ pub(super) fn list_copies(copies: &Copies) -> Result<Vec<BTreeSet<PathBuf>>, Ben
     copies.roots.iter().map(|root| list_paths(root)).collect()
 }
 
-/// What changed since `before` and `listed` were read, read again after the
-/// run's samples: each artifact whose hash moved from `before`, each path a
-/// copy gained or lost against `listed`, each pinned collection's directory
-/// in the corpora checkout when its tree moved or it gained a local change,
-/// and each other checkout whose state moved.
+/// What changed since `before`, `listed`, and `checked` were read, read
+/// again after the run's samples: each artifact whose hash moved from
+/// `before`, each path a copy gained or lost against `listed`, but a
+/// directory the correctness runs made that is still empty, as a boxed
+/// command makes its tool directories, which hold no input of a later
+/// sample, each path a copy gained or lost against `checked`, what the
+/// correctness runs left, by the warmups or the timed samples, each pinned
+/// collection's directory in the corpora checkout when its tree moved or it
+/// gained a local change, and each other checkout whose state moved.
 pub(super) fn changed_during_run(
     artifacts: &BTreeSet<PathBuf>,
     before: &BTreeMap<PathBuf, String>,
     copies: &Copies,
     listed: &[BTreeSet<PathBuf>],
+    checked: &[BTreeSet<PathBuf>],
     corpora: Option<&Corpora>,
     checkouts: &BTreeMap<String, (PathBuf, CheckoutState)>,
 ) -> Result<Vec<PathBuf>, BenchError> {
     let after = hash_artifacts(artifacts)?;
     let mut changed = changed_artifacts(before, &after);
-    for (root, before) in copies.roots.iter().zip(listed) {
+    for ((root, before), checked) in copies.roots.iter().zip(listed).zip(checked) {
         // a path written or removed in a copy, such as a lockfile or an install
         let after = list_paths(root)?;
-        changed.extend(before.symmetric_difference(&after).cloned());
+        let mut moved: BTreeSet<PathBuf> = before
+            .symmetric_difference(&after)
+            .filter(|path| {
+                before.contains(*path) || !checked.contains(*path) || !is_empty_dir(path)
+            })
+            .cloned()
+            .collect();
+        // and anything the warmups or timed samples moved, an empty directory included
+        moved.extend(checked.symmetric_difference(&after).cloned());
+        changed.extend(moved);
     }
     if let Some(corpora) = corpora {
         for (collection, tree) in &corpora.collections {
@@ -94,6 +108,13 @@ pub(super) fn changed_during_run(
         }
     }
     Ok(changed)
+}
+
+/// Whether `path` is a directory holding nothing, never following a
+/// symlink.
+fn is_empty_dir(path: &Path) -> bool {
+    std::fs::symlink_metadata(path).is_ok_and(|metadata| metadata.is_dir())
+        && std::fs::read_dir(path).is_ok_and(|mut entries| entries.next().is_none())
 }
 
 /// Reads the state of each checkout outside the suite's own (the one holding

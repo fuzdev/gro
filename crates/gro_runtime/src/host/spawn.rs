@@ -23,7 +23,10 @@
 //!
 //! A program is a handle of [`SPAWN_PROGRAM`]'s kind, holding the name it
 //! was asked for and its pin's real path as its `name` and `path`, and, as
-//! its state, the place of its pin in the run's table and the environment
+//! its state, the place of its pin in the run's table, the place of its key
+//! in the run's table of programs ([`ProgramKey`]: the name it's granted
+//! as, or, for one found beneath an exec root, its pin), which its box is
+//! kept by, and the environment
 //! its children are given, made once, when it's made: the base set the Node
 //! module gives (`PATH`, `HOME`, `TMPDIR`, and `TERM` where the embedder
 //! read them, `LC_ALL=C`, and `NO_COLOR` and `FORCE_COLOR`), then what
@@ -66,10 +69,13 @@
 //! ([`exec_roots`]). An unconfined scope's exec root is `/`.
 //!
 //! A program's `run`, `out`, and `out_bytes` launch a child and settle in a
-//! later turn ([`launch`]), its watch a task on the event loop's own
-//! runtime, and the run's table of children killed when the run ends
-//! ([`watch`]). `start` launches one the same way and settles with its
-//! `SpawnChild` ([`start`]), whose state and long-lived task are
+//! later turn ([`launch`]), in a run held in a box, each in its program's
+//! own box nested in the run's, built at the program's first launch
+//! ([`ProgramBoxes`]), its temporary variables pointed into that box's
+//! directory, its watch a task on the event loop's own runtime, and the
+//! run's table of children killed when the run ends ([`watch`]). `start`
+//! launches one the same way and settles with its `SpawnChild` ([`start`]),
+//! whose state and long-lived task are
 //! [`child`]'s.
 
 pub mod child;
@@ -95,8 +101,10 @@ use super::{
     HostData, NO_ERROR_CLASSES, name, native, own_data, string, throw_error, throw_type_error,
 };
 use crate::confine::plan::ProgramFile;
+use crate::confine::program::{ProgramBox, ProgramBoxes, ProgramRules, ProgramWrites};
 use crate::loader::RefusalLog;
 use crate::loader::refused::{NOT_GRANTED, NotGranted, SpawnNeed};
+use crate::prices::{self, RunDefault};
 use crate::{
     Authority, CHILD_BASE_ENV, EnvPattern, EnvPatternFault, EnvVars, Grants, PassEnvGrant,
     ProgramGrant,
@@ -158,9 +166,17 @@ pub struct SpawnRun {
     /// project's at [`PROJECT_SCOPE`].
     scopes: Vec<Scope>,
     /// The run's pins, each program's place its handle holds: the granted
-    /// ones, pinned as the run started, then, in an unconfined run, each
-    /// file pinned since, once for each way it's run.
+    /// ones, pinned as the run started, then each file pinned since, found
+    /// beneath an exec root or, in an unconfined run, by name, once for each
+    /// way it's run.
     pins: RefCell<Vec<Pin>>,
+    /// The run's table of programs, each key's place its handle holds: the
+    /// granted ones, by name, as the run started, then each found since.
+    keys: RefCell<Vec<ProgramKey>>,
+    /// The boxes the run's programs start in, by their keys' places, for a
+    /// run held in a box ([`ProgramBoxes`]); none for any other, whose
+    /// programs start in none.
+    boxes: Option<ProgramBoxes>,
     /// The run's started children, by the number their handles name
     /// ([`start::StartedChildren`]).
     started: Rc<start::StartedChildren>,
@@ -265,12 +281,15 @@ impl SpawnRun {
     /// names programs, each held by its pin from `pins`, made for that
     /// grant before the run started ([`RunPins::pin`]), and each exec root
     /// it names opened now and held to the identity it was granted with
-    /// ([`ExecRoot::open`]); for an unconfined one, `/` its exec root.
+    /// ([`ExecRoot::open`]); for an unconfined one, `/` its exec root. A run
+    /// held in a box passes `programs`, the rules its programs' boxes are
+    /// built from, so every program it starts starts in a box of its own.
     pub fn start(
         authority: &Authority,
         env: &EnvVars,
         project: &Path,
         mut pinned: RunPins,
+        programs: Option<ProgramRules>,
     ) -> Option<Self> {
         let grant = match authority {
             Authority::Unconfined => None,
@@ -323,6 +342,13 @@ impl SpawnRun {
                     project_path.display()
                 )
             });
+        let keys = match &scope.programs {
+            Programs::Granted(programs) => programs
+                .keys()
+                .map(|name| ProgramKey::Granted(name.clone()))
+                .collect(),
+            Programs::Unconfined => Vec::new(),
+        };
         Some(Self {
             project_dir,
             children: Arc::default(),
@@ -331,6 +357,8 @@ impl SpawnRun {
             project,
             scopes: vec![scope],
             pins: RefCell::new(pins),
+            keys: RefCell::new(keys),
+            boxes: programs.map(ProgramBoxes::new),
             started: Rc::default(),
         })
     }
@@ -391,6 +419,54 @@ impl SpawnRun {
     fn pin_now(&self, name: &str) -> Result<usize, Fault> {
         let found = pin(name, self.env.get("PATH"), self.project.as_deref())?;
         Ok(self.hold_pin(found))
+    }
+
+    /// The place of `key` in the run's table of programs: the entry
+    /// already there, or a new one.
+    fn hold_key(&self, key: ProgramKey) -> usize {
+        let mut keys = self.keys.borrow_mut();
+        if let Some(at) = keys.iter().position(|held| *held == key) {
+            return at;
+        }
+        keys.push(key);
+        keys.len() - 1
+    }
+
+    /// The box the program whose key is at `place` starts in, built at its
+    /// first launch ([`ProgramBoxes::box_for`]): none for a run held in no
+    /// box.
+    ///
+    /// # Errors
+    ///
+    /// Returns the text of the error its box's build met, the same at every
+    /// launch.
+    fn program_box(&self, place: usize) -> Result<Option<Rc<ProgramBox>>, Rc<str>> {
+        let Some(boxes) = &self.boxes else {
+            return Ok(None);
+        };
+        // a priced build can leave Landlock out, the run's and each
+        // program's (`prices`)
+        if prices::off(RunDefault::Landlock) {
+            return Ok(None);
+        }
+        let key = self.keys.borrow().get(place).cloned();
+        let writes = match key {
+            Some(ProgramKey::Granted(name)) => {
+                let table = self.scopes.get(PROJECT_SCOPE).is_some_and(|scope| {
+                    matches!(
+                        &scope.programs,
+                        Programs::Granted(programs) if matches!(
+                            programs.get(&name),
+                            Some(GrantedProgram { grant: ProgramGrant::Table { .. }, .. })
+                        )
+                    )
+                });
+                boxes.rules().writes(&name, table)
+            }
+            Some(ProgramKey::Found { .. }) => ProgramWrites::FLAG,
+            None => return Err(Rc::from("a program handle names no key of the run's")),
+        };
+        boxes.box_for(place, writes).map(Some)
     }
 
     /// The place of `found` in the run's table: an entry already there
@@ -590,12 +666,31 @@ const SCOPE: &str = "scope";
 /// See [`SCOPE`].
 const NAMES: &str = "names";
 
-/// The keys of a program's state: its pin's place in the run's table, and
-/// its children's environment.
+/// The keys of a program's state: its pin's place in the run's table, its
+/// key's place in the run's table of programs, and its children's
+/// environment.
 const PIN: &str = "pin";
 
 /// See [`PIN`].
+const KEY: &str = "key";
+
+/// See [`PIN`].
 const ENV: &str = "env";
+
+/// What a program is to the run, which its box is kept by: one granted by
+/// the name the run grants it as, or one found beneath an exec root, by
+/// its pin. A program found that pins the file a granted one pinned shares
+/// its pin, never its box, which is the grant's own.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProgramKey {
+    /// Granted, by the name the run grants it as.
+    Granted(String),
+    /// Found beneath an exec root, by its pin's place in the run's table.
+    Found {
+        /// Its pin's place.
+        pin: usize,
+    },
+}
 
 /// The run's root, made of `prototype`, the roots' prototype the host is
 /// making the namespace with: its state naming the project's scope and
@@ -726,12 +821,17 @@ pub fn program<'s>(
         let pin = match granted {
             Some(granted) => {
                 check_forwarding(&name, &options, &granted.grant)?;
-                granted.pin.clone()
+                granted
+                    .pin
+                    .clone()
+                    .map(|pin| (pin, ProgramKey::Granted(name.clone())))
             }
-            None => run.pin_now(&name),
+            None => run
+                .pin_now(&name)
+                .map(|pin| (pin, ProgramKey::Found { pin })),
         };
         match pin {
-            Ok(at) => make_program(state, scope, run, at, &name, &options),
+            Ok((at, key)) => make_program(state, scope, run, at, key, &name, &options),
             Err(Fault::NotFound) if missing == Missing::Null => Ok(v8::null(scope).into()),
             Err(fault) => Err(Failure::of(&name, fault)),
         }
@@ -801,7 +901,8 @@ pub fn program_in<'s>(
         match exec_root.resolve(&name, &dir_path) {
             Ok(Some(found)) => {
                 let at = run.hold_pin(found);
-                make_program(state, scope, run, at, &name, &options)
+                let key = ProgramKey::Found { pin: at };
+                make_program(state, scope, run, at, key, &name, &options)
             }
             Ok(None) if missing == Missing::Null => Ok(v8::null(scope).into()),
             Ok(None) => Err(Failure::Spawn {
@@ -1413,13 +1514,15 @@ fn program_env(env: &EnvVars, options: &ProgramOptions) -> Vec<(String, String)>
     made
 }
 
-/// A program handle for `name`, its pin at `at` in `run`'s table, its
-/// children's environment made by `options`.
+/// A program handle for `name`, its pin at `at` in `run`'s table, its key
+/// `key`, held in the run's table of programs, its children's environment
+/// made by `options`.
 fn make_program<'s>(
     state: &OpState,
     scope: &v8::PinScope<'s, '_>,
     run: &SpawnRun,
     at: usize,
+    key: ProgramKey,
     name: &str,
     options: &ProgramOptions,
 ) -> Result<v8::Local<'s, v8::Value>, Failure> {
@@ -1441,7 +1544,11 @@ fn make_program<'s>(
         .ok_or(Failure::Thrown)?;
     let at = u32::try_from(at).map_err(|_| Failure::Plain(NO_SPAWN_STATE.to_owned()))?;
     let pin: v8::Local<v8::Value> = v8::Integer::new_from_unsigned(scope, at).into();
-    let held = frozen_record(scope, &[(PIN, pin), (ENV, env.into())]).ok_or(Failure::Thrown)?;
+    let place =
+        u32::try_from(run.hold_key(key)).map_err(|_| Failure::Plain(NO_SPAWN_STATE.to_owned()))?;
+    let place: v8::Local<v8::Value> = v8::Integer::new_from_unsigned(scope, place).into();
+    let held = frozen_record(scope, &[(PIN, pin), (KEY, place), (ENV, env.into())])
+        .ok_or(Failure::Thrown)?;
     let own = [
         string(scope, name).ok_or(Failure::Thrown)?.into(),
         string(scope, &real).ok_or(Failure::Thrown)?.into(),
@@ -1493,6 +1600,8 @@ pub fn run_of_scopes(scopes: Vec<TestScope<'_>>) -> SpawnRun {
         project: Some("/".to_owned()),
         scopes,
         pins: RefCell::new(Vec::new()),
+        keys: RefCell::new(Vec::new()),
+        boxes: None,
         started: Rc::default(),
     }
 }

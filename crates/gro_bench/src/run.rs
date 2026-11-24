@@ -6,7 +6,8 @@
 //!    (only those: a corpora commit elsewhere doesn't count), resolves each
 //!    runtime's executable, refusing a script (a file starting with `#!`),
 //!    writes a fresh copy of each collection a workload names, with the
-//!    workload's script at its root ([`collection`](crate::collection)), and
+//!    workload's script at its root ([`collection`](crate::collection)),
+//!    committed as a git repository of its own for a `git` workload, and
 //!    of each project ([`project`](crate::project)), refusing one whose files
 //!    don't hash to the suite's pin of them, and hashes the artifacts
 //!    (every executable, script, file argument, stdin file, and file of a
@@ -26,7 +27,8 @@
 //!    runtime);
 //! 5. hashes the artifacts, lists each copy, and reads the pinned
 //!    collections' trees and the other checkouts' states again, and discards
-//!    the run if any changed (a copy gaining or losing a path counts), since
+//!    the run if any changed (a copy gaining or losing a path counts, but a
+//!    directory the correctness run made that is still empty), since
 //!    a rebuild or an edit mid-run means the samples timed different code:
 //!    the copies cover what a collection's workloads run, the collections'
 //!    trees that the checkout still holds what was copied, and a checkout's
@@ -184,6 +186,8 @@ pub fn run(suite: &Suite, dir: &Path, context: RunContext) -> Result<RunRecord, 
     }
 
     check_rows(suite, &rows, dir, &watchdog)?;
+    // what the correctness runs left, which every warmup and timed sample starts from
+    let checked = list_copies(&copies)?;
 
     let samples = sample_rows(suite, &rows, dir, &sampler, &watchdog)?;
     // only a wall run's spawner is the harness alone ([`RunRecord`])
@@ -199,6 +203,7 @@ pub fn run(suite: &Suite, dir: &Path, context: RunContext) -> Result<RunRecord, 
         &before,
         &copies,
         &listed,
+        &checked,
         corpora.as_ref(),
         &checkouts,
     )?;

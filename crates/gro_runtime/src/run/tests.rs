@@ -103,7 +103,15 @@ fn loader_shares(name: &str, end: fn(crate::SpentRuntime)) -> (usize, usize, boo
             let options = RuntimeOptions::default();
             let engine = init_engine(Confinement::Unconfined, &EngineOptions::default()).unwrap();
             let (url, loader) = resolve_main(&options, &entry, &cwd, Recording::Off).unwrap();
-            let outcome = run_resolved(engine, &options, &url, &cwd, &loader, RunPins::default());
+            let outcome = run_resolved(
+                engine,
+                &options,
+                &url,
+                &cwd,
+                &loader,
+                RunPins::default(),
+                None,
+            );
             outcome.result.unwrap();
             let held = std::rc::Rc::strong_count(&loader);
             end(outcome.runtime.unwrap());

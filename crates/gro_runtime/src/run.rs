@@ -9,6 +9,7 @@ use deno_core::PollEventLoopOptions;
 use deno_core::error::{CoreError, CoreErrorKind};
 use url::Url;
 
+use crate::confine::program::ProgramRules;
 use crate::engine::{Engine, RunEngine};
 use crate::host::HostData;
 use crate::host::spawn::{RunPins, SpawnRun};
@@ -188,7 +189,7 @@ pub fn run_main(engine: Engine, options: &RuntimeOptions, entry: &Path, cwd: &Pa
         Err(error) => return RunOutcome::unstarted(error),
     };
     let pins = pins_of(options, &loader);
-    run_resolved(engine, options, &entry, cwd, &loader, pins)
+    run_resolved(engine, options, &entry, cwd, &loader, pins, None)
 }
 
 /// The pins of the programs a run as `options` says grants, made once its
@@ -204,6 +205,10 @@ fn pins_of(options: &RuntimeOptions, loader: &Loader) -> RunPins {
 
 /// Runs `entry`, an entry module the embedder generated, as [`run_main`]
 /// runs one from a file, its granted programs held by `pins`.
+///
+/// Each program it starts starts in a box of its own built from
+/// `programs`, the rules the run's box held for them, which a run that may
+/// start a program has.
 ///
 /// The embedder made `pins` for the run's authority beneath `entry.root`
 /// before the run ([`RunPins::pin`]), so a box it made for the run's
@@ -221,9 +226,10 @@ pub fn run_generated(
     options: &RuntimeOptions,
     entry: &GeneratedEntry,
     pins: RunPins,
+    programs: Option<ProgramRules>,
     cwd: &Path,
 ) -> RunOutcome {
-    run_generated_on(engine.engine(), options, entry, pins, cwd)
+    run_generated_on(engine.engine(), options, entry, pins, programs, cwd)
 }
 
 /// Runs `entry` as [`run_generated`] does, on any engine: what that runs,
@@ -233,10 +239,11 @@ fn run_generated_on(
     options: &RuntimeOptions,
     entry: &GeneratedEntry,
     pins: RunPins,
+    programs: Option<ProgramRules>,
     cwd: &Path,
 ) -> RunOutcome {
     let (url, loader) = generated_main(options, entry, Recording::Off);
-    run_resolved(engine, options, &url, cwd, &loader, pins)
+    run_resolved(engine, options, &url, cwd, &loader, pins, programs)
 }
 
 /// The URL of the generated `entry` and the loader of its graph, which
@@ -304,12 +311,15 @@ fn run_recorded(
     // the runtime is torn down here, so its share of the loader is gone
     // and the graph is taken whole
     let pins = pins_of(options, &loader);
-    let ended = Ended::from(run_resolved(engine, options, &entry, cwd, &loader, pins));
+    let ended = Ended::from(run_resolved(
+        engine, options, &entry, cwd, &loader, pins, None,
+    ));
     (ended, Some(loader.take_graph()))
 }
 
 /// Runs the resolved `entry` with `loader`, started in `cwd`, its granted
-/// programs held by `pins`, returning the result with the `import()`s
+/// programs held by `pins`, each started in a box built from `programs`
+/// where given, returning the result with the `import()`s
 /// refused by rule and the spent runtime.
 fn run_resolved(
     engine: Engine,
@@ -318,10 +328,17 @@ fn run_resolved(
     cwd: &Path,
     loader: &Rc<Loader>,
     pins: RunPins,
+    programs: Option<ProgramRules>,
 ) -> RunOutcome {
     let project = loader.graph().roots().project().dir.clone();
-    let spawn =
-        SpawnRun::start(&options.authority, &options.spawn_env, &project, pins).map(Rc::new);
+    let spawn = SpawnRun::start(
+        &options.authority,
+        &options.spawn_env,
+        &project,
+        pins,
+        programs,
+    )
+    .map(Rc::new);
     let children = spawn.clone();
     let host = HostState {
         authority: options.authority.clone(),

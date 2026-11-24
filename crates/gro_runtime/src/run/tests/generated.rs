@@ -46,7 +46,7 @@ fn run_flagged(
         .stack_size(STACK_SIZE)
         .spawn(move || {
             let pins = RunPins::pin(&options.authority, None, &entry.root);
-            let outcome = run_generated_on(engine, &options, &entry, pins, &cwd);
+            let outcome = run_generated_on(engine, &options, &entry, pins, None, &cwd);
             (outcome.result, outcome.node_specifier_refused)
         })
         .unwrap()

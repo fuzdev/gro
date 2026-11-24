@@ -3,14 +3,16 @@
 //! its temporary directory. The box installed is tested from inside a
 //! process holding the run's, harness off (`gro_cli`'s `tests/run_box.rs`).
 
+use std::collections::BTreeMap;
 use std::os::fd::AsFd as _;
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 
 use super::Scratch;
 use crate::confine::plan::{DirFlag, RuleSource, ToolDir};
 use crate::confine::program::{
-    ProgramBox, ProgramBoxError, ProgramRules, ProgramWrites, program_rights,
+    ProgramBox, ProgramBoxError, ProgramBoxes, ProgramRules, ProgramWrites, program_rights,
 };
 use crate::confine::rules::{BoxRules, InstalledRule, Need, Rights};
 
@@ -251,7 +253,11 @@ fn a_spawning_run_holds_what_its_programs_boxes_take() {
     let second = named(1, false, true);
     let (rules, absent) = run_rules(&scratch).into_installed();
     assert!(absent.is_empty());
-    let (installed, programs) = ProgramRules::hold(rules, &[ProgramWrites::TABLE, first, second]);
+    let (installed, programs) = ProgramRules::hold(
+        rules,
+        &[ProgramWrites::TABLE, first, second],
+        BTreeMap::new(),
+    );
     let sources: Vec<_> = installed.iter().map(InstalledRule::source).collect();
     assert_eq!(
         sources,
@@ -303,7 +309,11 @@ fn a_spawning_run_holds_what_its_programs_boxes_take() {
     // the write flag's, nor a program's no program of the run is, whatever
     // box asks for them
     let (rules, _) = run_rules(&scratch).into_installed();
-    let (_, programs) = ProgramRules::hold(rules, &[ProgramWrites::TABLE, named(1, false, false)]);
+    let (_, programs) = ProgramRules::hold(
+        rules,
+        &[ProgramWrites::TABLE, named(1, false, false)],
+        BTreeMap::new(),
+    );
     let programs = programs.unwrap();
     assert_eq!(
         granted(&programs, second),
@@ -346,7 +356,7 @@ fn no_rule_holding_the_private_directory_is_held() {
         )
         .unwrap();
     let (rules, _) = rules.into_installed();
-    let (installed, programs) = ProgramRules::hold(rules, &[ProgramWrites::TABLE]);
+    let (installed, programs) = ProgramRules::hold(rules, &[ProgramWrites::TABLE], BTreeMap::new());
     assert_eq!(installed.len(), 10);
     let programs = programs.unwrap();
     for program in [ProgramWrites::TABLE, ProgramWrites::FLAG] {
@@ -371,7 +381,7 @@ fn no_rule_holding_the_private_directory_is_held() {
 fn a_run_that_starts_nothing_holds_no_handle() {
     let scratch = Scratch::new("program_none");
     let (rules, _) = run_rules(&scratch).into_installed();
-    let (installed, programs) = ProgramRules::hold(rules, &[]);
+    let (installed, programs) = ProgramRules::hold(rules, &[], BTreeMap::new());
     assert_eq!(installed.len(), 8);
     assert!(programs.is_none());
     let (rules, _) = run_rules(&scratch).into_installed();
@@ -379,21 +389,23 @@ fn a_run_that_starts_nothing_holds_no_handle() {
         .into_iter()
         .filter(|(rule, _)| rule.source() != RuleSource::PrivateTemp)
         .collect();
-    let (installed, programs) = ProgramRules::hold(without_private, &[ProgramWrites::TABLE]);
+    let (installed, programs) =
+        ProgramRules::hold(without_private, &[ProgramWrites::TABLE], BTreeMap::new());
     assert_eq!(installed.len(), 7);
     assert!(programs.is_none());
 }
 
 /// A program's box makes its temporary directory in the private directory,
-/// named by its pin, its user's alone; a second box for the same pin, and
-/// an entry planted at a pin's name, a symlink out of the private directory
-/// among them, are refused, nothing made where the link leads.
+/// named by its key's place, its user's alone; a second box for the same
+/// place, and an entry planted at a place's name, a symlink out of the
+/// private directory among them, are refused, nothing made where the link
+/// leads.
 #[test]
-fn a_program_s_box_makes_its_temp_dir_by_its_pin() {
+fn a_program_s_box_makes_its_temp_dir_by_its_place() {
     let scratch = Scratch::new("program_temp");
     let outside = scratch.dir("outside");
     let (rules, _) = run_rules(&scratch).into_installed();
-    let (_, programs) = ProgramRules::hold(rules, &[ProgramWrites::TABLE]);
+    let (_, programs) = ProgramRules::hold(rules, &[ProgramWrites::TABLE], BTreeMap::new());
     let programs = programs.unwrap();
     let made = programs.program_box(ProgramWrites::TABLE, 3).unwrap();
     let temp = scratch.path().join("private/program_3");
@@ -416,6 +428,63 @@ fn a_program_s_box_makes_its_temp_dir_by_its_pin() {
     );
     assert!(!outside.join("planted").exists());
     assert!(programs.program_box(ProgramWrites::FLAG, 5).is_ok());
+}
+
+/// The run's boxes build each place's box once, at its first ask, and keep
+/// it, or the text of its first error, with its causes, for every ask
+/// after, never building again: a place whose entry was planted fails as
+/// it first did once the entry is gone, and another place builds.
+#[test]
+fn a_program_s_box_is_built_once_and_kept() {
+    let scratch = Scratch::new("program_boxes");
+    let (rules, _) = run_rules(&scratch).into_installed();
+    let (_, programs) = ProgramRules::hold(rules, &[ProgramWrites::TABLE], BTreeMap::new());
+    let boxes = ProgramBoxes::new(programs.unwrap());
+    let built = boxes.box_for(0, ProgramWrites::TABLE).unwrap();
+    assert!(Rc::ptr_eq(
+        &built,
+        &boxes.box_for(0, ProgramWrites::TABLE).unwrap()
+    ));
+    std::fs::create_dir(scratch.path().join("private/program_1")).unwrap();
+    let failed = boxes.box_for(1, ProgramWrites::FLAG).unwrap_err();
+    assert_eq!(
+        &*failed,
+        format!(
+            "failed to make the program's temporary directory {}: File exists (os error 17)",
+            scratch.path().join("private/program_1").display()
+        )
+    );
+    std::fs::remove_dir(scratch.path().join("private/program_1")).unwrap();
+    assert_eq!(boxes.box_for(1, ProgramWrites::FLAG).unwrap_err(), failed);
+    assert!(boxes.box_for(2, ProgramWrites::FLAG).is_ok());
+}
+
+/// What `--allow-run-write=` names a program for is its write set, and
+/// every other program's is the table's or a flag's by its grant.
+#[test]
+fn a_program_s_writes_follow_its_grant() {
+    let scratch = Scratch::new("program_writes");
+    let (rules, _) = run_rules(&scratch).into_installed();
+    let named_table = named(0, true, false);
+    let named_flag = named(1, false, true);
+    let (_, programs) = ProgramRules::hold(
+        rules,
+        &[ProgramWrites::TABLE, named_table, named_flag],
+        BTreeMap::from([
+            ("node_modules/.bin/vitest".to_owned(), named_table),
+            ("python3".to_owned(), named_flag),
+        ]),
+    );
+    let programs = programs.unwrap();
+    for (name, table, writes) in [
+        ("node_modules/.bin/vitest", true, named_table),
+        ("python3", false, named_flag),
+        ("python3", true, named_flag),
+        ("git", true, ProgramWrites::TABLE),
+        ("sh", false, ProgramWrites::FLAG),
+    ] {
+        assert_eq!(programs.writes(name, table), writes, "{name}");
+    }
 }
 
 /// A program's box is built on the isolate's thread and installed on the

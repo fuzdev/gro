@@ -7,12 +7,13 @@ use std::ffi::OsString;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 
 use super::command::{Program, RowCommand, resolve_program, row_args};
 use super::sample::Sampler;
 use crate::collection::materialize;
 use crate::error::BenchError;
-use crate::git::read_corpora_collection;
+use crate::git::{git_command, read_corpora_collection};
 use crate::phases::PHASES_FILE_ENV;
 use crate::project::{materialize_project, resolve_packages, write_node_modules};
 use crate::suite::{FileArg, Suite, Tail};
@@ -289,6 +290,11 @@ fn materialize_collections(
                     .packages
                     .extend(packages.iter().map(|(name, from)| installed_as(name, from)));
             }
+            // validation gives every workload naming the collection the
+            // same `git`
+            if workload.git {
+                commit_copy(&root)?;
+            }
             copies.roots.push(root.clone());
             roots.insert(collection, root.clone());
             root
@@ -319,6 +325,74 @@ fn materialize_collections(
         copies.entries.insert(workload.name.clone(), entry);
     }
     Ok(copies)
+}
+
+/// Makes the copy at `root` a git repository of its own, its files committed
+/// but its `node_modules`, which the repository's own exclude file ignores:
+/// a fixed identity and date, no signing, no hooks, no template, and
+/// neither the user's nor the system's git config nor any `GIT_*` variable
+/// of the caller's, so the commit is the same on every machine.
+fn commit_copy(root: &Path) -> Result<(), BenchError> {
+    let run = |args: &[&str]| {
+        let mut command = Command::new("git");
+        // a caller's `GIT_DIR`, `GIT_INDEX_FILE`, or `GIT_AUTHOR_NAME` would
+        // move the repository or the commit
+        for (name, _) in std::env::vars_os() {
+            if name.as_encoded_bytes().starts_with(b"GIT_") {
+                command.env_remove(name);
+            }
+        }
+        command
+            .arg("-C")
+            .arg(root)
+            .args([
+                "-c",
+                "user.name=gro_bench",
+                "-c",
+                "user.email=gro_bench@localhost",
+                "-c",
+                "commit.gpgsign=false",
+                "-c",
+                "core.hooksPath=/dev/null",
+                "-c",
+                "core.autocrlf=false",
+            ])
+            .args(args)
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_AUTHOR_DATE", "2000-01-01T00:00:00Z")
+            .env("GIT_COMMITTER_DATE", "2000-01-01T00:00:00Z")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null());
+        let line = git_command(root, args);
+        let status = command.status().map_err(|source| BenchError::Spawn {
+            command: line.clone(),
+            source,
+        })?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err(BenchError::CommandFailed {
+                command: line,
+                status,
+            })
+        }
+    };
+    // a template's hooks and files differ by machine, and with none there's
+    // no `info/`
+    run(&["init", "--quiet", "--template="])?;
+    let info = root.join(".git/info");
+    fs::create_dir_all(&info).map_err(|source| BenchError::Write {
+        path: info.clone(),
+        source,
+    })?;
+    let exclude = info.join("exclude");
+    fs::write(&exclude, "/node_modules/\n").map_err(|source| BenchError::Write {
+        path: exclude,
+        source,
+    })?;
+    run(&["add", "--all"])?;
+    run(&["commit", "--quiet", "--message", "the collection's copy"])
 }
 
 /// Copies each workload's project into `<work_dir>/projects/<workload>`
@@ -365,6 +439,7 @@ pub(super) fn resolve_file(dir: &Path, file: &Path) -> Result<PathBuf, BenchErro
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::git::read_command;
 
     #[test]
     fn a_missing_suite_file_is_an_input_error() {
@@ -377,5 +452,35 @@ mod tests {
         assert!(error.is_input_error());
         // an existing file resolves
         assert!(resolve_file(Path::new("."), Path::new("Cargo.toml")).is_ok());
+    }
+
+    /// A copy made a git repository commits every file but its
+    /// `node_modules`, which it ignores, so its workspace reads clean.
+    #[test]
+    fn a_committed_copy_reads_clean_but_its_node_modules() {
+        let root =
+            std::env::temp_dir().join(format!("gro_bench_commit_copy_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::create_dir_all(root.join("node_modules/a")).unwrap();
+        fs::write(root.join("package.json"), "{}").unwrap();
+        fs::write(root.join("src/a.ts"), "a").unwrap();
+        fs::write(root.join("node_modules/a/package.json"), "{}").unwrap();
+        commit_copy(&root).unwrap();
+        let git = |args: &[&str]| {
+            let output = read_command(&root, args).output().unwrap();
+            String::from_utf8(output.stdout).unwrap()
+        };
+        let status = git(&["status", "--porcelain", "--untracked-files=all"]);
+        let files = git(&["ls-files"]);
+        let commit = git(&["log", "--format=%an %ae %aI %cn %ce %cI"]);
+        fs::remove_dir_all(&root).unwrap();
+        assert_eq!(status, "");
+        assert_eq!(files, "package.json\nsrc/a.ts\n");
+        assert_eq!(
+            commit,
+            "gro_bench gro_bench@localhost 2000-01-01T00:00:00Z gro_bench \
+             gro_bench@localhost 2000-01-01T00:00:00Z\n"
+        );
     }
 }

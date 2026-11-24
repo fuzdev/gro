@@ -1993,6 +1993,7 @@ mod tests {
                 .map(|(name, program)| ((*name).to_owned(), (*program).clone()))
                 .collect(),
             run_writes: BTreeMap::new(),
+            may_start: BTreeSet::new(),
             development,
             entry: String::new(),
         };

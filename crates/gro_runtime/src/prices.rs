@@ -147,8 +147,12 @@ pub enum RunDefault {
     /// The sweep of the private directories of runs gone from the OS's
     /// temporary directory.
     Sweep,
-    /// The box's Landlock rules installed. Off, the rules are still opened
-    /// from the plan, and the filter's install still sets `no_new_privs`.
+    /// The box's Landlock rules installed, the run's and each program's
+    /// own. Off, the rules are still opened from the plan, the handles a
+    /// program's box would name still held, and the filter's install still
+    /// sets `no_new_privs`, but no launch builds or installs a program's box,
+    /// each child starting in the run's process as it is, its temporary
+    /// variables the run's.
     Landlock,
     /// The box's seccomp denylist, assembled and installed.
     Filter,

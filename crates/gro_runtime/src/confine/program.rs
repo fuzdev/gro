@@ -37,8 +37,9 @@
 //!   private directory (read, written, and executed), made beneath that
 //!   directory's held handle by `mkdirat`, an entry already there refused,
 //!   its mode then set to its user's alone whatever the umask, and named
-//!   by the program's pin, `program_<pin>` (`temp_dir_name`), never by its
-//!   name, which a program's own text could choose.
+//!   by its key's place in the run's table of programs, `program_<place>`
+//!   (`temp_dir_name`), never by its name, which a program's own text
+//!   could choose.
 //!
 //! Its ruleset is the run's shape (`landlock::ruleset`): every filesystem
 //! right of ABI 6 handled, so it grants only what its rules do, both
@@ -48,38 +49,42 @@
 //! the run's layer beneath it: the kernel checks an access against every
 //! layer of a domain, so a program binds and connects as the run does.
 //! Built from the held handles once the run's box is up, a program's box
-//! can wait for its first launch, so a run that starts nothing builds
-//! none. [`ProgramBox::restrict_thread`] installs a duplicate of its ruleset
-//! on the calling thread alone, nested in the run's domain: what that
-//! thread starts afterward inherits it, and the run's other threads keep
-//! the run's box. The held handles are close-on-exec, as every rule's is,
-//! so no program inherits one.
+//! waits for its program's first launch, so a run that starts nothing builds
+//! none, and is kept for each launch after ([`ProgramBoxes`]).
+//! [`ProgramBox::restrict_thread`] installs a duplicate of its ruleset on
+//! the calling thread alone, nested in the run's domain: what that thread
+//! starts afterward inherits it, and the run's other threads keep the run's
+//! box. The held handles are close-on-exec, as every rule's is, so no
+//! program inherits one.
 //!
 //! Kind: the nested domain is a boundary, the kernel's. Its adversary is a
 //! program's own code (a linter's plugin, a test); its assets are other
 //! programs' write roots and temporary directories, other processes'
 //! environment, memory, and working directory, and signalling the run or a
 //! sibling. It is defeated by a kernel bug; by a program's own write roots,
-//! which a later command runs; by the tool directories every
-//! program of the table shares; by realm code, which holds the outer
-//! domain and can start any program of the closure with arguments of its
-//! own choosing, so a directory `--allow-run-write=` names for a program
-//! is one deliberate project code writes; by everything the named program
-//! runs (its config, its plugins, for a test runner the tests); by a
-//! directory it's given that the same run later loads, as `gen --check`
-//! loads a genfile under `src/` within one `check`, which carries the
-//! program's write to every subject's grants; by what programs share
-//! for reading (a sibling's roots, and what `/proc` shows of any process:
-//! its command line, its status, and the numbers of its descriptors); by what Landlock doesn't gate: a
-//! path's mode, times, and metadata, by name, a sibling's temporary
-//! directory's included, since its name is its pin's, the run's loopback,
-//! where a sibling's listener or the run's is reached, and `pidfd_open` on
-//! a sibling or the run, a handle that can't signal; and by the terminal's
-//! foreground, which a program can take.
+//! which a later command runs; by the tool directories every program of the
+//! table shares; by realm code, which holds the outer domain and can start
+//! any program of the closure with arguments of its own choosing, so a
+//! directory `--allow-run-write=` names for a program is one deliberate
+//! project code writes; by everything the named program runs (its config,
+//! its plugins, for a test runner the tests); by a directory it's given that
+//! the same run later loads, as `gen --check` loads a genfile under `src/`
+//! within one `check`, which carries the program's write to every subject's
+//! grants; by what programs share for reading (a sibling's roots, and what
+//! `/proc` shows of any process: its command line, its status, and the
+//! numbers of its descriptors); by what Landlock doesn't gate: a path's
+//! mode, times, and metadata, by name, a sibling's temporary directory's
+//! included, since its name is its place's, the run's loopback, where a
+//! sibling's listener or the run's is reached, and `pidfd_open` on a sibling
+//! or the run, a handle that can't signal; and by the terminal's foreground,
+//! which a program can take.
 
+use std::cell::RefCell;
+use std::collections::BTreeMap;
 use std::io;
 use std::os::fd::{AsFd as _, OwnedFd};
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 
 use ::landlock::RulesetCreated;
 use gro_sys::beneath::{self, Last, Links, OpenAs};
@@ -122,6 +127,35 @@ impl ProgramWrites {
     };
 }
 
+/// The variables pointed into a temporary directory private to the run,
+/// or to a program the run starts.
+///
+/// Each is at the directory itself or at the path beneath it named, and set
+/// only where it's had or always: the temporary directory Node and most
+/// tools read (`TMPDIR`), the two others some read where it's set, and the
+/// data, cache, and state directories, where vitest keeps a token it makes
+/// when missing. The run sets them in its process, a `WhereSet` one where
+/// the process had it, and each launch in a program's box sets them in the
+/// child's environment, a `WhereSet` one where that environment has it, over
+/// any value the call asked for.
+pub const REDIRECTED: [(&str, Option<&str>, Redirect); 6] = [
+    ("TMPDIR", None, Redirect::Always),
+    ("TMP", None, Redirect::WhereSet),
+    ("TEMP", None, Redirect::WhereSet),
+    ("XDG_DATA_HOME", Some("xdg_data"), Redirect::Always),
+    ("XDG_CACHE_HOME", Some("xdg_cache"), Redirect::Always),
+    ("XDG_STATE_HOME", Some("xdg_state"), Redirect::Always),
+];
+
+/// Whether a variable of [`REDIRECTED`] is set whatever was had.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Redirect {
+    /// Set, whether or not it was had.
+    Always,
+    /// Set only where it was had.
+    WhereSet,
+}
+
 /// The mode a program's temporary directory is set to, whatever the
 /// process's umask: its user's alone, as the private directory's is.
 const TEMP_MODE: u32 = 0o700;
@@ -160,10 +194,11 @@ pub(super) const fn program_rights(
     }
 }
 
-/// The name of the temporary directory of the program pinned at `pin`, in
-/// the run's private directory: `program_<pin>`.
-fn temp_dir_name(pin: usize) -> String {
-    format!("program_{pin}")
+/// The name of the temporary directory of the program whose key is at
+/// `place` in the run's table of programs, in the run's private directory:
+/// `program_<place>`.
+fn temp_dir_name(place: usize) -> String {
+    format!("program_{place}")
 }
 
 /// A rule of the run's box held past it: the rule as installed and its
@@ -176,9 +211,12 @@ struct HeldRule {
     handle: OwnedFd,
 }
 
-/// The rules every program's box of a run is built from, each the handle of
-/// a rule of the run's box, held past it, and the run's private directory,
-/// held to make each program's temporary directory in.
+/// The rules every program's box of a run is built from.
+///
+/// Each is the handle of a rule of the run's box, held past it, beside the
+/// run's private directory, held to make each program's temporary
+/// directory in, and the write set of each program `--allow-run-write=`
+/// names.
 #[derive(Debug)]
 pub struct ProgramRules {
     /// The run's rules a program's box takes in some part, in the run's
@@ -186,12 +224,16 @@ pub struct ProgramRules {
     rules: Vec<HeldRule>,
     /// The run's rule on its private directory.
     private: HeldRule,
+    /// The write set of each program `--allow-run-write=` names, by the
+    /// name the run grants it as (`BoxPlan::named_writes`).
+    named: BTreeMap<String, ProgramWrites>,
 }
 
 /// Equal as the same rules and private directory, the handles aside.
 impl PartialEq for ProgramRules {
     fn eq(&self, other: &Self) -> bool {
         self.private.rule == other.private.rule
+            && self.named == other.named
             && self
                 .rules
                 .iter()
@@ -206,18 +248,20 @@ impl ProgramRules {
     /// The run's box's rules as installed, `rules`, each with its handle,
     /// split into what the run keeps of them, its rules as data, and, for a
     /// run whose programs write `programs` (`BoxPlan::program_writes`, none
-    /// for a run that starts nothing), the rules its programs' boxes are
-    /// built from, with the handles they name: those some program of the
-    /// run's box takes (`program_rights` for any of `programs`) and the
-    /// private directory's, never a rule on the private directory or a
-    /// directory holding it (`plan::holds`), which would grant every
-    /// program all of it, whatever else refused it first. Every other
+    /// for a run that starts nothing), those `--allow-run-write=` names by
+    /// name in `named` (`BoxPlan::named_writes`), the rules its programs'
+    /// boxes are built from, with the handles they name: those some program
+    /// of the run's box takes (`program_rights` for any of `programs`) and
+    /// the private directory's, never a rule on the private directory or a
+    /// directory holding it (`plan::holds`), which would grant every program
+    /// all of it, whatever else refused it first. Every other
     /// handle is closed, and every one for a run that starts nothing, or
     /// one with no private directory, which no program's box can be made
     /// for.
     pub(super) fn hold(
         rules: Vec<(InstalledRule, OwnedFd)>,
         programs: &[ProgramWrites],
+        named: BTreeMap<String, ProgramWrites>,
     ) -> (Vec<InstalledRule>, Option<Self>) {
         // the private directory's rule is planned after the rules that
         // could hold it, so it's found first
@@ -251,8 +295,21 @@ impl ProgramRules {
         let programs = private.map(|private| Self {
             rules: held,
             private,
+            named,
         });
         (installed, programs)
+    }
+
+    /// What the program the run grants as `name` writes: its write set when
+    /// `--allow-run-write=` names it, else the table's for a program of the
+    /// grants table, `table`, and nothing of the project for one a flag
+    /// grants.
+    pub fn writes(&self, name: &str, table: bool) -> ProgramWrites {
+        self.named.get(name).copied().unwrap_or(if table {
+            ProgramWrites::TABLE
+        } else {
+            ProgramWrites::FLAG
+        })
     }
 
     /// The rules a box for a program writing `writes` grants beneath the
@@ -276,19 +333,16 @@ impl ProgramRules {
         })
     }
 
-    /// The box of the program pinned at `pin`, writing `writes`, built
-    /// now, once the run's box is up, as the [module doc](self) says: its
-    /// temporary directory, `temp_dir_name`, made in the private
-    /// directory first.
+    /// The box of the program whose key is at `place` in the run's table of
+    /// programs, writing `writes`, built now, once the run's box is up, as
+    /// the [module doc](self) says: its temporary directory,
+    /// `temp_dir_name`, made in the private directory first.
     ///
     /// # Precondition
     ///
-    /// One box per pin: a pin is granted one way, its box built once and
-    /// reused for each of its launches. A second build for a pin fails, its
-    /// temporary directory made already, so a pin held by programs granted
-    /// two ways (a program of the table found again beneath an exec root,
-    /// or two names `--allow-run-write=` gives different directories) is
-    /// the caller's to tell apart.
+    /// One box per key, built once and kept for each of its launches, or
+    /// its first error kept ([`ProgramBoxes`]): a second build for a place
+    /// fails, its temporary directory made already.
     ///
     /// # Errors
     ///
@@ -299,9 +353,9 @@ impl ProgramRules {
     pub fn program_box(
         &self,
         writes: ProgramWrites,
-        pin: usize,
+        place: usize,
     ) -> Result<ProgramBox, ProgramBoxError> {
-        let name = temp_dir_name(pin);
+        let name = temp_dir_name(place);
         // the rule's path is the private directory's joined with `.`
         let temp_dir: PathBuf = self.private.rule.path().components().collect();
         let temp_dir = temp_dir.join(&name);
@@ -324,6 +378,73 @@ impl ProgramRules {
         let ruleset = landlock::ruleset(rules, TcpWall::Unhandled)?;
         Ok(ProgramBox { ruleset, temp_dir })
     }
+}
+
+/// The boxes of a run's programs.
+///
+/// It holds the rules they're built from, and each box built, or the error
+/// its build first met, by its key's place in the run's table of programs,
+/// so a program's box is built at its first launch
+/// and every launch after takes the same one, or fails as the first did,
+/// never building again, which its temporary directory, made already,
+/// would refuse.
+#[derive(Debug)]
+pub struct ProgramBoxes {
+    /// The rules every box is built from.
+    rules: ProgramRules,
+    /// Each box built, or the text of its build's error, by its place.
+    built: RefCell<BTreeMap<usize, Built>>,
+}
+
+/// A program's box built, or the text of its build's error.
+type Built = Result<Rc<ProgramBox>, Rc<str>>;
+
+impl ProgramBoxes {
+    /// The boxes of a run's programs, built from `rules`, none built yet.
+    pub fn new(rules: ProgramRules) -> Self {
+        Self {
+            rules,
+            built: RefCell::default(),
+        }
+    }
+
+    /// The rules the boxes are built from.
+    pub const fn rules(&self) -> &ProgramRules {
+        &self.rules
+    }
+
+    /// The box of the program whose key is at `place`, writing `writes`:
+    /// the one built for `place` before, or the error its build met, or
+    /// built now ([`ProgramRules::program_box`]).
+    ///
+    /// # Errors
+    ///
+    /// Returns the text of the build's error, with its causes, the same at
+    /// every call for `place`.
+    pub fn box_for(&self, place: usize, writes: ProgramWrites) -> Built {
+        self.built
+            .borrow_mut()
+            .entry(place)
+            .or_insert_with(|| {
+                self.rules
+                    .program_box(writes, place)
+                    .map(Rc::new)
+                    .map_err(|error| Rc::from(with_causes(&error)))
+            })
+            .clone()
+    }
+}
+
+/// `error`'s message, then each of its causes', joined by `: `.
+fn with_causes(error: &dyn std::error::Error) -> String {
+    let mut text = error.to_string();
+    let mut cause = error.source();
+    while let Some(next) = cause {
+        text.push_str(": ");
+        text.push_str(&next.to_string());
+        cause = next.source();
+    }
+    text
 }
 
 /// Makes the directory `name` in `parent`, by `mkdirat`, any entry there

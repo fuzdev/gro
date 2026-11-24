@@ -355,6 +355,15 @@ pub struct Workload {
     /// Absent writes none, and serializes as no key.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub node_modules: Option<NodeModules>,
+    /// Whether the run makes its collection's copy a git repository of its
+    /// own, every file committed but its `node_modules`, which the
+    /// repository ignores, so a command that reads the workspace (`check
+    /// --workspace`) reads a clean one of the copy's own, never the checkout
+    /// the copy sits in: every workload naming the collection says the same.
+    /// False serializes as no key, so the config hash of a suite that names
+    /// none doesn't depend on the field.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub git: bool,
     /// A committed project the workload runs inside: the run copies it fresh,
     /// writes its `node_modules`, and runs the script from the copy. The
     /// script is a file inside the project's directory.
@@ -808,8 +817,15 @@ impl Suite {
     fn validate_collections(&self) -> Result<(), BenchError> {
         let mut entries: BTreeMap<(&str, &OsStr), &Path> = BTreeMap::new();
         let mut node_modules: BTreeMap<&str, Option<&NodeModules>> = BTreeMap::new();
+        let mut git: BTreeMap<&str, bool> = BTreeMap::new();
         for workload in &self.workloads {
             let Some(collection) = &workload.collection else {
+                if workload.git {
+                    return Err(BenchError::SuiteInvalid(format!(
+                        "the workload `{}` names `git`, which the run makes only of a collection's copy",
+                        workload.name
+                    )));
+                }
                 if workload.node_modules.is_some() {
                     return Err(BenchError::SuiteInvalid(format!(
                         "the workload `{}` names `node_modules`, which the run writes only into a collection's copy",
@@ -818,6 +834,12 @@ impl Suite {
                 }
                 continue;
             };
+            if *git.entry(collection).or_insert(workload.git) != workload.git {
+                return Err(BenchError::SuiteInvalid(format!(
+                    "the workload `{}` makes the collection `{collection}`'s copy a git repository where another workload doesn't, or the reverse, and they share its copy",
+                    workload.name
+                )));
+            }
             let written = workload.node_modules.as_ref();
             if *node_modules.entry(collection).or_insert(written) != written {
                 return Err(BenchError::SuiteInvalid(format!(
@@ -1770,10 +1792,11 @@ mod tests {
             found.workloads[0].tail(),
             Some(Tail::Args(&["-v".to_owned()]))
         );
-        // an absent `args` and `node_modules` serialize as no key
+        // an absent `args` and `node_modules`, and a false `git`, serialize as
+        // no key
         let script = r#"{"name": "w", "script": "w.js", "collection": "c"}"#;
         let value = serde_json::to_value(parse(&suite(script, "")).unwrap()).unwrap();
-        for key in ["args", "node_modules"] {
+        for key in ["args", "node_modules", "git"] {
             assert!(value["workloads"][0].get(key).is_none(), "{value}");
         }
         invalid(
@@ -1804,6 +1827,16 @@ mod tests {
         );
         let twice = format!(r#", {{"name": "x", "args": [], "collection": "c", {nm}}}"#);
         assert!(parse(&suite(&args, &twice)).is_ok());
+        // and agree on making it a git repository, which only a copy is made
+        let git = format!(r#", {{"name": "x", "args": [], "collection": "c", "git": true, {nm}}}"#);
+        invalid(&suite(&args, &git), "a git repository where another");
+        let both = format!(r#"{{"name": "w", "args": [], "collection": "c", "git": true, {nm}}}"#);
+        assert!(parse(&suite(&both, &git)).unwrap().workloads[0].git);
+        invalid(
+            r#"{"name": "s", "version": 1, "samples": 2, "runtimes": [{"name": "r", "program": "r"}],
+                "workloads": [{"name": "w", "script": "w.js", "git": true}]}"#,
+            "only of a collection's copy",
+        );
         invalid(
             &suite(
                 r#"{"name": "w", "args": [], "collection": "c", "node_modules": {"packages": {"../a": "a"}}}"#,

@@ -155,6 +155,9 @@ pub struct VerbRun {
     /// Each program `--allow-run-write=` names, as written, and the name
     /// the run grants it as ([`resolve_run_writes`]).
     pub run_writes: BTreeMap<String, String>,
+    /// The programs the command may start, each by its plain name, as
+    /// `--allow-run-write=` takes it ([`may_start`]).
+    pub may_start: BTreeSet<String>,
     /// Whether the run's packages match the `development` condition.
     pub development: bool,
     /// The entry's text ([`main_entry`]).
@@ -513,6 +516,7 @@ pub fn plan(
         flags.run_write.keys(),
         command.as_deref(),
     )?;
+    let may_start = may_start(&closure, flag_programs);
     let grant = match grant {
         RunGrant::All => RunGrant::All,
         RunGrant::Named {
@@ -554,6 +558,7 @@ pub fn plan(
         gro: installed,
         programs,
         run_writes,
+        may_start,
         development: inputs.node_env != Some(OsStr::new(NODE_ENV_PRODUCTION)),
         entry: main_entry(home.as_deref(), inputs.binary_version),
     })))
@@ -649,24 +654,32 @@ fn resolve_run_writes<'a>(
                 });
             }
             (None, _) => {
-                let may_start: BTreeSet<String> = table
-                    .iter()
-                    .map(|(_, name)| escape_controls(name).into_owned())
-                    .chain(
-                        flag_programs
-                            .iter()
-                            .map(|name| escape_controls(name).into_owned()),
-                    )
-                    .collect();
                 return Err(VerbError::RunWriteNoProgram {
                     program: program.clone(),
                     command: command.map(str::to_owned),
-                    may_start: may_start.into_iter().collect(),
+                    may_start: may_start(closure, flag_programs)
+                        .iter()
+                        .map(|name| escape_controls(name).into_owned())
+                        .collect(),
                 });
             }
         }
     }
     Ok(resolved)
+}
+
+/// The programs a command whose closure is `closure` may start, given
+/// `flag_programs`, those `--allow-run=` lists: each program of the closure
+/// by its table name, as the tool is called, and each the flag lists as it
+/// lists it.
+fn may_start(closure: &CommandClosure, flag_programs: &BTreeSet<String>) -> BTreeSet<String> {
+    closure
+        .grants
+        .programs
+        .iter()
+        .map(|program| program.grant.name.clone())
+        .chain(flag_programs.iter().cloned())
+        .collect()
 }
 
 /// The policy of each program `closure` grants, by the name Gro's TS asks

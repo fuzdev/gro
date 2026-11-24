@@ -42,11 +42,17 @@
 //!   step that fails from there kills and reaps it before the launch
 //!   fails.
 //!
-//! A launch given a program's box takes the reservation, the spawn, the
-//! pidfd, and the arming on a short-lived thread of its own that installs
-//! the box on itself first, so the child starts in it ([`spawn_held`]),
-//! and the isolate's thread then joins the child to the run's table and
-//! watches it.
+//! In a run held in a box, the program's own box is fetched before the
+//! child's command is made, built at its first launch and kept, or its
+//! first error kept, for every launch after (`ProgramBoxes::box_for`); one
+//! that couldn't be built fails the launch, `launch_failed`, as its first
+//! did. The child's temporary variables then name that box's directory
+//! (`child_env`), and the reservation, the spawn, the pidfd, and the arming
+//! run on a short-lived thread of its own that installs the box on itself
+//! first, so the child starts in it ([`spawn_held`]); the isolate's thread
+//! then joins the child to the run's table and watches it. A run held in
+//! no box, `fgro run`'s, launches each child on the isolate's thread, in
+//! no box of its own.
 //!
 //! The result is a frozen null-prototype record, as the Node module's:
 //! `kind` and `code` for `exited`, `signal` and `signal_number` for
@@ -61,6 +67,7 @@
 
 use std::os::fd::{AsRawFd as _, OwnedFd};
 use std::os::unix::process::CommandExt as _;
+use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::sync::Arc;
 use std::time::Duration;
@@ -81,7 +88,7 @@ use super::{
     own_option, read_handle, run_state, throw,
 };
 use crate::BINARY_NAME;
-use crate::confine::program::{ProgramBox, ProgramBoxError};
+use crate::confine::program::{ProgramBox, ProgramBoxError, REDIRECTED, Redirect};
 use crate::host::error_class::DeclaredFamily;
 use crate::host::fs::{HandleDirFault, open_handle_dir};
 use crate::host::handle::{FS_READ_DIR, SPAWN_PROGRAM};
@@ -165,6 +172,9 @@ pub struct Program {
     name: String,
     /// Its pin's place in the run's table.
     pin: usize,
+    /// Its key's place in the run's table of programs, which its box is
+    /// kept by.
+    key: usize,
     /// Its children's environment.
     env: Vec<(String, String)>,
 }
@@ -219,10 +229,14 @@ pub(super) fn read_program<'s>(
             .ok_or(Failure::Thrown)
     };
     let program_name = field(object, "name")?.to_rust_string_lossy(scope);
-    let pin = v8::Local::<v8::Integer>::try_from(field(held, super::PIN)?)
-        .ok()
-        .and_then(|pin| usize::try_from(pin.value()).ok())
-        .ok_or(Failure::Thrown)?;
+    let place = |key: &str| {
+        v8::Local::<v8::Integer>::try_from(field(held, key)?)
+            .ok()
+            .and_then(|place| usize::try_from(place.value()).ok())
+            .ok_or(Failure::Thrown)
+    };
+    let pin = place(super::PIN)?;
+    let key = place(super::KEY)?;
     let record =
         v8::Local::<v8::Object>::try_from(field(held, super::ENV)?).map_err(|_| Failure::Thrown)?;
     let keys = record
@@ -240,6 +254,7 @@ pub(super) fn read_program<'s>(
     Ok(Program {
         name: program_name,
         pin,
+        key,
         env,
     })
 }
@@ -792,6 +807,11 @@ pub(super) fn launch_child(
             .project_dir()
             .map_err(|why| not_started(program, path, why))?,
     };
+    // the box first, since the child's temporary variables name its
+    // directory
+    let program_box = run
+        .program_box(program.key)
+        .map_err(|why| not_started(program, path, format!("its box couldn't be built: {why}")))?;
     // a `node_modules/.bin` script runs as its `node`'s argument, by its
     // real path, after the flags its line gives
     let (runs, script): (&Pin, _) = match &pin.kind {
@@ -814,7 +834,10 @@ pub(super) fn launch_child(
         .arg0(&runs.argv0)
         .args(argv)
         .env_clear()
-        .envs(program.env.iter().map(|(key, value)| (key, value)))
+        .envs(child_env(
+            &program.env,
+            program_box.as_deref().map(ProgramBox::temp_dir),
+        ))
         .current_dir(format!("/proc/self/fd/{cwd}"))
         .stdin(to_stdio(stdio[0]))
         .stdout(to_stdio(stdio[1]))
@@ -823,7 +846,7 @@ pub(super) fn launch_child(
         mut child,
         pidfd,
         guard,
-    } = spawn_held(&mut command, grouped, None)
+    } = spawn_held(&mut command, grouped, program_box.as_deref())
         .map_err(|unspawned| not_started(program, path, unspawned.to_string()))?;
     let pid = child.id();
     let group = grouped.then_some(pid);
@@ -865,6 +888,32 @@ pub(super) fn launch_child(
         stdout,
         stderr,
     })
+}
+
+/// The environment of a child of the program whose children are given
+/// `env`, started in a box whose temporary directory is `temp` when it has
+/// one: `env`, with each variable of [`REDIRECTED`] pointed into that
+/// directory over whatever value it had, a [`Redirect::WhereSet`] one only
+/// where `env` has it, since the box lets the child reach no other
+/// temporary directory.
+pub(super) fn child_env(env: &[(String, String)], temp: Option<&Path>) -> Vec<(String, String)> {
+    let mut made = env.to_vec();
+    let Some(temp) = temp else {
+        return made;
+    };
+    for (name, beneath, redirect) in REDIRECTED {
+        let held = made.iter().position(|(held, _)| held == name);
+        if held.is_none() && redirect == Redirect::WhereSet {
+            continue;
+        }
+        let path = beneath.map_or_else(|| temp.to_owned(), |beneath| temp.join(beneath));
+        let value = path.to_string_lossy().into_owned();
+        match held {
+            Some(at) => made[at].1 = value,
+            None => made.push((name.to_owned(), value)),
+        }
+    }
+    made
 }
 
 /// The name of the signal numbered `signal`, as Node names it, a real-time

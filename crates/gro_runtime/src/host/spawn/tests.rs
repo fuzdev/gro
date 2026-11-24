@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::{
-    Failure, Fault, GrantedProgram, PassEnv, ProgramOptions, SpawnNeed, check_forwarding,
+    Failure, Fault, GrantedProgram, PassEnv, ProgramOptions, SpawnNeed, check_forwarding, launch,
     program_env,
 };
 use crate::{CHILD_BASE_ENV, EnvPattern, EnvPatternFault, EnvVars, PassEnvGrant, ProgramGrant};
@@ -365,5 +365,31 @@ fn a_program_s_env_values_are_only_those_its_grant_sets() {
             Some(&[("NODE_OPTIONS", "--require=x"), ("FORCE_COLOR", "0")])
         )
         .is_ok()
+    );
+}
+
+/// A child in a program's box has each temporary variable pointed into its
+/// box's directory, over any value it had, `TMP` and `TEMP` only where its
+/// environment has them; a child in no box keeps its environment.
+#[test]
+fn a_boxed_child_s_temporary_variables_name_its_box_s_directory() {
+    let pair = |name: &str, value: &str| (name.to_owned(), value.to_owned());
+    let env = [
+        pair("PATH", "/usr/bin"),
+        pair("TMPDIR", "/run"),
+        pair("TMP", "/run"),
+        pair("XDG_DATA_HOME", "/elsewhere"),
+    ];
+    assert_eq!(launch::child_env(&env, None), env);
+    assert_eq!(
+        launch::child_env(&env, Some(std::path::Path::new("/run/program_2"))),
+        [
+            pair("PATH", "/usr/bin"),
+            pair("TMPDIR", "/run/program_2"),
+            pair("TMP", "/run/program_2"),
+            pair("XDG_DATA_HOME", "/run/program_2/xdg_data"),
+            pair("XDG_CACHE_HOME", "/run/program_2/xdg_cache"),
+            pair("XDG_STATE_HOME", "/run/program_2/xdg_state"),
+        ]
     );
 }

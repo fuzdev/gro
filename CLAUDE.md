@@ -395,7 +395,9 @@ and the same for `crates/gro_bench/suites/eval/suite.json` and
 `crates/gro_bench/suites/verb/suite.json` before commit; a test-only or
 doc-only change is outside it. The verb's suite is the only one of them
 that runs a command of Gro's, so only it reaches the pre-pass, the
-closure, the box's start, and the embed's load. The A/B runs alone, with
+closure, the box's start, and the embed's load, and its `workspace` row
+the only one that starts a program, pricing a program's box and its
+launch. The A/B runs alone, with
 nothing else loading the machine. It builds the release `fgro` at that revision in a
 clone outside the checkout, runs each `fgro` row beside the base copy
 interleaved, prints instruction, cycle, and wall medians against the base's,

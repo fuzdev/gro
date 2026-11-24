@@ -1,6 +1,6 @@
 {
 	"name": "verb",
-	"version": 1,
+	"version": 2,
 	"samples": 100,
 	"corpora": {
 		"path": "../../../../../corpora",
@@ -50,6 +50,7 @@
 			"args": [],
 			"warmup": 10,
 			"collection": "fuz_util",
+			"git": true,
 			"node_modules": {
 				"stub_packages": 198,
 				"packages": {
@@ -66,6 +67,32 @@
 			],
 			"warmup": 10,
 			"collection": "fuz_util",
+			"git": true,
+			"node_modules": {
+				"stub_packages": 198,
+				"packages": {
+					"@fuzdev/fuz_schema": "../../../../node_modules/@fuzdev/fuz_schema",
+					"@fuzdev/fuz_util": "../../../../node_modules/@fuzdev/fuz_util",
+					"esm-env": "../../../../node_modules/esm-env"
+				}
+			}
+		},
+		{
+			"name": "workspace",
+			"args": [
+				"check",
+				"--workspace",
+				"--no-typecheck",
+				"--no-test",
+				"--no-gen",
+				"--no-format",
+				"--no-package_json",
+				"--no-lint",
+				"--no-lockfile"
+			],
+			"warmup": 10,
+			"collection": "fuz_util",
+			"git": true,
 			"node_modules": {
 				"stub_packages": 198,
 				"packages": {

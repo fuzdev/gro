@@ -229,7 +229,8 @@ pub enum BenchError {
     },
     /// An artifact's hash, a pinned collection's tree, or the state of another
     /// checkout a workload reads (its commit, or its changes) moved during
-    /// the run, or a materialized copy gained or lost a path.
+    /// the run, or a materialized copy gained or lost a path, but a
+    /// directory the correctness run made that is still empty.
     #[error(
         "artifacts changed during the run, so its samples are discarded: {}",
         paths.iter().map(|path| path.display().to_string()).collect::<Vec<_>>().join(", ")

@@ -68,6 +68,7 @@ fn run(
         gro,
         programs: BTreeMap::new(),
         run_writes: BTreeMap::new(),
+        may_start: BTreeSet::new(),
         development: true,
         entry: String::new(),
     }
@@ -449,7 +450,8 @@ fn the_wall_texts_follow_the_rules() {
         cli_args: vec!["gen".to_owned()],
         ..run(FlagDirs::default(), false, FallbackPolicy::All, None)
     };
-    let check = run(FlagDirs::default(), false, FallbackPolicy::All, None);
+    let mut check = run(FlagDirs::default(), false, FallbackPolicy::All, None);
+    check.may_start = set(&["git", "vitest"]);
     let writing = [
         wall("/p", RuleSource::Project, false),
         wall("/p/src", RuleSource::Entry, true),
@@ -503,13 +505,15 @@ fn the_wall_texts_follow_the_rules() {
         wall("/tmp/gro-1-2", RuleSource::PrivateTemp, true),
     ];
     assert_eq!(
-        super::walls_note(&check, &checking, &RunNetwork::Namespace),
+        super::walls_note(&check, &checking, &[], &RunNetwork::Namespace),
         format!(
-            "note: {BINARY_NAME} check's tools ran in the run's kernel box, which lets them reach \
-             no network but the run's own loopback and write only to .svelte-kit and a temporary \
-             directory of the run's: a tool that hits a wall fails with EACCES, EPERM, or ENOSYS, \
-             and --allow-read=, --allow-write=, --allow-run-write=, and --allow-run-in= widen the \
-             box"
+            "note: {BINARY_NAME} check's tools each ran in a kernel box of their own inside the \
+             run's, which lets them reach no network but the run's own loopback and write only \
+             to a temporary directory of their own and the grants table's tools also to \
+             .svelte-kit: a tool that hits a wall fails with EACCES, EPERM, or ENOSYS; \
+             --allow-run-write=<program>:<dirs> lets one of them (git or vitest) write more, \
+             --allow-read= and --allow-run-in= widen every box, and --allow-write= widens only \
+             what gro's own code writes"
         )
     );
     // write flags naming .git and the linked node_modules's checkout, and
@@ -530,29 +534,61 @@ fn the_wall_texts_follow_the_rules() {
         )
     );
     // a program's write rules, and the entries only a program's names the
-    // root for: the tools' note names them, as every tool shares the run's
-    // box; the realm's cause leaves them out, though the kernel lets the
-    // run write there, and they cover nothing it keeps read-only
+    // root for: the tools' note names them for the program each is for,
+    // and never a write flag's; the realm's cause leaves them out, though
+    // the kernel lets the run write there, and they cover nothing it keeps
+    // read-only
     let programs = [
         wall("/p", RuleSource::Project, false),
         wall("/p/src", RuleSource::Entry, true),
         wall("/p/.git", RuleSource::RunWrite(0), true),
         wall("/p/node_modules", RuleSource::RunWrite(1), true),
         wall("/o", RuleSource::RunWrite(1), true),
+        wall("/p/out", RuleSource::Flag(DirFlag::Write), true),
+        wall(
+            "/p/.svelte-kit",
+            RuleSource::ToolDir(ToolDir::SvelteKit),
+            true,
+        ),
         wall("/tmp/gro-1-2", RuleSource::PrivateTemp, true),
+    ];
+    let run_write = |named: &str, dirs: &[&str]| RunWriteGrant {
+        program: named.to_owned(),
+        table: true,
+        dirs: dirs
+            .iter()
+            .map(|dir| RunWriteDir {
+                named: named.to_owned(),
+                dir: (*dir).to_owned(),
+                real: PathBuf::from(dir),
+            })
+            .collect(),
+    };
+    let run_writes = [
+        run_write("git", &["/p", "/p/.git"]),
+        run_write("vi\u{1b}[2Jtest", &["/p/node_modules", "/o"]),
     ];
     let cause = super::denied_write_cause(&check, &programs, false);
     assert_eq!(
         cause.cause,
         format!(
-            "the run's kernel box lets {BINARY_NAME} check write only to a temporary directory of \
-             the run's; .git, node_modules, the other dot-entries, and a new top-level entry stay \
-             read-only"
+            "the run's kernel box lets {BINARY_NAME} check write only to out, .svelte-kit, and a \
+             temporary directory of the run's; .git, node_modules, the other dot-entries, and a \
+             new top-level entry stay read-only"
         )
     );
     assert_eq!(
         cause.writable,
-        ["/p/src", "/p/.git", "/p/node_modules", "/o", "/tmp/gro-1-2"].map(PathBuf::from)
+        [
+            "/p/src",
+            "/p/.git",
+            "/p/node_modules",
+            "/o",
+            "/p/out",
+            "/p/.svelte-kit",
+            "/tmp/gro-1-2"
+        ]
+        .map(PathBuf::from)
     );
     // the entries are the realm's where it writes the root
     assert!(
@@ -561,19 +597,48 @@ fn the_wall_texts_follow_the_rules() {
             .contains("write only to the top-level entries the project had as it started"),
     );
     assert_eq!(
-        super::walls_note(&check, &programs, &RunNetwork::Namespace),
+        super::walls_note(&check, &programs, &run_writes, &RunNetwork::Namespace),
         format!(
-            "note: {BINARY_NAME} check's tools ran in the run's kernel box, which lets them reach \
-             no network but the run's own loopback and write only to the top-level entries the \
-             project had as it started (but .git, node_modules, the dot-entries, symlinks), .git, \
-             node_modules, /o, and a temporary directory of the run's: a tool that hits a wall \
-             fails with EACCES, EPERM, or ENOSYS, and --allow-read=, --allow-write=, \
-             --allow-run-write=, and --allow-run-in= widen the box"
+            "note: {BINARY_NAME} check's tools each ran in a kernel box of their own inside the \
+             run's, which lets them reach no network but the run's own loopback and write only \
+             to a temporary directory of their own, the grants table's tools also to \
+             .svelte-kit, git also to the top-level entries the project had as it started (but \
+             .git, node_modules, the dot-entries, symlinks) and .git, and \
+             vi\\u{{1b}}[2Jtest also to node_modules and /o: a tool that hits a wall fails with \
+             EACCES, EPERM, or ENOSYS; --allow-run-write=<program>:<dirs> lets one of them (git \
+             or vitest) write more, --allow-read= and --allow-run-in= widen every box, and \
+             --allow-write= widens only what gro's own code writes"
+        )
+    );
+    // a lone program, and none
+    let mut alone = check.clone();
+    alone.may_start = set(&["vitest"]);
+    assert!(
+        super::walls_note(&alone, &checking, &[], &RunNetwork::Namespace)
+            .contains("lets one of them (vitest) write more"),
+    );
+    alone.may_start = set(&["eslint", "git", "vitest"]);
+    assert!(
+        super::walls_note(&alone, &checking, &[], &RunNetwork::Namespace)
+            .contains("lets one of them (eslint, git, or vitest) write more"),
+    );
+    // only programs found beneath an exec root, which no name reaches
+    alone.may_start = BTreeSet::new();
+    assert_eq!(
+        super::walls_note(&alone, &checking, &[], &RunNetwork::Namespace),
+        format!(
+            "note: {BINARY_NAME} check's tools each ran in a kernel box of their own inside the \
+             run's, which lets them reach no network but the run's own loopback and write only \
+             to a temporary directory of their own and the grants table's tools also to \
+             .svelte-kit: a tool that hits a wall fails with EACCES, EPERM, or ENOSYS; \
+             --allow-read= and --allow-run-in= widen every box, and --allow-write= widens only \
+             what gro's own code writes"
         )
     );
     let inet = super::walls_note(
         &check,
         &[wall("/p", RuleSource::Project, false)],
+        &[],
         &RunNetwork::InetRefused {
             cause: gro_sys::namespace::Refusal::Filtered,
             errno: None,

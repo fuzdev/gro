@@ -212,10 +212,18 @@ and the contracts no one module doc owns.
   the private directory or a directory holding it, taking what its write
   set (`ProgramWrites`) names and never what `--allow-write=` names, and
   its own temporary directory, made beneath the held private directory's handle, an entry
-  already there refused. No launch installs one yet, since the spawn host
-  module passes `spawn_held` no box, and only tests take the held rules
-  (`RunConfined::take_program_rules`). A launch in a program's box
-  reserves its slot of
+  already there refused, named by its key's place in the run's table of
+  programs (`ProgramKey`: a granted name, or a find's pin, so a find
+  sharing a granted program's pin never shares its box). Every launch in a
+  run started from a `RunEngine` installs its program's box: the verb takes
+  the held rules (`RunConfined::take_program_rules`), refusing a spawning
+  run that holds none, and `SpawnRun::start` keeps them in `ProgramBoxes`,
+  which builds a box at its program's first launch on the run's thread and
+  keeps it, or its first error, for every launch after; the launch fetches
+  it before the `Command` is made, so its `TMPDIR`, its `TMP` and `TEMP`
+  where it has them, and its XDG data, cache, and state variables name its
+  directory (`confine::program::REDIRECTED`). `fgro run` launches in no box
+  of its own. A launch in a program's box reserves its slot of
   the signal handler's tables, spawns, takes the pidfd, and arms on the
   box's own short-lived thread, never splitting those across threads
   (`host/spawn/launch.rs`'s `spawn_held`), and the handler on any thread

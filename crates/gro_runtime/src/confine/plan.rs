@@ -54,9 +54,8 @@
 //! realm gaining nothing ([`BoxInputs::run_writes`]): each directory it
 //! names for a program is read and written beneath `/`, a rule of its own
 //! ([`RuleSource::RunWrite`]) never merged with another source's on the
-//! same path, and one naming the root is the per-entry set. While every
-//! tool shares the run's box, every tool writes it; each program's own box
-//! takes it for that program alone (`program.rs`). A flag naming an
+//! same path, and one naming the root is the per-entry set. Each program's
+//! own box takes it for that program alone (`program.rs`). A flag naming an
 //! excluded entry (`--allow-write=.git`, `--allow-run-write=git:.git`) is
 //! honored, but below.
 //!
@@ -91,7 +90,7 @@
 //! by a kernel bug. The refusals and the note are review signals the run's
 //! code could print as well.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 
@@ -724,6 +723,12 @@ impl BoxPlan {
         })
     }
 
+    /// The directories `--allow-run-write=` lists, by program, each at the
+    /// index [`RuleSource::RunWrite`] names it by.
+    pub fn run_writes(&self) -> &[RunWriteGrant] {
+        &self.run_writes
+    }
+
     /// The directories `--allow-run-write=` lists for the program at
     /// `index`, as [`RuleSource::RunWrite`] names it.
     pub fn run_write(&self, index: usize) -> Option<&RunWriteGrant> {
@@ -752,13 +757,32 @@ impl BoxPlan {
                 self.run_writes
                     .iter()
                     .enumerate()
-                    .map(|(index, grant)| ProgramWrites {
-                        tool_dirs: grant.table,
-                        root: grant.dirs.iter().any(|dir| dir.real == self.root),
-                        run_write: Some(index),
-                    }),
+                    .map(|(index, grant)| self.named_write(index, grant)),
             )
             .collect()
+    }
+
+    /// The write set of each program `--allow-run-write=` names, by the
+    /// name the run grants it as, as [`BoxPlan::program_writes`] holds it:
+    /// none for a run that starts no program.
+    pub fn named_writes(&self) -> BTreeMap<String, ProgramWrites> {
+        if !self.spawns {
+            return BTreeMap::new();
+        }
+        self.run_writes
+            .iter()
+            .enumerate()
+            .map(|(index, grant)| (grant.program.clone(), self.named_write(index, grant)))
+            .collect()
+    }
+
+    /// The write set of the program `--allow-run-write=` names at `index`.
+    fn named_write(&self, index: usize, grant: &RunWriteGrant) -> ProgramWrites {
+        ProgramWrites {
+            tool_dirs: grant.table,
+            root: grant.dirs.iter().any(|dir| dir.real == self.root),
+            run_write: Some(index),
+        }
     }
 
     /// The first rule some program's box of the run would take

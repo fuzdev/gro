@@ -38,7 +38,7 @@
 
 mod support;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
@@ -156,6 +156,7 @@ attempt("top_level", lambda: write("new.txt"))
 attempt("above_root", lambda: write("../above.txt"))
 attempt("src", lambda: write("src/x.txt"))
 attempt("temp", lambda: write(os.environ["TMPDIR"] + "/x"))
+attempt("run_private", lambda: os.listdir(os.path.dirname(os.environ["TMPDIR"])))
 attempt("home_secret", lambda: read(home + "/secret.txt"))
 attempt("home_gitconfig", lambda: read(home + "/.gitconfig"))
 attempt("connect_outside", connect)
@@ -398,8 +399,9 @@ fn assert_walls(output: &str, probed: &BTreeMap<String, String>, scratch: &Scrat
         ("node_modules", "EACCES"),
         ("top_level", "EACCES"),
         ("above_root", "EACCES"),
-        ("src", "ok"),
+        ("src", "EACCES"),
         ("temp", "ok"),
+        ("run_private", "EACCES"),
         ("home_secret", "EACCES"),
         ("home_gitconfig", "ok"),
         ("signal_outside", "EPERM"),
@@ -483,13 +485,17 @@ fn assert_walls(output: &str, probed: &BTreeMap<String, String>, scratch: &Scrat
         "src/x.txt",
     ] {
         let made = project.join(written).exists();
-        assert_eq!(made, written.starts_with("src/"), "{written}: {output}");
+        assert_eq!(made, written == "src/probe.ts", "{written}: {output}");
     }
     assert!(!scratch.0.join("above.txt").exists(), "{output}");
     assert!(!scratch.0.join("import_graph.txt").exists(), "{output}");
-    // the temporary directories point into the run's own, made in the
-    // temporary directory the process was given
-    let private = PathBuf::from(&probed["TMPDIR"]);
+    // the temporary directories point into the program's own, in the
+    // run's, made in the temporary directory the process was given, named
+    // by its place in the run's table of programs
+    let temp = PathBuf::from(&probed["TMPDIR"]);
+    let name = temp.file_name().unwrap().to_str().unwrap();
+    assert!(name.starts_with("program_"), "{output}");
+    let private = temp.parent().unwrap();
     assert_eq!(
         private.parent(),
         Some(scratch.0.join("tmp").as_path()),
@@ -505,7 +511,7 @@ fn assert_walls(output: &str, probed: &BTreeMap<String, String>, scratch: &Scrat
     ] {
         assert_eq!(
             PathBuf::from(&probed[variable]),
-            private.join(beneath),
+            temp.join(beneath),
             "{output}"
         );
     }
@@ -816,18 +822,25 @@ fn a_failed_run_whose_tool_failed_names_the_walls() {
         }
         assert!(
             note.starts_with(&format!(
-                "note: {BINARY_NAME} gen's tools ran in the run's kernel box, which lets them \
-                 reach no network"
+                "note: {BINARY_NAME} gen's tools each ran in a kernel box of their own inside the \
+                 run's, which lets them reach no network"
             )),
             "{stderr}"
         );
+        // the project's node_modules linked, so no tool directory
+        assert!(
+            note.contains(
+                " and write only to a temporary directory of their own: a tool that hits a wall \
+                 fails with EACCES, EPERM, or ENOSYS; --allow-run-write=<program>:<dirs> lets one \
+                 of them ("
+            ),
+            "{stderr}"
+        );
+        assert!(note.contains("python3"), "{stderr}");
         assert!(
             note.ends_with(
-                " and write only to the top-level entries the project had as it started (but \
-                 .git, node_modules, the dot-entries, symlinks) and a temporary directory of the \
-                 run's: a tool that hits a wall fails with EACCES, EPERM, or ENOSYS, and \
-                 --allow-read=, --allow-write=, --allow-run-write=, and --allow-run-in= widen the \
-                 box"
+                ") write more, --allow-read= and --allow-run-in= widen every box, and \
+                 --allow-write= widens only what gro's own code writes"
             ),
             "{stderr}"
         );
@@ -859,6 +872,329 @@ fn a_check_mode_run_writes_nothing_of_the_project() {
         );
     }
     assert!(!scratch.0.join("project/src/x.txt").exists(), "{output}");
+}
+
+/// The genfile of [`each_tool_runs_in_a_box_of_its_own`], `PYDIR` the
+/// directory `python3` is found in: each program's writes, temporary
+/// variables, and working directory, a sibling's temporary directory read,
+/// a `.bin` script run by its `node`, a program found by its pin beneath an
+/// exec root, then gro's own writes.
+const OWN_BOX_GENFILE: &str = "import {fs} from '@fuzdev/gro/fs.ts';
+import {spawn} from '@fuzdev/gro/spawn.ts';
+const say = (name, what) => console.error(`probe: ${name} ${what}`);
+const lines = (text) => {
+\tfor (const line of text.split('\\n')) if (line.startsWith('probe: ')) console.error(line);
+};
+export const gen = async () => {
+\tconst python = spawn.program('python3', {pass_env: ['TMP']});
+\tconst py = async (...args) => lines((await python.out(['-I', 'own.py', ...args])).stdout);
+\tawait py('own_dir', 'write', 'out/x');
+\tawait py('write_flag_dir', 'write', 'wout/x');
+\tawait py('run_private', 'private');
+\tawait py('py_temp', 'temp');
+\tawait py('py', 'env');
+\tconst src = await fs.open_dir(`${fs.project.path}/src`);
+\tconst sh = await spawn.program('sh').out(
+\t\t['-c', 'echo \"probe: sh_tmp ${TMP-unset}\"; echo \"probe: sh_tmpdir $TMPDIR\"; echo x > \"$TMPDIR/sib\" && echo \"probe: sh_own ok\"; echo \"probe: sh_pwd $(pwd -P)\"'],
+\t\t{cwd: src},
+\t);
+\tlines(sh.stdout);
+\tconst sh_tmpdir = sh.stdout.match(/probe: sh_tmpdir (.*)/)[1];
+\tawait py('sibling_read', 'read', `${sh_tmpdir}/sib`);
+\tlines((await spawn.program('node_modules/.bin/tool').out([])).stdout);
+\tconst found = await spawn.find_in(await fs.open_dir('PYDIR'), 'python3');
+\tlines((await found.out(['-I', 'own.py', 'found_write', 'write', 'out/found'])).stdout);
+\tfor (const [name, path] of [['realm_own_dir', 'out/z'], ['realm_write_flag_dir', 'wout/z']]) {
+\t\ttry {
+\t\t\tawait fs.project.write(path, 'z');
+\t\t\tsay(name, 'ok');
+\t\t} catch (error) {
+\t\t\tsay(name, error.kind);
+\t\t}
+\t}
+\treturn '// probed\\n';
+};
+";
+
+/// The script [`OWN_BOX_GENFILE`] runs under `python3`: its first argument
+/// names the line it prints, the second what it does.
+const OWN_BOX_PROBE: &str = r#"
+import errno, os, sys
+name, act, args = sys.argv[1], sys.argv[2], sys.argv[3:]
+def attempt(do):
+    try:
+        do()
+        print("probe:", name, "ok", flush=True)
+    except OSError as error:
+        print("probe:", name, errno.errorcode.get(error.errno, error.errno), flush=True)
+def write(path):
+    with open(path, "w") as file:
+        file.write("x")
+def read(path):
+    with open(path, "rb") as file:
+        file.read()
+def temp():
+    write(os.environ["TMPDIR"] + "/x")
+    os.makedirs(os.environ["XDG_DATA_HOME"] + "/vitest")
+    write(os.environ["XDG_DATA_HOME"] + "/vitest/.vitest-secret-token")
+if act == "write":
+    attempt(lambda: write(args[0]))
+elif act == "read":
+    attempt(lambda: read(args[0]))
+elif act == "private":
+    attempt(lambda: os.listdir(os.path.dirname(os.environ["TMPDIR"])))
+elif act == "temp":
+    attempt(temp)
+else:
+    for variable in ("TMPDIR", "TMP", "XDG_DATA_HOME", "XDG_CACHE_HOME", "XDG_STATE_HOME"):
+        print("probe:", name + "_" + variable, os.environ.get(variable, "<unset>"), flush=True)
+"#;
+
+/// Each program a command starts runs in a box of its own inside the
+/// run's: `--allow-run-write=` lets the program it names write its
+/// directory and no other program, `--allow-write=` lets gro's own code
+/// write and no program, and a program found by its pin beneath an exec
+/// root takes nothing of the box of the granted program pinning the same
+/// file; each program's temporary variables name its own directory, `TMP`
+/// only where its environment has it, which no other program reads, nor
+/// the run's; a native program runs by its pin's descriptor, in the
+/// working directory a call names, and a `.bin` script by its `node`. Gro's
+/// own code writes the program's directory only where its grants let it,
+/// under `gen` and not under `gen --check`, which drops every write of the
+/// realm's, its refusal failing the run.
+#[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "a command of Gro's runs in its box only from a snapshot build"
+)]
+fn each_tool_runs_in_a_box_of_its_own() {
+    let python_dir = python3().parent().unwrap().to_owned();
+    let scratch = Scratch::new("verb_box_own_box", &[("tmp/.keep", "")]);
+    let temp = scratch.0.join("tmp");
+    let genfile = OWN_BOX_GENFILE.replace("PYDIR", &python_dir.display().to_string());
+    let project = scratch.0.join("project");
+    for (path, text) in [
+        ("package.json", r#"{"name": "p", "type": "module"}"#),
+        ("src/probe.gen.ts", genfile.as_str()),
+        ("src/probe.ts", "// probed\n"),
+        ("own.py", OWN_BOX_PROBE),
+        ("out/.keep", ""),
+        ("wout/.keep", ""),
+        (
+            "node_modules/.bin/tool",
+            "#!/usr/bin/env node\nconst temp = process.env.TMPDIR;\n\
+             console.log(`probe: node_script ${/\\/program_\\d+$/.test(temp) ? 'own' : temp}`);\n",
+        ),
+    ] {
+        let path = project.join(path);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, text).unwrap();
+    }
+    scratch.set_mode("project/node_modules/.bin/tool", 0o755);
+    for package in ["@fuzdev/fuz_util", "@fuzdev/fuz_schema", "esm-env"] {
+        copy_tree(
+            &checkout_node_modules().join(package),
+            &project.join("node_modules").join(package),
+        );
+    }
+    std::fs::create_dir(scratch.0.join("bin")).unwrap();
+    std::fs::copy("/bin/true", scratch.0.join("bin/probe_true")).unwrap();
+    let run_in = format!("--allow-run-in={}", python_dir.display());
+    let read = format!("--allow-read={}", python_dir.display());
+    let path = std::env::var_os("PATH").unwrap();
+    let path = std::env::join_paths(
+        std::iter::once(scratch.0.join("bin")).chain(std::env::split_paths(&path)),
+    )
+    .unwrap();
+    let run_gen = |check: bool| {
+        let mut args = vec![
+            "gen",
+            "--allow-run=python3,sh,probe_true,node_modules/.bin/tool",
+            "--allow-run-env=TMP",
+            "--allow-run-write=python3:out",
+            "--allow-write=wout",
+            &run_in,
+            &read,
+        ];
+        if check {
+            args.push("--check");
+        }
+        let mut command = fgro_command(&args);
+        for name in CLEARED {
+            command.env_remove(name);
+        }
+        command
+            .current_dir(&project)
+            .env("PATH", &path)
+            .env("TMPDIR", &temp)
+            .env("TMP", "/host-tmp");
+        let (code, stdout, stderr) = run(command);
+        let output = format!("{stdout}{stderr}");
+        // a refusal of gro's own code fails the run, caught or not
+        assert_eq!(code, Some(i32::from(check)), "{output}");
+        (output, probed(&stdout, &stderr))
+    };
+    // gro's own code holds no write under the check mode, though a program
+    // writes its own directory
+    let (output, probed) = run_gen(true);
+    for (name, what) in [("own_dir", "ok"), ("realm_own_dir", "not_granted")] {
+        assert_eq!(
+            probed.get(name).map(String::as_str),
+            Some(what),
+            "{name}: {output}"
+        );
+    }
+    std::fs::remove_file(project.join("out/x")).unwrap();
+    let (output, probed) = run_gen(false);
+    let src = project.join("src").canonicalize().unwrap();
+    let src = src.display().to_string();
+    for (name, what) in [
+        ("own_dir", "ok"),
+        ("write_flag_dir", "EACCES"),
+        ("run_private", "EACCES"),
+        ("py_temp", "ok"),
+        ("sh_tmp", "unset"),
+        ("sh_own", "ok"),
+        ("sh_pwd", src.as_str()),
+        ("sibling_read", "EACCES"),
+        ("node_script", "own"),
+        ("found_write", "EACCES"),
+        ("realm_own_dir", "ok"),
+        ("realm_write_flag_dir", "ok"),
+    ] {
+        assert_eq!(
+            probed.get(name).map(String::as_str),
+            Some(what),
+            "{name}: {output}"
+        );
+    }
+    assert!(project.join("out/x").exists(), "{output}");
+    assert!(!project.join("wout/x").exists(), "{output}");
+    assert!(!project.join("out/found").exists(), "{output}");
+    // python3's variables name its own directory in the run's, TMP among
+    // them as its environment has it; sh's is another
+    let own = PathBuf::from(&probed["py_TMPDIR"]);
+    let place = own.file_name().unwrap().to_str().unwrap();
+    assert!(place.starts_with("program_"), "{output}");
+    assert_eq!(
+        own.parent().unwrap().parent(),
+        Some(temp.as_path()),
+        "{output}"
+    );
+    assert_eq!(probed["py_TMP"], probed["py_TMPDIR"], "{output}");
+    for (variable, beneath) in [
+        ("py_XDG_DATA_HOME", "xdg_data"),
+        ("py_XDG_CACHE_HOME", "xdg_cache"),
+        ("py_XDG_STATE_HOME", "xdg_state"),
+    ] {
+        assert_eq!(
+            PathBuf::from(&probed[variable]),
+            own.join(beneath),
+            "{output}"
+        );
+    }
+    assert_ne!(probed["sh_tmpdir"], probed["py_TMPDIR"], "{output}");
+    assert_eq!(
+        Path::new(&probed["sh_tmpdir"]).parent(),
+        own.parent(),
+        "{output}"
+    );
+}
+
+/// The genfile of [`a_program_whose_box_can_t_be_built_fails_each_launch_alike`],
+/// `TEMP` the OS temporary directory the run's private directory is in,
+/// which `--allow-write=` grants gro's own code: it reads the private
+/// directory's name from a program's `TMPDIR`, plants an entry at each
+/// name a program's temporary directory could take, then launches `sh`
+/// twice, removing the entries between.
+const PLANT_GENFILE: &str = "import {fs} from '@fuzdev/gro/fs.ts';
+import {spawn} from '@fuzdev/gro/spawn.ts';
+const say = (name, what) => console.error(`probe: ${name} ${what}`);
+export const gen = async () => {
+\tconst own = (await spawn.program('python3').out(['-I', '-c', 'import os; print(os.environ[\"TMPDIR\"])'])).stdout.trim();
+\tconst run_dir = own.slice('TEMP'.length + 1, own.lastIndexOf('/'));
+\tconst temp = await fs.open_dir('TEMP');
+\tconst planted = [];
+\tconst own_name = own.slice(own.lastIndexOf('/') + 1);
+\tfor (let place = 0; place < 16; place++) {
+\t\tif (`program_${place}` === own_name) continue;
+\t\tconst path = `${run_dir}/program_${place}`;
+\t\tawait temp.mkdir(path);
+\t\tplanted.push(path);
+\t}
+\tconst sh = spawn.program('sh');
+\tconst started = async () => {
+\t\ttry {
+\t\t\tawait sh.run(['-c', 'true']);
+\t\t\treturn 'ran';
+\t\t} catch (error) {
+\t\t\tconst chain = [error.kind];
+\t\t\tfor (let cause = error.cause; cause; cause = cause.cause) chain.push(cause.message);
+\t\t\treturn chain.join(' | ');
+\t\t}
+\t};
+\tconst first = await started();
+\tfor (const path of planted) await temp.remove(path);
+\tconst again = await started();
+\tsay('box_failed', first);
+\tsay('box_failed_again', again === first ? 'same' : again);
+\treturn '// probed\\n';
+};
+";
+
+/// A program whose box can't be built, its temporary directory's name
+/// taken already (here by gro's own code, which `--allow-write=` on the OS
+/// temporary directory lets write the run's private directory), fails its
+/// launch with `launch_failed` naming the box, and fails each later launch
+/// the same way, its build never tried again, though the entry is gone.
+#[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "a command of Gro's runs in its box only from a snapshot build"
+)]
+fn a_program_whose_box_can_t_be_built_fails_each_launch_alike() {
+    let scratch = Scratch::new("verb_box_unbuilt", &[("tmp/.keep", "")]);
+    // by its real path, as the run reads the OS temporary directory
+    let temp = scratch.0.join("tmp").canonicalize().unwrap();
+    let genfile = PLANT_GENFILE.replace("TEMP", &temp.display().to_string());
+    let project = scratch.0.join("project");
+    for (path, text) in [
+        ("package.json", r#"{"name": "p", "type": "module"}"#),
+        ("src/probe.gen.ts", genfile.as_str()),
+        ("src/probe.ts", "// probed\n"),
+    ] {
+        let path = project.join(path);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, text).unwrap();
+    }
+    std::os::unix::fs::symlink(checkout_node_modules(), project.join("node_modules")).unwrap();
+    let write_temp = format!("--allow-write={}", temp.display());
+    let mut command = fgro_command(&["gen", "--allow-run=python3,sh", &write_temp]);
+    for name in CLEARED {
+        command.env_remove(name);
+    }
+    command.current_dir(&project).env("TMPDIR", &temp);
+    let (code, stdout, stderr) = run(command);
+    let output = format!("{stdout}{stderr}");
+    assert_eq!(code, Some(0), "{output}");
+    let probed = probed(&stdout, &stderr);
+    let failed: Vec<&str> = probed["box_failed"].split(" | ").collect();
+    let [kind, launch, cause] = failed.as_slice() else {
+        panic!("{output}");
+    };
+    assert_eq!(*kind, "launch_failed", "{output}");
+    assert!(
+        launch.starts_with("sh at ") && launch.ends_with(" didn't start"),
+        "{output}"
+    );
+    assert!(
+        cause.starts_with(&format!(
+            "its box couldn't be built: failed to make the program's temporary directory {}/gro-",
+            temp.display()
+        )) && cause.ends_with(": File exists (os error 17)"),
+        "{output}"
+    );
+    assert_eq!(probed["box_failed_again"], "same", "{output}");
 }
 
 /// A project for a write flag's refusals before the box: its own `.git`,
@@ -1437,4 +1773,155 @@ fn a_temporary_directory_in_the_project_s_bind_mount_is_refused() {
         .filter(|name| name.starts_with("gro-"))
         .collect();
     assert!(made.is_empty(), "{made:?}");
+}
+
+/// A fake tool of the grants table, a `node` script at every table tool's
+/// `.bin` name: it writes the paths a program's box might, its own
+/// temporary directory among them, and prints what it could.
+const FAKE_TOOL: &str = "#!/usr/bin/env node
+import fs from 'node:fs';
+import path from 'node:path';
+const me = path.basename(process.argv[1]);
+const attempt = (name, act) => {
+\ttry {
+\t\tact();
+\t\tconsole.log(`probe: ${me}_${name} ok`);
+\t} catch (error) {
+\t\tconsole.log(`probe: ${me}_${name} ${error.code}`);
+\t}
+};
+for (const [name, at] of [['out', 'out/w'], ['vite', 'node_modules/.vite/w'], ['src', 'src/w']]) {
+\tattempt(name, () => fs.writeFileSync(at, me));
+}
+console.log(`probe: ${me}_tmpdir ${process.env.TMPDIR}`);
+";
+
+/// The genfile of [`each_program_writes_by_its_grant_beside_the_table_s`],
+/// `PYDIR` the directory `python3` is found in: a program a flag grants and
+/// one found beneath an exec root, each made twice and launched by each
+/// handle, write no tool directory, and each keeps one temporary directory
+/// across its handles and launches.
+const GRANT_GENFILE: &str = "import {fs} from '@fuzdev/gro/fs.ts';
+import {spawn} from '@fuzdev/gro/spawn.ts';
+const lines = (text) => {
+\tfor (const line of text.split('\\n')) if (line.startsWith('probe: ')) console.error(line);
+};
+const script = 'import os, sys\\n' +
+\t'try:\\n    open(\"node_modules/.vite/\" + sys.argv[1], \"w\").write(\"x\")\\n    r = \"ok\"\\n' +
+\t'except OSError as e:\\n    r = e.strerror\\n' +
+\t'print(\"probe:\", sys.argv[1] + \"_vite\", r)\\nprint(\"probe:\", sys.argv[1] + \"_tmpdir\", os.environ[\"TMPDIR\"])\\n';
+export const gen = async () => {
+\tconst python = spawn.program('python3');
+\tconst found = await spawn.find_in(await fs.open_dir('PYDIR'), 'python3');
+\tconst python_again = spawn.program('python3');
+\tconst found_again = await spawn.find_in(await fs.open_dir('PYDIR'), 'python3');
+\tfor (const [name, program] of [['flag', python], ['flag_again', python_again], ['found', found], ['found_again', found_again]]) {
+\t\tlines((await program.out(['-I', '-c', script, name])).stdout);
+\t}
+\treturn '// probed\\n';
+};
+";
+
+/// Each program writes by its own grant beside the grants table's tools:
+/// `vitest`, named by its plain name by `--allow-run-write=`, writes its
+/// directory and the tool directories, `svelte-kit`, a table tool no flag
+/// names, the tool directories and not that directory, and neither `src`;
+/// a program a flag grants and one found beneath an exec root write no
+/// tool directory, and each program keeps one temporary directory across
+/// its handles and launches, apart from every other program's.
+#[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "a command of Gro's runs in its box only from a snapshot build"
+)]
+fn each_program_writes_by_its_grant_beside_the_table_s() {
+    let python_dir = python3().parent().unwrap().to_owned();
+    let genfile = GRANT_GENFILE.replace("PYDIR", &python_dir.display().to_string());
+    let package_json = r#"{"name": "p", "type": "module", "devDependencies": {"vitest": "*", "@sveltejs/kit": "*"}}"#;
+    let scratch = Scratch::new(
+        "verb_box_grant_writes",
+        &[
+            ("tmp/.keep", ""),
+            ("project/package.json", package_json),
+            ("project/src/probe.gen.ts", &genfile),
+            ("project/src/probe.ts", "// probed\n"),
+            ("project/out/.keep", ""),
+            ("project/node_modules/.bin/vitest", FAKE_TOOL),
+            ("project/node_modules/.bin/svelte-kit", FAKE_TOOL),
+            (
+                "project/node_modules/vitest/package.json",
+                r#"{"name": "vitest", "version": "1.0.0"}"#,
+            ),
+            (
+                "project/node_modules/@sveltejs/kit/package.json",
+                r#"{"name": "@sveltejs/kit", "version": "1.0.0"}"#,
+            ),
+        ],
+    );
+    scratch.set_mode("project/node_modules/.bin/vitest", 0o755);
+    scratch.set_mode("project/node_modules/.bin/svelte-kit", 0o755);
+    let project = scratch.0.join("project");
+    for package in ["@fuzdev/fuz_util", "@fuzdev/fuz_schema", "esm-env"] {
+        copy_tree(
+            &checkout_node_modules().join(package),
+            &project.join("node_modules").join(package),
+        );
+    }
+    let run_in = format!("--allow-run-in={}", python_dir.display());
+    let read = format!("--allow-read={}", python_dir.display());
+    let mut command = fgro_command(&[
+        "check",
+        "--allow-run=python3",
+        "--allow-run-write=vitest:out",
+        &run_in,
+        &read,
+        "--no-typecheck",
+        "--no-lint",
+        "--no-format",
+        "--no-package_json",
+    ]);
+    for name in CLEARED {
+        command.env_remove(name);
+    }
+    command
+        .current_dir(&project)
+        .env("TMPDIR", scratch.0.join("tmp"));
+    let (code, stdout, stderr) = run(command);
+    let output = format!("{stdout}{stderr}");
+    assert_eq!(code, Some(0), "{output}");
+    let probed = probed(&stdout, &stderr);
+    for (name, what) in [
+        ("vitest_out", "ok"),
+        ("vitest_vite", "ok"),
+        ("vitest_src", "EACCES"),
+        ("svelte-kit_out", "EACCES"),
+        ("svelte-kit_vite", "ok"),
+        ("svelte-kit_src", "EACCES"),
+        ("flag_vite", "Permission denied"),
+        ("found_vite", "Permission denied"),
+    ] {
+        assert_eq!(
+            probed.get(name).map(String::as_str),
+            Some(what),
+            "{name}: {output}"
+        );
+    }
+    assert_eq!(
+        probed["flag_tmpdir"], probed["flag_again_tmpdir"],
+        "{output}"
+    );
+    assert_eq!(
+        probed["found_tmpdir"], probed["found_again_tmpdir"],
+        "{output}"
+    );
+    let temps: BTreeSet<&str> = [
+        "flag_tmpdir",
+        "found_tmpdir",
+        "vitest_tmpdir",
+        "svelte-kit_tmpdir",
+    ]
+    .iter()
+    .map(|name| probed[*name].as_str())
+    .collect();
+    assert_eq!(temps.len(), 4, "{output}");
 }
