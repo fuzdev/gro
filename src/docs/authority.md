@@ -313,7 +313,7 @@ The project is read-only but for the command's write roots: under `gen`, `format
 and under every command that starts a tool from the project the [tool directories](glossary.md#tool-directory) its dependencies call for, like `.svelte-kit` and fuz_css's `.fuz/cache`.
 The project's own `.git` and `node_modules` are never writable but for the tool directories in `node_modules` (`$app`, `.vite`, and `.vite-temp`), unless a grant flag names them.
 A tool and its children may execute the system's programs, the programs the run pins, `node` among them, the project's `node_modules` and the packages linked into it,
-a `node_modules` linked from another checkout, the run's private temp directory, and what `--allow-run-in=` names.
+a `node_modules` linked from another checkout, its own temporary directory inside the run's, and what `--allow-run-in=` names.
 Inside the box the per-builtin grants are guardrails.
 [box](box.md#what-a-commands-box-admits) has the box's exact rules.
 
@@ -333,7 +333,7 @@ What the release leaves is stated with it:
   the environment, memory, and working directory of a process outside the box stay refused,
   and each tool runs in a box of its own, so the tools never read one another's environment, memory, or working directory;
   a tool still sees the others' command line, status, and descriptor numbers, gets a handle from `pidfd_open` on another or on the run, one that can't signal,
-  reads the others' write roots, and can take the terminal's foreground
+  reads what the others write in the project, and can take the terminal's foreground
 - a hard link made outside the run reads as the file it links, under whatever name it has
 - the tools see the run's whole environment, as on Node, and what they print can carry it
 - git's global config stays readable to every tool, with any credential or token kept in it

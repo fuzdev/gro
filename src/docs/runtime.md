@@ -24,7 +24,7 @@
 > but the process itself isn't confined or limited: against code that exploits V8 it's an ordinary process with your user's authority,
 > the same class as Deno with no permissions granted;
 > and with no exploit at all, a run that `--allow-run=` or `--allow-run-in=` grants a program is close to `-A`, as Deno's `--allow-run` is.
-> A command of Gro's runs in the run's box, so a tool its closure grants is bounded by that box's rules
+> A command of Gro's runs in the run's box, and each tool it starts in a narrower box of its own inside it, so a tool its closure grants is bounded by those boxes' rules
 > ([box](box.md#what-a-commands-box-admits)), not by the grants.
 > The [roadmap](#roadmap) marks what's built, the design doesn't have every answer yet
 > ([open questions](#open-questions)), and feedback is welcome in [discussions](https://github.com/fuzdev/gro/discussions).
@@ -339,7 +339,7 @@ As designed, except where marked built:
   Each builtin's `host` is cut from that union by its own grants, a [guardrail](glossary.md#guardrail) against Gro's own mistakes,
   while the project's code in the same realm holds the whole union, which only the native checks and the run's box bound
   ([threat model](authority.md#threat-model)).
-  A Node tool the invocation spawns is held by the run's box (built), by paths and the network, not by the grant set.
+  A Node tool the invocation spawns is held by a box of its own inside the run's (built), by paths and the network, not by the grant set.
 - `gro check` is the project's check: it infers each task's and gen file's grants,
   diffs them against the committed policy file, and fails on a widening until `gro policy accept` records it.
   On the Node Gro it runs advisory first, since Node enforces none of it.
@@ -439,7 +439,7 @@ As designed, except where marked built:
   - A `node_modules` that's a symlink to another checkout's `node_modules` is followed, read and executed there, with a `note:` line naming where it leads,
     and Gro's own code reads through it too, read-only;
     its packages resolve within it, reading nothing of the checkout holding it,
-    and its tool directories are made, and anything written there, only when an `--allow-write=` names it, so a tool that needs one fails without the flag.
+    and its tool directories are made there, for the grants table's tools to write, only when an `--allow-write=` names it (the one way that flag reaches a tool), so a tool that needs one fails without the flag.
     A `node_modules` linked to anything else is refused before the box goes up, exit 2.
   - A binary built with a plain `cargo build`, which has no snapshot, refuses every command of Gro's it would run in its box, exit 1,
     since it reads its own sources from its build tree, which no rule of the box admits.

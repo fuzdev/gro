@@ -70,11 +70,12 @@
 //! its plugins, for a test runner the tests); by a directory it's given that
 //! the same run later loads, as `gen --check` loads a genfile under `src/`
 //! within one `check`, which carries the program's write to every subject's
-//! grants; by what programs share for reading (a sibling's roots, and what
-//! `/proc` shows of any process: its command line, its status, and the
-//! numbers of its descriptors); by what Landlock doesn't gate: a path's
-//! mode, times, and metadata, by name, a sibling's temporary directory's
-//! included, since its name is its place's, the run's loopback, where a
+//! grants; by what programs share for reading (a sibling's roots in the
+//! project, and what `/proc` shows of any process: its command line, its
+//! status, and the numbers of its descriptors); by what Landlock doesn't
+//! gate: a path's mode, times, and metadata, by name, a sibling's
+//! temporary directory's included, since its name is its place's, the
+//! run's loopback, where a
 //! sibling's listener or the run's is reached, and `pidfd_open` on a sibling
 //! or the run, a handle that can't signal; and by the terminal's foreground,
 //! which a program can take.

@@ -209,7 +209,7 @@ anything else that keeps a rule from opening, like a symlink on its path, refuse
   so a read the box allows there isn't refused as a symlink leaving the project.
   A package there resolves its imports within that `node_modules`, and nothing of the checkout holding it is read,
   its `package.json` included ([resolver](resolver.md#departures-from-node)).
-  No tool directory is made there, and nothing there is written, unless a write flag names where it leads, by that path,
+  No tool directory is made there, and nothing there is written, unless `--allow-write=` names where it leads, by that path, which makes the tool directories there for the grants table's tools to write, the one way that flag reaches a tool,
   since that checkout's own unconfined commands run what a test writes there, so a tool that needs one fails without the flag.
   A link to any other directory, like `~/.ssh` or `.git`, is refused, exit 2.
 - **Network:** the run's own namespace, whose only interface is its loopback,
@@ -367,7 +367,7 @@ The nested boxes also keep a tool from signalling Gro or another tool and from r
 Once each tool is held to its own directories, a test or an ESLint plugin won't be able to plant in what `dev` and `build` run.
 It leaves the project's own config, which runs in every tool and which `dev` runs unconfined,
 and a write into a tool's own directory that a dev server already running picks up.
-A tool still reads the others' write roots, sees their command line, status, and descriptor numbers in `/proc`,
+A tool still reads what the others write in the project, sees their command line, status, and descriptor numbers in `/proc`,
 gets a handle from `pidfd_open` on another or on the run, one that can't signal, and can take the terminal's foreground.
 A child that sets `PR_SET_PDEATHSIG` while the short-lived thread that started it still runs is killed when that thread ends,
 and a signal sent to that thread alone as it ends is lost.
