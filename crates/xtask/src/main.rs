@@ -135,7 +135,8 @@ struct Build {
     /// build the release profile
     #[argh(switch)]
     release: bool,
-    /// run the integration tests against the result and check that it runs
+    /// run the integration tests, built with the snapshot and the
+    /// dev-dependencies' testing features, and check that the result runs
     /// with its build tree hidden
     #[argh(switch)]
     verify: bool,

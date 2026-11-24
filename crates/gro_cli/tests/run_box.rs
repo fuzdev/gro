@@ -86,9 +86,9 @@ use std::time::Duration;
 
 use gro_runtime::confine::Threads;
 use gro_runtime::confine::plan::{
-    BoxFacts, BoxInputs, BoxPlan, DirFlag, GrantedFlagDir, ProgramFile,
+    BoxFacts, BoxInputs, BoxPlan, DirFlag, GrantedFlagDir, ProgramFile, RunWriteDir, RunWriteGrant,
 };
-use gro_runtime::confine::program::{GrantedBy, ProgramBox, ProgramBoxError};
+use gro_runtime::confine::program::{ProgramBox, ProgramBoxError, ProgramWrites};
 use gro_runtime::confine::rules::InstalledRule;
 use gro_runtime::confine::run::{
     RunClosed, RunHardened, RunNetwork, RunPrepared, check_stdio, probe_floor,
@@ -473,7 +473,10 @@ fn expected(case: &str) -> String {
                 "write a tool directory: ok",
                 "write an entry the run writes: EACCES",
                 "write what a write flag names: EACCES",
-                "read what a write flag names: ok",
+                "read what a write flag names: EACCES",
+                "write its own run-write directory: ok",
+                "read the sibling's run-write directory: EACCES",
+                "write the sibling's run-write directory: EACCES",
                 "write /dev/null: ok",
                 "write its own temporary directory: ok",
                 "run a program in it: ok",
@@ -496,6 +499,8 @@ fn expected(case: &str) -> String {
             for probe in [
                 "read the project: ok",
                 "write a tool directory: EACCES",
+                "write its own run-write directory: ok",
+                "write the table's run-write directory: EACCES",
                 "write /dev/null: ok",
                 "write its own temporary directory: ok",
                 "write the table's temporary directory: EACCES",
@@ -509,6 +514,7 @@ fn expected(case: &str) -> String {
             line("a tool directory written from that thread: denied");
             line("the run writes a tool directory: ok");
             line("the run writes a program's temporary directory: ok");
+            line("the run writes each program's run-write directory: ok, ok");
             line("the run reads the sibling's environ: ok");
         }
         "planned" | "planned_check" => {
@@ -1510,10 +1516,13 @@ fn probe(program_box: &ProgramBox, label: &str, probes: &[String]) {
 }
 
 /// A program's own box, nested in the run's: a run that writes its root,
-/// grants a tool of the table, and names a write flag, boxed, its child
-/// rules taken, then two programs' boxes built, a table's (pin 0) and a
-/// flag's (pin 1), each attacking from inside a program it starts what the
-/// other holds and what the run holds, beside the flag's sibling alive in
+/// grants a tool of the table, and names a write flag and a directory
+/// `--allow-run-write=` gives each of two programs, boxed, its child rules
+/// taken, then the two programs' boxes built from their write sets, a
+/// table's (pin 0) and a flag's (pin 1), each attacking from inside a
+/// program it starts what the other holds, the other's run-write directory
+/// among it, what a write flag names, read included, and what the run
+/// holds, beside the flag's sibling alive in
 /// its box; then a thread restricted by the flag's box trying to widen
 /// itself by the table's, and the run's own domain, as it was. Its
 /// `_inet_refused` twin takes the host's network, so a program's TCP is
@@ -1527,11 +1536,14 @@ fn program_box(scratch: &Path, case: &str) {
         "home",
         "tmp",
         "flagged",
+        "table_writes",
+        "flag_writes",
     ] {
         std::fs::create_dir_all(base.join(dir)).unwrap();
     }
     std::fs::write(base.join("project/package.json"), "{}").unwrap();
     std::fs::write(base.join("flagged/kept.txt"), "").unwrap();
+    std::fs::write(base.join("flag_writes/kept.txt"), "").unwrap();
     let base = std::fs::canonicalize(base).unwrap();
     let at = |path: &str| base.join(path);
     let project = at("project");
@@ -1546,10 +1558,41 @@ fn program_box(scratch: &Path, case: &str) {
             dir: "../flagged".to_owned(),
             real: at("flagged"),
         }],
+        run_writes: [
+            ("svelte-kit", true, "table_writes"),
+            ("x", false, "flag_writes"),
+        ]
+        .map(|(program, table, dir)| RunWriteGrant {
+            program: program.to_owned(),
+            table,
+            dirs: vec![RunWriteDir {
+                named: program.to_owned(),
+                dir: format!("../{dir}"),
+                real: at(dir),
+            }],
+        })
+        .to_vec(),
         home: Some(at("home")),
         ..BoxInputs::default()
     };
     let plan = BoxPlan::for_run(&inputs, &BoxFacts::read(&inputs).unwrap()).unwrap();
+    let writes = plan.program_writes();
+    assert_eq!(
+        writes,
+        [
+            ProgramWrites::TABLE,
+            ProgramWrites {
+                tool_dirs: true,
+                root: false,
+                run_write: Some(0),
+            },
+            ProgramWrites {
+                tool_dirs: false,
+                root: false,
+                run_write: Some(1),
+            },
+        ]
+    );
     let hardened = hardened();
     let parent: std::os::fd::OwnedFd = std::fs::File::open(at("tmp")).unwrap().into();
     let private = hardened
@@ -1575,8 +1618,8 @@ fn program_box(scratch: &Path, case: &str) {
         "taken once: {}",
         confined.take_program_rules().is_none()
     ));
-    let table = programs.program_box(GrantedBy::Table, 0).unwrap();
-    let flag = programs.program_box(GrantedBy::Flag, 1).unwrap();
+    let table = programs.program_box(writes[1], 0).unwrap();
+    let flag = programs.program_box(writes[2], 1).unwrap();
     let named = |program_box: &ProgramBox| {
         assert_eq!(program_box.temp_dir().parent(), Some(private_dir.as_path()));
         program_box
@@ -1593,7 +1636,7 @@ fn program_box(scratch: &Path, case: &str) {
     ));
     say(&format!(
         "a second box for pin 0: {}",
-        match programs.program_box(GrantedBy::Table, 0) {
+        match programs.program_box(ProgramWrites::TABLE, 0) {
             Err(ProgramBoxError::TempDir { source, .. })
                 if source.raw_os_error() == Some(EEXIST) =>
             {
@@ -1637,6 +1680,21 @@ fn program_box(scratch: &Path, case: &str) {
                 "read what a write flag names",
                 "read",
                 &at("flagged/kept.txt"),
+            ),
+            spec(
+                "write its own run-write directory",
+                "write",
+                &at("table_writes/a.txt"),
+            ),
+            spec(
+                "read the sibling's run-write directory",
+                "read",
+                &at("flag_writes/kept.txt"),
+            ),
+            spec(
+                "write the sibling's run-write directory",
+                "write",
+                &at("flag_writes/a.txt"),
             ),
             spec("write /dev/null", "write", Path::new("/dev/null")),
             spec(
@@ -1686,6 +1744,16 @@ fn program_box(scratch: &Path, case: &str) {
         &[
             spec("read the project", "read", &project.join("package.json")),
             spec("write a tool directory", "write", &svelte_kit),
+            spec(
+                "write its own run-write directory",
+                "write",
+                &at("flag_writes/b.txt"),
+            ),
+            spec(
+                "write the table's run-write directory",
+                "write",
+                &at("table_writes/b.txt"),
+            ),
             spec("write /dev/null", "write", Path::new("/dev/null")),
             spec(
                 "write its own temporary directory",
@@ -1724,6 +1792,11 @@ fn program_box(scratch: &Path, case: &str) {
     say(&format!(
         "the run writes a program's temporary directory: {}",
         outcome(std::fs::write(flag.temp_dir().join("run.txt"), ""))
+    ));
+    say(&format!(
+        "the run writes each program's run-write directory: {}, {}",
+        outcome(std::fs::write(at("table_writes/run.txt"), "")),
+        outcome(std::fs::write(at("flag_writes/run.txt"), ""))
     ));
     say(&format!(
         "the run reads the sibling's environ: {}",
@@ -1771,7 +1844,7 @@ fn program_box_umask(scratch: &Path) {
         .confine()
         .unwrap();
     let programs = confined.take_program_rules().unwrap();
-    let program_box = programs.program_box(GrantedBy::Flag, 0).unwrap();
+    let program_box = programs.program_box(ProgramWrites::FLAG, 0).unwrap();
     let mode = std::fs::metadata(program_box.temp_dir())
         .unwrap()
         .permissions()

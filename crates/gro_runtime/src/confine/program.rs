@@ -24,10 +24,15 @@
 //!   (`BoxPlan::holding`), and the held rules leave one out besides;
 //! - the devices as the run's box grants them, `/dev/null` read and
 //!   written, which every redirect to it opens;
-//! - for a program of the grants table ([`GrantedBy::Table`]), the
-//!   command's tool directories written; for one a flag grants, or one
-//!   found beneath an exec root ([`GrantedBy::Flag`]), nothing of the
-//!   project, nor what a write flag names, written;
+//! - what the program writes, by its write set ([`ProgramWrites`]): for a
+//!   program of the grants table, the command's tool directories; for one
+//!   whose `--allow-run-write=` names the root, the root's per-entry rules;
+//!   and the directories `--allow-run-write=` names for it, read and
+//!   written, each a rule of the run's that no other program's box takes;
+//!   for one a flag grants, or one found beneath an exec root, nothing of
+//!   the project but what that flag names for it;
+//! - nothing of what `--allow-write=` names, not even its read: that flag
+//!   is gro's own code's, and `--allow-read=` is what widens every box;
 //! - a temporary directory of its own, granted as the run's rule grants the
 //!   private directory (read, written, and executed), made beneath that
 //!   directory's held handle by `mkdirat`, an entry already there refused,
@@ -58,9 +63,14 @@
 //! which a later command runs; by the tool directories every
 //! program of the table shares; by realm code, which holds the outer
 //! domain and can start any program of the closure with arguments of its
-//! own choosing; by what programs share for reading (a sibling's roots,
-//! and what `/proc` shows of any process: its command line, its status,
-//! and the numbers of its descriptors); by what Landlock doesn't gate: a
+//! own choosing, so a directory `--allow-run-write=` names for a program
+//! is one deliberate project code writes; by everything the named program
+//! runs (its config, its plugins, for a test runner the tests); by a
+//! directory it's given that the same run later loads, as `gen --check`
+//! loads a genfile under `src/` within one `check`, which carries the
+//! program's write to every subject's grants; by what programs share
+//! for reading (a sibling's roots, and what `/proc` shows of any process:
+//! its command line, its status, and the numbers of its descriptors); by what Landlock doesn't gate: a
 //! path's mode, times, and metadata, by name, a sibling's temporary
 //! directory's included, since its name is its pin's, the run's loopback,
 //! where a sibling's listener or the run's is reached, and `pidfd_open` on
@@ -76,17 +86,40 @@ use gro_sys::beneath::{self, Last, Links, OpenAs};
 
 use super::ConfineError;
 use super::landlock::{self, TcpWall};
-use super::plan::{RuleSource, holds};
+use super::plan::{DirFlag, RuleSource, holds};
 use super::rules::{InstalledRule, Kind, Rights};
 
-/// What a program's box writes of the project, by what granted it.
+/// What a program's box writes beyond its own temporary directory: its
+/// write set, which `program_rights` reads beside each rule's source.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum GrantedBy {
-    /// A program of the grants table: the command's tool directories.
-    Table,
-    /// A program a flag grants, or one found beneath an exec root:
-    /// nothing of the project.
-    Flag,
+pub struct ProgramWrites {
+    /// Whether it writes the command's tool directories, as a program of
+    /// the grants table does.
+    pub tool_dirs: bool,
+    /// Whether it writes the root's per-entry rules, as one whose
+    /// `--allow-run-write=` names the root does.
+    pub root: bool,
+    /// The program `--allow-run-write=` names it as, by its index in the
+    /// plan's (`BoxPlan::run_write`), whose rules it reads and writes.
+    pub run_write: Option<usize>,
+}
+
+impl ProgramWrites {
+    /// A program of the grants table no `--allow-run-write=` names: the
+    /// command's tool directories.
+    pub const TABLE: Self = Self {
+        tool_dirs: true,
+        root: false,
+        run_write: None,
+    };
+
+    /// A program a flag grants, or one found beneath an exec root, that no
+    /// `--allow-run-write=` names: nothing of the project.
+    pub const FLAG: Self = Self {
+        tool_dirs: false,
+        root: false,
+        run_write: None,
+    };
 }
 
 /// The mode a program's temporary directory is set to, whatever the
@@ -94,21 +127,30 @@ pub enum GrantedBy {
 const TEMP_MODE: u32 = 0o700;
 
 /// What a program's box grants beneath a rule of the run's box from
-/// `source` granting `rights`, for a `program`, as the [module doc](self)
-/// says: none for the run's private directory, the devices as the run has
-/// them, a tool directory as the run has it for a program of the table,
-/// and the rest without writing; none where that leaves nothing. The
-/// private directory's arm is the derivation's alone: `ProgramRules::hold`
-/// takes that rule apart before any rule is held, so no box built reaches
-/// it.
+/// `source` granting `rights`, for a program writing `writes`, as the
+/// [module doc](self) says: none for the run's private directory, the
+/// devices as the run has them, a tool directory as the run has it for a
+/// program that writes the tool directories, an entry's rule for one that
+/// writes the root, a rule `--allow-run-write=` made as the run has it for
+/// the program it names and none for any other, none for what a write flag
+/// names, and the rest without writing; none where that leaves nothing.
+/// The private directory's arm is the derivation's alone:
+/// `ProgramRules::hold` takes that rule apart before any rule is held, so
+/// no box built reaches it.
 pub(super) const fn program_rights(
     source: RuleSource,
     rights: Rights,
-    program: GrantedBy,
+    writes: ProgramWrites,
 ) -> Option<Rights> {
-    let rights = match (source, program) {
-        (RuleSource::PrivateTemp, _) => return None,
-        (RuleSource::Device, _) | (RuleSource::ToolDir(_), GrantedBy::Table) => rights,
+    let rights = match source {
+        RuleSource::PrivateTemp | RuleSource::Flag(DirFlag::Write) => return None,
+        RuleSource::ToolDir(_) if writes.tool_dirs => rights,
+        RuleSource::Entry if writes.root => rights,
+        RuleSource::RunWrite(index) => match writes.run_write {
+            Some(named) if named == index => rights,
+            _ => return None,
+        },
+        RuleSource::Device => rights,
         _ => rights.without_write(),
     };
     if rights.is_empty() {
@@ -163,9 +205,10 @@ impl Eq for ProgramRules {}
 impl ProgramRules {
     /// The run's box's rules as installed, `rules`, each with its handle,
     /// split into what the run keeps of them, its rules as data, and, for a
-    /// run that `spawns`, the rules its programs' boxes are built from,
-    /// with the handles they name: those some program's box takes
-    /// (`program_rights` for a program of the table, the widest) and the
+    /// run whose programs write `programs` (`BoxPlan::program_writes`, none
+    /// for a run that starts nothing), the rules its programs' boxes are
+    /// built from, with the handles they name: those some program of the
+    /// run's box takes (`program_rights` for any of `programs`) and the
     /// private directory's, never a rule on the private directory or a
     /// directory holding it (`plan::holds`), which would grant every
     /// program all of it, whatever else refused it first. Every other
@@ -174,13 +217,13 @@ impl ProgramRules {
     /// for.
     pub(super) fn hold(
         rules: Vec<(InstalledRule, OwnedFd)>,
-        spawns: bool,
+        programs: &[ProgramWrites],
     ) -> (Vec<InstalledRule>, Option<Self>) {
         // the private directory's rule is planned after the rules that
         // could hold it, so it's found first
         let private_path = rules
             .iter()
-            .find(|(rule, _)| spawns && rule.source() == RuleSource::PrivateTemp)
+            .find(|(rule, _)| !programs.is_empty() && rule.source() == RuleSource::PrivateTemp)
             .map(|(rule, _)| rule.path().to_owned());
         let mut installed = Vec::with_capacity(rules.len());
         let mut held = Vec::new();
@@ -192,7 +235,9 @@ impl ProgramRules {
                         rule: rule.clone(),
                         handle,
                     });
-                } else if program_rights(rule.source(), rule.rights(), GrantedBy::Table).is_some()
+                } else if programs
+                    .iter()
+                    .any(|writes| program_rights(rule.source(), rule.rights(), *writes).is_some())
                     && !holds(rule.path(), private_path)
                 {
                     held.push(HeldRule {
@@ -210,28 +255,28 @@ impl ProgramRules {
         (installed, programs)
     }
 
-    /// The rules a box for `program` grants beneath the run's, each with
-    /// what it grants there, in the run's order, its temporary directory
-    /// aside.
+    /// The rules a box for a program writing `writes` grants beneath the
+    /// run's, each with what it grants there, in the run's order, its
+    /// temporary directory aside.
     #[cfg(test)]
     pub(super) fn granted(
         &self,
-        program: GrantedBy,
+        writes: ProgramWrites,
     ) -> impl Iterator<Item = (&InstalledRule, Rights)> {
-        self.held_for(program)
+        self.held_for(writes)
             .map(|(held, rights)| (&held.rule, rights))
     }
 
-    /// The held rules a box for `program` grants beneath, each with what it
-    /// grants there, in the run's order.
-    fn held_for(&self, program: GrantedBy) -> impl Iterator<Item = (&HeldRule, Rights)> {
+    /// The held rules a box for a program writing `writes` grants beneath,
+    /// each with what it grants there, in the run's order.
+    fn held_for(&self, writes: ProgramWrites) -> impl Iterator<Item = (&HeldRule, Rights)> {
         self.rules.iter().filter_map(move |held| {
-            program_rights(held.rule.source(), held.rule.rights(), program)
+            program_rights(held.rule.source(), held.rule.rights(), writes)
                 .map(|rights| (held, rights))
         })
     }
 
-    /// The box of the program pinned at `pin`, granted as `program`, built
+    /// The box of the program pinned at `pin`, writing `writes`, built
     /// now, once the run's box is up, as the [module doc](self) says: its
     /// temporary directory, `temp_dir_name`, made in the private
     /// directory first.
@@ -241,8 +286,9 @@ impl ProgramRules {
     /// One box per pin: a pin is granted one way, its box built once and
     /// reused for each of its launches. A second build for a pin fails, its
     /// temporary directory made already, so a pin held by programs granted
-    /// two ways (a program of the table found again beneath an exec root)
-    /// is the caller's to tell apart.
+    /// two ways (a program of the table found again beneath an exec root,
+    /// or two names `--allow-run-write=` gives different directories) is
+    /// the caller's to tell apart.
     ///
     /// # Errors
     ///
@@ -252,7 +298,7 @@ impl ProgramRules {
     /// [`ProgramBoxError::Landlock`] when the kernel refuses the ruleset.
     pub fn program_box(
         &self,
-        program: GrantedBy,
+        writes: ProgramWrites,
         pin: usize,
     ) -> Result<ProgramBox, ProgramBoxError> {
         let name = temp_dir_name(pin);
@@ -269,7 +315,7 @@ impl ProgramRules {
         // granted as the run's rule grants the private directory
         let temp_rights = self.private.rule.rights();
         let rules = self
-            .held_for(program)
+            .held_for(writes)
             .map(|(held, rights)| (held.handle.as_fd(), rights.access(held.rule.kind())))
             .chain(std::iter::once((
                 temp.as_fd(),

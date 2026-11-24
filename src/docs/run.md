@@ -385,7 +385,7 @@ a project's `package.json` or installed Gro's that can't be read, a forwarded se
 a `node` on `PATH` that's a script,
 a `node_modules` symlink to anything but another checkout's `node_modules`, git's files the box can't read for a command that may start a program,
 a socket on stdin, stdout, or stderr that isn't a connected unix stream, an OS temporary directory inside the project,
-a flag or rule holding the OS temporary directory for a command that may start a program (`--allow-read=/tmp`, `--allow-read=/`),
+a flag or rule a program's box takes holding the OS temporary directory for a command that may start a program (`--allow-read=/tmp`, `--allow-read=/`, `--allow-run-write=vitest:/tmp`, never `--allow-write=`),
 a path planted where the box opens a rule or makes a tool directory, like a symlink,
 a fallback `GRO_FALLBACK=command` refuses, the one the host decides where Landlock can't hold the box among them, or a fallback with no installed or built Node Gro or no `node` to run it),
 `1` when the grants table or the working directory can't be read, `node` fails to start, the binary was built without its snapshot,

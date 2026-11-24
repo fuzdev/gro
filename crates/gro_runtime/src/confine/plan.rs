@@ -96,7 +96,7 @@ use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 
 use super::git::GitFault;
-use super::program::{GrantedBy, program_rights};
+use super::program::{ProgramWrites, program_rights};
 use super::rules::{Need, RealRights, Rights};
 
 /// What a run is, as its box is derived from it: built from the verb's plan
@@ -735,14 +735,43 @@ impl BoxPlan {
         self.private_temp
     }
 
-    /// The first rule a program's box would take (`program::program_rights`)
+    /// What each program of the run may write, every write set a program's
+    /// box is built for ([`ProgramWrites`]): a program of the grants table,
+    /// and each `--allow-run-write=` names, with the tool directories when
+    /// it's the table's and the root's per-entry rules when one of its
+    /// directories is the root; none for a run that starts no program. A
+    /// program a flag grants that no `--allow-run-write=` names writes a
+    /// subset of the table's, so a rule any of these takes is one some
+    /// program's box may.
+    pub fn program_writes(&self) -> Vec<ProgramWrites> {
+        if !self.spawns {
+            return Vec::new();
+        }
+        std::iter::once(ProgramWrites::TABLE)
+            .chain(
+                self.run_writes
+                    .iter()
+                    .enumerate()
+                    .map(|(index, grant)| ProgramWrites {
+                        tool_dirs: grant.table,
+                        root: grant.dirs.iter().any(|dir| dir.real == self.root),
+                        run_write: Some(index),
+                    }),
+            )
+            .collect()
+    }
+
+    /// The first rule some program's box of the run would take
+    /// (`program::program_rights`, for any of [`BoxPlan::program_writes`])
     /// that is on `dir`, a real path, or on a directory holding it
     /// (`holds`), with its absolute path and source, the private
     /// directory's own rule aside: a run that starts a program and makes
-    /// its private directory in `dir` would give every program all of it
-    /// by such a rule, its siblings' temporary directories among them, so
-    /// the verb refuses one before the box.
+    /// its private directory in `dir` would give that program all of it by
+    /// such a rule, its siblings' temporary directories among them, so the
+    /// verb refuses one before the box. A rule only gro's own code takes,
+    /// a write flag's among them, holds nothing of a program's.
     pub fn holding(&self, dir: &Path) -> Option<(PathBuf, RuleSource)> {
+        let programs = self.program_writes();
         self.rules.iter().find_map(|rule| {
             let path = match &rule.opening {
                 Opening::Real { path, .. } => path.clone(),
@@ -761,7 +790,9 @@ impl BoxPlan {
                     ..
                 } => return None,
             };
-            (program_rights(rule.source, rule.rights(), GrantedBy::Table).is_some()
+            (programs
+                .iter()
+                .any(|writes| program_rights(rule.source, rule.rights(), *writes).is_some())
                 && holds(&path, dir))
             .then_some((path, rule.source))
         })

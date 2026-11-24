@@ -78,9 +78,16 @@
 //!
 //! - `signal_thread`, which sends a signal to one thread by `tgkill`, the call
 //!   the box allows and Landlock's signal scope keeps inside it.
+//! - `reserving_on_this_thread`, how many slots of the signal handler's
+//!   tables the calling thread holds reserved and not armed, so a launch's
+//!   tests check its steps are where they say.
 //! - `map_anonymous` and `protect_anonymous`, which map an anonymous page
 //!   with a protection, or map one and change it to that protection, and
 //!   unmap it, so a box's tests reach its rule on executable mappings.
+//!
+//! Its own `cargo test -p gro_sys` turns no feature on, so the `signal`
+//! test's hand-off case, which needs `testing`, runs only where a workspace
+//! test unifies the feature in from `gro_cli`'s dev-dependencies.
 
 #[cfg(not(target_os = "linux"))]
 compile_error!("gro_sys is Linux-only: its system calls are Linux's");

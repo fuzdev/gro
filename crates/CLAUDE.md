@@ -209,8 +209,9 @@ and the contracts no one module doc owns.
   by `RunHardened::prepare`, so none opens before the inherited
   descriptors close. A program's own box (`confine/program.rs`), nested
   in the run's, names only handles the run's box held past it, none on
-  the private directory or a directory holding it, and its own temporary
-  directory, made beneath the held private directory's handle, an entry
+  the private directory or a directory holding it, taking what its write
+  set (`ProgramWrites`) names and never what `--allow-write=` names, and
+  its own temporary directory, made beneath the held private directory's handle, an entry
   already there refused. No launch installs one yet, since the spawn host
   module passes `spawn_held` no box, and only tests take the held rules
   (`RunConfined::take_program_rules`). A launch in a program's box
@@ -340,6 +341,10 @@ features of `gro_runtime` and `gro_sys` that `gro_cli`'s dev-dependencies
 turn on, unlike the binary that ships; under `--verify` that one is built
 with the `snapshot` feature, and only the off-build-tree run
 (`off_build_tree`) checks the shipped file itself.
+`cargo test -p gro_sys` alone turns on none of `gro_sys`'s features, so
+`tests/signal.rs`'s cases behind `testing` (the hand-off to the main
+thread among them) run only in a workspace `cargo test`, where `gro_cli`'s
+dev-dependencies unify the feature in.
 `gro_sys`'s tests that close descriptors, clear the environment, cap memory,
 lower a limit, enter namespaces, drop capabilities, mark the process not
 dumpable, set a umask, or signal run in a child process, harness off, as

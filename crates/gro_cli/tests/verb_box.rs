@@ -1041,13 +1041,14 @@ fn a_command_s_directory_leading_out_of_the_project_is_refused() {
     );
 }
 
-/// A grant flag holding the temporary directory, which would give every
+/// A grant flag holding the temporary directory, which would give a
 /// program the run starts all of its private directory, is refused for a
 /// run that starts a program, before anything is made: a flag on its
 /// parent, on itself, and on `/`, each naming the flag and the fix, a
-/// write flag on it, and a read flag on it under a `TMPDIR` that's a
-/// symlink to it, refused by its real path; a flag beside it runs, as does
-/// a run that starts no program under the same flag.
+/// program's write directory on it, and a read flag on it under a `TMPDIR`
+/// that's a symlink to it, refused by its real path; a write flag on it,
+/// which gives programs nothing, runs, as does a flag beside it, and a run
+/// that starts no program under the same flag.
 #[test]
 #[cfg_attr(
     not(feature = "snapshot"),
@@ -1087,16 +1088,31 @@ fn a_flag_holding_the_temporary_directory_is_refused() {
             .collect();
         assert!(made.is_empty(), "{flag}: {made:?}");
     }
-    // a write flag holds it too, by the read a program would keep
+    // a program's write directory holds it for that program; a write flag,
+    // which gives programs nothing, read included, holds nothing of theirs
     let mut args = probe_args();
-    args.push(format!("--allow-write={}", temp.display()));
+    args.push(format!("--allow-run-write=python3:{}", temp.display()));
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
     let (code, stdout, stderr) = run(in_tree(fgro_command(&args), &scratch));
     assert_eq!(code, Some(2), "{stdout}{stderr}");
     assert!(
-        stderr.contains(&format!("and --allow-write={} holds it", temp.display())),
+        stderr.ends_with(&format!(
+            "error: the kernel box makes the run's private directory in the OS's temporary \
+             directory, {}, and --allow-run-write=python3:{} holds it, so python3 could read \
+             every other program's temporary directory there: narrow python3's directories to \
+             ones that don't hold {}, or point TMPDIR elsewhere\n",
+            temp.display(),
+            temp.display(),
+            temp.display()
+        )),
         "{stderr}"
     );
+    let mut args = probe_args();
+    args.push(format!("--allow-write={}", temp.display()));
+    let args: Vec<&str> = args.iter().map(String::as_str).collect();
+    let (code, stdout, stderr) = run(in_tree(fgro_command(&args), &scratch));
+    assert_ne!(code, Some(2), "{stdout}{stderr}");
+    assert!(!stderr.contains("holds it"), "{stderr}");
     // a `TMPDIR` that's a symlink to it is held by its real path, which the
     // refusal names
     let linked = root.join("tmp_link");

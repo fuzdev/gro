@@ -9,6 +9,7 @@ use crate::confine::plan::{
     PlanRefusal, PlannedRule, ProgramFile, RootWriter, RuleSource, RunWriteDir, RunWriteGrant,
     Skip, TopEntry,
 };
+use crate::confine::program::ProgramWrites;
 use crate::confine::rules::{Need, RealRights, Rights};
 
 /// `names` as a set.
@@ -689,8 +690,8 @@ fn allow_temp_gets_the_private_directory() {
 
 /// The rule that holds the temporary directory a spawning run makes its
 /// private directory in: a flag on its parent, on the directory itself, on
-/// `/`, each of the three flags (a write flag's read is what a program
-/// keeps), and the project's own read, compared by components, so `/tmpx`
+/// `/`, a read or run-in flag, never a write flag, whose directory no
+/// program takes, and the project's own read, compared by components, so `/tmpx`
 /// holds nothing of `/tmp`, nor `/tmp/a` of `/tmp`; the system's rules hold
 /// none of `/tmp`'s, and the private directory's own rule is never one.
 #[test]
@@ -718,10 +719,8 @@ fn a_rule_holding_the_temporary_directory_is_found() {
         holding(&[(DirFlag::RunIn, "/tmp", "/tmp")], "/tmp"),
         flag(DirFlag::RunIn)
     );
-    assert_eq!(
-        holding(&[(DirFlag::Write, "/tmp", "/tmp")], "/tmp"),
-        flag(DirFlag::Write)
-    );
+    // a write flag's directory is gro's own code's, which no program takes
+    assert_eq!(holding(&[(DirFlag::Write, "/tmp", "/tmp")], "/tmp"), None);
     assert_eq!(
         holding(&[(DirFlag::Read, "/", "/")], "/tmp"),
         Some((PathBuf::from("/"), RuleSource::Flag(DirFlag::Read)))
@@ -994,9 +993,9 @@ fn the_plan_refuses_a_run_write_flag_gro_s_code_would_write_through() {
     );
 }
 
-/// While the program boxes take what the table's tools take, a rule
-/// `--allow-run-write=` makes on the OS's temporary directory, or one
-/// holding it, is found holding it, as a write flag's is.
+/// A rule `--allow-run-write=` makes on the OS's temporary directory, or
+/// one holding it, is found holding it, since its program takes it; the
+/// program boxes of the run are the table's and each one named.
 #[test]
 fn a_run_write_flag_holding_the_temporary_directory_is_found() {
     let plan = BoxPlan::for_run(
@@ -1007,5 +1006,40 @@ fn a_run_write_flag_holding_the_temporary_directory_is_found() {
     assert_eq!(
         plan.holding(std::path::Path::new("/tmp/base")),
         Some((PathBuf::from("/tmp"), RuleSource::RunWrite(0)))
+    );
+    assert_eq!(
+        plan.program_writes(),
+        [
+            ProgramWrites::TABLE,
+            ProgramWrites {
+                tool_dirs: true,
+                root: false,
+                run_write: Some(0),
+            }
+        ]
+    );
+    // one naming the root writes its entries; a run that starts nothing
+    // has no program to write anything
+    let rooted = BoxPlan::for_run(
+        &run_writing(false, &[], vec![vitest_writes(&[(".", "/p")])]),
+        &facts(),
+    )
+    .unwrap();
+    assert_eq!(
+        rooted.program_writes()[1],
+        ProgramWrites {
+            tool_dirs: true,
+            root: true,
+            run_write: Some(0),
+        }
+    );
+    let still = BoxInputs {
+        spawns: false,
+        programs: Vec::new(),
+        ..run_writing(false, &[], vec![vitest_writes(&[("/tmp", "/tmp")])])
+    };
+    assert_eq!(
+        BoxPlan::for_run(&still, &facts()).unwrap().program_writes(),
+        []
     );
 }

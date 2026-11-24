@@ -138,7 +138,7 @@ use gro_sys::private_dir::{self, PrivateDir, PrivateDirError};
 
 use super::landlock::{self, TcpWall};
 use super::plan::{Anchor, BoxPlan, Opening};
-use super::program::ProgramRules;
+use super::program::{ProgramRules, ProgramWrites};
 use super::rules::{BoxRules, InstalledRule, RuleError};
 use super::{ConfineError, NetForm, Threads, alone};
 use crate::prices::{self, RunDefault};
@@ -213,9 +213,10 @@ pub struct RunHardened {
 pub struct RunPrepared {
     /// Landlock's rules.
     rules: BoxRules,
-    /// Whether the run may start a program, whose box is built from the
-    /// rules' handles, held past the run's.
-    spawns: bool,
+    /// What each program the run may start writes, none for a run that
+    /// starts none, whose boxes are built from the rules' handles, held
+    /// past the run's.
+    programs: Vec<ProgramWrites>,
     /// The network the box is for.
     network: RunNetwork,
     /// The run's private directory, if it has one, held, its lock with it,
@@ -553,7 +554,7 @@ impl RunHardened {
         }
         Ok(RunPrepared {
             rules,
-            spawns: plan.spawns(),
+            programs: plan.program_writes(),
             network: self.network,
             private,
         })
@@ -635,7 +636,7 @@ impl RunPrepared {
             seccompiler::apply_filter(denylist).map_err(ConfineError::Seccomp)?;
         }
         let (rules, absent) = self.rules.into_installed();
-        let (rules, programs) = ProgramRules::hold(rules, self.spawns);
+        let (rules, programs) = ProgramRules::hold(rules, &self.programs);
         Ok(RunConfined {
             rules,
             absent,

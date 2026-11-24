@@ -159,7 +159,7 @@ anything else that keeps a rule from opening, like a symlink on its path, refuse
   A run with no private directory keeps those variables as they were.
   An OS temporary directory inside the project, by its path or by its identity (a bind mount counts), refuses such a run, exit 2, before anything is made,
   since the run's tools would write an entry there that later commands read; the refusal names the variable that set it, or says it's the default.
-  For a command that may start a program, a rule holding the OS temporary directory, like `--allow-read=/tmp`, `--allow-run-in=/tmp`, or `--allow-read=/`,
+  For a command that may start a program, a rule a program's box takes holding the OS temporary directory, like `--allow-read=/tmp`, `--allow-run-in=/tmp`, `--allow-read=/`, or `--allow-run-write=vitest:/tmp` (never `--allow-write=`, whose directories no program takes),
   refuses it too, exit 2, before anything is made, since through that rule each program, once its own box is installed, could read the whole of the run's temp directory, the others' temporary directories in it included
   (until then every program shares that directory anyway);
   the refusal names the flag or rule, and says to narrow the flag or to point the variable that set it elsewhere.
@@ -349,12 +349,13 @@ The spawn host module launches every program without one, so today the tools sha
 Landlock restricts the thread that installs its rules, so a launch given a program's box starts the program from a short-lived thread that first restricts itself with that box
 and then spawns it as today, and the program inherits the narrower box (`host/spawn/launch.rs`); nothing re-executes the binary.
 Each program's box gives it a temporary directory of its own.
-As built, the box lets a program of the grants table write every tool directory of the command, and one a flag grants write nothing but its own temporary directory.
+As built, the box lets a program of the grants table write every tool directory of the command, and one a flag grants write nothing but its own temporary directory,
+and each writes too what `--allow-run-write=` names for it, and no program anything another's names;
+a program takes nothing of what `--allow-write=` names, not even its read, which is Gro's own code's, so a tool that must read what Gro's code wrote outside the project takes `--allow-read=`.
 Writing only the directories the table names for that program is designed:
 the tools that write on their own, like SvelteKit's sync and Vitest, name their own write roots, and the ones that don't, like tsc, ESLint, and git, name none.
 Vitest is held to SvelteKit's generated modules for its dev server and its own cache in `node_modules/.vite`, with its config loaded by Vite's runner loader,
 which needs no write of its own.
-A flag naming the directories one program may write is designed.
 Once installed, the nested boxes will also keep a tool from signalling Gro and from reading a sibling's environment and memory through `/proc`.
 Once each tool is held to its own directories, a test or an ESLint plugin won't be able to plant in what `dev` and `build` run.
 It leaves the project's own config, which runs in every tool and which `dev` runs unconfined,

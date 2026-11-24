@@ -58,8 +58,11 @@
 //! `snapshot` feature's code, alone and with `prices`, `gro_runtime`'s
 //! tests of its runtimes built with the build's profile, the one that
 //! starts them from the build's snapshot among them, `fgro`'s integration
-//! tests against the snapshot build, its phases and prices tests against
-//! builds with each feature too ([`INTEGRATION_TESTS`]), and a fixture run
+//! tests through cargo's test build of `gro_cli` with the `snapshot`
+//! feature, the dev-dependencies' `testing` features on, which the binary
+//! that ships never has (only `off_build_tree` runs the shipped file), its
+//! phases and prices tests with each feature too ([`INTEGRATION_TESTS`]),
+//! and a fixture run
 //! with the cargo registry's sources (`$CARGO_HOME/registry/src`), the
 //! vendored `deno_core`, gro's own extension sources, and `src/lib` hidden
 //! (tmpfs mounts in a private user and mount namespace, `unshare -rm`), its

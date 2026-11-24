@@ -18,8 +18,9 @@ tokio = { workspace = true, optional = true }
 # `child`: a child process held by its pidfd and waited on by tokio's
 # reactor, which `gro_runtime` enables, so a crate without it builds no tokio
 child = ["dep:tokio"]
-# `signal_thread`, `map_anonymous`, and `protect_anonymous`, for tests of the
-# box from inside it; only tests enable it
+# `signal_thread`, `reserving_on_this_thread`, `map_anonymous`, and
+# `protect_anonymous`, for tests of the box from inside it; only tests enable
+# it
 testing = []
 
 # a child process closing its descriptors, which libtest's harness, with its
