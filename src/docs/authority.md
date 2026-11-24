@@ -349,7 +349,7 @@ What the release leaves is stated with it:
 - a child that sets `PR_SET_PDEATHSIG` while the short-lived thread that started it in its box still runs is killed when that thread ends
 - `--allow-read=` and `--allow-run-in=` widen every box, `--allow-write=` the run's box and Gro's grants but no tool's, and `--allow-run-write=` one tool's box and the run's alone,
   so `--allow-write=.git` lets Gro's own code write `.git`, and `--allow-run-write=git:.git` lets git,
-  and a `node_modules` linked from another checkout is read there, by the box and by Gro's own code alike, and written there, its tool directories included, only when a write flag names where it leads
+  and a `node_modules` linked from another checkout is read there, by the box and by Gro's own code alike, gets no tool directory, and is written only by what a flag names there for its subject: a tool by `--allow-run-write=`, Gro's own code by `--allow-write=`
 - `-A` after a command word is refused, so the unconfined way to run a command is the Node Gro (`node_modules/.bin/gro`), which confines nothing
 - `fgro run` has no box yet, so a script run with it, and every program it's granted, is bounded by the runtime's own checks alone
 - a project that pins another Gro version runs on the Node Gro, unboxed, unless `GRO_FALLBACK=command` is set

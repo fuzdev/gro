@@ -534,8 +534,10 @@ fn the_plan_refuses_what_no_box_holds() {
 
 /// A `node_modules` that is a symlink is followed: read, and read and
 /// executed for a run that may start a program, at its real path, with a
-/// note naming where it leads; its tool directories are made there, beneath
-/// `/`, only when a write flag names it, and the note says which.
+/// note naming where it leads. No tool directory is made there, whatever
+/// flag names it: `--allow-write=` naming it, or a directory holding it, is
+/// gro's own code's alone, and a program writes there only by a rule
+/// `--allow-run-write=` makes for it, which the note names.
 #[test]
 fn a_symlinked_node_modules_is_followed() {
     let mut linked = facts();
@@ -545,17 +547,17 @@ fn a_symlinked_node_modules_is_followed() {
     let kit = || {
         inputs(
             false,
-            &["svelte-kit"],
-            &["@sveltejs/kit", "vite"],
+            &["svelte-kit", "vitest"],
+            &["@sveltejs/kit", "vite", "vitest"],
             vec![node()],
         )
     };
-    let in_target = [
-        "/ shared/node_modules/$app w req ToolDir(App)",
-        "/ shared/node_modules/.vite w req ToolDir(Vite)",
-        "/ shared/node_modules/.vite-temp w req ToolDir(ViteTemp)",
-    ];
-    // no write flag: read and execute alone
+    let none_writes = "note: node_modules is a symlink to /shared/node_modules, which the box \
+                       follows to read and execute, and no tool writes in it: \
+                       --allow-run-write=<program>:<dirs> naming where it leads lets that tool \
+                       write there";
+    // no flag: read and execute alone, the project's own tool directories
+    // made, none in the link's target
     let plan = BoxPlan::for_run(&kit(), &linked).unwrap();
     let rendered = render(&plan);
     assert_eq!(rendered[1], "real /shared/node_modules rx req NodeModules");
@@ -568,15 +570,9 @@ fn a_symlinked_node_modules_is_followed() {
             .iter()
             .any(|line| line.contains("ToolDir(SvelteKit)"))
     );
-    assert_eq!(
-        plan.note().as_deref(),
-        Some(
-            "note: node_modules is a symlink to /shared/node_modules, which the box follows to \
-             read and execute, and no tool directory is made in it: --allow-write= naming where \
-             it leads lets the tools write there"
-        )
-    );
-    // a write flag naming it, or a directory holding it
+    assert_eq!(plan.note().as_deref(), Some(none_writes));
+    // a write flag naming it, or a directory holding it: its rule, gro's
+    // own code's, and no tool directory there
     for (dir, real) in [
         ("../shared/node_modules", "/shared/node_modules"),
         ("/shared", "/shared"),
@@ -589,54 +585,180 @@ fn a_symlinked_node_modules_is_followed() {
         }];
         let plan = BoxPlan::for_run(&flagged, &linked).unwrap();
         let rendered = render(&plan);
-        for line in in_target {
-            assert!(
-                rendered.iter().any(|each| each == line),
-                "{line}: {rendered:#?}"
-            );
-        }
-        assert_eq!(
-            plan.note().as_deref(),
-            Some(
-                "note: node_modules is a symlink to /shared/node_modules, which the box follows \
-                 to read and execute, and --allow-write= naming where it leads lets the tools \
-                 write their directories there"
-            ),
-            "{dir}"
+        assert!(
+            rendered
+                .iter()
+                .any(|line| *line == format!("/ {} rw req Flag(Write)", &real[1..])),
+            "{dir}: {rendered:#?}"
         );
+        assert!(
+            !rendered
+                .iter()
+                .any(|line| line.contains("ToolDir(App)") || line.contains("ToolDir(Vite")),
+            "{dir}: {rendered:#?}"
+        );
+        assert_eq!(plan.tool_dirs().count(), 1, "{dir}: {rendered:#?}");
+        assert_eq!(plan.note().as_deref(), Some(none_writes), "{dir}");
     }
-    // a write flag naming it on a run whose tools call for no directory
-    // there: the note still names the flag as given, never asks for it
-    let mut toolless = inputs(false, &[], &[], vec![node()]);
-    toolless.flags = vec![GrantedFlagDir {
-        flag: DirFlag::Write,
-        dir: "/shared".to_owned(),
-        real: "/shared".into(),
-    }];
-    let given = BoxPlan::for_run(&toolless, &linked).unwrap();
-    assert!(given.tool_dirs().next().is_none());
+    // `--allow-run-write=` naming it, a directory in it, or one holding it,
+    // for one program: that program's rule, no tool directory, and the note
+    // names each program writing there, once and sorted
+    for (case, run_writes, writers) in [
+        (
+            "its target",
+            vec![vitest_writes(&[(
+                "/shared/node_modules",
+                "/shared/node_modules",
+            )])],
+            Some("vitest writes"),
+        ),
+        (
+            "a directory holding it",
+            vec![vitest_writes(&[("/shared", "/shared")])],
+            Some("vitest writes"),
+        ),
+        (
+            "directories in it, two programs",
+            vec![
+                vitest_writes(&[
+                    ("/shared/node_modules/.vite", "/shared/node_modules/.vite"),
+                    (
+                        "/shared/node_modules/.vite-temp",
+                        "/shared/node_modules/.vite-temp",
+                    ),
+                ]),
+                named_writes(
+                    "node_modules/.bin/svelte-kit",
+                    "svelte-kit",
+                    &[("/shared/node_modules/$app", "/shared/node_modules/$app")],
+                ),
+            ],
+            Some("svelte-kit and vitest write"),
+        ),
+        (
+            "its target as typed through a path that isn't its real one",
+            vec![vitest_writes(&[(
+                "../shared/node_modules",
+                "/shared/node_modules",
+            )])],
+            Some("vitest writes"),
+        ),
+        (
+            "one program by two names, by the first",
+            vec![RunWriteGrant {
+                dirs: vec![
+                    RunWriteDir {
+                        named: "node_modules/.bin/vitest".to_owned(),
+                        dir: "/shared/node_modules/.vite".to_owned(),
+                        real: "/shared/node_modules/.vite".into(),
+                    },
+                    RunWriteDir {
+                        named: "vitest".to_owned(),
+                        dir: "/shared/node_modules/.vite-temp".to_owned(),
+                        real: "/shared/node_modules/.vite-temp".into(),
+                    },
+                ],
+                ..vitest_writes(&[])
+            }],
+            Some("node_modules/.bin/vitest writes"),
+        ),
+        (
+            "a directory elsewhere",
+            vec![vitest_writes(&[("out", "/p/out")])],
+            None,
+        ),
+        (
+            "a sibling of its target",
+            vec![vitest_writes(&[("/shared/out", "/shared/out")])],
+            None,
+        ),
+    ] {
+        let mut named = kit();
+        named.run_writes = run_writes;
+        let plan = BoxPlan::for_run(&named, &linked).unwrap();
+        let rendered = render(&plan);
+        assert!(
+            rendered.iter().any(|line| line.contains("RunWrite(")),
+            "{case}: {rendered:#?}"
+        );
+        assert_eq!(plan.tool_dirs().count(), 1, "{case}: {rendered:#?}");
+        let expected = writers.map_or_else(
+            || none_writes.to_owned(),
+            |writers| {
+                format!(
+                    "note: node_modules is a symlink to /shared/node_modules, which the box \
+                     follows to read and execute, and of the tools only {writers} in it, where \
+                     --allow-run-write= names"
+                )
+            },
+        );
+        assert_eq!(plan.note(), Some(expected), "{case}");
+    }
+    // under a command whose closure writes the root, a program's directory
+    // where the link leads is outside the project, never the corner's
+    let mut gen_named = kit();
+    gen_named.writes_root = true;
+    gen_named.run_writes = vec![vitest_writes(&[(
+        "/shared/node_modules",
+        "/shared/node_modules",
+    )])];
+    let named_plan = BoxPlan::for_run(&gen_named, &linked).unwrap();
+    let rendered = render(&named_plan);
     assert!(
-        given
-            .note()
-            .is_some_and(|note| note.ends_with("lets the tools write their directories there")),
-        "{:?}",
-        given.note()
+        rendered.contains(&"/ shared/node_modules rw req RunWrite(0)".to_owned()),
+        "{rendered:#?}"
     );
     assert!(
-        !render(&plan)
+        !rendered
             .iter()
             .any(|line| line.starts_with("project node_modules")),
+        "{rendered:#?}"
     );
     assert_eq!(
         plan.node_modules_link(),
         Some(std::path::Path::new("/shared/node_modules"))
     );
-    // read alone for a run that starts nothing
+    // read alone for a run that starts nothing, as its note says
     let plan = BoxPlan::for_run(&inputs(true, &[], &[], Vec::new()), &linked).unwrap();
     assert_eq!(
         render(&plan)[1],
         "real /shared/node_modules r req NodeModules"
     );
+    assert_eq!(
+        plan.note().as_deref(),
+        Some(
+            "note: node_modules is a symlink to /shared/node_modules, which the box follows to \
+             read"
+        )
+    );
+    // and for one whose realm has a temporary directory but starts nothing
+    let mut temp_only = inputs(true, &[], &[], Vec::new());
+    temp_only.temp = true;
+    let plan = BoxPlan::for_run(&temp_only, &linked).unwrap();
+    assert_eq!(
+        plan.note().as_deref(),
+        Some(
+            "note: node_modules is a symlink to /shared/node_modules, which the box follows to \
+             read"
+        )
+    );
+}
+
+/// The program `program`, named `named` on the command line, with the
+/// directories `dirs` lists for it, each as written and its real path.
+fn named_writes(program: &str, named: &str, dirs: &[(&str, &str)]) -> RunWriteGrant {
+    RunWriteGrant {
+        program: program.to_owned(),
+        table: true,
+        dirs: dirs
+            .iter()
+            .map(|&(dir, real)| RunWriteDir {
+                named: named.to_owned(),
+                dir: dir.to_owned(),
+                real: real.into(),
+            })
+            .collect(),
+    }
 }
 
 /// Without `node_modules`, no tool directory is planned in it, and nothing

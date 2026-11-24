@@ -3,16 +3,15 @@
 //!
 //! A rule names what it opened, so a tool directory that isn't there when
 //! the box goes up can never be written: each is made first, as a real
-//! directory, beneath its anchor (the project's root, or `/` for one in
-//! where a `node_modules` symlink leads), every directory on the way
+//! directory, beneath the project's root (never where a `node_modules`
+//! symlink leads, which the plan gives none), every directory on the way
 //! opened by its own name with every symlink refused
-//! (`gro_sys::beneath::Links::Refused`), and the last made by `mkdirat` in
-//! the directory so held. One there already passes only as a directory: a
-//! symlink (`node_modules/.vite` linked to the home directory, `.svelte-kit`
-//! to `/tmp`) or a file is refused, as is a file on the way to one (`.fuz`
-//! for `.fuz/cache`), and nothing is made where it leads. A
-//! missing directory on the way is made only beneath the project's root
-//! (`.fuz` for `.fuz/cache`); beneath `/`, one missing fails.
+//! (`gro_sys::beneath::Links::Refused`), a missing one made (`.fuz` for
+//! `.fuz/cache`), and the last made by `mkdirat` in the directory so held.
+//! One there already passes only as a directory: a symlink
+//! (`node_modules/.vite` linked to the home directory, `.svelte-kit` to
+//! `/tmp`) or a file is refused, as is a file on the way to one (`.fuz` for
+//! `.fuz/cache`), and nothing is made where it leads.
 //!
 //! Kind: part of the box's boundary, the opening without following a
 //! symlink, against a symlink planted before the box by code that ran
@@ -77,23 +76,23 @@ impl RunHardened {
     /// Returns the first that couldn't be made ([`ToolDirError`]); those
     /// before it stay made.
     pub fn make_tool_dirs(&self, plan: &BoxPlan) -> Result<(), ToolDirError> {
-        let mut anchors: [Option<OwnedFd>; 2] = [None, None];
+        let mut root: Option<OwnedFd> = None;
         for (_, rule) in plan.tool_dirs() {
-            let Opening::Beneath { anchor, path, .. } = &rule.opening else {
+            let Opening::Beneath {
+                anchor: Anchor::Project,
+                path,
+                ..
+            } = &rule.opening
+            else {
                 continue;
             };
-            let (slot, anchor_path, parents) = match anchor {
-                Anchor::Project => (0, plan.root(), Parents::Made),
-                Anchor::Slash => (1, Path::new("/"), Parents::Found),
-                Anchor::PrivateTemp => continue,
-            };
-            let full = anchor_path.join(path);
+            let full = plan.root().join(path);
             let fail = |source: io::Error| refused(full.clone(), source);
-            let anchor_fd = match &mut anchors[slot] {
+            let root_fd = match &mut root {
                 Some(fd) => fd,
-                none => none.insert(beneath::open_root(anchor_path).map_err(fail)?),
+                none => none.insert(beneath::open_root(plan.root()).map_err(fail)?),
             };
-            make_beneath(anchor_fd.as_fd(), path, parents).map_err(|error| match error {
+            make_beneath(root_fd.as_fd(), path).map_err(|error| match error {
                 Made::NotADirectory => ToolDirError::NotADirectory { path: full.clone() },
                 Made::Io(source) => fail(source),
             })?;
@@ -113,15 +112,6 @@ fn refused(path: PathBuf, source: io::Error) -> ToolDirError {
     }
 }
 
-/// Whether a missing directory on a tool directory's way is made.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Parents {
-    /// Made, beneath the project's root.
-    Made,
-    /// Not made: it must be found.
-    Found,
-}
-
 /// Why [`make_beneath`] made nothing.
 enum Made {
     /// Something other than a directory is at the path.
@@ -138,8 +128,8 @@ impl From<io::Error> for Made {
 
 /// Makes the directory at `path` beneath `anchor`, each directory on the
 /// way opened by its own name with every symlink refused, a missing one
-/// made as `parents` says.
-fn make_beneath(anchor: BorrowedFd<'_>, path: &Path, parents: Parents) -> Result<(), Made> {
+/// made.
+fn make_beneath(anchor: BorrowedFd<'_>, path: &Path) -> Result<(), Made> {
     let names = path
         .components()
         .map(|component| match component {
@@ -161,9 +151,7 @@ fn make_beneath(anchor: BorrowedFd<'_>, path: &Path, parents: Parents) -> Result
     for name in on_the_way {
         let name = Path::new(name);
         dir = match beneath::open(dir.as_fd(), name, OpenAs::Directory, Links::Refused) {
-            Err(error)
-                if error.raw_os_error() == Some(libc::ENOENT) && parents == Parents::Made =>
-            {
+            Err(error) if error.raw_os_error() == Some(libc::ENOENT) => {
                 make_one(dir.as_fd(), name)?;
                 beneath::open(dir.as_fd(), name, OpenAs::Directory, Links::Refused)?
             }

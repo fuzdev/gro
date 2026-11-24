@@ -209,8 +209,12 @@ anything else that keeps a rule from opening, like a symlink on its path, refuse
   so a read the box allows there isn't refused as a symlink leaving the project.
   A package there resolves its imports within that `node_modules`, and nothing of the checkout holding it is read,
   its `package.json` included ([resolver](resolver.md#departures-from-node)).
-  No tool directory is made there, and nothing there is written, unless `--allow-write=` names where it leads, by that path, which makes the tool directories there for the grants table's tools to write, the one way that flag reaches a tool,
-  since that checkout's own unconfined commands run what a test writes there, so a tool that needs one fails without the flag.
+  No tool directory is made there, since that checkout's own unconfined commands run what a tool writes there:
+  a tool writes there only what `--allow-run-write=` names for it, by the path it leads to, and `--allow-write=` naming it lets only Gro's own code write there.
+  A tool that needs a directory there fails without the flag, and the `note:` line names the tools that write there, if any.
+  Under `fgro check` in a worktree linking a SvelteKit project's `node_modules` at `<target>`, that is
+  `'--allow-run-write=svelte-kit:<target>/.vite-temp,<target>/$app' --allow-run-write=svelte-check:<target>/.vite-temp --allow-run-write=vitest:<target>/.vite-temp,<target>/.vite`
+  once that checkout has made them, or `<target>` itself for each, which lets each write all of that `node_modules`.
   A link to any other directory, like `~/.ssh` or `.git`, is refused, exit 2.
 - **Network:** the run's own namespace, whose only interface is its loopback,
   or where user namespaces are restricted the host's network with every internet socket refused ([namespaces](#namespaces)).

@@ -436,10 +436,11 @@ As designed, except where marked built:
     (the real `node` first on `PATH`, or `--allow-run-in=` naming the version manager's directory),
     since the shim reads its manager's tree under the home directory, which the box refuses.
     A native shim, like volta's, can't be told apart from `node`, and its tools fail inside the box.
-  - A `node_modules` that's a symlink to another checkout's `node_modules` is followed, read and executed there, with a `note:` line naming where it leads,
-    and Gro's own code reads through it too, read-only;
+  - A `node_modules` that's a symlink to another checkout's `node_modules` is followed, read there, and executed for a command that may start a program, with a `note:` line naming where it leads and which tools write in it,
+    and Gro's own code reads through it too;
     its packages resolve within it, reading nothing of the checkout holding it,
-    and its tool directories are made there, for the grants table's tools to write, only when an `--allow-write=` names it (the one way that flag reaches a tool), so a tool that needs one fails without the flag.
+    and no tool directory is made there: a tool writes there only what `--allow-run-write=` names for it, by the path it leads to,
+    so a tool that needs a directory there fails without that flag, and `--allow-write=` naming it lets only Gro's own code write there.
     A `node_modules` linked to anything else is refused before the box goes up, exit 2.
   - A binary built with a plain `cargo build`, which has no snapshot, refuses every command of Gro's it would run in its box, exit 1,
     since it reads its own sources from its build tree, which no rule of the box admits.

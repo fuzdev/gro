@@ -39,13 +39,15 @@
 //!
 //! A run whose closure grants a local tool gets the tool directories the
 //! project's declared dependencies call for ([`ToolDir`]), each written,
-//! made before the box. A run that writes the project's root (`gen`,
-//! `format`, `sync`, or a write flag naming the root) gets one write rule
-//! per top-level directory or regular file, but `.git`, `node_modules`,
-//! every dot-entry, every symlink, every regular file with more than one
-//! link, and every FIFO, socket, or device, each of the last three recorded
-//! ([`Skip`]); a top-level entry made later gets none. A run in check mode
-//! writes only its tool directories and its private directory.
+//! made before the box, those in `node_modules` only where it's the
+//! project's own directory, never a linked one. A run that writes the
+//! project's root (`gen`, `format`, `sync`, or a write flag naming the
+//! root) gets one write rule per top-level directory or regular file, but
+//! `.git`, `node_modules`, every dot-entry, every symlink, every regular
+//! file with more than one link, and every FIFO, socket, or device, each of
+//! the last three recorded ([`Skip`]); a top-level entry made later gets
+//! none. A run in check mode writes only its tool directories and its
+//! private directory.
 //!
 //! Grant flags widen the box as they widen the realm: a read flag by real
 //! path, a write flag read and written beneath `/` (one naming the root is
@@ -74,10 +76,14 @@
 //! (a [`GitFault`]); and a `node_modules` symlink to anything but a
 //! directory named `node_modules` outside the project, neither in it nor
 //! holding it, so a committed link to `~/.ssh` or to `.git` gets no rule.
-//! Another checkout's `node_modules` is followed, read and executed, and
-//! the plan carries a note naming where it leads ([`BoxPlan::note`]); its
-//! tool directories are made there only when a write flag names it, since
-//! that checkout's own unconfined commands run what a test writes there.
+//! Another checkout's `node_modules` is followed, read, and executed for a
+//! run that may start a program, and the plan carries a note naming where
+//! it leads and which programs `--allow-run-write=` lets write in it
+//! ([`BoxPlan::note`]). No tool directory is made there, since that
+//! checkout's own unconfined commands run what a tool writes there, so a
+//! program writes there only what that flag names for it, as anywhere
+//! outside the project, and `--allow-write=` naming it lets only gro's own
+//! code write there.
 //!
 //! Kinds: the plan is the input of a boundary, the kernel's rules, whose
 //! adversary is the project's code and tests, the tools and their
@@ -95,6 +101,7 @@ use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 
 use super::git::GitFault;
+use super::listed;
 use super::program::{ProgramWrites, program_rights};
 use super::rules::{Need, RealRights, Rights};
 
@@ -311,9 +318,6 @@ pub struct BoxPlan {
     skipped: Vec<Skipped>,
     /// Where the project's `node_modules` leads, when it's a symlink.
     node_modules_link: Option<PathBuf>,
-    /// Whether a write flag names where `node_modules` leads, so its tool
-    /// directories are made there.
-    node_modules_written: bool,
     /// The directories `--allow-run-write=` lists, by program, as the
     /// inputs held them: what a [`RuleSource::RunWrite`] indexes.
     run_writes: Vec<RunWriteGrant>,
@@ -420,6 +424,9 @@ pub enum RuleSource {
 
 /// A directory a tool writes, made before the box when the command's
 /// closure grants a local tool and the project declares what writes it.
+///
+/// One in `node_modules` is made only where that's the project's own
+/// directory, never where a linked one leads.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ToolDir {
     /// `.svelte-kit`, for `@sveltejs/kit`.
@@ -654,10 +661,6 @@ impl BoxPlan {
                 NodeModules::Link { real } => Some(real.clone()),
                 NodeModules::Absent | NodeModules::Directory => None,
             },
-            node_modules_written: match &facts.node_modules {
-                NodeModules::Link { real } => written_by_flag(inputs, real),
-                NodeModules::Absent | NodeModules::Directory => false,
-            },
             run_writes: inputs.run_writes.clone(),
         };
         let read_maybe_execute = if inputs.spawns {
@@ -839,24 +842,53 @@ impl BoxPlan {
     }
 
     /// The note a run prints for what the plan followed: a `node_modules`
-    /// that is a symlink, read and executed where it leads, and whether a
-    /// write flag names it, which alone lets the tools make their
-    /// directories there.
+    /// that is a symlink, read where it leads, and executed and written by
+    /// the tools of a run that may start a program, which write there only
+    /// what `--allow-run-write=` names for each: those it names there, or
+    /// how one writes there when it names none.
     pub fn note(&self) -> Option<String> {
         self.node_modules_link.as_ref().map(|real| {
-            let tools = if self.node_modules_written {
-                "and --allow-write= naming where it leads lets the tools write their directories \
-                 there"
+            let link = format!("note: node_modules is a symlink to {}", real.display());
+            if !self.spawns {
+                return format!("{link}, which the box follows to read");
+            }
+            let writers = self.run_writers_in(real);
+            let tools = if writers.is_empty() {
+                "no tool writes in it: --allow-run-write=<program>:<dirs> naming where it leads \
+                 lets that tool write there"
+                    .to_owned()
             } else {
-                "and no tool directory is made in it: --allow-write= naming where it leads lets \
-                 the tools write there"
+                let verb = if writers.len() == 1 {
+                    "writes"
+                } else {
+                    "write"
+                };
+                format!(
+                    "of the tools only {} {verb} in it, where --allow-run-write= names",
+                    listed(writers.into_iter().map(str::to_owned))
+                )
             };
-            format!(
-                "note: node_modules is a symlink to {}, which the box follows to read and \
-                 execute, {tools}",
-                real.display()
-            )
+            format!("{link}, which the box follows to read and execute, and {tools}")
         })
+    }
+
+    /// The programs `--allow-run-write=` lets write in `dir`, a real path,
+    /// by a directory it names there or one holding it, each once, by the
+    /// first of its names in the flags' sorted order, as the walls note
+    /// names it, sorted.
+    fn run_writers_in(&self, dir: &Path) -> Vec<&str> {
+        self.run_writes
+            .iter()
+            .filter(|grant| {
+                grant
+                    .dirs
+                    .iter()
+                    .any(|named| holds(&named.real, dir) || holds(dir, &named.real))
+            })
+            .filter_map(|grant| grant.dirs.first().map(|named| named.named.as_str()))
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect()
     }
 
     /// Adds a rule opened by `path`, a real path.
@@ -1022,11 +1054,8 @@ impl BoxPlan {
                     NodeModules::Directory => {
                         (Anchor::Project, Path::new("node_modules").join(dir.name()))
                     }
-                    // another checkout's: written there only as a write flag
-                    // names it, the command line's choice
-                    NodeModules::Link { real } if written_by_flag(inputs, real) => {
-                        (Anchor::Slash, beneath_root(real).join(dir.name()))
-                    }
+                    // another checkout's, which a program writes only as
+                    // `--allow-run-write=` names it
                     NodeModules::Absent | NodeModules::Link { .. } => continue,
                 }
             } else {
@@ -1089,14 +1118,6 @@ impl BoxPlan {
 /// beneath a rule whatever its directory holds.
 pub(super) fn holds(rule: &Path, dir: &Path) -> bool {
     dir.starts_with(rule)
-}
-
-/// Whether a write flag names `dir` or a directory holding it.
-fn written_by_flag(inputs: &BoxInputs, dir: &Path) -> bool {
-    inputs
-        .flags
-        .iter()
-        .any(|flag| flag.flag == DirFlag::Write && dir.starts_with(&flag.real))
 }
 
 /// Whether a write flag names the project's root.

@@ -1695,6 +1695,124 @@ fn a_write_flag_on_a_linked_node_modules_writes_through_the_link() {
     assert!(other.join("written_through.txt").exists(), "{stderr}");
 }
 
+/// A `node_modules` linked from another checkout gets no tool directory,
+/// and a tool writes there only what `--allow-run-write=` names for it:
+/// `--allow-write=` naming where it leads makes nothing there and lets no
+/// tool write it, and `--allow-run-write=vitest:` naming it lets vitest
+/// write there and no other tool, the run's note saying which. The other
+/// directory holds the fake table tools and a copy of the packages Gro's
+/// library reads, never the checkout's.
+#[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "a command of Gro's runs in its box only from a snapshot build"
+)]
+fn a_linked_node_modules_is_written_only_by_a_program_s_flag() {
+    let package_json = r#"{"name": "p", "type": "module", "devDependencies": {"vitest": "*", "@sveltejs/kit": "*"}}"#;
+    let scratch = Scratch::new(
+        "verb_box_linked_writes",
+        &[
+            ("tmp/.keep", ""),
+            ("project/package.json", package_json),
+            ("project/src/probe.ts", "// probed\n"),
+            ("other/node_modules/.bin/vitest", FAKE_TOOL),
+            ("other/node_modules/.bin/svelte-kit", FAKE_TOOL),
+            (
+                "other/node_modules/vitest/package.json",
+                r#"{"name": "vitest", "version": "1.0.0"}"#,
+            ),
+            (
+                "other/node_modules/@sveltejs/kit/package.json",
+                r#"{"name": "@sveltejs/kit", "version": "1.0.0"}"#,
+            ),
+        ],
+    );
+    scratch.set_mode("other/node_modules/.bin/vitest", 0o755);
+    scratch.set_mode("other/node_modules/.bin/svelte-kit", 0o755);
+    let other = scratch.0.join("other/node_modules").canonicalize().unwrap();
+    for package in ["@fuzdev/fuz_util", "@fuzdev/fuz_schema", "esm-env"] {
+        copy_tree(&checkout_node_modules().join(package), &other.join(package));
+    }
+    let project = scratch.0.join("project");
+    std::os::unix::fs::symlink(&other, project.join("node_modules")).unwrap();
+    let run_check = |flag: &str| {
+        let mut command = fgro_command(&[
+            "check",
+            flag,
+            "--no-typecheck",
+            "--no-lint",
+            "--no-format",
+            "--no-package_json",
+        ]);
+        for name in CLEARED {
+            command.env_remove(name);
+        }
+        command
+            .current_dir(&project)
+            .env("TMPDIR", scratch.0.join("tmp"));
+        let (code, stdout, stderr) = run(command);
+        let output = format!("{stdout}{stderr}");
+        assert_eq!(code, Some(0), "{flag}: {output}");
+        let note = stderr
+            .lines()
+            .find(|line| line.starts_with("note: node_modules is a symlink"))
+            .unwrap_or_default()
+            .to_owned();
+        (output, probed(&stdout, &stderr), note)
+    };
+    let link = format!(
+        "note: node_modules is a symlink to {}, which the box follows to read and execute, and ",
+        other.display()
+    );
+    // gro's own code's flag: no tool directory made there, no tool writing
+    let (output, probed, note) = run_check(&format!("--allow-write={}", other.display()));
+    for (name, what) in [
+        ("vitest_nm", "EACCES"),
+        ("vitest_vite", "ENOENT"),
+        ("svelte-kit_nm", "EACCES"),
+        ("svelte-kit_vite", "ENOENT"),
+    ] {
+        assert_eq!(
+            probed.get(name).map(String::as_str),
+            Some(what),
+            "{name}: {output}"
+        );
+    }
+    for dir in [".vite", ".vite-temp", "$app"] {
+        assert!(!other.join(dir).exists(), "{dir}: {output}");
+    }
+    assert!(!other.join("vitest_w").exists(), "{output}");
+    assert_eq!(
+        note,
+        format!(
+            "{link}no tool writes in it: --allow-run-write=<program>:<dirs> naming where it leads \
+             lets that tool write there"
+        ),
+        "{output}"
+    );
+    // vitest's own flag: vitest writes there, and no other tool
+    let (output, probed, note) =
+        run_check(&format!("--allow-run-write=vitest:{}", other.display()));
+    for (name, what) in [
+        ("vitest_nm", "ok"),
+        ("vitest_vite", "ENOENT"),
+        ("svelte-kit_nm", "EACCES"),
+    ] {
+        assert_eq!(
+            probed.get(name).map(String::as_str),
+            Some(what),
+            "{name}: {output}"
+        );
+    }
+    assert!(other.join("vitest_w").exists(), "{output}");
+    assert!(!other.join("svelte-kit_w").exists(), "{output}");
+    assert_eq!(
+        note,
+        format!("{link}of the tools only vitest writes in it, where --allow-run-write= names"),
+        "{output}"
+    );
+}
+
 /// Why a private user and mount namespace can't bind-mount here, by trying
 /// it with `unshare`, none when it can: the `AppArmor` policy restricting user
 /// namespaces refuses one, as does a sandbox that refuses nested ones.
@@ -1790,7 +1908,12 @@ const attempt = (name, act) => {
 \t\tconsole.log(`probe: ${me}_${name} ${error.code}`);
 \t}
 };
-for (const [name, at] of [['out', 'out/w'], ['vite', 'node_modules/.vite/w'], ['src', 'src/w']]) {
+for (const [name, at] of [
+	['out', 'out/w'],
+	['vite', 'node_modules/.vite/w'],
+	['nm', `node_modules/${me}_w`],
+	['src', 'src/w'],
+]) {
 \tattempt(name, () => fs.writeFileSync(at, me));
 }
 console.log(`probe: ${me}_tmpdir ${process.env.TMPDIR}`);

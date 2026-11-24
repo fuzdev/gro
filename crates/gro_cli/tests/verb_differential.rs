@@ -269,13 +269,24 @@ fn apply(
         let before = actual.clone();
         match difference {
             Difference::LinkedNodeModules => {
-                let note = format!(
-                    "note: node_modules is a symlink to {}, which the box follows to read and \
-                     execute, and no tool directory is made in it: --allow-write= naming where it \
-                     leads lets the tools write there\n",
+                // read for a run that starts no program, and executed too
+                // for one whose closure grants one, `check`'s and `gen`'s
+                // (svelte-kit), whose tools write nothing there
+                let link = format!(
+                    "note: node_modules is a symlink to {}, which the box follows to read",
                     checkout_node_modules().display()
                 );
-                if let Some(rest) = actual.stderr.strip_prefix(&note) {
+                let spawns = matches!(case["args"][0].as_str(), Some("check" | "gen"));
+                let note = if spawns {
+                    format!(
+                        "{link} and execute, and no tool writes in it: \
+                         --allow-run-write=<program>:<dirs> naming where it leads lets that tool \
+                         write there\n"
+                    )
+                } else {
+                    format!("{link}\n")
+                };
+                if let Some(rest) = actual.stderr.strip_prefix(note.as_str()) {
                     actual.stderr = rest.to_owned();
                 }
             }

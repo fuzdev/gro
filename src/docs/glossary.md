@@ -396,7 +396,7 @@ but for Gro's own package, whose specifiers resolve in [Gro's library](#gros-lib
 A directory in the project a tool writes on its own, like `.svelte-kit` or Vite's `node_modules/.vite`,
 which the run's [box](#box) makes a [write root](#write-root) when the command's closure grants a tool from the project's `node_modules/.bin`
 and the project declares the dependency that writes it.
-Each is made empty where it's absent before the box goes up, never through a symlink, and never in a `node_modules` linked from another checkout unless a write flag names it,
+Each is made empty where it's absent before the box goes up, never through a symlink, and never in a `node_modules` linked from another checkout, where a tool writes only what `--allow-run-write=` names for it,
 and what a tool leaves there is code a later command may run ([box](box.md#what-a-commands-box-admits)).
 
 ## type marker
