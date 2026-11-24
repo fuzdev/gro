@@ -408,7 +408,7 @@ As designed, except where marked built:
     so a tool that keeps state there (Vitest's token among it) gets a fresh, private place, nothing under the home directory is touched for it,
     and a tool that caches in either place starts cold every run.
     An OS temporary directory inside the project is refused for such a run, exit 2, the refusal naming the variable that set it, or saying it's the default.
-    So is a grant flag or rule a program's box takes holding the OS temporary directory, like `--allow-read=/tmp`, `--allow-read=/`, or `--allow-run-write=vitest:/tmp` (never `--allow-write=`, whose directories no program takes), for a command that may start a program, exit 2, the refusal naming the flag or rule and the fix.
+    So is a grant flag or rule a program's box takes holding the OS temporary directory, like `--allow-read=/tmp`, `--allow-read=/`, or `--allow-run-write=vitest:/tmp` (never `--allow-write=`, whose directories no program's box takes), for a command that may start a program, exit 2, the refusal naming the flag or rule and the fix.
   - A directory a grant flag lists inside the project, by its text or through a link to the project, that leads out of it through a symlink is refused, exit 2, naming the real path to type instead, and so is one leading through a symlink into a dot-entry or `node_modules` it doesn't name ([box](box.md#what-a-commands-box-admits)).
   - A write outside the command's write roots is refused at the kernel:
     in Gro's own code a `permission_denied` `FsError` whose cause names where the box lets the command write and what stays read-only,
