@@ -20,7 +20,7 @@
 > Its grants are the command's closure, read natively and joined to the grant flags, and each program the closure grants gets the grants table's environment policy.
 > The tools that pass the whole environment (svelte-kit, vitest, eslint, svelte-check, tsc, and npm) run the project's code inside that box,
 > bounded by its rules rather than by the grants ([box](box.md#what-a-commands-box-admits)).
-> Not built: the box for `fgro run`, where a granted program runs unboxed, a box installed for each child (it's built, installed by no launch yet), `net`, `watch`, `stdin`, the policy file, the deny overlays, and the seal;
+> Not built: the box for `fgro run`, where a granted program runs unboxed, `net`, `watch`, `stdin`, the policy file, the deny overlays, and the seal;
 > the [roadmap](runtime.md#roadmap) says when, and [box](box.md) has the kernel layer under all of it.
 
 These terms carry this doc, and the [glossary](glossary.md) defines them and the others:
@@ -230,7 +230,7 @@ and whoever accepts the policy file.
 - Deliberate code in the project holds the invocation's whole grant set.
   The native checks and the box (built for `fgro <command>`, designed for `fgro run`) bound it, and guardrails don't.
 - A child process, whose arguments and config files are code, is bounded by its box:
-  under `fgro <command>` the run's box (built), which every tool shares, and a narrower one of its own (built, installed by no launch yet).
+  under `fgro <command>` a narrower box of its own inside the run's box (both built).
   Under `fgro run`, which has no box yet, a program a run is granted is close to `-A`.
 - An engine exploit is bounded by the box of the process it lands in, built for `fgro eval` and `fgro <command>` and designed for `fgro run`,
   so today an exploit in `fgro run` reaches what your user can.
@@ -299,7 +299,8 @@ What the release claims, on Linux with Landlock's sixth ABI:
 every command of Gro's that the binary runs runs in a kernel [box](glossary.md#box) (built),
 covering Gro's code, the project's config and genfiles, and the tools it spawns, which inherit it,
 and each tool it spawns runs in a narrower box of its own inside it, writing only its own directories
-(the box built, installed by no launch yet, and its writing only its own directories designed; the release waits for both, [box](box.md#a-box-for-each-tool)).
+(both boxes built and installed; each tool of the grants table writes the command's tool directories, and each tool what `--allow-run-write=` names for it,
+and its writing only its own directories is designed, which the release waits for, [box](box.md#a-box-for-each-tool)).
 Nothing in the home directory is readable but the project's own trees wherever they sit, what git reads there, and the programs the run pins, like `node`'s own file where a version manager installed it there:
 git's global config, its ignore and attributes files, and the files its config includes or names as `core.excludesFile` and `core.attributesFile`,
 never git's credential store unless your own git config names it as one of those.
@@ -330,17 +331,24 @@ What the release leaves is stated with it:
   since `dev` and `build` read them unconfined anyway; the read-deny overlay that would refuse them is designed, not part of the release
 - `/proc` stays readable, so boxed code sees the command line and status of every process your user can see, as an unconfined `dev` does;
   the environment, memory, and working directory of a process outside the box stay refused,
-  while the tools inside one box can read one another's environment until each has a box of its own, and one another's memory where Yama's `ptrace_scope` is 0
+  and each tool runs in a box of its own, so the tools never read one another's environment, memory, or working directory;
+  a tool still sees the others' command line, status, and descriptor numbers, gets a handle from `pidfd_open` on another or on the run, one that can't signal,
+  reads the others' write roots, and can take the terminal's foreground
 - a hard link made outside the run reads as the file it links, under whatever name it has
 - the tools see the run's whole environment, as on Node, and what they print can carry it
 - git's global config stays readable to every tool, with any credential or token kept in it
 - a write root is code the next unconfined command may run, as above:
   a tool directory's contents run later, like the optimized dependencies in `node_modules/.vite` that `dev` loads,
   and under a write command a `.git` or `node_modules` nested in an included directory stays writable, which Landlock can't carve out
-- the tools share the run's box until each has a box of its own, so one tool can write every write root the command has, and its code can plant in another's;
-  even with each in its own, a test can write Vitest's own directories, which a dev server already running picks up,
+- every tool of the grants table writes every tool directory of the command, so its code can plant in another's;
+  even once each writes only its own, a test can write Vitest's own directories, which a dev server already running picks up,
   and the project's config and genfiles run in every tool
-- a grant flag widens the box as it widens the grants, `--allow-run-write=` the box alone, so `--allow-write=.git` writes `.git`,
+- a directory `--allow-run-write=` names for a tool is written by everything that tool runs, its config, its plugins, and for a test runner the tests;
+  code in the run can start that tool with arguments of its own;
+  and within one `check`, a test given a directory under `src/` can write a genfile that the same run's `gen --check` loads in Gro's own code, which holds every tool of the command with its writes
+- a child that sets `PR_SET_PDEATHSIG` while the short-lived thread that started it in its box still runs is killed when that thread ends
+- `--allow-read=` and `--allow-run-in=` widen every box, `--allow-write=` the run's box and Gro's grants but no tool's, and `--allow-run-write=` one tool's box and the run's alone,
+  so `--allow-write=.git` lets Gro's own code write `.git`, and `--allow-run-write=git:.git` lets git,
   and a `node_modules` linked from another checkout is read there, by the box and by Gro's own code alike, and written there, its tool directories included, only when a write flag names where it leads
 - `-A` after a command word is refused, so the unconfined way to run a command is the Node Gro (`node_modules/.bin/gro`), which confines nothing
 - `fgro run` has no box yet, so a script run with it, and every program it's granted, is bounded by the runtime's own checks alone

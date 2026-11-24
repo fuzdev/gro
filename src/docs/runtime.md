@@ -19,7 +19,7 @@
 > Designed, not built: the host modules not marked built in [host modules](host_modules.md#the-modules) (`net`, `watch`, and `stdin`;
 > every host module exists as its Node implementation), the grant flags beyond those listed in [run](run.md#usage), the policy file,
 > and the seal on the global object.
-> So is the box for `fgro run`; a box for each tool inside a command's is built, installed by no launch yet ([box](box.md#a-box-for-each-tool)).
+> So is the box for `fgro run`; each tool a command of Gro's starts runs in a box of its own inside the command's ([box](box.md#a-box-for-each-tool)).
 > Until they land, `fgro run` gives code no API past its own module graph, the console, and the builtin modules [host modules](host_modules.md#the-modules) marks built,
 > but the process itself isn't confined or limited: against code that exploits V8 it's an ordinary process with your user's authority,
 > the same class as Deno with no permissions granted;
@@ -33,7 +33,7 @@ The runtime's docs:
 
 - [runtime](runtime.md) (this doc) - why it exists, the model in a page, the design, and the roadmap
 - [authority](authority.md) - the security model: grants and the policy file, run kinds, what holds by construction, the threat model, imports or globals
-- [box](box.md) - the kernel layer under the runtime's checks: what Landlock and seccomp hold and can't, the one namespace the box takes, the box a command of Gro's runs in and the one for each child (built, installed by no launch yet), the terminal, and limits
+- [box](box.md) - the kernel layer under the runtime's checks: what Landlock and seccomp hold and can't, the one namespace the box takes, the box a command of Gro's runs in and the one each tool runs in inside it, the terminal, and limits
 - [run](run.md) - the reference for `fgro run` as built today: what loads, the globals, errors, and exit codes
 - [eval](eval.md) - the reference for `fgro eval` as built today: the engine and its limits, determinism, the protocol, the box, the driver, the serializer, the envelope, the graph, and exit codes
 - [host modules](host_modules.md) - the imports that reach the OS: `fs`, `spawn`, `net`, `watch`, and the process modules, how to hand them down, and the Node implementation's gaps
@@ -213,7 +213,7 @@ Each bullet marks what's built; anything unmarked past the omissions is designed
 - **A kernel box.** On Linux a coarsening of the grant set also becomes kernel rules for the whole invocation,
   installed before V8 starts a thread and inherited by every child process.
   Installed for `fgro eval`, as a fixed box with no grants to enforce yet, and for every command of Gro's on the binary, as the run's box,
-  derived from the command's closure and the grant flags; designed for `fgro run`, and built for each child inside the run's, installed by no launch yet
+  derived from the command's closure and the grant flags, with each tool it starts in a box of its own inside it; designed for `fgro run`
   ([eval](eval.md#the-box) has eval's exact walls; [box](box.md) has what each layer holds, the one namespace the box takes, and the run's walls).
 - **Native code: first-party crates linked in, WASM as the portable path, FFI as a grant.**
   blake3 and tsv are exposed as builtin modules (`@fuzdev/gro/blake3.ts`, `@fuzdev/gro/tsv.ts`), with no boundary to cross.
@@ -404,7 +404,8 @@ As designed, except where marked built:
     A project inside a repository whose `.git` is at the home directory or above, like a dotfiles repository, runs, but git run there fails, unable to read it.
   - In a run that may start a program, or that `--allow-temp` grants, `TMPDIR` names a directory private to the run, which a later start removes once the run has ended,
     and so do `TMP` and `TEMP` where they were set,
-    and `XDG_DATA_HOME`, `XDG_CACHE_HOME`, and `XDG_STATE_HOME` name directories inside it,
+    and `XDG_DATA_HOME`, `XDG_CACHE_HOME`, and `XDG_STATE_HOME` name directories inside it;
+    each tool gets a directory of its own there, which its `TMPDIR`, its `TMP` and `TEMP` where it has them, and its XDG variables name, and which no other tool reads,
     so a tool that keeps state there (Vitest's token among it) gets a fresh, private place, nothing under the home directory is touched for it,
     and a tool that caches in either place starts cold every run.
     An OS temporary directory inside the project is refused for such a run, exit 2, the refusal naming the variable that set it, or saying it's the default.
@@ -412,7 +413,8 @@ As designed, except where marked built:
   - A directory a grant flag lists inside the project, by its text or through a link to the project, that leads out of it through a symlink is refused, exit 2, naming the real path to type instead, and so is one leading through a symlink into a dot-entry or `node_modules` it doesn't name ([box](box.md#what-a-commands-box-admits)).
   - A write outside the command's write roots is refused at the kernel:
     in Gro's own code a `permission_denied` `FsError` whose cause names where the box lets the command write and what stays read-only,
-    and in a tool `EACCES` or `EPERM`, after which, when the run exits nonzero, a closing `note:` line names the box's network and writes and the flags that widen it
+    and in a tool `EACCES` or `EPERM`, after which, when the run exits nonzero, a closing `note:` line names each tool's box's network and writes and which flag widens what,
+    a tool's own write taking `--allow-run-write=` and Gro's own `--allow-write=`
     ([box](box.md#what-a-commands-box-admits) has both texts and when each appears).
     So a genfile's new top-level output fails, as does any write under `.git`, `node_modules`, or a dot-entry,
     where the Node Gro writes each.
@@ -493,11 +495,11 @@ where the host modules and grants land with their first consumer.
 - [ ] the host modules (fs, spawn, watch, net, and the process modules), the grants
       (built so far: the link-time check, the modules [host modules](host_modules.md#the-modules) marks built, and the flags [run](run.md#usage) lists),
       and the policy file, enforced, with the box under every run and its children
-      (built for every command of Gro's on the binary and designed for `fgro run`, with each child's own box built, installed by no launch yet,
+      (built for every command of Gro's on the binary, each tool in a box of its own inside it, and designed for `fgro run`,
       [box](box.md#the-box-for-runs-and-children)), landing with Gro on Gro
 - [ ] each tool in a box of its own inside the run's, writing only the directories the grants table names for it
       ([box](box.md#a-box-for-each-tool))
-- [ ] the first release, Gro running on this runtime, for Linux x86_64, once each tool has its own box;
+- [ ] the first release, Gro running on this runtime, for Linux x86_64, once each tool writes only its own directories;
       the tool that installs it records the binary's hash as a pin,
       which the caller of `gro eval` verifies before every spawn
       (no binary release is attached yet, and `fgro` isn't released on its own)

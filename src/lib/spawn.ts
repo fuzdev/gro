@@ -69,6 +69,9 @@
  * never per call. `pass_env: 'all'` is the hatch that hands over the host's whole environment,
  * as strong as `-A`, so use it only where a person chose it, and review it as such.
  * `omit_env` beside it leaves out exact names, case-sensitive and never a glob.
+ * Under a command of Gro's on `fgro`, each launch then points the child's `TMPDIR`, its `TMP`
+ * and `TEMP` where it has them, and its XDG data, cache, and state variables into its own box's
+ * temporary directory, over whatever `pass_env` and `env` gave them.
  *
  * `start` is a long-lived `SpawnChild`, `timeout_ms` and `signal` end a call's child
  * (`SIGTERM`, then `SIGKILL` after a grace period), and a call ended that way resolves to a

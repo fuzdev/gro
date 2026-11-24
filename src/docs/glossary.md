@@ -63,7 +63,7 @@ The run's box is built too, and every command of Gro's the binary runs starts in
 the project read-only but for the command's [write roots](#write-root), nothing under the home directory but what git reads there, the programs the run pins (`node`'s own file among them), and the project's own trees,
 no network but the run's own loopback, and every tool the run starts inside it
 ([box](box.md#what-a-commands-box-admits)).
-A box for `fgro run` is designed, and one for each child inside the run's is built, installed by no launch yet.
+A box for `fgro run` is designed, and each tool a command of Gro's starts runs in a box of its own inside the run's.
 
 ## builtin module
 
@@ -115,7 +115,8 @@ Refusals that hold inside a granted root, the read-deny overlay for reads and th
 Short of `-A`: reads of `.env*` files except through the host's env reader and of credential files (`~/.ssh`, `.git/config`),
 and writes under `.git` and `node_modules`.
 Always on, `-A` included: reads of a process's environment, memory, and command line (`/proc/*/environ`, `/proc/*/mem`, `/proc/*/cmdline`) through the runtime's own `fs`;
-the [box](#box) a command of Gro's runs in lets its tools read `/proc` and refuses only the environment, memory, and working directory of a process outside it.
+the [box](#box) a command of Gro's runs in lets its tools read `/proc` and refuses only the environment, memory, and working directory of a process outside it,
+and each tool's own box inside it refuses those of every other tool and of the run.
 Designed ([authority](authority.md#secure-by-default), [host modules](host_modules.md#native-requirements));
 until they land, `fs` on `fgro` reads any file beneath a root that reads (`.env` included)
 and writes any beneath a root that writes (`.git` and `node_modules` included) ([host modules](host_modules.md#fs-on-fgro));

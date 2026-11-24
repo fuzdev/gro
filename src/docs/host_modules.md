@@ -334,7 +334,7 @@ const result = await check.closed;
   and any other failure, like `not_executable`, still throws.
 - A program handle bounds which binary runs, not what it does: for most tools the arguments are code
   (`git -c core.sshCommand=…`, `node -e`, `ssh -o ProxyCommand=`, `find -exec`), and a tool reads its own config from the project and `HOME`,
-  so on `fgro` a spawn grant is bounded by the box around the child, built for a command of Gro's, whose tools run in the run's box,
+  so on `fgro` a spawn grant is bounded by the box around the child, built for a command of Gro's, whose tools run each in a box of its own inside the run's,
   and designed for `fgro run`, and the policy diff is designed to show it that way ([box](box.md#the-box-for-runs-and-children)).
 - A bare name walks the host's `PATH` synchronously, absolute entries only, to the first regular executable.
   The child's own `PATH` lookups use the host `PATH` as it is, so a relative or empty entry in it resolves against the child's cwd,
@@ -480,6 +480,9 @@ const result = await check.closed;
 - A child starts from a cleared environment, on the runtime's grant rules:
   `PATH`, `HOME`, `TMPDIR`, and `TERM` when the host has them, `LC_ALL=C`, and the host's own
   `NO_COLOR` and `FORCE_COLOR`, then the names `pass_env` lists, then the values `env` gives.
+  Under a command of Gro's on the binary, each child then has its `TMPDIR`, its `TMP` and `TEMP` where its environment has them,
+  and `XDG_DATA_HOME`, `XDG_CACHE_HOME`, and `XDG_STATE_HOME` pointed into its own box's temporary directory, over whatever `pass_env` and `env` gave them,
+  since its box lets it reach no other ([box](box.md#what-a-commands-box-admits)).
   `pass_env` takes names and `PREFIX_*` globs; `*` alone is refused, since `'all'` says that out loud.
   A glob forwards whatever the host has under its prefix, so `CARGO_*` forwards a `CARGO_TARGET_DIR` too,
   which changes what `cargo` does, as an argument would.
@@ -587,7 +590,7 @@ How it's built is in the module docs of `crates/gro_runtime/src/host/spawn.rs` a
   A call asking for more is `not_granted`, with no hint, since no flag widens the table's policy, and the refusal names a variable but never a value.
   This bounds what the run's code can hand a child against code built to defeat it, a native check; a granted tool's arguments and config are still code,
   and under `fgro run`, which has no box, it can read its parent's environment from `/proc`;
-  in a command of Gro's the run is not dumpable, so its tools can't, though they can read one another's until each has a box of its own (the environment always, the memory where Yama allows, [box](box.md#what-a-commands-box-admits)).
+  in a command of Gro's the run is not dumpable, so its tools can't, and each tool runs in a box of its own, so none reads another's ([box](box.md#a-box-for-each-tool)).
 - A child is started by `posix_spawn`, no code run between its fork and its exec: a native binary by its pin's descriptor, a script by its path,
   so a native child's process name, which `ps` and `pkill` read, is that descriptor's number, where Node's is the binary's name;
   its working directory by a descriptor too, the `cwd` handle's directory opened beneath its root, or the project's, opened as the run started,
@@ -1548,7 +1551,7 @@ what can fail for a reason of the run's fails in what the module exports, as `cw
 - Confine the child with the run's kernel rules:
   the project and the linked packages readable, only the run's write roots writable (the tool directories among them), never the project root,
   the network the run's own loopback (or, where user namespaces are restricted, no internet socket), and seccomp refusing unix sockets by path, nested user namespaces, and terminal input injection (`TIOCSTI`, `TIOCLINUX`)
-  ([box](box.md#what-a-commands-box-admits)) (built for a command of Gro's, whose children start in the run's box; designed for `fgro run`, whose children run unboxed).
+  ([box](box.md#what-a-commands-box-admits)) (built for a command of Gro's, whose children start each in a box of its own inside the run's; designed for `fgro run`, whose children run unboxed).
 - Keep the runtime's own environment and memory from a child that can read `/proc`:
   the run marks itself not dumpable before its box goes up (built for a command of Gro's, whose box reads `/proc` whole,
   refusing the environment, memory, and working directory of a process outside it, [box](box.md#what-a-commands-box-admits)).

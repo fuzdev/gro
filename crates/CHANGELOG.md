@@ -146,11 +146,13 @@ for Linux x86_64 only, built from source ([install](../src/docs/runtime.md#insta
     no network but the run's own loopback,
     for a run that may start a program or that `--allow-temp` grants, a temp directory private to the run that `TMPDIR`, `TMP` and `TEMP` where set, and the XDG data, cache, and state variables name,
     not dumpable, and the `core` limit 0.
-    `.env*` in the project stays readable, `/proc` is readable but for the environment, memory, and working directory of a process outside the box,
-    and the tools share the one box and see the run's whole environment.
+    `.env*` in the project stays readable, `/proc` is readable but for the environment, memory, and working directory of a process outside the box.
+    Each tool it starts runs in a box of its own inside it, writing a temporary directory of its own, which its `TMPDIR`, its `TMP` and `TEMP` where it has them, and its XDG variables name,
+    the command's tool directories for the grants table's tools, and what `--allow-run-write=` names for it, never what `--allow-write=` names;
+    no tool reads another's environment, memory, or temporary directory, and the tools see the run's whole environment.
   - `--allow-run-write=<program>:<dirs>` lets one program the command starts write these directories, named as the tool is called (`vitest`), as `--allow-run=` names it, or by its name in the run (`node_modules/.bin/vitest`):
     `gro test --allow-run-write=vitest:src -- -u`, `gro lint --allow-run-write=eslint:src -- eslint --fix`.
-    It widens the run's box and gives Gro's own code nothing; while the tools share the one box, every tool writes what it names.
+    It widens that program's box and the run's, and gives Gro's own code nothing; `--allow-write=` widens no tool's box, so a tool's own write takes this flag.
     A name the command may start no program by, and a plain name both the project's own tool and an `--allow-run=` grant have, are refused before anything runs, exit 2,
     and so is a program's directory under a dot-entry or `node_modules` where Gro's own code writes the whole project (`gen`, `format`, `sync`, or `--allow-write=.`) and no `--allow-write=` names it too.
     `fgro run` takes the flag beside `--allow-run=` naming the program, checks it, and says once that it holds nothing back there.

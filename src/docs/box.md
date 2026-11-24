@@ -1,14 +1,14 @@
 # box
 
 > The box, the kernel layer under the runtime's own checks: what Landlock and seccomp each hold and can't,
-> the one namespace the box takes, the box a command of Gro's runs in on the binary and the one for each child (built, installed by no launch yet), the terminal as a channel, and resource limits
+> the one namespace the box takes, the box a command of Gro's runs in on the binary and the one each tool runs in inside it, the terminal as a channel, and resource limits
 
 > **status**: `fgro eval`'s box is built ([eval](eval.md#the-box) has its exact walls),
 > and so is the run's box, which every command of Gro's the binary runs starts in, `fgro check` and `fgro gen` among them
 > ([below](#what-a-commands-box-admits) has its exact walls).
 > `fgro run` has no kernel box and no resource limits yet ([run](run.md)): its box is designed, to come after.
-> A narrower box for each tool inside the run's is built, installed by no launch yet, so today the tools share the run's box,
-> and the first release waits for it to be installed and to hold each tool to its own directories ([below](#a-box-for-each-tool)).
+> Each tool the run starts runs in a narrower box of its own inside the run's,
+> and the first release waits for each to write only its own directories ([below](#a-box-for-each-tool)).
 > The read-deny overlay and the rest here not marked built are designed too.
 
 The runtime checks authority twice.
@@ -96,7 +96,7 @@ its rules are derived from the command's closure (the grants of the builtins it 
 installed from the process's one thread before V8 starts, and every program the run starts inherits them.
 A command the binary leaves to Node runs on the Node Gro, which confines nothing ([fallback](glossary.md#fallback)).
 `fgro run` has no box yet: its box, derived from the run's grant flags alone, is designed to come after.
-A narrower box for each program inside the run's is built, installed by no launch yet ([below](#a-box-for-each-tool)).
+Each program the run starts runs in a narrower box of its own inside the run's ([below](#a-box-for-each-tool)).
 
 ### What a command's box admits
 
@@ -152,21 +152,23 @@ anything else that keeps a rule from opening, like a symlink on its path, refuse
   `gro test` turns the cache off on either runtime ([test](test.md#vitests-module-cache)), and in the box a test can't write it either.
 - **The run's temp directory:** a directory private to the run, made in the OS's temporary directory before the box
   for a command that may start a program or that `--allow-temp` grants, which it may read, write, and execute in.
-  `TMPDIR` names it for the run and its programs, and so do `TMP` and `TEMP` where the process had them set,
-  and `XDG_DATA_HOME`, `XDG_CACHE_HOME`, and `XDG_STATE_HOME` name directories inside it,
+  `TMPDIR` names it for the run, and so do `TMP` and `TEMP` where the process had them set,
+  and `XDG_DATA_HOME`, `XDG_CACHE_HOME`, and `XDG_STATE_HOME` name directories inside it.
+  Each program the run starts gets a directory of its own inside it, which its `TMPDIR`, its `TMP` and `TEMP` where its environment has them, and its XDG variables name,
+  over whatever its environment asked for, and no program reads the run's or another program's,
   so a tool that keeps state under those (Vitest keeps a token there, and won't start without one) gets a fresh, private place,
   and nothing under the home directory is read or written for it.
+  A file Gro's own code makes in the run's temp directory, like one `fs.temp_dir` makes, is unreadable to every tool.
   A run with no private directory keeps those variables as they were.
   An OS temporary directory inside the project, by its path or by its identity (a bind mount counts), refuses such a run, exit 2, before anything is made,
   since the run's tools would write an entry there that later commands read; the refusal names the variable that set it, or says it's the default.
   For a command that may start a program, a rule a program's box takes holding the OS temporary directory, like `--allow-read=/tmp`, `--allow-run-in=/tmp`, `--allow-read=/`, or `--allow-run-write=vitest:/tmp` (never `--allow-write=`, whose directories no program's box takes),
-  refuses it too, exit 2, before anything is made, since through that rule each program, once its own box is installed, could read the whole of the run's temp directory, the others' temporary directories in it included
-  (until then every program shares that directory anyway);
+  refuses it too, exit 2, before anything is made, since through that rule each program could read the whole of the run's temp directory, the others' temporary directories in it included;
   the refusal names the flag or rule, and says to narrow the flag or to point the variable that set it elsewhere.
   The run holds its directory by a lock, and a later start removes one no running process holds, never following a link inside it
   and never inside the project, which keeps leftovers from piling up and is no wall.
 - **Execute:** for a command that may start a program, the system's programs, each pinned program's file (`node`'s among them),
-  the run's temp directory, where test suites run scripts they write, the project's `node_modules`, and the linked packages, each on its real tree,
+  each program's own temporary directory, where test suites run scripts they write, the project's `node_modules`, and the linked packages, each on its real tree,
   for a native binary a tool may run, like esbuild's under Vite, beside the directories `--allow-run-in=` names.
   The rest of the project isn't executable, so a tool runs a script there only through its interpreter.
   The right bounds `execve` alone: a native library loads from anywhere the box reads.
@@ -198,7 +200,8 @@ anything else that keeps a rule from opening, like a symlink on its path, refuse
   a program's directory under a dot-entry or `node_modules` is refused, exit 2, unless `--allow-write=` names it too,
   since the box alone keeps gro's code out of those.
   So is one holding the project root, and for a command that may start a program one holding the OS temporary directory.
-  The tools share the run's box today, so until each has its own, every tool writes what the flag names.
+  Only the program it names writes there: `--allow-read=` and `--allow-run-in=` widen every program's box, `--allow-write=` none of them,
+  so a tool's own write, like a test updating its snapshots or `eslint --fix`, takes `--allow-run-write=`.
 - **A `node_modules` that's a symlink**, as agent worktrees and scratch copies make, is followed only to another checkout's:
   a directory named `node_modules` outside the project, neither inside it nor holding it.
   It's read there on its real path (and executed, for a command that may start a program), and one `note:` line names where it leads.
@@ -223,8 +226,8 @@ anything else that keeps a rule from opening, like a symlink on its path, refuse
   Boxed code sees the command line and status of every process your user can see, as any unconfined `dev` does,
   but the environment, memory, and working directory of a process outside the box stay refused, by Landlock's restriction on tracing a process outside its domain.
   The run marks itself not dumpable before its box goes up, so no program in the box reads the run's own environment or memory either.
-  The programs it starts are dumpable and share the run's box, so until each has a box of its own, one tool reads another's environment and working directory,
-  and its memory too where Yama's `ptrace_scope` is 0 (at 1, only its own descendants'; at 2 or 3, none), since Yama restricts what attaching needs, which reading the environment doesn't.
+  The programs it starts are dumpable, but each runs in a box of its own, so no tool reads another's environment, memory, or working directory,
+  while each still sees the others' command line and status.
 - **Resource limits:** the `core` hard limit, the only one lowered, set to 0 before the box,
   which every program the run starts inherits, so a crash writes no memory or environment to disk,
   a guardrail against that accident and not a wall, since deliberate code writes what it holds into a write root;
@@ -254,11 +257,13 @@ and a recursive `mkdir` or copy through a symlink on the way.
 A run that exits nonzero after a tool it started ended other than by exiting 0, not counting one the run signaled itself, ends with a `note:` line naming the box's network and writes, as in
 
 ```
-note: fgro gen's tools ran in the run's kernel box, which lets them reach no network but the run's own loopback and write only to the top-level entries the project had as it started (but .git, node_modules, the dot-entries, symlinks) and a temporary directory of the run's: a tool that hits a wall fails with EACCES, EPERM, or ENOSYS, and --allow-read=, --allow-write=, --allow-run-write=, and --allow-run-in= widen the box
+note: fgro test's tools each ran in a kernel box of their own inside the run's, which lets them reach no network but the run's own loopback and write only to a temporary directory of their own, the grants table's tools also to .svelte-kit, node_modules/.vite, and node_modules/.vite-temp, and vitest also to src: a tool that hits a wall fails with EACCES, EPERM, or ENOSYS; --allow-run-write=<program>:<dirs> lets one of them (vitest) write more, --allow-read= and --allow-run-in= widen every box, and --allow-write= widens only what gro's own code writes
 ```
 
-Both are built from the rules the box installed: only tool and flag directories are named, and in the host's network the note's clause reads "reach no network".
-The note names the directories `--allow-run-write=` gives a program among where the tools write, since every tool shares the run's box;
+Both are built from the rules the box installed: the cause names tool and flag directories; the note names tool directories and what `--allow-run-write=` gives each program;
+and in the host's network the note's clause reads "reach no network".
+The note, here for `fgro test --allow-run-write=vitest:src -- -u`, names the directories `--allow-run-write=` gives each program as that program's and the programs the command may start,
+and never what `--allow-write=` names, which no tool writes;
 the cause leaves them out, as gro's own code can't write there, and names the top-level entries only where gro's code writes the project.
 Both are review signals, which the run's code can print as well.
 
@@ -309,7 +314,8 @@ and a run that fails after a tool did ends with a `note:` line naming the box's 
 The grant flags, right after the command word, widen the box for one run:
 
 - a read outside the project, like a tool's config or cache under the home directory, takes `--allow-read=<dir>`
-- a write outside the write roots takes `--allow-write=<dir>`, naming the directory itself, never one that holds the project root
+- a write of Gro's own code outside the write roots takes `--allow-write=<dir>`, naming the directory itself, never one that holds the project root;
+  a tool's write takes `--allow-run-write=`, below, since `--allow-write=` widens no tool's box
 - a tool's own write, like a test updating its snapshots or `eslint --fix`, takes `--allow-run-write=<program>:<dirs>`, like `gro test --allow-run-write=vitest:src -- -u`
 - a program run from a directory outside `node_modules` and the system's takes `--allow-run-in=<dir>`
 
@@ -338,28 +344,33 @@ What it leaves: a write into a write root that another tool then executes, the t
 and under `gen`, `format`, or `sync` any included entry the next unconfined command runs, like `src`, `package.json`, or `vite.config.ts`,
 which is why a check-mode command writes none of them.
 An exec root that is also a write root accepts the same case for the run's own programs, so each is declared and reviewed as narrowly.
-The tools share the one box, so until each has its own, one tool can write every write root the command has, and its code can plant in another's,
-and can read another's environment through `/proc`, and its memory where Yama allows ([above](#what-a-commands-box-admits)).
+Each tool runs in a box of its own, but every tool of the grants table writes every tool directory of the command, so its code can plant in another's.
 
 ### A box for each tool
 
-Each program the run starts is to run in a box of its own, nested in the run's (`gro_runtime`'s `confine/program.rs`).
-The box is built, installed by no launch yet.
-The spawn host module launches every program without one, so today the tools share the run's box, and the first release waits for the box to be installed and for each tool to write only its own directories.
+Each program the run starts runs in a box of its own, nested in the run's (`gro_runtime`'s `confine/program.rs`),
+built at the program's first launch and kept for every launch after, one box for each name the run grants a program by and one for each program found beneath an exec root,
+and installed at every launch of a command of Gro's; `fgro run` launches in none.
+A box that can't be built fails each launch of its program, `launch_failed`, as the first did.
+The first release waits for each tool to write only its own directories.
 Landlock restricts the thread that installs its rules, so a launch given a program's box starts the program from a short-lived thread that first restricts itself with that box
 and then spawns it as today, and the program inherits the narrower box (`host/spawn/launch.rs`); nothing re-executes the binary.
-Each program's box gives it a temporary directory of its own.
-As built, the box lets a program of the grants table write every tool directory of the command, and one a flag grants write nothing but its own temporary directory,
+Each program's box gives it a temporary directory of its own, named by the program's place among the run's programs, never by its name.
+The box lets a program of the grants table write every tool directory of the command, and one a flag grants write nothing but its own temporary directory,
 and each writes too what `--allow-run-write=` names for it, and no program anything another's names;
-a program's box takes nothing of what `--allow-write=` names, not even its read, which is Gro's own code's, so once it's installed, a tool that must read what Gro's code wrote outside the project takes `--allow-read=`.
+a program's box takes nothing of what `--allow-write=` names, not even its read, which is Gro's own code's, so a tool that must read what Gro's code wrote outside the project takes `--allow-read=`.
 Writing only the directories the table names for that program is designed:
 the tools that write on their own, like SvelteKit's sync and Vitest, name their own write roots, and the ones that don't, like tsc, ESLint, and git, name none.
 Vitest is held to SvelteKit's generated modules for its dev server and its own cache in `node_modules/.vite`, with its config loaded by Vite's runner loader,
 which needs no write of its own.
-Once installed, the nested boxes will also keep a tool from signalling Gro and from reading a sibling's environment and memory through `/proc`.
+The nested boxes also keep a tool from signalling Gro or another tool and from reading another's environment, memory, or working directory through `/proc`.
 Once each tool is held to its own directories, a test or an ESLint plugin won't be able to plant in what `dev` and `build` run.
 It leaves the project's own config, which runs in every tool and which `dev` runs unconfined,
 and a write into a tool's own directory that a dev server already running picks up.
+A tool still reads the others' write roots, sees their command line, status, and descriptor numbers in `/proc`,
+gets a handle from `pidfd_open` on another or on the run, one that can't signal, and can take the terminal's foreground.
+A child that sets `PR_SET_PDEATHSIG` while the short-lived thread that started it still runs is killed when that thread ends,
+and a signal sent to that thread alone as it ends is lost.
 
 ### What stays coarse
 
