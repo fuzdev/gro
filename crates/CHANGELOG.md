@@ -148,13 +148,20 @@ for Linux x86_64 only, built from source ([install](../src/docs/runtime.md#insta
     not dumpable, and the `core` limit 0.
     `.env*` in the project stays readable, `/proc` is readable but for the environment, memory, and working directory of a process outside the box,
     and the tools share the one box and see the run's whole environment.
-  - Before the box it refuses `-A` before the command word, or after it for a command the binary runs itself, a `node` on `PATH` that's a script, a write flag naming a directory that holds the project root,
+  - `--allow-run-write=<program>:<dirs>` lets one program the command starts write these directories, named as the tool is called (`vitest`), as `--allow-run=` names it, or by its name in the run (`node_modules/.bin/vitest`):
+    `gro test --allow-run-write=vitest:src -- -u`, `gro lint --allow-run-write=eslint:src -- eslint --fix`.
+    It widens the run's box and gives Gro's own code nothing; while the tools share the one box, every tool writes what it names.
+    A name the command may start no program by, and a plain name both the project's own tool and an `--allow-run=` grant have, are refused before anything runs, exit 2,
+    and so is a program's directory under a dot-entry or `node_modules` where Gro's own code writes the whole project (`gen`, `format`, `sync`, or `--allow-write=.`) and no `--allow-write=` names it too.
+    `fgro run` takes the flag beside `--allow-run=` naming the program, checks it, and says once that it holds nothing back there.
+  - Before the box it refuses `-A` before the command word, or after it for a command the binary runs itself, a `node` on `PATH` that's a script, a write flag or a program's write directory naming a directory that holds the project root,
+    a directory any grant flag lists inside the project, relative or absolute, that leads out of it through a symlink, or through one into a dot-entry or `node_modules` it doesn't name, where `fgro run` notes one (so a linked `node_modules` takes the path it leads to, not `--allow-write=node_modules`),
     a `node_modules` symlink to anything but another checkout's `node_modules`, git's files it can't read when the command may start a program,
     a socket on stdio that isn't a connected unix stream, an OS temporary directory inside the project,
     a flag or rule holding the OS temporary directory when the command may start a program (like `--allow-read=/tmp` or `--allow-read=/`), and a path planted where the box opens a rule or makes a tool directory,
     each exit 2, and a binary built without its snapshot, exit 1; a step of the box that fails exits 1.
     A `node_modules` linked from another checkout is read and executed there, by the box and Gro's own `fs` alike, its packages resolving within it,
-    and written there, its tool directories included, only when a write flag names it.
+    and written there, its tool directories included, only when a write flag names where it leads.
   - A write the box refuses gains a cause naming where it lets the command write, and a run that fails after a tool did ends with a `note:` line naming the box's network and writes.
   - It needs Linux 6.12 or later (Landlock ABI 6); where Landlock is missing, off, or older, or a seccomp filter refuses its calls, the command runs the project's Node Gro after one `note:` line saying why.
 

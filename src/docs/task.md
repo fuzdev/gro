@@ -95,7 +95,7 @@ Flags go after the path: `gro task --a src/lib/foo.task.ts` is an error,
 since `--a` would take the path as its value.
 
 Grant flags, the binary's (`-A`, `--allow-temp`, and `--allow-env`, `--allow-read`,
-`--allow-write`, `--allow-run`, `--allow-run-in`, and `--allow-run-env` with `=` and a list),
+`--allow-write`, `--allow-run`, `--allow-run-in`, `--allow-run-env`, and `--allow-run-write` with `=` and a list),
 go in a run right after the command word, before the task's own args or path:
 `gro check --allow-run-env=X --watch`, `gro task --allow-read=. src/lib/foo.task.ts`.
 A `--help` may sit among them, as `fgro run` takes it, and stays the command's:
@@ -106,11 +106,13 @@ It checks only their spelling, not the names and directories they list,
 so `--allow-read=,`, whose empty entries the binary refuses, passes there.
 On the binary a command of Gro's refuses `-A` before the command word, and after it when the binary runs the command itself, since that run is always in the run's kernel box
 (a command left to Node passes it to the Node Gro),
-and refuses a write flag naming a directory that holds the project root
+and refuses a write flag, or a directory `--allow-run-write=` names, naming a directory that holds the project root,
+and a directory any directory flag lists inside the project that leads out of it through a symlink, or through one into a dot-entry or `node_modules` it doesn't name
 ([box](box.md#what-a-commands-box-admits) has how the flags widen the box);
 `fgro run -A <file>`, the binary's own run and not a command of Gro's, keeps it ([run](run.md#usage)).
 A grant flag before the command word, one in the run spelled `--allow-*` that's no grant flag,
-one with no list after its `=`, and `--allow-temp` with a value are usage errors;
+one with no list after its `=`, `--allow-temp` with a value,
+and `gro run` given `--allow-run-env` with neither `--allow-run` nor `--allow-run-in`, or `--allow-run-write` with no `--allow-run`, are usage errors;
 after the run a flag spelled `--allow-*` is the task's, and `--` forwards as written.
 
 ### define a task

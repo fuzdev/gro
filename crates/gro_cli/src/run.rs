@@ -61,7 +61,7 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 use gro_runtime::confine::Confinement;
-use gro_runtime::confine::plan::{DirFlag, GrantedFlagDir};
+use gro_runtime::confine::plan::{DirFlag, GrantedFlagDir, RunWriteDir};
 use gro_runtime::engine::{EngineOptions, init_engine};
 use gro_runtime::file_id::FileId;
 use gro_runtime::phases::{self, Phase};
@@ -71,16 +71,16 @@ use gro_runtime::resolver::{
 };
 use gro_runtime::verb::table::BuiltinGrantsTable;
 use gro_runtime::{
-    ArgsGrant, Authority, CHILD_BASE_ENV, EnvGrant, EnvPattern, EnvVars, ExecRootGrant, Exit,
-    ExitGrant, FsGrant, FsNeed, GrantedDir, Grants, NameKind, NeededGrant, PassEnvGrant,
-    ProgramGrant, Refusal, Refusals, RefusedBy, RunOutcome, RuntimeOptions, SpawnGrant,
-    StderrGrant, StdoutGrant, env_name_fault,
+    ArgsGrant, Authority, BINARY_NAME, CHILD_BASE_ENV, EnvGrant, EnvPattern, EnvVars,
+    ExecRootGrant, Exit, ExitGrant, FsGrant, FsNeed, GrantedDir, Grants, NameKind, NeededGrant,
+    PassEnvGrant, ProgramGrant, Refusal, Refusals, RefusedBy, RunOutcome, RuntimeOptions,
+    SpawnGrant, StderrGrant, StdoutGrant, env_name_fault,
 };
 
 use crate::EXIT_FAILURE;
 use crate::cli::{
-    ALLOW_ENV, ALLOW_READ, ALLOW_RUN, ALLOW_RUN_ENV, ALLOW_RUN_IN, ALLOW_TEMP, ALLOW_WRITE,
-    FlagDirs, RunGrant, RunInvocation,
+    ALLOW_ENV, ALLOW_READ, ALLOW_RUN, ALLOW_RUN_ENV, ALLOW_RUN_IN, ALLOW_RUN_WRITE, ALLOW_TEMP,
+    ALLOW_WRITE, FlagDirs, ListFlag, RUN, RunGrant, RunInvocation,
 };
 use crate::color;
 use crate::embed::load_embed;
@@ -341,6 +341,9 @@ fn start_and_run(spec: &RunSpec<'_>, file: &Path) -> Result<RunOutcome, CliError
         for note in granted.notes {
             stderr_line(note);
         }
+        if !granted.run_writes.is_empty() {
+            stderr_line(run_write_unboxed());
+        }
     }
     if grants_programs(spec.grant, spec.dirs) {
         ready_to_spawn(gro_sys::raise_open_files_limit).map_err(CliError::SpawnReady)?;
@@ -349,6 +352,18 @@ fn start_and_run(spec: &RunSpec<'_>, file: &Path) -> Result<RunOutcome, CliError
     phases::mark(Phase::Engine);
     let options = runtime_options(spec, &ProcessEnvironment, granted.dirs, &cwd);
     Ok(gro_runtime::run_main(engine, &options, file, &cwd))
+}
+
+/// What `fgro run` says once when given `--allow-run-write=`, which it
+/// checks and which changes nothing: it starts its programs in no box, so
+/// each writes wherever the user can.
+///
+/// Kind: a review signal.
+fn run_write_unboxed() -> String {
+    format!(
+        "note: {BINARY_NAME} {RUN} starts programs in no box, so {ALLOW_RUN_WRITE}= holds nothing \
+         back: a program {ALLOW_RUN}= grants writes wherever you can"
+    )
 }
 
 /// Whether the run may start a program: `-A`, a program `--allow-run=`
@@ -404,41 +419,72 @@ pub struct Granted {
     /// Each directory with its flag, as listed, and its real path, the
     /// one the grants hold.
     pub resolved: Vec<GrantedFlagDir>,
+    /// Each directory `--allow-run-write=` lists, with the program it's
+    /// listed for, as written, and its real path: in no grant of the
+    /// realm's, a program's alone.
+    pub run_writes: Vec<RunWriteDir>,
 }
 
 /// The grants of the directories `dirs` lists, each resolved against `cwd`
 /// when it's relative and held to be a directory now: its real path read,
 /// then the identity of the directory there, by one `stat`, which the
 /// grant keeps ([`GrantedDir`]), the read ones first, then the written
-/// ones, then the exec roots. The runtime opens each fs root by that real
-/// path when the run first imports `fs`, and each exec root as the run
-/// starts, and holds it to that identity, so a directory moved or replaced
-/// between, like one gone by then, fails every op through it, and the fs
-/// roots nest as these real paths do. With them, the notes
-/// ([`grant_note`]) for the directories whose real path isn't their text,
-/// and each directory's real path beside its flag, for the run's box.
+/// ones, then the exec roots, then those `--allow-run-write=` lists. The
+/// runtime opens each fs root by that real path when the run first
+/// imports `fs`, and each exec root as the run starts, and holds it to
+/// that identity, so a directory moved or replaced between, like one gone
+/// by then, fails every op through it, and the fs roots nest as these
+/// real paths do. With them, the notes ([`grant_note`]) for the
+/// directories whose real path isn't their text, and each directory's
+/// real path beside its flag, for the run's box. The directories
+/// `--allow-run-write=` lists are in no grant of the run's: they widen
+/// only the box, for the program each names.
+///
+/// For a command of Gro's (`run_help` false), whose working directory is
+/// the project's root, a directory typed inside the project, relative or
+/// absolute, by its text or through a link to the project, whose real path
+/// leads out of it through a symlink is refused ([`leaves_project`]): a
+/// committed link like `src -> ~` would turn a flag typed as documented
+/// into a grant on whatever it leads to. So is one whose real path lies in
+/// a top-level dot-entry or `node_modules` its text doesn't name
+/// ([`into_unnamed_entry`]): a committed `src/fixtures -> ../.git` would
+/// turn one into a grant on `.git`, which the box otherwise leaves out.
+/// `fgro run` notes both instead, the path being the person's.
 ///
 /// # Errors
 ///
 /// Returns [`CliError::NoDir`] for the first that's missing, isn't a
 /// directory, or can't be looked at, naming `fgro run`'s help when
-/// `run_help` says its flags listed them.
+/// `run_help` says its flags listed them; and, for a command of Gro's,
+/// [`CliError::LeavesProject`] for the first that leads out of the project
+/// through a symlink, and [`CliError::LinksIntoEntry`] for the first that
+/// leads through one into an entry it doesn't name.
 pub fn granted_dirs(dirs: &FlagDirs, cwd: &Path, run_help: bool) -> Result<Granted, CliError> {
     let mut notes = Vec::new();
-    let mut resolved = Vec::new();
-    let mut check = |flag: DirFlag, dir: &String| {
+    let mut check = |flag: ListFlag, program: Option<&str>, dir: &String| {
         let path = cwd.join(dir);
         let found = std::fs::canonicalize(&path)
             .and_then(|real| std::fs::metadata(&real).map(|metadata| (real, metadata)));
         let fault = match found {
             Ok((real, metadata)) if metadata.is_dir() => {
+                if !run_help && leaves_project(&path, &real, cwd) {
+                    return Err(CliError::LeavesProject {
+                        flag,
+                        program: program.map(str::to_owned),
+                        dir: dir.clone(),
+                        real,
+                    });
+                }
+                if !run_help && let Some(entry) = into_unnamed_entry(&path, &real, cwd) {
+                    return Err(CliError::LinksIntoEntry {
+                        flag,
+                        program: program.map(str::to_owned),
+                        dir: dir.clone(),
+                        entry,
+                    });
+                }
                 let id = FileId::of(&metadata);
-                notes.extend(grant_note(flag, dir, &path, &real));
-                resolved.push(GrantedFlagDir {
-                    flag,
-                    dir: dir.clone(),
-                    real: real.clone(),
-                });
+                notes.extend(grant_note(flag, program, dir, &path, &real));
                 return Ok((path, GrantedDir { real, id }));
             }
             Ok(_) => DirFault::NotADirectory,
@@ -455,35 +501,111 @@ pub fn granted_dirs(dirs: &FlagDirs, cwd: &Path, run_help: bool) -> Result<Grant
             run_help,
         })
     };
+    let mut resolved = Vec::new();
+    let mut granted = |flag: DirFlag, list: &BTreeSet<String>| {
+        list.iter()
+            .map(|dir| {
+                let (path, granted) = check(flag.into(), None, dir)?;
+                resolved.push(GrantedFlagDir {
+                    flag,
+                    dir: dir.clone(),
+                    real: granted.real.clone(),
+                });
+                Ok((path, granted))
+            })
+            .collect::<Result<BTreeMap<_, _>, CliError>>()
+    };
     let fs = FsGrant {
-        read: dirs
-            .read
-            .iter()
-            .map(|dir| check(DirFlag::Read, dir))
-            .collect::<Result<_, _>>()?,
-        write: dirs
-            .write
-            .iter()
-            .map(|dir| check(DirFlag::Write, dir))
-            .collect::<Result<_, _>>()?,
+        read: granted(DirFlag::Read, &dirs.read)?,
+        write: granted(DirFlag::Write, &dirs.write)?,
         temp: false,
     };
-    let exec_roots = dirs
-        .run_in
-        .iter()
-        .map(|dir| check(DirFlag::RunIn, dir))
-        .collect::<Result<_, _>>()?;
+    let exec_roots = granted(DirFlag::RunIn, &dirs.run_in)?;
+    let mut run_writes = Vec::new();
+    for (program, listed) in &dirs.run_write {
+        for dir in listed {
+            let (_, granted) = check(ListFlag::RunWrite, Some(program), dir)?;
+            run_writes.push(RunWriteDir {
+                named: program.clone(),
+                dir: dir.clone(),
+                real: granted.real,
+            });
+        }
+    }
     Ok(Granted {
         dirs: GrantedDirs { fs, exec_roots },
         notes,
         resolved,
+        run_writes,
     })
+}
+
+/// Whether `path`, a directory typed for a grant flag resolved against
+/// the project's `root` (a real path), lies inside the project, by its
+/// text with its `.` and `..` resolved as written, or through a symlink to
+/// the project or a directory in it on the way (`$PWD/src` where the
+/// working directory's path holds a symlink), while `real`, its real path,
+/// lies outside it: it leads out of the project through a symlink. The
+/// ancestors are resolved only for a path whose real path is outside, so
+/// a path inside costs nothing more.
+///
+/// Kind: a native check of what the trusted command line means, before any
+/// project code runs (adversary: the project's tree, a committed symlink
+/// like `src -> ~`; asset: whatever the link leads to). Defeated by the
+/// user typing the outside path, which is their choice, and by a process
+/// outside the run swapping a path between the check and the box, outside
+/// the threat model.
+fn leaves_project(path: &Path, real: &Path, root: &Path) -> bool {
+    !real.starts_with(root)
+        && normalize(path).ancestors().any(|ancestor| {
+            ancestor.starts_with(root)
+                || std::fs::canonicalize(ancestor).is_ok_and(|real| real.starts_with(root))
+        })
+}
+
+/// The path beneath the project's `root` (a real path) that `real`, the
+/// real path of `path`, a directory typed for a grant flag, lies at, when
+/// its first component is a dot-entry or `node_modules` (the entries the
+/// box's per-entry rules leave out) and the text `path` names, beneath
+/// the root, doesn't start with that same entry: it leads there through a
+/// symlink, like `src/fixtures -> ../.git`. The text beneath the root is
+/// the path with its `.` and `..` resolved as written, or, reached through
+/// a symlink to the root itself (`$PWD` holding one), what follows it;
+/// a path typed outside the project names no entry. The text is read only
+/// for a real path in such an entry, so any other costs nothing more.
+///
+/// Kind: as [`leaves_project`]'s (asset: `.git`, whose hooks the next
+/// unconfined git command runs, and `node_modules`); defeated by naming
+/// the entry, the command line's own choice.
+fn into_unnamed_entry(path: &Path, real: &Path, root: &Path) -> Option<PathBuf> {
+    let beneath = real.strip_prefix(root).ok()?;
+    let entry = beneath.components().next()?.as_os_str();
+    if !(entry.as_encoded_bytes().starts_with(b".") || entry == "node_modules") {
+        return None;
+    }
+    let text = normalize(path);
+    let typed = text
+        .strip_prefix(root)
+        .ok()
+        .map(Path::to_path_buf)
+        .or_else(|| {
+            text.ancestors()
+                .find(|ancestor| std::fs::canonicalize(ancestor).is_ok_and(|real| real == root))
+                .and_then(|alias| text.strip_prefix(alias).ok().map(Path::to_path_buf))
+        });
+    let named = typed
+        .as_deref()
+        .and_then(|typed| typed.components().next())
+        .is_some_and(|first| first.as_os_str() == entry);
+    (!named).then(|| beneath.to_path_buf())
 }
 
 /// The note, if one is due, that `flag` listing `dir`, the text typed,
 /// which is `path` resolved against the working directory, grants `real`,
 /// its real path as the run starts: `note: --allow-read=<dir> grants
-/// <real>`, each escaped ([`escape_controls`]), when `real` isn't `path`
+/// <real>`, or for `--allow-run-write=` with its `program`,
+/// `note: --allow-run-write=<program>:<dir> grants <real>`, each escaped
+/// ([`escape_controls`]), when `real` isn't `path`
 /// with its `.` and `..` resolved by their text, so the path passes through
 /// a symlink. A refusal names a path the program chose, and one copied into
 /// a flag can lead through a symlink to another directory than it names.
@@ -492,10 +614,19 @@ pub fn granted_dirs(dirs: &FlagDirs, cwd: &Path, run_help: bool) -> Result<Grant
 /// too, as a symlinked home is: which symlinks the person made is past
 /// knowing, and the note is fixed by typing the real path, or a path
 /// relative to the working directory, which is real already.
-fn grant_note(flag: DirFlag, dir: &str, path: &Path, real: &Path) -> Option<String> {
+fn grant_note(
+    flag: ListFlag,
+    program: Option<&str>,
+    dir: &str,
+    path: &Path,
+    real: &Path,
+) -> Option<String> {
     (normalize(path) != real).then(|| {
+        let program = program.map_or_else(String::new, |program| {
+            format!("{}:", escape_controls(program))
+        });
         format!(
-            "note: {flag}={} grants {}",
+            "note: {flag}={program}{} grants {}",
             escape_controls(dir),
             escape_controls(&real.to_string_lossy())
         )
@@ -1520,28 +1651,296 @@ mod tests {
         use std::path::Path;
 
         use super::grant_note;
-        use gro_runtime::confine::plan::DirFlag;
+        use crate::cli::ListFlag;
 
-        let note = |flag: DirFlag, dir: &str, real: &str| {
-            grant_note(flag, dir, &Path::new("/c").join(dir), Path::new(real))
+        let note = |flag: ListFlag, dir: &str, real: &str| {
+            grant_note(flag, None, dir, &Path::new("/c").join(dir), Path::new(real))
         };
         for dir in [
             "d", "./d", "d/", "d/.", "x/../d", "/c/d", "/c//d/", "/../c/d",
         ] {
-            assert_eq!(note(DirFlag::Read, dir, "/c/d"), None, "{dir}");
+            assert_eq!(note(ListFlag::Read, dir, "/c/d"), None, "{dir}");
         }
         assert_eq!(
-            note(DirFlag::Read, "l", "/elsewhere"),
+            note(ListFlag::Read, "l", "/elsewhere"),
             Some("note: --allow-read=l grants /elsewhere".to_owned())
         );
         assert_eq!(
-            note(DirFlag::Write, "l/..", "/r"),
+            note(ListFlag::Write, "l/..", "/r"),
             Some("note: --allow-write=l/.. grants /r".to_owned())
         );
         assert_eq!(
-            note(DirFlag::Read, "l\u{1b}[2K", "/r\u{202e}"),
+            note(ListFlag::Read, "l\u{1b}[2K", "/r\u{202e}"),
             Some("note: --allow-read=l\\u{1b}[2K grants /r\\u{202e}".to_owned())
+        ); // the write flag of one program names it, escaped too
+        assert_eq!(
+            grant_note(
+                ListFlag::RunWrite,
+                Some("v\u{1b}"),
+                "l",
+                Path::new("/c/l"),
+                Path::new("/r")
+            ),
+            Some("note: --allow-run-write=v\\u{1b}:l grants /r".to_owned())
         );
+    }
+
+    /// For a command of Gro's, a directory any directory flag lists that
+    /// lies inside the project by its text, relative or absolute, and
+    /// leads out of it through a symlink is refused, naming the flag as
+    /// written and the real path to type instead; one leading through a
+    /// symlink that stays inside is noted, as is one typed outside; and
+    /// `fgro run` notes each, the path being the person's.
+    #[test]
+    fn a_command_s_directory_leading_out_of_the_project_is_refused() {
+        use std::collections::{BTreeMap, BTreeSet};
+
+        use super::{GrantedDirs, granted_dirs};
+        use crate::cli::{FlagDirs, ListFlag};
+        use crate::error::CliError;
+
+        let base = RemovedOnDrop::new("gro_cli_leaves_project");
+        let base = &base.0;
+        let root = base.join("project");
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::create_dir_all(base.join("outside")).unwrap();
+        std::os::unix::fs::symlink("../outside", root.join("out")).unwrap();
+        std::os::unix::fs::symlink("src", root.join("in")).unwrap();
+        std::os::unix::fs::symlink(".", root.join("self")).unwrap();
+        std::os::unix::fs::symlink("outside", base.join("link")).unwrap();
+        // the project by another path, a link to it outside, as a `$PWD`
+        // through a symlinked directory names it
+        std::os::unix::fs::symlink("project", base.join("alias")).unwrap();
+        let outside = base.join("outside");
+        let flags = |flag: ListFlag, dir: &str| {
+            let mut dirs = FlagDirs::default();
+            let dir = BTreeSet::from([dir.to_owned()]);
+            match flag {
+                ListFlag::Read => dirs.read = dir,
+                ListFlag::Write => dirs.write = dir,
+                ListFlag::RunIn => dirs.run_in = dir,
+                ListFlag::RunWrite => dirs.run_write = BTreeMap::from([("vitest".to_owned(), dir)]),
+                ListFlag::Env | ListFlag::Run | ListFlag::RunEnv => unreachable!(),
+            }
+            dirs
+        };
+        let refused =
+            |flag: ListFlag, dir: &str| match granted_dirs(&flags(flag, dir), &root, false) {
+                Err(error @ CliError::LeavesProject { .. }) => {
+                    assert_eq!(error.exit_code(), crate::EXIT_USAGE);
+                    error.to_string()
+                }
+                other => panic!("{flag} {dir}: {other:?}"),
+            };
+        let mut results = Vec::new();
+        for flag in [
+            ListFlag::Read,
+            ListFlag::Write,
+            ListFlag::RunIn,
+            ListFlag::RunWrite,
+        ] {
+            let program = if flag == ListFlag::RunWrite {
+                "vitest:"
+            } else {
+                ""
+            };
+            for dir in [
+                "out",
+                "./out/",
+                "src/../out",
+                &root.join("out").to_string_lossy(),
+                "../alias/out",
+                &base.join("alias/out").to_string_lossy(),
+                "self/out",
+            ] {
+                results.push((
+                    refused(flag, dir),
+                    format!(
+                        "{flag}={program}{dir} names {dir}, which leads out of the project to {} \
+                         through a symlink: a directory typed inside the project must be inside \
+                         it, so name {} itself to grant it",
+                        outside.display(),
+                        outside.display()
+                    ),
+                ));
+            }
+            // inside through a symlink, the root itself through one, and
+            // outside by its text, noted
+            for (dir, real) in [
+                ("in", root.join("src")),
+                ("self", root.clone()),
+                ("../link", outside.clone()),
+            ] {
+                let granted = granted_dirs(&flags(flag, dir), &root, false).unwrap();
+                assert_eq!(
+                    granted.notes,
+                    [format!(
+                        "note: {flag}={program}{dir} grants {}",
+                        real.display()
+                    )],
+                    "{flag} {dir}"
+                );
+            }
+            // `fgro run` notes it
+            let granted = granted_dirs(&flags(flag, "out"), &root, true).unwrap();
+            assert_eq!(
+                granted.notes,
+                [format!(
+                    "note: {flag}={program}out grants {}",
+                    outside.display()
+                )]
+            );
+        }
+        // the run's write directories stay apart from every grant of the
+        // realm's
+        let granted = granted_dirs(&flags(ListFlag::RunWrite, "../outside"), &root, false).unwrap();
+        assert_eq!(granted.dirs, GrantedDirs::default());
+        assert!(granted.resolved.is_empty());
+        assert_eq!(
+            granted.run_writes,
+            [gro_runtime::confine::plan::RunWriteDir {
+                named: "vitest".to_owned(),
+                dir: "../outside".to_owned(),
+                real: outside,
+            }]
+        );
+        for (found, expected) in results {
+            assert_eq!(found, expected);
+        }
+    }
+
+    /// A directory of a test's own under the system's temporary directory,
+    /// by its real path, removed with what it holds when dropped, a failed
+    /// case's included.
+    struct RemovedOnDrop(PathBuf);
+
+    impl RemovedOnDrop {
+        fn new(name: &str) -> Self {
+            let base = std::env::temp_dir()
+                .canonicalize()
+                .unwrap()
+                .join(format!("{name}_{}", std::process::id()));
+            std::fs::create_dir_all(&base).unwrap();
+            Self(base)
+        }
+    }
+
+    impl Drop for RemovedOnDrop {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    /// For a command of Gro's, a directory any directory flag lists whose
+    /// real path lies in a top-level dot-entry or `node_modules` its text
+    /// doesn't name is refused, naming that entry's path to type instead:
+    /// through a link in a directory, a top-level link, a link into
+    /// `node_modules`, and the project reached through a link outside it.
+    /// The entry named outright is honored, by any spelling, as before; a
+    /// link inside to an ordinary directory is noted; and `fgro run` notes
+    /// the link into the entry.
+    #[test]
+    fn a_command_s_directory_leading_into_an_unnamed_entry_is_refused() {
+        use std::collections::{BTreeMap, BTreeSet};
+
+        use super::granted_dirs;
+        use crate::cli::{FlagDirs, ListFlag};
+        use crate::error::CliError;
+
+        let base = RemovedOnDrop::new("gro_cli_into_entry");
+        let base = &base.0;
+        let root = base.join("project");
+        for dir in ["src/lib", ".git/hooks", "node_modules/x"] {
+            std::fs::create_dir_all(root.join(dir)).unwrap();
+        }
+        std::os::unix::fs::symlink("../.git", root.join("src/fixtures")).unwrap();
+        std::os::unix::fs::symlink(".git", root.join("out")).unwrap();
+        std::os::unix::fs::symlink("../node_modules/x", root.join("src/nm")).unwrap();
+        std::os::unix::fs::symlink("lib", root.join("src/in")).unwrap();
+        std::os::unix::fs::symlink("project", base.join("alias")).unwrap();
+        let flags = |flag: ListFlag, dir: &str| {
+            let mut dirs = FlagDirs::default();
+            let dir = BTreeSet::from([dir.to_owned()]);
+            match flag {
+                ListFlag::Read => dirs.read = dir,
+                ListFlag::Write => dirs.write = dir,
+                ListFlag::RunIn => dirs.run_in = dir,
+                ListFlag::RunWrite => dirs.run_write = BTreeMap::from([("vitest".to_owned(), dir)]),
+                ListFlag::Env | ListFlag::Run | ListFlag::RunEnv => unreachable!(),
+            }
+            dirs
+        };
+        let alias = base.join("alias");
+        for flag in [
+            ListFlag::Read,
+            ListFlag::Write,
+            ListFlag::RunIn,
+            ListFlag::RunWrite,
+        ] {
+            let program = if flag == ListFlag::RunWrite {
+                "vitest:"
+            } else {
+                ""
+            };
+            for (dir, entry) in [
+                ("src/fixtures", ".git"),
+                ("src/fixtures/hooks", ".git/hooks"),
+                ("out", ".git"),
+                ("./out/hooks", ".git/hooks"),
+                ("src/nm", "node_modules/x"),
+                (&alias.join("src/fixtures").to_string_lossy(), ".git"),
+                ("../alias/out", ".git"),
+            ] {
+                match granted_dirs(&flags(flag, dir), &root, false) {
+                    Err(error @ CliError::LinksIntoEntry { .. }) => {
+                        assert_eq!(error.exit_code(), crate::EXIT_USAGE);
+                        assert_eq!(
+                            error.to_string(),
+                            format!(
+                                "{flag}={program}{dir} names {dir}, which leads through a symlink \
+                                 to {entry}: name {entry} itself to grant it"
+                            )
+                        );
+                    }
+                    other => panic!("{flag} {dir}: {other:?}"),
+                }
+            }
+            // the entry named outright, by any spelling, as before
+            for dir in [
+                ".git",
+                "./.git/hooks",
+                &root.join(".git").to_string_lossy(),
+                &alias.join(".git/hooks").to_string_lossy(),
+                "node_modules/x",
+                "src/../node_modules",
+            ] {
+                let granted = granted_dirs(&flags(flag, dir), &root, false)
+                    .unwrap_or_else(|error| panic!("{flag} {dir}: {error}"));
+                assert!(
+                    granted.notes.is_empty() || dir.starts_with(&*alias.to_string_lossy()),
+                    "{flag} {dir}: {:?}",
+                    granted.notes
+                );
+            }
+            // a link inside to an ordinary directory is noted
+            let granted = granted_dirs(&flags(flag, "src/in"), &root, false).unwrap();
+            assert_eq!(
+                granted.notes,
+                [format!(
+                    "note: {flag}={program}src/in grants {}",
+                    root.join("src/lib").display()
+                )]
+            );
+            // `fgro run` notes the link into the entry
+            let granted = granted_dirs(&flags(flag, "src/fixtures"), &root, true).unwrap();
+            assert_eq!(
+                granted.notes,
+                [format!(
+                    "note: {flag}={program}src/fixtures grants {}",
+                    root.join(".git").display()
+                )]
+            );
+        }
     }
 
     /// A verb's run grants the env and spawn host modules though it names
@@ -1593,6 +1992,7 @@ mod tests {
                 .iter()
                 .map(|(name, program)| ((*name).to_owned(), (*program).clone()))
                 .collect(),
+            run_writes: BTreeMap::new(),
             development,
             entry: String::new(),
         };

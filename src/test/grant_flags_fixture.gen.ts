@@ -20,17 +20,28 @@ declaration against the message, so the twin compares kinds and flags, not the T
  * Why `to_grant_flags` refuses a case's args.
  */
 type RefusalKind =
-	'before_command' | 'takes_no_value' | 'takes_a_list' | 'no_grant_flag' | 'run_env_without_run';
+	| 'before_command'
+	| 'takes_no_value'
+	| 'takes_a_list'
+	| 'no_grant_flag'
+	| 'run_env_without_run'
+	| 'run_write_without_run';
 
 /**
  * A refusal as a case declares it: its kind, and the flag it names, as written,
- * `null` for `run_env_without_run`, which names none;
+ * `null` for `run_env_without_run` and `run_write_without_run`, which name none;
  * for `before_command`, the command its hint names, `null` for `<command>`.
  */
 type Refusal =
 	| { kind: 'before_command'; flag: string; command: string | null }
-	| { kind: Exclude<RefusalKind, 'before_command' | 'run_env_without_run'>; flag: string }
-	| { kind: 'run_env_without_run' };
+	| {
+			kind: Exclude<
+				RefusalKind,
+				'before_command' | 'run_env_without_run' | 'run_write_without_run'
+			>;
+			flag: string;
+	  }
+	| { kind: 'run_env_without_run' | 'run_write_without_run' };
 
 interface GrantFlagsCase {
 	name: string;
@@ -47,6 +58,7 @@ const takes_no_value = (flag: string): Refusal => ({ kind: 'takes_no_value', fla
 const takes_a_list = (flag: string): Refusal => ({ kind: 'takes_a_list', flag });
 const no_grant_flag = (flag: string): Refusal => ({ kind: 'no_grant_flag', flag });
 const RUN_ENV_WITHOUT_RUN: Refusal = { kind: 'run_env_without_run' };
+const RUN_WRITE_WITHOUT_RUN: Refusal = { kind: 'run_write_without_run' };
 
 const CASES: Array<GrantFlagsCase> = [
 	// no grant flags
@@ -114,6 +126,29 @@ const CASES: Array<GrantFlagsCase> = [
 		argv: ['check', '--allow-run-env'],
 		refusal: takes_a_list('--allow-run-env')
 	},
+	{ name: 'run_write', argv: ['test', '--allow-run-write=vitest:src', '--', '-u'] },
+	{
+		name: 'run_write_repeated',
+		argv: ['check', '--allow-run-write=vitest:src', '--allow-run-write=eslint:src,test']
+	},
+	// the program and directories aren't read here, the binary's to check
+	{ name: 'run_write_unread', argv: ['test', '--allow-run-write=src'] },
+	{
+		name: 'run_write_without_value',
+		argv: ['test', '--allow-run-write'],
+		refusal: takes_a_list('--allow-run-write')
+	},
+	{
+		name: 'run_write_empty',
+		argv: ['test', '--allow-run-write='],
+		refusal: takes_a_list('--allow-run-write=')
+	},
+	// a flag's name is matched whole, so a longer one is no grant flag
+	{
+		name: 'run_write_misspelled',
+		argv: ['test', '--allow-run-writes=vitest:src'],
+		refusal: no_grant_flag('--allow-run-writes=vitest:src')
+	},
 	{
 		name: 'every_flag',
 		argv: [
@@ -126,6 +161,7 @@ const CASES: Array<GrantFlagsCase> = [
 			'--allow-run=git',
 			'--allow-run-in=bin',
 			'--allow-run-env=X',
+			'--allow-run-write=git:out',
 			'--watch'
 		]
 	},
@@ -239,6 +275,27 @@ const CASES: Array<GrantFlagsCase> = [
 		refusal: RUN_ENV_WITHOUT_RUN
 	},
 	{ name: 'run_run_env_after_run', argv: ['run', 'x.ts', '--allow-run-env=X'] },
+	{
+		name: 'run_run_write_alone',
+		argv: ['run', '--allow-run-write=x:out', 'x.ts'],
+		refusal: RUN_WRITE_WITHOUT_RUN
+	},
+	{
+		name: 'run_run_write_with_run_in',
+		argv: ['run', '--allow-run-in=bin', '--allow-run-write=x:out', 'x.ts'],
+		refusal: RUN_WRITE_WITHOUT_RUN
+	},
+	{
+		name: 'run_run_write_with_all',
+		argv: ['run', '-A', '--allow-run-write=x:out', 'x.ts'],
+		refusal: RUN_WRITE_WITHOUT_RUN
+	},
+	{
+		name: 'run_run_write_with_run',
+		argv: ['run', '--allow-run=x', '--allow-run-write=x:out', 'x.ts']
+	},
+	{ name: 'run_run_write_after_run', argv: ['run', 'x.ts', '--allow-run-write=x:out'] },
+	{ name: 'check_run_write_alone', argv: ['check', '--allow-run-write=vitest:src'] },
 	{ name: 'check_run_env_alone', argv: ['check', '--allow-run-env=X'] }
 ];
 
@@ -250,7 +307,8 @@ const REFUSAL_WORDS: Record<RefusalKind, string> = {
 	takes_no_value: 'takes no value',
 	takes_a_list: 'takes a list after `=`',
 	no_grant_flag: 'is no grant flag',
-	run_env_without_run: 'passes variables to the programs'
+	run_env_without_run: 'passes variables to the programs',
+	run_write_without_run: 'lets a program `--allow-run` grants write'
 };
 
 /**
@@ -263,6 +321,7 @@ const check_refusal = (name: string, refusal: Refusal, message: string): void =>
 		if (!message.includes(REFUSAL_WORDS[refusal.kind])) return false;
 		switch (refusal.kind) {
 			case 'run_env_without_run':
+			case 'run_write_without_run':
 				return true;
 			case 'takes_no_value':
 			case 'takes_a_list':

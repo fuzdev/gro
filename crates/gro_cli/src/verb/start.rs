@@ -26,7 +26,10 @@
 //!    directories of runs gone swept from it, unless it lies in the
 //!    project, which no sweep reaches.
 //! 8. What the run and its box both hold, resolved once: the directories
-//!    the grant flags list (`granted_dirs`), and the programs the run
+//!    the grant flags list (`granted_dirs`), one inside the project that
+//!    leads out of it through a symlink, or through one into an entry the
+//!    box leaves out that it doesn't name, refused, those
+//!    `--allow-run-write=` lists the box's alone, and the programs the run
 //!    grants, pinned ([`RunPins::pin`]), the working directory the
 //!    project's root the pre-pass read.
 //! 9. The box's plan, from its inputs ([`box_inputs`]) and the disk's facts
@@ -73,7 +76,10 @@
 //! ([`walls_note`]), since the tool's own error may be a wall it met.
 //!
 //! Exit codes ([`BoxStartError::exit_code`]): `2` for what the caller
-//! changes, `-A`, a socket on stdio, what the plan refuses, a temporary
+//! changes, `-A`, a socket on stdio, a directory a grant flag lists inside
+//! the project that leads out of it through a symlink, or through one into
+//! a dot-entry or `node_modules` it doesn't name (`CliError::LeavesProject`,
+//! `CliError::LinksIntoEntry`), what the plan refuses, a temporary
 //! directory in the project or held by a rule a program's box would take,
 //! and every path planted where the box opens a rule or makes a tool
 //! directory; `1` for a build with no snapshot and a step that failed. A
@@ -99,7 +105,8 @@ use std::path::{Path, PathBuf};
 
 use gro_runtime::confine::ConfineError;
 use gro_runtime::confine::plan::{
-    BoxFacts, BoxInputs, BoxPlan, DirFlag, GrantedFlagDir, PlanRefusal, RuleSource,
+    BoxFacts, BoxInputs, BoxPlan, DirFlag, GrantedFlagDir, PlanRefusal, RuleSource, RunWriteDir,
+    RunWriteGrant,
 };
 use gro_runtime::confine::rules::RuleError;
 use gro_runtime::confine::run::{
@@ -226,14 +233,14 @@ pub enum BoxStartError {
     /// a rule whatever its directory holds, so every program would read all
     /// of the private directory, its siblings' temporary directories among
     /// them.
-    #[error("{}", temp_held_message(path, rule, *from, *variable))]
+    #[error("{}", temp_held_message(path, rule, holder, *variable))]
     TempHeldByRule {
         /// The temporary directory's real path, as the run resolved it.
         path: PathBuf,
         /// The rule's absolute path.
         rule: PathBuf,
-        /// Why the rule is there.
-        from: RuleSource,
+        /// What put the rule there.
+        holder: TempHolder,
         /// The variable that named the temporary directory, `TMPDIR`,
         /// `TMP`, or `TEMP`, or none for the default.
         variable: Option<&'static str>,
@@ -263,8 +270,14 @@ pub enum BoxStartError {
         source: std::io::Error,
     },
     /// The box's plan refuses the run.
-    #[error("{}", escape_controls(&.0.to_string()))]
-    Plan(PlanRefusal),
+    #[error("{}", escape_controls(&refusal.message(Some(&command_line(command.as_deref())))))]
+    Plan {
+        /// The refusal.
+        refusal: PlanRefusal,
+        /// The command word, none for the listing, which a refusal naming
+        /// the command that writes the project names.
+        command: Option<String>,
+    },
     /// The run's private directory couldn't be made.
     #[error("the kernel box's private directory: {}", escape_controls(&with_causes(.0)))]
     PrivateDir(PrivateDirError),
@@ -302,7 +315,7 @@ impl BoxStartError {
         match self {
             Self::Unconfined { .. }
             | Self::Confine(ConfineError::StdioSocket { .. })
-            | Self::Plan(_)
+            | Self::Plan { .. }
             | Self::TempInProject { .. }
             | Self::TempHeldByRule { .. }
             | Self::ToolDir(ToolDirError::NotADirectory { .. } | ToolDirError::Symlink { .. })
@@ -325,14 +338,53 @@ impl BoxStartError {
     }
 }
 
+/// What put a rule holding the OS's temporary directory in the run's box.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TempHolder {
+    /// A grant flag that lists directories.
+    Flag(DirFlag),
+    /// `--allow-run-write=`, for the program named so, as written.
+    RunWrite {
+        /// The program, as written.
+        program: String,
+    },
+    /// A rule of the box's own.
+    Rule,
+}
+
+impl TempHolder {
+    /// What put the rule on `rule`, an absolute path, from `source`, in
+    /// `plan`'s box: for `--allow-run-write=`, the program as the flag
+    /// naming that directory spelled it, since two flags may name one
+    /// program two ways.
+    fn of(source: RuleSource, rule: &Path, plan: &BoxPlan) -> Self {
+        match source {
+            RuleSource::Flag(flag) => Self::Flag(flag),
+            RuleSource::RunWrite(index) => plan
+                .run_write(index)
+                .and_then(|grant| {
+                    grant
+                        .dirs
+                        .iter()
+                        .find(|dir| dir.real == rule)
+                        .or_else(|| grant.dirs.first())
+                })
+                .map_or(Self::Rule, |dir| Self::RunWrite {
+                    program: dir.named.clone(),
+                }),
+            _ => Self::Rule,
+        }
+    }
+}
+
 /// [`BoxStartError::TempHeldByRule`]'s message: the temporary directory
 /// `temp`, named by `variable` (none for the default), held by the rule on
-/// `rule` from `from`, and the fix, narrowing a flag's rule or moving the
-/// temporary directory.
+/// `rule` that `holder` put there, and the fix, narrowing a flag's rule or
+/// moving the temporary directory.
 fn temp_held_message(
     temp: &Path,
     rule: &Path,
-    from: RuleSource,
+    holder: &TempHolder,
     variable: Option<&'static str>,
 ) -> String {
     let temp = escape_controls(&temp.to_string_lossy()).to_string();
@@ -344,13 +396,21 @@ fn temp_held_message(
     let start = format!(
         "the kernel box makes the run's private directory in the OS's temporary directory, {temp}"
     );
-    match from {
-        RuleSource::Flag(flag) => format!(
+    match holder {
+        TempHolder::Flag(flag) => format!(
             "{start}, and {flag}={rule} holds it, so every program the run starts could read the \
              others' temporary directories there: narrow {flag} to a directory that doesn't hold \
              {temp}, or {elsewhere}"
         ),
-        _ => format!(
+        TempHolder::RunWrite { program } => {
+            let program = escape_controls(program);
+            format!(
+                "{start}, and --allow-run-write={program}:{rule} holds it, so {program} could read \
+                 every other program's temporary directory there: narrow {program}'s directories \
+                 to ones that don't hold {temp}, or {elsewhere}"
+            )
+        }
+        TempHolder::Rule => format!(
             "{start}, and the box's rule on {rule}, which every program the run starts reads, \
              holds it, so each could read the others' temporary directories there: {elsewhere}"
         ),
@@ -476,6 +536,11 @@ fn boxed(
     for note in &granted.notes {
         stderr_line(note);
     }
+    // the closure's `.` and a write flag naming the root, by any spelling
+    let realm_writes_root = granted
+        .resolved
+        .iter()
+        .any(|dir| dir.flag == DirFlag::Write && dir.real == run.root);
     let path = environment
         .var("PATH")
         .map(|path| path.to_string_lossy().into_owned());
@@ -484,13 +549,22 @@ fn boxed(
         path.as_deref(),
         &run.root,
     );
-    let inputs = box_inputs(run, &granted.resolved, &pins, environment);
+    let inputs = box_inputs(
+        run,
+        &granted.resolved,
+        &granted.run_writes,
+        &pins,
+        environment,
+    );
     let facts = BoxFacts::read(&inputs).map_err(|source| BoxStartError::Facts {
         root: run.root.clone(),
         source,
     })?;
     phases::mark(Phase::Facts);
-    let plan = BoxPlan::for_run(&inputs, &facts).map_err(BoxStartError::Plan)?;
+    let plan = BoxPlan::for_run(&inputs, &facts).map_err(|refusal| BoxStartError::Plan {
+        refusal,
+        command: command_of(&run.cli_args),
+    })?;
     phases::mark(Phase::Plan);
     if let Some(note) = plan.note() {
         stderr_line(escape_controls(&note));
@@ -520,10 +594,11 @@ fn boxed(
         if plan.spawns()
             && let Some((rule, from)) = plan.holding(&temp_path)
         {
+            let holder = TempHolder::of(from, &rule, &plan);
             return Err(BoxStartError::TempHeldByRule {
                 path: temp_path,
                 rule,
-                from,
+                holder,
                 variable: temp_variable,
             }
             .into());
@@ -551,7 +626,11 @@ fn boxed(
         .confine()
         .map_err(BoxStartError::Confine)?;
     phases::mark(Phase::Confine);
-    options.denied_write_cause = Some(denied_write_cause(run, &wall_rules(&confined)));
+    options.denied_write_cause = Some(denied_write_cause(
+        run,
+        &wall_rules(&confined),
+        realm_writes_root,
+    ));
     if let RunNetwork::InetRefused { cause, .. } = confined.network() {
         stderr_line(format_args!(
             "note: no network namespace here ({cause}), so the box refuses every internet socket \
@@ -628,12 +707,14 @@ fn set_environment(private: Option<&RunPrivateDir>) -> Result<(), BoxStartError>
 
 /// The box's inputs for `run`: the pre-pass's plan, `resolved`, the
 /// directories the run's flags resolved to, of which the grant flags' own
-/// widen the box, `pins`, the programs the run pinned, and the variables
-/// git's home config is found by, read from `environment`. `programs`
-/// names each file once.
+/// widen the box, `run_writes`, those `--allow-run-write=` lists, each
+/// joined to the program the pre-pass resolved its name to, `pins`, the
+/// programs the run pinned, and the variables git's home config is found
+/// by, read from `environment`. `programs` names each file once.
 pub fn box_inputs(
     run: &VerbRun,
     resolved: &[GrantedFlagDir],
+    run_writes: &[RunWriteDir],
     pins: &RunPins,
     environment: &impl Environment,
 ) -> BoxInputs {
@@ -648,11 +729,34 @@ pub fn box_inputs(
         declared: run.declared.clone(),
         programs: pins.files(),
         flags: resolved.iter().filter(|dir| listed(dir)).cloned().collect(),
+        run_writes: run_write_grants(run, run_writes),
         temp: matches!(run.grant, RunGrant::Named { temp: true, .. }),
         home: path("HOME"),
         xdg_config_home: path("XDG_CONFIG_HOME"),
         git_config_global: path("GIT_CONFIG_GLOBAL"),
     }
+}
+
+/// `dirs`, the directories `--allow-run-write=` lists, by the program the
+/// pre-pass resolved each flag's name to (`VerbRun::run_writes`), in the
+/// order of those programs, a name it didn't resolve, which no run reaches,
+/// left out.
+fn run_write_grants(run: &VerbRun, dirs: &[RunWriteDir]) -> Vec<RunWriteGrant> {
+    let mut grants: Vec<RunWriteGrant> = Vec::new();
+    for dir in dirs {
+        let Some(program) = run.run_writes.get(&dir.named) else {
+            continue;
+        };
+        match grants.iter_mut().find(|grant| grant.program == *program) {
+            Some(grant) => grant.dirs.push(dir.clone()),
+            None => grants.push(RunWriteGrant {
+                program: program.clone(),
+                table: run.programs.contains_key(program),
+                dirs: vec![dir.clone()],
+            }),
+        }
+    }
+    grants
 }
 
 /// The directories `flags` lists for `flag`.
@@ -706,14 +810,33 @@ fn shown(root: &Path, path: &Path) -> String {
     escape_controls(&shown.to_string_lossy()).into_owned()
 }
 
-/// Where `rules`, a box's for the project at `root`, let a run write, as a
-/// clause: `write only to <a>, <b>, and <c>`, or `write nothing`. The
-/// top-level entries the box writes are summarized, the tool and flag
-/// directories named, then the run's private directory.
-fn writes_clause(root: &Path, rules: &[WallRule]) -> String {
+/// Which reader a clause naming where the box lets a run write is for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WritesFor {
+    /// Gro's own code, through the fs host module: the realm's write
+    /// cause, which leaves out what the box grants programs alone, and
+    /// counts the per-entry rules only when gro's code writes the root.
+    Realm {
+        /// Whether gro's own code writes the project's root.
+        writes_root: bool,
+    },
+    /// The tools: the closing walls note, which names every rule that
+    /// writes, since every tool shares the run's box.
+    Tools,
+}
+
+/// Where `rules`, a box's for the project at `root`, let a run write, as
+/// `reader` reads it, as a clause: `write only to <a>, <b>, and <c>`, or
+/// `write nothing`. The top-level entries the box writes are summarized,
+/// the tool and flag directories named, then the run's private directory.
+fn writes_clause(root: &Path, rules: &[WallRule], reader: WritesFor) -> String {
     let writing = || rules.iter().filter(|rule| rule.writes);
     let mut named = Vec::new();
-    if writing().any(|rule| rule.source == RuleSource::Entry) {
+    let entries = match reader {
+        WritesFor::Realm { writes_root } => writes_root,
+        WritesFor::Tools => true,
+    };
+    if entries && writing().any(|rule| rule.source == RuleSource::Entry) {
         named.push(
             "the top-level entries the project had as it started (but .git, node_modules, the \
              dot-entries, symlinks)"
@@ -722,7 +845,11 @@ fn writes_clause(root: &Path, rules: &[WallRule]) -> String {
     }
     named.extend(
         writing()
-            .filter(|rule| matches!(rule.source, RuleSource::ToolDir(_) | RuleSource::Flag(_)))
+            .filter(|rule| match rule.source {
+                RuleSource::ToolDir(_) | RuleSource::Flag(_) => true,
+                RuleSource::RunWrite(_) => reader == WritesFor::Tools,
+                _ => false,
+            })
             .map(|rule| shown(root, &rule.path)),
     );
     if writing().any(|rule| rule.source == RuleSource::PrivateTemp) {
@@ -735,17 +862,25 @@ fn writes_clause(root: &Path, rules: &[WallRule]) -> String {
     }
 }
 
-/// What stays read-only in the project at `root` under `rules`, though a
-/// run's grants may write it, as a clause: `.git` but where a write rule
-/// covers it, `node_modules` (but its tool directories, where any is
-/// there) but where a write rule covers it, the other dot-entries (than
-/// those named writable), and a new top-level entry.
+/// What stays read-only to gro's own code in the project at `root` under
+/// `rules`, though a run's grants may write it, as a clause: `.git` but
+/// where a write rule of the realm's covers it, `node_modules` (but its
+/// tool directories, where any is there) but where such a rule covers it,
+/// the other dot-entries (than those named writable), and a new top-level
+/// entry. A rule `--allow-run-write=` makes is a program's, never the
+/// realm's, so it covers nothing here.
 fn read_only_clause(root: &Path, rules: &[WallRule]) -> String {
     // a write rule covering `path`: on it or on a directory holding it
     let covered = |path: &Path| {
         rules
             .iter()
-            .filter(|rule| rule.writes && !matches!(rule.source, RuleSource::ToolDir(_)))
+            .filter(|rule| {
+                rule.writes
+                    && !matches!(
+                        rule.source,
+                        RuleSource::ToolDir(_) | RuleSource::RunWrite(_)
+                    )
+            })
             .any(|rule| path.starts_with(&rule.path))
     };
     let node_modules: Vec<PathBuf> = std::iter::once(root.join("node_modules"))
@@ -776,16 +911,20 @@ fn read_only_clause(root: &Path, rules: &[WallRule]) -> String {
 }
 
 /// What a write through the fs host module that the kernel refuses gains,
-/// in `run`, boxed by `rules` ([`gro_runtime::DeniedWriteCause`]): where
-/// the box lets it write and what stays read-only, added only to the
-/// refusal of a path no write rule holds, and those rules' paths.
+/// in `run`, boxed by `rules` ([`gro_runtime::DeniedWriteCause`]), whose
+/// own code writes the project's root when `writes_root` says so: where
+/// the box lets gro's own code write and what stays read-only, added only
+/// to the refusal of a path no write rule holds, and those rules' paths,
+/// every rule that writes among them, a program's too, since the kernel
+/// lets the run write beneath each.
 ///
 /// Kind: a review signal; the box is the wall.
-fn denied_write_cause(run: &VerbRun, rules: &[WallRule]) -> DeniedWriteCause {
+fn denied_write_cause(run: &VerbRun, rules: &[WallRule], writes_root: bool) -> DeniedWriteCause {
+    let reader = WritesFor::Realm { writes_root };
     let cause = format!(
         "the run's kernel box lets {} {}; {}",
         command_line(command_of(&run.cli_args).as_deref()),
-        writes_clause(&run.root, rules),
+        writes_clause(&run.root, rules, reader),
         read_only_clause(&run.root, rules)
     );
     let writable = rules
@@ -799,7 +938,8 @@ fn denied_write_cause(run: &VerbRun, rules: &[WallRule]) -> DeniedWriteCause {
 /// The note a run boxed by `rules`, in `network`, prints when it failed and
 /// a tool it started ended other than by exiting 0, by no signal of the
 /// run's, which may be a wall the tool met: what the box lets its tools
-/// reach and write, and the flags that widen it.
+/// reach and write, every tool sharing the run's box, and the flags that
+/// widen it.
 ///
 /// Kind: a review signal the run's code can print as well, and set off by
 /// starting a program that fails.
@@ -811,9 +951,9 @@ fn walls_note(run: &VerbRun, rules: &[WallRule], network: &RunNetwork) -> String
     format!(
         "note: {}'s tools ran in the run's kernel box, which lets them {network} and {}: a tool \
          that hits a wall fails with EACCES, EPERM, or ENOSYS, and --allow-read=, \
-         --allow-write=, and --allow-run-in= widen the box",
+         --allow-write=, --allow-run-write=, and --allow-run-in= widen the box",
         command_line(command_of(&run.cli_args).as_deref()),
-        writes_clause(&run.root, rules)
+        writes_clause(&run.root, rules, WritesFor::Tools)
     )
 }
 

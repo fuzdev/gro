@@ -320,6 +320,87 @@
 			"error": "`--allow-run-env` takes a list after `=`, like `--allow-run-env=a,b`: `--allow-run-env`"
 		},
 		{
+			"name": "run_write",
+			"argv": [
+				"test",
+				"--allow-run-write=vitest:src",
+				"--",
+				"-u"
+			],
+			"cli_args": [
+				"test",
+				"--",
+				"-u"
+			],
+			"grant_flags": [
+				"--allow-run-write=vitest:src"
+			]
+		},
+		{
+			"name": "run_write_repeated",
+			"argv": [
+				"check",
+				"--allow-run-write=vitest:src",
+				"--allow-run-write=eslint:src,test"
+			],
+			"cli_args": [
+				"check"
+			],
+			"grant_flags": [
+				"--allow-run-write=vitest:src",
+				"--allow-run-write=eslint:src,test"
+			]
+		},
+		{
+			"name": "run_write_unread",
+			"argv": [
+				"test",
+				"--allow-run-write=src"
+			],
+			"cli_args": [
+				"test"
+			],
+			"grant_flags": [
+				"--allow-run-write=src"
+			]
+		},
+		{
+			"name": "run_write_without_value",
+			"argv": [
+				"test",
+				"--allow-run-write"
+			],
+			"refusal": {
+				"kind": "takes_a_list",
+				"flag": "--allow-run-write"
+			},
+			"error": "`--allow-run-write` takes a list after `=`, like `--allow-run-write=vitest:src`: `--allow-run-write`"
+		},
+		{
+			"name": "run_write_empty",
+			"argv": [
+				"test",
+				"--allow-run-write="
+			],
+			"refusal": {
+				"kind": "takes_a_list",
+				"flag": "--allow-run-write="
+			},
+			"error": "`--allow-run-write` takes a list after `=`, like `--allow-run-write=vitest:src`: `--allow-run-write=`"
+		},
+		{
+			"name": "run_write_misspelled",
+			"argv": [
+				"test",
+				"--allow-run-writes=vitest:src"
+			],
+			"refusal": {
+				"kind": "no_grant_flag",
+				"flag": "--allow-run-writes=vitest:src"
+			},
+			"error": "`--allow-run-writes=vitest:src` is no grant flag: they're `-A`, `--allow-temp`, `--allow-env`, `--allow-read`, `--allow-write`, `--allow-run`, `--allow-run-in`, `--allow-run-env`, `--allow-run-write`"
+		},
+		{
 			"name": "every_flag",
 			"argv": [
 				"check",
@@ -331,6 +412,7 @@
 				"--allow-run=git",
 				"--allow-run-in=bin",
 				"--allow-run-env=X",
+				"--allow-run-write=git:out",
 				"--watch"
 			],
 			"cli_args": [
@@ -345,7 +427,8 @@
 				"--allow-env=CI",
 				"--allow-run=git",
 				"--allow-run-in=bin",
-				"--allow-run-env=X"
+				"--allow-run-env=X",
+				"--allow-run-write=git:out"
 			]
 		},
 		{
@@ -396,7 +479,7 @@
 				"kind": "no_grant_flag",
 				"flag": "--allow-net=x"
 			},
-			"error": "`--allow-net=x` is no grant flag: they're `-A`, `--allow-temp`, `--allow-env`, `--allow-read`, `--allow-write`, `--allow-run`, `--allow-run-in`, `--allow-run-env`"
+			"error": "`--allow-net=x` is no grant flag: they're `-A`, `--allow-temp`, `--allow-env`, `--allow-read`, `--allow-write`, `--allow-run`, `--allow-run-in`, `--allow-run-env`, `--allow-run-write`"
 		},
 		{
 			"name": "lookalike_bare_prefix",
@@ -408,7 +491,7 @@
 				"kind": "no_grant_flag",
 				"flag": "--allow-"
 			},
-			"error": "`--allow-` is no grant flag: they're `-A`, `--allow-temp`, `--allow-env`, `--allow-read`, `--allow-write`, `--allow-run`, `--allow-run-in`, `--allow-run-env`"
+			"error": "`--allow-` is no grant flag: they're `-A`, `--allow-temp`, `--allow-env`, `--allow-read`, `--allow-write`, `--allow-run`, `--allow-run-in`, `--allow-run-env`, `--allow-run-write`"
 		},
 		{
 			"name": "lookalike_case",
@@ -420,7 +503,7 @@
 				"kind": "no_grant_flag",
 				"flag": "--allow-READ=."
 			},
-			"error": "`--allow-READ=.` is no grant flag: they're `-A`, `--allow-temp`, `--allow-env`, `--allow-read`, `--allow-write`, `--allow-run`, `--allow-run-in`, `--allow-run-env`"
+			"error": "`--allow-READ=.` is no grant flag: they're `-A`, `--allow-temp`, `--allow-env`, `--allow-read`, `--allow-write`, `--allow-run`, `--allow-run-in`, `--allow-run-env`, `--allow-run-write`"
 		},
 		{
 			"name": "lookalike_all_long",
@@ -432,7 +515,7 @@
 				"kind": "no_grant_flag",
 				"flag": "--allow-all"
 			},
-			"error": "`--allow-all` is no grant flag: they're `-A`, `--allow-temp`, `--allow-env`, `--allow-read`, `--allow-write`, `--allow-run`, `--allow-run-in`, `--allow-run-env`"
+			"error": "`--allow-all` is no grant flag: they're `-A`, `--allow-temp`, `--allow-env`, `--allow-read`, `--allow-write`, `--allow-run`, `--allow-run-in`, `--allow-run-env`, `--allow-run-write`"
 		},
 		{
 			"name": "lookalike_no_dash",
@@ -497,7 +580,7 @@
 				"kind": "no_grant_flag",
 				"flag": "--allow-net=x"
 			},
-			"error": "`--allow-net=x` is no grant flag: they're `-A`, `--allow-temp`, `--allow-env`, `--allow-read`, `--allow-write`, `--allow-run`, `--allow-run-in`, `--allow-run-env`"
+			"error": "`--allow-net=x` is no grant flag: they're `-A`, `--allow-temp`, `--allow-env`, `--allow-read`, `--allow-write`, `--allow-run`, `--allow-run-in`, `--allow-run-env`, `--allow-run-write`"
 		},
 		{
 			"name": "help_alone",
@@ -1061,6 +1144,88 @@
 				"--allow-run-env=X"
 			],
 			"grant_flags": []
+		},
+		{
+			"name": "run_run_write_alone",
+			"argv": [
+				"run",
+				"--allow-run-write=x:out",
+				"x.ts"
+			],
+			"refusal": {
+				"kind": "run_write_without_run"
+			},
+			"error": "`--allow-run-write` lets a program `--allow-run` grants write, and `gro run` was given no `--allow-run`"
+		},
+		{
+			"name": "run_run_write_with_run_in",
+			"argv": [
+				"run",
+				"--allow-run-in=bin",
+				"--allow-run-write=x:out",
+				"x.ts"
+			],
+			"refusal": {
+				"kind": "run_write_without_run"
+			},
+			"error": "`--allow-run-write` lets a program `--allow-run` grants write, and `gro run` was given no `--allow-run`"
+		},
+		{
+			"name": "run_run_write_with_all",
+			"argv": [
+				"run",
+				"-A",
+				"--allow-run-write=x:out",
+				"x.ts"
+			],
+			"refusal": {
+				"kind": "run_write_without_run"
+			},
+			"error": "`--allow-run-write` lets a program `--allow-run` grants write, and `gro run` was given no `--allow-run`"
+		},
+		{
+			"name": "run_run_write_with_run",
+			"argv": [
+				"run",
+				"--allow-run=x",
+				"--allow-run-write=x:out",
+				"x.ts"
+			],
+			"cli_args": [
+				"run",
+				"x.ts"
+			],
+			"grant_flags": [
+				"--allow-run=x",
+				"--allow-run-write=x:out"
+			]
+		},
+		{
+			"name": "run_run_write_after_run",
+			"argv": [
+				"run",
+				"x.ts",
+				"--allow-run-write=x:out"
+			],
+			"cli_args": [
+				"run",
+				"x.ts",
+				"--allow-run-write=x:out"
+			],
+			"grant_flags": []
+		},
+		{
+			"name": "check_run_write_alone",
+			"argv": [
+				"check",
+				"--allow-run-write=vitest:src"
+			],
+			"cli_args": [
+				"check"
+			],
+			"grant_flags": [
+				"--allow-run-write=vitest:src"
+			]
 		},
 		{
 			"name": "check_run_env_alone",

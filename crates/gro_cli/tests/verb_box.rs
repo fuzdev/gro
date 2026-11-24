@@ -826,7 +826,8 @@ fn a_failed_run_whose_tool_failed_names_the_walls() {
                 " and write only to the top-level entries the project had as it started (but \
                  .git, node_modules, the dot-entries, symlinks) and a temporary directory of the \
                  run's: a tool that hits a wall fails with EACCES, EPERM, or ENOSYS, and \
-                 --allow-read=, --allow-write=, and --allow-run-in= widen the box"
+                 --allow-read=, --allow-write=, --allow-run-write=, and --allow-run-in= widen the \
+                 box"
             ),
             "{stderr}"
         );
@@ -858,6 +859,186 @@ fn a_check_mode_run_writes_nothing_of_the_project() {
         );
     }
     assert!(!scratch.0.join("project/src/x.txt").exists(), "{output}");
+}
+
+/// A project for a write flag's refusals before the box: its own `.git`,
+/// a genfile that writes its output, a directory outside the project and a
+/// top-level symlink leading to it, a temporary directory of its own, and
+/// the checkout's `node_modules`, linked whole.
+fn write_flag_project(name: &str) -> Scratch {
+    let scratch = Scratch::new(
+        name,
+        &[
+            ("tmp/.keep", ""),
+            ("outside/.keep", ""),
+            ("project/package.json", r#"{"name": "p", "type": "module"}"#),
+            ("project/.git/hooks/.keep", ""),
+            ("project/src/inner/.keep", ""),
+            (
+                "project/src/x.gen.ts",
+                "export const gen = () => '// generated\\n';\n",
+            ),
+        ],
+    );
+    let project = scratch.0.join("project");
+    std::os::unix::fs::symlink(checkout_node_modules(), project.join("node_modules")).unwrap();
+    std::os::unix::fs::symlink("../outside", project.join("out")).unwrap();
+    std::os::unix::fs::symlink("src/inner", project.join("in")).unwrap();
+    scratch
+}
+
+/// `fgro <args>` in `scratch`'s project, its temporary directory the
+/// scratch tree's, the variables the box reads cleared.
+fn in_write_flag_project(scratch: &Scratch, args: &[&str]) -> (Option<i32>, String, String) {
+    let mut command = fgro_command(args);
+    for name in CLEARED {
+        command.env_remove(name);
+    }
+    command
+        .current_dir(scratch.0.join("project"))
+        .env("TMPDIR", scratch.0.join("tmp"));
+    run(command)
+}
+
+/// The run's private directories in `scratch`'s temporary directory.
+fn private_dirs(scratch: &Scratch) -> Vec<String> {
+    std::fs::read_dir(scratch.0.join("tmp"))
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+        .filter(|name| name.starts_with("gro-"))
+        .collect()
+}
+
+/// Where gro's own code writes the whole project, a program's directory
+/// under `.git` is refused, exit 2, naming the command, before the box and
+/// before anything is made; `--allow-write=` naming it too is the way
+/// through, which runs; and a command whose code writes no root honors it.
+#[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "a command of Gro's runs in its box only from a snapshot build"
+)]
+fn a_program_s_directory_gro_s_code_would_write_is_refused() {
+    let scratch = write_flag_project("verb_box_run_write_corner");
+    let (code, stdout, stderr) = in_write_flag_project(
+        &scratch,
+        &["gen", "--allow-run-write=svelte-kit:.git/hooks"],
+    );
+    assert_eq!(code, Some(2), "{stdout}{stderr}");
+    assert!(
+        stderr.ends_with(&format!(
+            "error: --allow-run-write=svelte-kit:.git/hooks would let gro's own code write \
+             .git/hooks as well, since {BINARY_NAME} gen writes the project and only the kernel \
+             box keeps it out of .git, node_modules, and the dot-entries: add \
+             --allow-write=.git/hooks to grant it to both\n"
+        )),
+        "{stderr}"
+    );
+    assert!(!scratch.0.join("project/src/x.ts").exists());
+    assert_eq!(private_dirs(&scratch), Vec::<String>::new());
+    // a top-level symlink to `.git`, which the flag doesn't name, is
+    // refused before the plan reads its real path
+    std::os::unix::fs::symlink(".git", scratch.0.join("project/g")).unwrap();
+    let (code, stdout, stderr) =
+        in_write_flag_project(&scratch, &["gen", "--allow-run-write=svelte-kit:g"]);
+    assert_eq!(code, Some(2), "{stdout}{stderr}");
+    assert!(
+        stderr.contains(
+            "--allow-run-write=svelte-kit:g names g, which leads through a symlink to .git"
+        ),
+        "{stderr}"
+    );
+    std::fs::remove_file(scratch.0.join("project/g")).unwrap();
+    let (code, stdout, stderr) = in_write_flag_project(
+        &scratch,
+        &[
+            "gen",
+            "--allow-write=.git/hooks",
+            "--allow-run-write=svelte-kit:.git/hooks",
+        ],
+    );
+    assert_eq!(code, Some(0), "{stdout}{stderr}");
+    assert!(scratch.0.join("project/src/x.ts").exists(), "{stderr}");
+    // gen's check mode writes nothing, so the program's directory is
+    // honored
+    let (code, stdout, stderr) = in_write_flag_project(
+        &scratch,
+        &["gen", "--allow-run-write=svelte-kit:.git/hooks", "--check"],
+    );
+    assert_eq!(code, Some(0), "{stdout}{stderr}");
+    assert!(!stderr.contains("would let gro's own code"), "{stderr}");
+}
+
+/// A directory a command's grant flag lists inside the project by its text
+/// that leads out of it through a symlink is refused, exit 2, before the
+/// box and before anything is made, for each directory flag, and so is one
+/// leading through a symlink into `.git`, which it doesn't name; one leading
+/// through a symlink that stays inside is noted and runs; and `fgro run`
+/// notes the one leading out, the path being the person's.
+#[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "a command of Gro's runs in its box only from a snapshot build"
+)]
+fn a_command_s_directory_leading_out_of_the_project_is_refused() {
+    let scratch = write_flag_project("verb_box_leaves_project");
+    let outside = scratch.0.join("outside").canonicalize().unwrap();
+    for flag in [
+        "--allow-read=out",
+        "--allow-write=out",
+        "--allow-run-in=out",
+        "--allow-run-write=svelte-kit:out",
+    ] {
+        let (code, stdout, stderr) = in_write_flag_project(&scratch, &["gen", flag, "--check"]);
+        assert_eq!(code, Some(2), "{flag}: {stdout}{stderr}");
+        assert!(
+            stderr.ends_with(&format!(
+                "error: {flag} names out, which leads out of the project to {} through a \
+                 symlink: a directory typed inside the project must be inside it, so name {} \
+                 itself to grant it\n",
+                outside.display(),
+                outside.display()
+            )),
+            "{flag}: {stderr}"
+        );
+        assert_eq!(private_dirs(&scratch), Vec::<String>::new(), "{flag}");
+    }
+    // a link inside that lands in `.git`, which the flag doesn't name
+    std::os::unix::fs::symlink("../.git", scratch.0.join("project/src/fixtures")).unwrap();
+    for flag in [
+        "--allow-write=src/fixtures",
+        "--allow-run-write=svelte-kit:src/fixtures",
+    ] {
+        let (code, stdout, stderr) = in_write_flag_project(&scratch, &["gen", flag, "--check"]);
+        assert_eq!(code, Some(2), "{flag}: {stdout}{stderr}");
+        assert!(
+            stderr.ends_with(&format!(
+                "error: {flag} names src/fixtures, which leads through a symlink to .git: name \
+                 .git itself to grant it\n"
+            )),
+            "{flag}: {stderr}"
+        );
+        assert_eq!(private_dirs(&scratch), Vec::<String>::new(), "{flag}");
+    }
+    std::fs::remove_file(scratch.0.join("project/src/fixtures")).unwrap();
+    let inner = scratch.0.join("project/src/inner").canonicalize().unwrap();
+    let (code, stdout, stderr) = in_write_flag_project(&scratch, &["gen", "--allow-read=in"]);
+    assert_eq!(code, Some(0), "{stdout}{stderr}");
+    assert!(
+        stderr.contains(&format!(
+            "note: --allow-read=in grants {}\n",
+            inner.display()
+        )),
+        "{stderr}"
+    );
+    std::fs::write(scratch.0.join("project/a.mjs"), "").unwrap();
+    let (code, stdout, stderr) =
+        in_write_flag_project(&scratch, &["run", "--allow-read=out", "a.mjs"]);
+    assert_eq!(code, Some(0), "{stdout}{stderr}");
+    assert_eq!(
+        stderr,
+        format!("note: --allow-read=out grants {}\n", outside.display())
+    );
 }
 
 /// A grant flag holding the temporary directory, which would give every

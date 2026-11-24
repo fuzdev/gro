@@ -271,8 +271,8 @@ fn apply(
             Difference::LinkedNodeModules => {
                 let note = format!(
                     "note: node_modules is a symlink to {}, which the box follows to read and \
-                     execute, and no tool directory is made in it: --allow-write= naming it lets \
-                     the tools write there\n",
+                     execute, and no tool directory is made in it: --allow-write= naming where it \
+                     leads lets the tools write there\n",
                     checkout_node_modules().display()
                 );
                 if let Some(rest) = actual.stderr.strip_prefix(&note) {

@@ -6,7 +6,8 @@ use std::path::PathBuf;
 
 use crate::confine::plan::{
     Anchor, BoxFacts, BoxInputs, BoxPlan, DirFlag, EntryKind, GrantedFlagDir, NodeModules, Opening,
-    PlanRefusal, PlannedRule, ProgramFile, Skip, TopEntry,
+    PlanRefusal, PlannedRule, ProgramFile, RootWriter, RuleSource, RunWriteDir, RunWriteGrant,
+    Skip, TopEntry,
 };
 use crate::confine::rules::{Need, RealRights, Rights};
 
@@ -431,6 +432,7 @@ fn the_plan_refuses_what_no_box_holds() {
             flagged(&[(DirFlag::Write, "..", "/")]),
             facts(),
             Some(PlanRefusal::WriteAboveRoot {
+                program: None,
                 dir: "..".into(),
                 real: "/".into(),
             }),
@@ -475,6 +477,7 @@ fn the_plan_refuses_what_no_box_holds() {
             deep,
             facts(),
             Some(PlanRefusal::WriteAboveRoot {
+                program: None,
                 dir: "~".into(),
                 real: "/h".into(),
             }),
@@ -568,8 +571,8 @@ fn a_symlinked_node_modules_is_followed() {
         plan.note().as_deref(),
         Some(
             "note: node_modules is a symlink to /shared/node_modules, which the box follows to \
-             read and execute, and no tool directory is made in it: --allow-write= naming it lets \
-             the tools write there"
+             read and execute, and no tool directory is made in it: --allow-write= naming where \
+             it leads lets the tools write there"
         )
     );
     // a write flag naming it, or a directory holding it
@@ -595,8 +598,8 @@ fn a_symlinked_node_modules_is_followed() {
             plan.note().as_deref(),
             Some(
                 "note: node_modules is a symlink to /shared/node_modules, which the box follows \
-                 to read and execute, and --allow-write= naming it lets the tools write their \
-                 directories there"
+                 to read and execute, and --allow-write= naming where it leads lets the tools \
+                 write their directories there"
             ),
             "{dir}"
         );
@@ -692,7 +695,6 @@ fn allow_temp_gets_the_private_directory() {
 /// none of `/tmp`'s, and the private directory's own rule is never one.
 #[test]
 fn a_rule_holding_the_temporary_directory_is_found() {
-    use crate::confine::plan::RuleSource;
     let spawning = |flags: &[(DirFlag, &str, &str)]| BoxInputs {
         spawns: true,
         programs: vec![node()],
@@ -743,4 +745,267 @@ fn a_rule_holding_the_temporary_directory_is_found() {
     let plan = BoxPlan::for_run(&temp, &facts()).unwrap();
     assert!(plan.private_temp());
     assert_eq!(plan.holding(std::path::Path::new("/tmp")), None);
+}
+
+/// The program `node_modules/.bin/vitest`, a tool of the table, with the
+/// directories `dirs` lists for it, each as written and its real path.
+fn vitest_writes(dirs: &[(&str, &str)]) -> RunWriteGrant {
+    RunWriteGrant {
+        program: "node_modules/.bin/vitest".to_owned(),
+        table: true,
+        dirs: dirs
+            .iter()
+            .map(|&(dir, real)| RunWriteDir {
+                named: "vitest".to_owned(),
+                dir: dir.to_owned(),
+                real: real.into(),
+            })
+            .collect(),
+    }
+}
+
+/// A run of `test`, or of a command whose closure writes the root when
+/// `writes`, with the write flags `flags` and `--allow-run-write=` naming
+/// `run_writes`.
+fn run_writing(
+    writes: bool,
+    flags: &[(DirFlag, &str, &str)],
+    run_writes: Vec<RunWriteGrant>,
+) -> BoxInputs {
+    BoxInputs {
+        writes_root: writes,
+        spawns: true,
+        programs: vec![node()],
+        run_writes,
+        ..flagged(flags)
+    }
+}
+
+/// `--allow-run-write=` widens the run's box alone: each directory read
+/// and written beneath `/`, a rule of its own beside any other source's on
+/// the same path, an excluded entry honored where gro's code doesn't write
+/// the root, and the root the per-entry set; its program and spelling are
+/// the plan's to name, by the rule's index.
+#[test]
+fn a_run_write_flag_widens_the_box() {
+    let plan = |inputs: &BoxInputs| BoxPlan::for_run(inputs, &facts()).unwrap();
+    let added = |plan: &BoxPlan| -> Vec<String> {
+        render(plan)
+            .into_iter()
+            .filter(|line| {
+                line.contains("RunWrite") || line.contains("Flag(") || line.contains("Entry")
+            })
+            .collect()
+    };
+    let one = plan(&run_writing(
+        false,
+        &[],
+        vec![vitest_writes(&[("src/x", "/p/src/x"), ("../out", "/out")])],
+    ));
+    assert_eq!(
+        added(&one),
+        ["/ p/src/x rw req RunWrite(0)", "/ out rw req RunWrite(0)"]
+    );
+    assert_eq!(
+        one.run_write(0),
+        Some(&vitest_writes(&[("src/x", "/p/src/x"), ("../out", "/out")]))
+    );
+    assert_eq!(one.run_write(1), None);
+    // the same directory under a write flag, and one an entry's rule
+    // names: each its own rule
+    let both = plan(&run_writing(
+        true,
+        &[(DirFlag::Write, "out", "/p/src")],
+        vec![vitest_writes(&[("src", "/p/src")])],
+    ));
+    assert_eq!(
+        added(&both),
+        [
+            "project CLAUDE.md w req Entry",
+            "project package.json w req Entry",
+            "project src w req Entry",
+            "/ p/src rw req Flag(Write)",
+            "/ p/src rw req RunWrite(0)",
+        ]
+    );
+    // an excluded entry, under a command that doesn't write the root
+    let git = RunWriteGrant {
+        program: "git".to_owned(),
+        table: true,
+        dirs: vec![RunWriteDir {
+            named: "git".to_owned(),
+            dir: ".git".to_owned(),
+            real: "/p/.git".into(),
+        }],
+    };
+    assert_eq!(
+        added(&plan(&run_writing(
+            false,
+            &[],
+            vec![vitest_writes(&[]), git]
+        ))),
+        ["/ p/.git rw req RunWrite(1)"]
+    );
+    // the root, by any spelling, is the per-entry set, planned as a write
+    // on the root is
+    for spelling in [".", "./", "../p"] {
+        let rooted = plan(&run_writing(
+            false,
+            &[],
+            vec![vitest_writes(&[(spelling, "/p")])],
+        ));
+        assert_eq!(
+            added(&rooted),
+            [
+                "project CLAUDE.md w req Entry",
+                "project package.json w req Entry",
+                "project src w req Entry",
+            ],
+            "{spelling}"
+        );
+        assert!(render(&rooted).contains(&"skip /p/AGENTS.md Symlink".to_owned()));
+    }
+}
+
+/// A directory `--allow-run-write=` names that holds the root is refused,
+/// naming the flag as written; where gro's own code writes the whole
+/// project, by the closure or a write flag naming the root, one under a
+/// dot-entry or `node_modules` by its real path is refused unless a write
+/// flag names it or a directory holding it short of the root.
+#[test]
+fn the_plan_refuses_a_run_write_flag_gro_s_code_would_write_through() {
+    let refused = |inputs: &BoxInputs| BoxPlan::for_run(inputs, &facts()).err();
+    assert_eq!(
+        refused(&run_writing(
+            false,
+            &[],
+            vec![vitest_writes(&[("..", "/")])]
+        )),
+        Some(PlanRefusal::WriteAboveRoot {
+            program: Some("vitest".to_owned()),
+            dir: "..".to_owned(),
+            real: "/".into(),
+        })
+    );
+    let above = refused(&run_writing(
+        false,
+        &[],
+        vec![vitest_writes(&[("../..", "/")])],
+    ))
+    .unwrap();
+    assert_eq!(
+        above.to_string(),
+        "--allow-run-write=vitest:../.. names /, which holds the project, and no kernel rule \
+         beneath it can leave the project's .git and node_modules out: name directories inside \
+         the project or beside it"
+    );
+    let corner = |dir: &str| PlanRefusal::RealmWritesProgramDir {
+        program: "vitest".to_owned(),
+        dir: dir.to_owned(),
+        cause: RootWriter::Closure,
+    };
+    for (dir, real) in [
+        (".git", "/p/.git"),
+        (".git/hooks", "/p/.git/hooks"),
+        ("node_modules", "/p/node_modules"),
+        ("node_modules/.cache", "/p/node_modules/.cache"),
+        (".svelte-kit", "/p/.svelte-kit"),
+        // a top-level symlink to `.git`, by its real path
+        ("out", "/p/.git"),
+    ] {
+        assert_eq!(
+            refused(&run_writing(true, &[], vec![vitest_writes(&[(dir, real)])])),
+            Some(corner(dir)),
+            "{dir}"
+        );
+        // with no write on the root by gro's code it's honored
+        assert_eq!(
+            refused(&run_writing(
+                false,
+                &[],
+                vec![vitest_writes(&[(dir, real)])]
+            )),
+            None,
+            "{dir}"
+        );
+        // a write flag naming it, or a directory holding it short of the
+        // root, puts both on the command line
+        assert_eq!(
+            refused(&run_writing(
+                true,
+                &[(DirFlag::Write, dir, real)],
+                vec![vitest_writes(&[(dir, real)])]
+            )),
+            None,
+            "{dir}"
+        );
+    }
+    assert_eq!(
+        refused(&run_writing(
+            true,
+            &[(DirFlag::Write, "node_modules", "/p/node_modules")],
+            vec![vitest_writes(&[(
+                "node_modules/.cache",
+                "/p/node_modules/.cache"
+            )])]
+        )),
+        None
+    );
+    // the root itself, an ordinary entry, and a directory outside the
+    // project aren't the corner's
+    for (dir, real) in [
+        (".", "/p"),
+        ("src", "/p/src"),
+        ("../.x", "/.x"),
+        ("lib", "/o/node_modules/x"),
+    ] {
+        assert_eq!(
+            refused(&run_writing(true, &[], vec![vitest_writes(&[(dir, real)])])),
+            None,
+            "{dir}"
+        );
+    }
+    // a write flag naming the root makes gro's code write it, under any
+    // command, and is named as written
+    assert_eq!(
+        refused(&run_writing(
+            false,
+            &[(DirFlag::Write, "./", "/p")],
+            vec![vitest_writes(&[(".git", "/p/.git")])]
+        )),
+        Some(PlanRefusal::RealmWritesProgramDir {
+            program: "vitest".to_owned(),
+            dir: ".git".to_owned(),
+            cause: RootWriter::Flag("./".to_owned()),
+        })
+    );
+    // the message, with and without the command's name
+    let refusal = corner(".git");
+    assert_eq!(
+        refusal.message(Some("fgro gen")),
+        "--allow-run-write=vitest:.git would let gro's own code write .git as well, since fgro \
+         gen writes the project and only the kernel box keeps it out of .git, node_modules, and \
+         the dot-entries: add --allow-write=.git to grant it to both"
+    );
+    assert!(
+        refusal
+            .to_string()
+            .contains("since the command writes the project")
+    );
+}
+
+/// While the program boxes take what the table's tools take, a rule
+/// `--allow-run-write=` makes on the OS's temporary directory, or one
+/// holding it, is found holding it, as a write flag's is.
+#[test]
+fn a_run_write_flag_holding_the_temporary_directory_is_found() {
+    let plan = BoxPlan::for_run(
+        &run_writing(false, &[], vec![vitest_writes(&[("/tmp", "/tmp")])]),
+        &facts(),
+    )
+    .unwrap();
+    assert_eq!(
+        plan.holding(std::path::Path::new("/tmp/base")),
+        Some((PathBuf::from("/tmp"), RuleSource::RunWrite(0)))
+    );
 }

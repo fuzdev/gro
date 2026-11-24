@@ -119,6 +119,7 @@ fn dirs(read: &[&str], write: &[&str]) -> FlagDirs {
         read: set(read),
         write: set(write),
         run_in: BTreeSet::new(),
+        run_write: BTreeMap::new(),
     }
 }
 
@@ -661,4 +662,123 @@ fn a_table_that_grants_a_program_two_ways_is_refused() {
             env: BTreeMap::new(),
         }
     );
+}
+
+/// `--allow-run-write=` names a program the run grants: a tool of the
+/// command's closure as it's called or by its name in the run, a program
+/// the closure grants by its bare name, or one `--allow-run=` grants; each
+/// resolved to the name the run grants it as, and checked for a run alone.
+#[test]
+fn a_run_write_flag_names_a_program_the_run_grants() {
+    let resolved = |cli_args: &[&str]| run(cli_args).run_writes;
+    let map = |pairs: &[(&str, &str)]| -> BTreeMap<String, String> {
+        pairs
+            .iter()
+            .map(|&(named, key)| (named.to_owned(), key.to_owned()))
+            .collect()
+    };
+    assert_eq!(resolved(&["test"]), BTreeMap::new());
+    assert_eq!(
+        resolved(&["test", "--allow-run-write=vitest:src", "--", "-u"]),
+        map(&[("vitest", "node_modules/.bin/vitest")])
+    );
+    assert_eq!(
+        resolved(&[
+            "check",
+            "--allow-run-write=node_modules/.bin/vitest:src",
+            "--allow-run-write=git:.git",
+            "--allow-run-write=svelte-kit:out",
+        ]),
+        map(&[
+            ("git", "git"),
+            ("node_modules/.bin/vitest", "node_modules/.bin/vitest"),
+            ("svelte-kit", "node_modules/.bin/svelte-kit"),
+        ])
+    );
+    // one granted by a flag, and the same program under both, by its name
+    assert_eq!(
+        resolved(&[
+            "test",
+            "--allow-run=cargo",
+            "--allow-run-write=cargo:target"
+        ]),
+        map(&[("cargo", "cargo")])
+    );
+    assert_eq!(
+        resolved(&["check", "--allow-run=git", "--allow-run-write=git:.git"]),
+        map(&[("git", "git")])
+    );
+    // the directories stay as written, the realm granted none of them
+    let test = run(&["test", "--allow-run-write=vitest:src,out"]);
+    assert_eq!(
+        test.flag_dirs.run_write,
+        BTreeMap::from([("vitest".to_owned(), set(&["out", "src"]))])
+    );
+    assert!(test.dirs.write.is_empty());
+    assert_eq!(test.dirs.read, set(&["."]));
+}
+
+/// A program the command may start by no name, and a plain name both the
+/// project's own tool and an `--allow-run=` grant have, are refused for a
+/// run, exit 2, before anything runs, naming what the command may start.
+#[test]
+fn a_run_write_flag_naming_no_one_program_is_refused() {
+    let refused = |cli_args: &[&str]| {
+        let error = planned(cli_args).unwrap_err();
+        assert_eq!(error.exit_code(), 2, "{error}");
+        error.to_string()
+    };
+    let bin = gro_runtime::BINARY_NAME;
+    assert_eq!(
+        refused(&["test", "--allow-run-write=vitests:src"]),
+        format!(
+            "--allow-run-write=… names vitests, and {bin} test may start no program by that name: \
+             it may start vitest"
+        )
+    );
+    // the closure as the command line leaves it: no vitest without its step
+    assert_eq!(
+        refused(&["check", "--allow-run-write=vitest:src", "--no-test"]),
+        format!(
+            "--allow-run-write=… names vitest, and {bin} check may start no program by that name: \
+             it may start eslint, git, svelte-check, svelte-kit, and tsc"
+        )
+    );
+    assert_eq!(
+        refused(&["format", "--allow-run-write=x\u{1b}:src"]),
+        format!("--allow-run-write=… names x\\u{{1b}}, and {bin} format may start no program")
+    );
+    assert_eq!(
+        refused(&["format", "--allow-run=git", "--allow-run-write=x:src"]),
+        format!(
+            "--allow-run-write=… names x, and {bin} format may start no program by that name: it \
+             may start git"
+        )
+    );
+    // a name and a key the closure doesn't hold as written
+    assert!(refused(&["test", "--allow-run-write=.bin/vitest:src"]).contains("names .bin/vitest"));
+    assert_eq!(
+        refused(&["test", "--allow-run=vitest", "--allow-run-write=vitest:src"]),
+        "--allow-run-write=… could name the project's own vitest or the vitest --allow-run= \
+         grants: write node_modules/.bin/vitest for the project's own; the other takes no \
+         directory while both are granted"
+    );
+    // the key names the project's own beside the flag's grant
+    assert_eq!(
+        run(&[
+            "test",
+            "--allow-run=vitest",
+            "--allow-run-write=node_modules/.bin/vitest:src"
+        ])
+        .run_writes,
+        BTreeMap::from([(
+            "node_modules/.bin/vitest".to_owned(),
+            "node_modules/.bin/vitest".to_owned()
+        )])
+    );
+    // a fallback passes the flag as written, unread
+    assert!(matches!(
+        planned(&["dev", "--allow-run-write=nothing:src"]),
+        Ok(VerbPlan::Fallback(_))
+    ));
 }

@@ -50,12 +50,25 @@
 //! Grant flags widen the box as they widen the realm: a read flag by real
 //! path, a write flag read and written beneath `/` (one naming the root is
 //! the per-entry set), a run-in flag read and executed, and `--allow-temp`
-//! the private directory. A flag naming an excluded entry
-//! (`--allow-write=.git`) is honored.
+//! the private directory. `--allow-run-write=` widens the box alone, the
+//! realm gaining nothing ([`BoxInputs::run_writes`]): each directory it
+//! names for a program is read and written beneath `/`, a rule of its own
+//! ([`RuleSource::RunWrite`]) never merged with another source's on the
+//! same path, and one naming the root is the per-entry set. While every
+//! tool shares the run's box, every tool writes it; each program's own box
+//! takes it for that program alone (`program.rs`). A flag naming an
+//! excluded entry (`--allow-write=.git`, `--allow-run-write=git:.git`) is
+//! honored, but below.
 //!
 //! Refused here, before anything is opened ([`PlanRefusal`]), each a
-//! refusal the caller exits 2 for: `-A`; a write flag naming a directory
-//! that holds the root, beneath which no rule can leave `.git` out; a
+//! refusal the caller exits 2 for: `-A`; a write flag, or a directory
+//! `--allow-run-write=` names, that holds the root, beneath which no rule
+//! can leave `.git` out; where gro's own code writes the whole project (the
+//! command's closure, or a write flag naming the root), a directory
+//! `--allow-run-write=` names whose real path lies under a dot-entry or
+//! `node_modules`, which no write flag names short of the root, since only
+//! the box's per-entry rules keep the realm out of those and that rule would
+//! open them to it; a
 //! `node` that is a script, a version manager's shim, which can't read its
 //! manager's directory inside the box, unless a run-in flag admits it;
 //! for a run that may start a program, git's files `git.rs` can't read
@@ -114,6 +127,9 @@ pub struct BoxInputs {
     pub programs: Vec<ProgramFile>,
     /// The directories the grant flags list, each resolved.
     pub flags: Vec<GrantedFlagDir>,
+    /// The directories `--allow-run-write=` lists, by the program each is
+    /// for, each resolved: the box's alone, never the realm's.
+    pub run_writes: Vec<RunWriteGrant>,
     /// Whether `--allow-temp` grants the realm's temporary directories,
     /// which the run makes in its private directory.
     pub temp: bool,
@@ -181,6 +197,32 @@ impl std::fmt::Display for DirFlag {
 pub struct GrantedFlagDir {
     /// The flag.
     pub flag: DirFlag,
+    /// The directory as written.
+    pub dir: String,
+    /// Its real path.
+    pub real: PathBuf,
+}
+
+/// The directories `--allow-run-write=` lists for one program of the run,
+/// resolved as the run grants them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RunWriteGrant {
+    /// The program, by the name the run grants it as (its key:
+    /// `node_modules/.bin/vitest` for a local tool of the grants table, the
+    /// name `--allow-run=` lists for one a flag grants).
+    pub program: String,
+    /// Whether it's a program of the grants table, which writes the
+    /// command's tool directories too.
+    pub table: bool,
+    /// Its directories, each with the flag's spelling.
+    pub dirs: Vec<RunWriteDir>,
+}
+
+/// A directory `--allow-run-write=` lists, resolved as the run grants it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RunWriteDir {
+    /// The program the flag names, as written.
+    pub named: String,
     /// The directory as written.
     pub dir: String,
     /// Its real path.
@@ -273,6 +315,9 @@ pub struct BoxPlan {
     /// Whether a write flag names where `node_modules` leads, so its tool
     /// directories are made there.
     node_modules_written: bool,
+    /// The directories `--allow-run-write=` lists, by program, as the
+    /// inputs held them: what a [`RuleSource::RunWrite`] indexes.
+    run_writes: Vec<RunWriteGrant>,
 }
 
 /// A rule the plan opens.
@@ -369,6 +414,9 @@ pub enum RuleSource {
     PrivateTemp,
     /// A grant flag.
     Flag(DirFlag),
+    /// `--allow-run-write=`, for the program at this index of the plan's
+    /// (`BoxPlan::run_write`).
+    RunWrite(usize),
 }
 
 /// A directory a tool writes, made before the box when the command's
@@ -442,18 +490,37 @@ pub enum PlanRefusal {
          the project's Node gro is the unconfined spelling"
     )]
     Unconfined,
-    /// A write flag names a directory that holds the project's root.
+    /// A write flag, or a directory `--allow-run-write=` lists, names a
+    /// directory that holds the project's root.
     #[error(
-        "{}={dir} names {}, which holds the project, and no kernel rule beneath it can leave the \
+        "{}{dir} names {}, which holds the project, and no kernel rule beneath it can leave the \
          project's .git and node_modules out: name directories inside the project or beside it",
-        DirFlag::Write,
+        written_as(program.as_deref()),
         real.display()
     )]
     WriteAboveRoot {
+        /// The program `--allow-run-write=` lists it for, as written, or
+        /// none for `--allow-write=`.
+        program: Option<String>,
         /// The directory as written.
         dir: String,
         /// Its real path.
         real: PathBuf,
+    },
+    /// Gro's own code writes the whole project, and a directory
+    /// `--allow-run-write=` lists lies under a dot-entry or `node_modules`,
+    /// which no write flag names short of the root: only the box's
+    /// per-entry rules keep the realm out of those, so the program's rule
+    /// would open it to gro's code as well. Its message names the command
+    /// where the caller has one ([`PlanRefusal::message`]).
+    #[error("{}", realm_writes_message(program, dir, cause, None))]
+    RealmWritesProgramDir {
+        /// The program, as written.
+        program: String,
+        /// The directory as written.
+        dir: String,
+        /// What has gro's own code write the whole project.
+        cause: RootWriter,
     },
     /// The `node` found on `PATH` is a script, which can't read its
     /// manager's directory inside the box.
@@ -490,6 +557,66 @@ pub enum PlanRefusal {
         /// Where it leads.
         real: PathBuf,
     },
+}
+
+/// What has gro's own code write the whole project.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RootWriter {
+    /// The command's closure (`gen`, `format`, `sync`).
+    Closure,
+    /// `--allow-write=` naming the root, as written.
+    Flag(String),
+}
+
+impl PlanRefusal {
+    /// The refusal's message, naming `command` (`fgro gen`, as a message
+    /// names the command line) where it names the command that writes the
+    /// project, else as its `Display` prints it.
+    pub fn message(&self, command: Option<&str>) -> String {
+        match self {
+            Self::RealmWritesProgramDir {
+                program,
+                dir,
+                cause,
+            } => realm_writes_message(program, dir, cause, command),
+            _ => self.to_string(),
+        }
+    }
+}
+
+/// The flag a write refusal names, up to the directory: `--allow-write=`,
+/// or `--allow-run-write=<program>:` for a program's.
+fn written_as(program: Option<&str>) -> String {
+    program.map_or_else(
+        || format!("{}=", DirFlag::Write),
+        |program| format!("--allow-run-write={program}:"),
+    )
+}
+
+/// [`PlanRefusal::RealmWritesProgramDir`]'s message, naming `command` as
+/// what writes the project when the closure is the cause, or `the command`
+/// with none.
+fn realm_writes_message(
+    program: &str,
+    dir: &str,
+    cause: &RootWriter,
+    command: Option<&str>,
+) -> String {
+    let since = match cause {
+        RootWriter::Closure => format!("{} writes the project", command.unwrap_or("the command")),
+        RootWriter::Flag(root) => {
+            format!(
+                "{}={root} lets gro's own code write the project",
+                DirFlag::Write
+            )
+        }
+    };
+    format!(
+        "--allow-run-write={program}:{dir} would let gro's own code write {dir} as well, since \
+         {since} and only the kernel box keeps it out of .git, node_modules, and the \
+         dot-entries: add {}={dir} to grant it to both",
+        DirFlag::Write
+    )
 }
 
 /// The devices every boxed run reads.
@@ -532,6 +659,7 @@ impl BoxPlan {
                 NodeModules::Link { real } => written_by_flag(inputs, real),
                 NodeModules::Absent | NodeModules::Directory => false,
             },
+            run_writes: inputs.run_writes.clone(),
         };
         let read_maybe_execute = if inputs.spawns {
             RealRights::ReadExecute
@@ -556,7 +684,7 @@ impl BoxPlan {
             );
         }
         plan.system(facts);
-        if inputs.writes_root || writes_root_by_flag(inputs) {
+        if inputs.writes_root || writes_root_by_flag(inputs) || run_writes_root(inputs) {
             plan.entries(facts);
         }
         if inputs.spawns {
@@ -574,6 +702,7 @@ impl BoxPlan {
             plan.add_tool_dirs(inputs, facts);
         }
         plan.flags(inputs);
+        plan.run_write_rules(inputs);
         Ok(plan)
     }
 
@@ -593,6 +722,12 @@ impl BoxPlan {
             RuleSource::ToolDir(dir) => Some((dir, rule)),
             _ => None,
         })
+    }
+
+    /// The directories `--allow-run-write=` lists for the program at
+    /// `index`, as [`RuleSource::RunWrite`] names it.
+    pub fn run_write(&self, index: usize) -> Option<&RunWriteGrant> {
+        self.run_writes.get(index)
     }
 
     /// Whether the run gets a directory private to it.
@@ -655,10 +790,11 @@ impl BoxPlan {
     pub fn note(&self) -> Option<String> {
         self.node_modules_link.as_ref().map(|real| {
             let tools = if self.node_modules_written {
-                "and --allow-write= naming it lets the tools write their directories there"
+                "and --allow-write= naming where it leads lets the tools write their directories \
+                 there"
             } else {
-                "and no tool directory is made in it: --allow-write= naming it lets the tools \
-                 write there"
+                "and no tool directory is made in it: --allow-write= naming where it leads lets \
+                 the tools write there"
             };
             format!(
                 "note: node_modules is a symlink to {}, which the box follows to read and \
@@ -871,6 +1007,26 @@ impl BoxPlan {
     }
 }
 
+impl BoxPlan {
+    /// The directories `--allow-run-write=` lists, read and written
+    /// beneath `/`, each its own rule for its program, but one naming the
+    /// root, which is the per-entry set.
+    fn run_write_rules(&mut self, inputs: &BoxInputs) {
+        for (index, grant) in inputs.run_writes.iter().enumerate() {
+            for dir in &grant.dirs {
+                if dir.real != inputs.root {
+                    self.beneath(
+                        Anchor::Slash,
+                        beneath_root(&dir.real),
+                        Rights::READ | Rights::WRITE,
+                        RuleSource::RunWrite(index),
+                    );
+                }
+            }
+        }
+    }
+}
+
 /// Whether the rule at the absolute path `rule` is on `dir` or on a
 /// directory holding it, compared by components, so `/tmp` holds
 /// `/tmp/x` and `/tmp` itself but not `/tmpx`, and a `.` (a rule beneath
@@ -896,19 +1052,85 @@ fn writes_root_by_flag(inputs: &BoxInputs) -> bool {
         .any(|flag| flag.flag == DirFlag::Write && flag.real == inputs.root)
 }
 
+/// Whether a directory `--allow-run-write=` lists is the project's root.
+fn run_writes_root(inputs: &BoxInputs) -> bool {
+    run_write_dirs(inputs).any(|dir| dir.real == inputs.root)
+}
+
+/// Every directory `--allow-run-write=` lists, in the inputs' order.
+fn run_write_dirs(inputs: &BoxInputs) -> impl Iterator<Item = &RunWriteDir> {
+    inputs.run_writes.iter().flat_map(|grant| &grant.dirs)
+}
+
+/// Whether `real`, a real path, holds the project's `root` without being
+/// it.
+fn holds_root(real: &Path, root: &Path) -> bool {
+    real != root && root.starts_with(real)
+}
+
+/// What has gro's own code write the whole project, if anything does: the
+/// command's closure, or a write flag naming the root.
+fn root_writer(inputs: &BoxInputs) -> Option<RootWriter> {
+    if inputs.writes_root {
+        return Some(RootWriter::Closure);
+    }
+    inputs
+        .flags
+        .iter()
+        .find(|flag| flag.flag == DirFlag::Write && flag.real == inputs.root)
+        .map(|flag| RootWriter::Flag(flag.dir.clone()))
+}
+
+/// Whether `real`, a real path, lies under a top-level dot-entry or
+/// `node_modules` of the project at `root`: by its first component
+/// beneath the root, the holes in the per-entry rules that are directories.
+fn under_excluded_entry(real: &Path, root: &Path) -> bool {
+    real.strip_prefix(root)
+        .ok()
+        .and_then(|beneath| beneath.components().next())
+        .is_some_and(|first| {
+            let name = first.as_os_str();
+            name.as_encoded_bytes().starts_with(b".") || name == "node_modules"
+        })
+}
+
 /// The refusals the [module doc](self) lists, the first met.
 fn refuse(inputs: &BoxInputs, facts: &BoxFacts) -> Result<(), PlanRefusal> {
     if inputs.unconfined {
         return Err(PlanRefusal::Unconfined);
     }
-    if let Some(flag) = inputs.flags.iter().find(|flag| {
-        flag.flag == DirFlag::Write
-            && flag.real != inputs.root
-            && inputs.root.starts_with(&flag.real)
-    }) {
+    if let Some(flag) = inputs
+        .flags
+        .iter()
+        .find(|flag| flag.flag == DirFlag::Write && holds_root(&flag.real, &inputs.root))
+    {
         return Err(PlanRefusal::WriteAboveRoot {
+            program: None,
             dir: flag.dir.clone(),
             real: flag.real.clone(),
+        });
+    }
+    if let Some(dir) = run_write_dirs(inputs).find(|dir| holds_root(&dir.real, &inputs.root)) {
+        return Err(PlanRefusal::WriteAboveRoot {
+            program: Some(dir.named.clone()),
+            dir: dir.dir.clone(),
+            real: dir.real.clone(),
+        });
+    }
+    if let Some(cause) = root_writer(inputs)
+        && let Some(dir) = run_write_dirs(inputs).find(|dir| {
+            under_excluded_entry(&dir.real, &inputs.root)
+                && !inputs.flags.iter().any(|flag| {
+                    flag.flag == DirFlag::Write
+                        && flag.real != inputs.root
+                        && dir.real.starts_with(&flag.real)
+                })
+        })
+    {
+        return Err(PlanRefusal::RealmWritesProgramDir {
+            program: dir.named.clone(),
+            dir: dir.dir.clone(),
+            cause,
         });
     }
     if let NodeModules::Link { real } = &facts.node_modules

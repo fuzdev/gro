@@ -17,6 +17,7 @@ fgro run --allow-read=../data --allow-write=out <file>   # fs reads ../data, and
 fgro run --allow-temp <file>   # fs.temp_dir makes fresh directories under the OS's temporary directory
 fgro run --allow-run=git,cargo --allow-run-env='CARGO_*' <file>   # spawn makes these programs, each may be passed what CARGO_* covers when its pass_env names it
 fgro run --allow-write=target --allow-run-in=target <file>   # spawn.program_in runs what the run builds in target/
+fgro run --allow-run=cargo --allow-run-write=cargo:target <file>   # checked, and holds nothing back: fgro run starts programs in no box
 fgro run -A <file>          # unconfined: every grant at its widest
 fgro --version              # the version, the git commit, the V8 version, and whether a startup snapshot is embedded
 ```
@@ -96,6 +97,15 @@ A run grants the project's own modules `args`, `exit`, `stdout`, `stderr`, and `
   `fgro` reads each exact name by name, and the whole environment only when a glob is granted, keeping what a glob covers, so the runtime holds no variable it could pass no child;
   a script reads none of them: the spawn module gives a child what its program's options name, and no member returns a value.
   A variable of the base set needs no grant: `pass_env` may name one exactly, since every child is given it.
+- `--allow-run-write=cargo:target,out` names one program `--allow-run=` grants, then `:`, then directories as `--allow-write=` lists them,
+  which a command of Gro's lets that program write ([box](box.md#what-a-commands-box-admits)).
+  `fgro run` starts its programs in no box, so here the flag is checked and holds nothing back: a program `--allow-run=` grants writes wherever the user can,
+  and the run says so once on stderr, `note: fgro run starts programs in no box, so --allow-run-write= holds nothing back: a program --allow-run= grants writes wherever you can`.
+  It's repeatable, one program each, the directories of a program joined across flags, and it grants the project's modules nothing.
+  The value splits at its first `:`, so a directory may hold one and a program's name can't.
+  It's a usage error bare, with no `:`, nothing before or after it, or a `,` before it, which would name two programs;
+  for a program's name `--allow-run=` couldn't grant; for a directory as `--allow-write=` refuses one;
+  without `--allow-run=`; and for a program no `--allow-run=` lists. Under `-A` it's checked, still beside `--allow-run=`, and adds nothing and says nothing.
 - `-A` runs unconfined, the one flag that grants beyond what it names: every builtin module to every module of the run, a package's included,
   and every grant at its widest, so `env`'s root handle reads every variable `fgro` started with
   (each whose name is UTF-8 and holds no `=`, each value read as `--allow-env=` reads one),
@@ -363,12 +373,14 @@ Whether a stream is colored is decided once per process, in order:
 | 0              | the module ran to completion with no code set, or called `exit()` with none set, or `--help` or `--version`                                                  |
 | the program's  | the code given to `exit(code)`, or the one `set_exit_code` set when the module then ran to completion or called `exit()` with none: an integer from 0 to 255 |
 | 1              | the module threw, rejected a promise no one handled, left a top-level `await` unsettled, an import failed to resolve, load, or strip, or the runtime failed to start, or a run that grants a program couldn't make ready to start one, whatever code `set_exit_code` set; or an `import()` was refused by one of gro's rules, or a call for a grant its handle lacks, caught or not, in a run that would have exited 0 |
-| 2              | a usage error (an unknown flag of `eval`, or one after `--version`, `--help`, or `help`, a flag before `run`'s file other than `--help`, `--allow-env=`, `--allow-read=`, `--allow-write=`, `--allow-temp`, `--allow-run=`, `--allow-run-in=`, `--allow-run-env=`, or `-A`, a bare one of these or a name it can't grant, `--allow-temp` given a value, `--allow-run-env=` without `--allow-run=` or `--allow-run-in=`, a directory missing, no directory, or one that can't be looked at, no file, an extra argument to `eval`, a non-UTF-8 argument, the script's included, `--version` with a subcommand), or an entry that doesn't resolve (missing, the wrong extension, a `.js` file not under `"type": "module"`) |
+| 2              | a usage error (an unknown flag of `eval`, or one after `--version`, `--help`, or `help`, a flag before `run`'s file other than `--help`, `--allow-env=`, `--allow-read=`, `--allow-write=`, `--allow-temp`, `--allow-run=`, `--allow-run-in=`, `--allow-run-env=`, `--allow-run-write=`, or `-A`, a bare one of these or a name it can't grant, `--allow-temp` given a value, `--allow-run-env=` without `--allow-run=` or `--allow-run-in=`, `--allow-run-write=` naming no one program before its `:`, without `--allow-run=`, or naming a program no `--allow-run=` lists, a directory missing, no directory, or one that can't be looked at, no file, an extra argument to `eval`, a non-UTF-8 argument, the script's included, `--version` with a subcommand), or an entry that doesn't resolve (missing, the wrong extension, a `.js` file not under `"type": "module"`) |
 
 Every other first argument, a flag among them, and none run a command of Gro's ([runtime](runtime.md#gros-workflow-on-the-runtime)),
 which runs in the run's kernel box ([box](box.md#how-it-goes-up)) and exits with Gro's code as a run does,
 `2` when it's refused before anything runs
-(its grant flags, `-A` before or after the command word among them, a write flag naming a directory that holds the project root, `GRO_FALLBACK`'s value, a working directory with no project's `package.json`,
+(its grant flags, `-A` before or after the command word among them, a write flag or a program's write directory naming a directory that holds the project root,
+a directory a grant flag lists inside the project that leads out of it through a symlink, or through one into a dot-entry or `node_modules` it doesn't name, `--allow-run-write=` naming a program the command may start by no name, or by one two programs share,
+a program's write directory under a dot-entry or `node_modules` where gro's own code writes the whole project and no `--allow-write=` names it too, `GRO_FALLBACK`'s value, a working directory with no project's `package.json`,
 a project's `package.json` or installed Gro's that can't be read, a forwarded section turning off a check the command's invoke runs, like `-- gro gen --no-check` after `check`,
 a `node` on `PATH` that's a script,
 a `node_modules` symlink to anything but another checkout's `node_modules`, git's files the box can't read for a command that may start a program,

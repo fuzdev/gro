@@ -4,7 +4,7 @@
 //! other command line a command of gro's, which argh never sees either, and
 //! [`parse`], which reads them once into an [`Invocation`].
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -122,6 +122,10 @@ pub const ALLOW_RUN_IN: &str = DirFlag::RunIn.spelled();
 /// lists, when a program's `pass_env` names them.
 pub const ALLOW_RUN_ENV: &str = "--allow-run-env";
 
+/// The option that lets one program the run grants write the directories
+/// it lists, after the program's name and a `:`.
+pub const ALLOW_RUN_WRITE: &str = "--allow-run-write";
+
 /// The option that runs unconfined, every grant at its widest.
 pub const ALLOW_ALL: &str = "-A";
 
@@ -140,17 +144,20 @@ pub enum ListFlag {
     RunIn,
     /// `--allow-run-env`.
     RunEnv,
+    /// `--allow-run-write`.
+    RunWrite,
 }
 
 impl ListFlag {
     /// Every one, in the order usage names them.
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 7] = [
         Self::Env,
         Self::Read,
         Self::Write,
         Self::Run,
         Self::RunIn,
         Self::RunEnv,
+        Self::RunWrite,
     ];
 
     /// The flag as it's spelled, without its list.
@@ -162,7 +169,34 @@ impl ListFlag {
             Self::Run => ALLOW_RUN,
             Self::RunIn => ALLOW_RUN_IN,
             Self::RunEnv => ALLOW_RUN_ENV,
+            Self::RunWrite => ALLOW_RUN_WRITE,
         }
+    }
+
+    /// What follows the flag's `=` in an example of it, as a usage error
+    /// shows one: `vitest:src` for `--allow-run-write`, which names a
+    /// program first, and `a,b` for the rest.
+    pub const fn example(self) -> &'static str {
+        match self {
+            Self::RunWrite => "vitest:src",
+            Self::Env | Self::Read | Self::Write | Self::Run | Self::RunIn | Self::RunEnv => "a,b",
+        }
+    }
+}
+
+impl From<DirFlag> for ListFlag {
+    fn from(flag: DirFlag) -> Self {
+        match flag {
+            DirFlag::Read => Self::Read,
+            DirFlag::Write => Self::Write,
+            DirFlag::RunIn => Self::RunIn,
+        }
+    }
+}
+
+impl std::fmt::Display for ListFlag {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.spelled())
     }
 }
 
@@ -213,7 +247,8 @@ fn run_help() -> String {
         &format!(
             "Usage: {BINARY_NAME} {RUN} [{ALLOW_ENV}=<names>] [{ALLOW_READ}=<dirs>] [{ALLOW_WRITE}=<dirs>] \
              [{ALLOW_TEMP}] [{ALLOW_RUN}=<names>] [{ALLOW_RUN_IN}=<dirs>] \
-             [{ALLOW_RUN_ENV}=<names>] [{ALLOW_ALL}] [--] <file> [<args...>]"
+             [{ALLOW_RUN_ENV}=<names>] [{ALLOW_RUN_WRITE}=<program>:<dirs>] [{ALLOW_ALL}] [--] \
+             <file> [<args...>]"
         ),
         "",
         RUN_DESCRIPTION,
@@ -267,6 +302,14 @@ fn run_help() -> String {
         "                    them, a comma-separated list of exact names or PREFIX_*",
         "                    globs; repeatable; only beside --allow-run or",
         "                    --allow-run-in",
+        "  --allow-run-write=<program>:<dirs>",
+        "                    let one program --allow-run grants write these directories:",
+        "                    its name, `:`, then directories as --allow-write lists them;",
+        "                    repeatable, one program each, only beside --allow-run.",
+        &format!(
+            "                    `{BINARY_NAME} {RUN}` starts programs in no box, so here the flag is"
+        ),
+        "                    checked and holds nothing back",
         "  -A                run unconfined: every grant at its widest, to every module,",
         "                    every environment variable and every directory among them",
         "  --help, help      display usage information",
@@ -302,9 +345,9 @@ pub enum RunGrant {
     All,
 }
 
-/// The directories `--allow-read=`, `--allow-write=`, and
-/// `--allow-run-in=` list, each as written, not yet resolved or checked: a
-/// run checks each, under `-A` too, before it starts.
+/// The directories `--allow-read=`, `--allow-write=`, `--allow-run-in=`,
+/// and `--allow-run-write=` list, each as written, not yet resolved or
+/// checked: a run checks each, under `-A` too, before it starts.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct FlagDirs {
     /// The directories `--allow-read=` lists.
@@ -313,6 +356,9 @@ pub struct FlagDirs {
     pub write: BTreeSet<String>,
     /// The directories `--allow-run-in=` lists.
     pub run_in: BTreeSet<String>,
+    /// The directories `--allow-run-write=` lists, by the program each
+    /// flag names, as written.
+    pub run_write: BTreeMap<String, BTreeSet<String>>,
 }
 
 /// `fgro run`'s arguments, checked.
@@ -338,18 +384,21 @@ impl RunInvocation {
     /// its directories one set; `--allow-temp`, which takes no value;
     /// `--allow-run=<names>`, `--allow-run-in=<dirs>`, and
     /// `--allow-run-env=<names>`, each repeatable, its names or directories
-    /// one set, the last only beside one of the others; and `-A`, which
-    /// grants everything, so names, directories, and `--allow-temp` given
-    /// beside it are checked and add nothing. A file starting with `-`
-    /// comes after `--`. The grant flags are read by [`RunGrantBuilder`],
-    /// as the verb's are.
+    /// one set, the last only beside one of the others;
+    /// `--allow-run-write=<program>:<dirs>`, repeatable, its program one
+    /// `--allow-run=` lists; and `-A`, which grants everything, so names,
+    /// directories, and `--allow-temp` given beside it are checked and add
+    /// nothing. A file starting with `-` comes after `--`. The grant flags
+    /// are read by [`RunGrantBuilder`], as the verb's are.
     ///
     /// # Errors
     ///
     /// Returns the usage error, checked in the order the arguments come: an
     /// option before the file that isn't one of these, or a grant flag
     /// [`RunGrantBuilder::add`] refuses; then `--allow-run-env=` without
-    /// `--allow-run=` or `--allow-run-in=`; then no file.
+    /// `--allow-run=` or `--allow-run-in=`; then `--allow-run-write=`
+    /// without `--allow-run=`, then naming a program no `--allow-run=`
+    /// lists; then no file.
     fn check(args: RunArgs) -> Result<Task, CliError> {
         let mut help = false;
         let mut grant = RunGrantBuilder::default();
@@ -373,6 +422,12 @@ impl RunInvocation {
         };
         if grant.run_env_alone() {
             return Err(CliError::AllowRunEnvAlone);
+        }
+        if grant.run_write_alone() {
+            return Err(CliError::AllowRunWriteAlone);
+        }
+        if let Some(program) = grant.run_write_ungranted() {
+            return Err(CliError::RunWriteUngranted(program.to_owned()));
         }
         match (help, file) {
             (true, _) => Ok(Task::Help(run_help())),
@@ -423,9 +478,10 @@ impl RunGrantBuilder {
     /// that no variable can have ([`check_env_flag_names`]), a directory
     /// `--allow-read=`, `--allow-write=`, or `--allow-run-in=` lists that
     /// no path can be ([`check_dir_flag`]), a name `--allow-run=` lists
-    /// that names no program it can grant ([`check_run_flag_names`]), or
-    /// one `--allow-run-env=` lists that names no variable or glob
-    /// ([`check_run_env_flag_names`]).
+    /// that names no program it can grant ([`check_run_flag_names`]), one
+    /// `--allow-run-env=` lists that names no variable or glob
+    /// ([`check_run_env_flag_names`]), or an `--allow-run-write=` that
+    /// names no one program and its directories ([`check_run_write_flag`]).
     pub fn add(&mut self, flag: GrantFlag<'_>) -> Result<(), GrantListError> {
         match flag {
             GrantFlag::All => self.all = true,
@@ -434,29 +490,25 @@ impl RunGrantBuilder {
             GrantFlag::List(flag, None) => {
                 return Err(match flag {
                     ListFlag::Env => GrantListError::EnvBare,
-                    ListFlag::Read => GrantListError::DirsBare(DirFlag::Read),
-                    ListFlag::Write => GrantListError::DirsBare(DirFlag::Write),
+                    ListFlag::Read | ListFlag::Write | ListFlag::RunIn => {
+                        GrantListError::DirsBare(flag)
+                    }
                     ListFlag::Run => GrantListError::RunBare,
-                    ListFlag::RunIn => GrantListError::DirsBare(DirFlag::RunIn),
                     ListFlag::RunEnv => GrantListError::RunEnvBare,
+                    ListFlag::RunWrite => GrantListError::RunWriteBare,
                 });
             }
             GrantFlag::List(flag, Some(listed)) => match flag {
                 ListFlag::Env => self.env.extend(check_env_flag_names(listed)?),
-                ListFlag::Read => self
-                    .dirs
-                    .read
-                    .extend(check_dir_flag(DirFlag::Read, listed)?),
-                ListFlag::Write => self
-                    .dirs
-                    .write
-                    .extend(check_dir_flag(DirFlag::Write, listed)?),
+                ListFlag::Read => self.dirs.read.extend(check_dir_flag(flag, listed)?),
+                ListFlag::Write => self.dirs.write.extend(check_dir_flag(flag, listed)?),
                 ListFlag::Run => self.run.extend(check_run_flag_names(listed)?),
-                ListFlag::RunIn => self
-                    .dirs
-                    .run_in
-                    .extend(check_dir_flag(DirFlag::RunIn, listed)?),
+                ListFlag::RunIn => self.dirs.run_in.extend(check_dir_flag(flag, listed)?),
                 ListFlag::RunEnv => self.run_env.extend(check_run_env_flag_names(listed)?),
+                ListFlag::RunWrite => {
+                    let (program, dirs) = check_run_write_flag(listed)?;
+                    self.dirs.run_write.entry(program).or_default().extend(dirs);
+                }
             },
         }
         Ok(())
@@ -468,6 +520,25 @@ impl RunGrantBuilder {
     /// flags alone grant programs, as `fgro run`'s do.
     pub fn run_env_alone(&self) -> bool {
         !self.run_env.is_empty() && self.run.is_empty() && self.dirs.run_in.is_empty()
+    }
+
+    /// Whether `--allow-run-write=` named a program with `--allow-run=`
+    /// listing none, so no program the flags grant writes what it names: a
+    /// usage error where the flags alone grant programs, as `fgro run`'s
+    /// do.
+    pub fn run_write_alone(&self) -> bool {
+        !self.dirs.run_write.is_empty() && self.run.is_empty()
+    }
+
+    /// The first program `--allow-run-write=` names, as written, that no
+    /// `--allow-run=` lists: a usage error where the flags alone grant
+    /// programs, as `fgro run`'s do.
+    pub fn run_write_ungranted(&self) -> Option<&str> {
+        self.dirs
+            .run_write
+            .keys()
+            .find(|program| !self.run.contains(*program))
+            .map(String::as_str)
     }
 
     /// What the flags added grant, and the directories they list.
@@ -502,7 +573,7 @@ pub enum GrantListError {
     /// `--allow-read`, `--allow-write`, or `--allow-run-in` with no
     /// directories, which grants none.
     #[error("{0} takes the directories it grants, as {0}=a,/b")]
-    DirsBare(DirFlag),
+    DirsBare(ListFlag),
     /// `--allow-temp=` with a value, which it takes none of; the value isn't
     /// echoed.
     #[error(
@@ -525,20 +596,80 @@ pub enum GrantListError {
     /// `--allow-run-env=` listing a name that names no variable or glob.
     #[error("{0}")]
     RunEnvName(RunEnvFlagFault),
-    /// `--allow-read=`, `--allow-write=`, or `--allow-run-in=` listing a
-    /// path that names nothing.
+    /// `--allow-run-write` with no program and directories, which grants
+    /// none.
+    #[error(
+        "{ALLOW_RUN_WRITE} takes a program and the directories it may write, as \
+         {ALLOW_RUN_WRITE}=vitest:src"
+    )]
+    RunWriteBare,
+    /// `--allow-run-write=` naming no one program before a `:` with
+    /// directories after it: no `:`, nothing before or after it, or a `,`
+    /// before it, which would name two.
+    #[error(
+        "{ALLOW_RUN_WRITE} names one program, then `:`, then the directories it may write, like \
+         {ALLOW_RUN_WRITE}=vitest:src,test"
+    )]
+    RunWriteShape,
+    /// `--allow-run-write=` naming a program no `--allow-run=` name could
+    /// be.
+    #[error("{}", run_write_program_fault(.0))]
+    RunWriteProgram(RunFlagFault),
+    /// `--allow-read=`, `--allow-write=`, `--allow-run-in=`, or
+    /// `--allow-run-write=` listing a path that names nothing.
     #[error(
         "{}",
         match .1 {
             DirFlagFault::Empty => format!(
-                "a {0} directory is empty: {0}=a,/b lists directories separated by single \
+                "a {0} directory is empty: {0}={1} lists directories separated by single \
                  commas",
-                .0
+                .0,
+                dir_list_example(*.0)
             ),
             DirFlagFault::Nul => format!("a {} directory holds a NUL byte", .0),
         }
     )]
-    Dir(DirFlag, DirFlagFault),
+    Dir(ListFlag, DirFlagFault),
+}
+
+/// The example of a directory list [`GrantListError::Dir`] shows for
+/// `flag`: `vitest:a,/b` for `--allow-run-write`, which names its program
+/// first, and `a,/b` for the rest.
+const fn dir_list_example(flag: ListFlag) -> &'static str {
+    match flag {
+        ListFlag::RunWrite => "vitest:a,/b",
+        ListFlag::Env
+        | ListFlag::Read
+        | ListFlag::Write
+        | ListFlag::Run
+        | ListFlag::RunIn
+        | ListFlag::RunEnv => "a,/b",
+    }
+}
+
+/// [`GrantListError::RunWriteProgram`]'s message: `fault` for the program
+/// `--allow-run-write=` names, which is named as the tool is called or as
+/// `--allow-run=` names it, escaped ([`escape_controls`]). An empty name
+/// is [`GrantListError::RunWriteShape`]'s.
+fn run_write_program_fault(fault: &RunFlagFault) -> String {
+    match fault {
+        RunFlagFault::Empty => GrantListError::RunWriteShape.to_string(),
+        RunFlagFault::Nul => format!("an {ALLOW_RUN_WRITE} program holds a NUL byte"),
+        RunFlagFault::Glob(name) => format!(
+            "an {ALLOW_RUN_WRITE} program is exact, never a glob: {}",
+            escape_controls(name)
+        ),
+        RunFlagFault::Absolute(name) => format!(
+            "an {ALLOW_RUN_WRITE} program is named as the tool is called or as {ALLOW_RUN} names \
+             it, never by an absolute path: {}",
+            escape_controls(name)
+        ),
+        RunFlagFault::Climb(name) => format!(
+            "an {ALLOW_RUN_WRITE} program holding / resolves beneath the project's root, and this \
+             one climbs above it: {}",
+            escape_controls(name)
+        ),
+    }
 }
 
 /// The names `--allow-env=` lists in `names`, split at each comma, each
@@ -616,22 +747,60 @@ fn check_run_flag_names(names: &str) -> Result<Vec<String>, GrantListError> {
     names
         .split(',')
         .map(|name| {
-            let fault = if name.is_empty() {
-                RunFlagFault::Empty
-            } else if name.contains('\0') {
-                RunFlagFault::Nul
-            } else if name.contains('*') {
-                RunFlagFault::Glob(name.to_owned())
-            } else if name.starts_with('/') {
-                RunFlagFault::Absolute(name.to_owned())
-            } else if name.contains('/') && climbs(name) {
-                RunFlagFault::Climb(name.to_owned())
-            } else {
-                return Ok(name.to_owned());
-            };
-            Err(GrantListError::RunName(fault))
+            run_name_fault(name).map_or_else(
+                || Ok(name.to_owned()),
+                |fault| Err(GrantListError::RunName(fault)),
+            )
         })
         .collect()
+}
+
+/// Why `name` can't be a program's name as a program asks for it, if it
+/// can't: empty, holding a NUL byte or a `*`, absolute, or holding `/`
+/// and climbing above the project's root by `..`.
+fn run_name_fault(name: &str) -> Option<RunFlagFault> {
+    if name.is_empty() {
+        Some(RunFlagFault::Empty)
+    } else if name.contains('\0') {
+        Some(RunFlagFault::Nul)
+    } else if name.contains('*') {
+        Some(RunFlagFault::Glob(name.to_owned()))
+    } else if name.starts_with('/') {
+        Some(RunFlagFault::Absolute(name.to_owned()))
+    } else if name.contains('/') && climbs(name) {
+        Some(RunFlagFault::Climb(name.to_owned()))
+    } else {
+        None
+    }
+}
+
+/// The program `--allow-run-write=` names in `listed` and the directories
+/// it lists for it: the value split at its first `:`, the program before
+/// it held to the rules an `--allow-run=` name is ([`run_name_fault`]),
+/// one name and so no `,`, and the directories after it read as
+/// [`check_dir_flag`] reads them, so a directory may hold a `:`.
+///
+/// # Errors
+///
+/// Returns [`GrantListError::RunWriteShape`] for a value with no `:`,
+/// nothing before or after it, or a `,` before it;
+/// [`GrantListError::RunWriteProgram`] for a program no `--allow-run=`
+/// name could be; and [`GrantListError::Dir`] for the first directory
+/// [`check_dir_flag`] refuses.
+fn check_run_write_flag(listed: &str) -> Result<(String, Vec<String>), GrantListError> {
+    let Some((program, dirs)) = listed.split_once(':') else {
+        return Err(GrantListError::RunWriteShape);
+    };
+    if program.is_empty() || dirs.is_empty() || program.contains(',') {
+        return Err(GrantListError::RunWriteShape);
+    }
+    if let Some(fault) = run_name_fault(program) {
+        return Err(GrantListError::RunWriteProgram(fault));
+    }
+    Ok((
+        program.to_owned(),
+        check_dir_flag(ListFlag::RunWrite, dirs)?,
+    ))
 }
 
 /// Whether `path`, relative, climbs above where it starts by a `..`, its
@@ -772,7 +941,7 @@ impl std::fmt::Display for RunEnvFlagFault {
 /// # Errors
 ///
 /// Returns [`GrantListError::Dir`] for the first directory that breaks it.
-fn check_dir_flag(flag: DirFlag, listed: &str) -> Result<Vec<String>, GrantListError> {
+fn check_dir_flag(flag: ListFlag, listed: &str) -> Result<Vec<String>, GrantListError> {
     listed
         .split(',')
         .map(|dir| {
@@ -787,8 +956,8 @@ fn check_dir_flag(flag: DirFlag, listed: &str) -> Result<Vec<String>, GrantListE
         .collect()
 }
 
-/// Why a directory `--allow-read=`, `--allow-write=`, or `--allow-run-in=`
-/// lists can't be granted, before it's looked at.
+/// Why a directory `--allow-read=`, `--allow-write=`, `--allow-run-in=`,
+/// or `--allow-run-write=` lists can't be granted, before it's looked at.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DirFlagFault {
     /// An empty path: a list that's empty, or starts, ends, or doubles a
@@ -1059,13 +1228,13 @@ fn invalid_arguments(args: &[&str]) -> CliError {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeSet;
+    use std::collections::{BTreeMap, BTreeSet};
 
     use gro_runtime::BINARY_NAME;
 
     use super::{
-        DirFlag, DirFlagFault, EnvFlagFault, FlagDirs, GrantListError, Invocation, RUN_DESCRIPTION,
-        RunEnvFlagFault, RunFlagFault, RunGrant, Task, parse, run_help,
+        DirFlagFault, EnvFlagFault, FlagDirs, GrantListError, Invocation, ListFlag,
+        RUN_DESCRIPTION, RunEnvFlagFault, RunFlagFault, RunGrant, Task, parse, run_help,
     };
     use crate::error::CliError;
 
@@ -1085,9 +1254,9 @@ mod tests {
         /// [`GrantListError::EnvName`].
         AllowEnvName(EnvFlagFault),
         /// [`GrantListError::DirsBare`].
-        AllowDirsBare(DirFlag),
+        AllowDirsBare(ListFlag),
         /// [`GrantListError::Dir`].
-        AllowDir(DirFlag, DirFlagFault),
+        AllowDir(ListFlag, DirFlagFault),
         /// [`GrantListError::TempValue`].
         AllowTempValue,
         /// [`GrantListError::RunBare`].
@@ -1100,6 +1269,16 @@ mod tests {
         AllowRunEnvName(RunEnvFlagFault),
         /// [`CliError::AllowRunEnvAlone`].
         AllowRunEnvAlone,
+        /// [`GrantListError::RunWriteBare`].
+        AllowRunWriteBare,
+        /// [`GrantListError::RunWriteShape`].
+        AllowRunWriteShape,
+        /// [`GrantListError::RunWriteProgram`].
+        AllowRunWriteProgram(RunFlagFault),
+        /// [`CliError::AllowRunWriteAlone`].
+        AllowRunWriteAlone,
+        /// [`CliError::RunWriteUngranted`], naming the program.
+        UngrantedRunWrite(String),
     }
 
     fn run_outcome(args: &[&str]) -> Run {
@@ -1124,6 +1303,13 @@ mod tests {
                 Run::AllowRunEnvName(fault)
             }
             Err(CliError::AllowRunEnvAlone) => Run::AllowRunEnvAlone,
+            Err(CliError::GrantList(GrantListError::RunWriteBare)) => Run::AllowRunWriteBare,
+            Err(CliError::GrantList(GrantListError::RunWriteShape)) => Run::AllowRunWriteShape,
+            Err(CliError::GrantList(GrantListError::RunWriteProgram(fault))) => {
+                Run::AllowRunWriteProgram(fault)
+            }
+            Err(CliError::AllowRunWriteAlone) => Run::AllowRunWriteAlone,
+            Err(CliError::RunWriteUngranted(program)) => Run::UngrantedRunWrite(program),
             _ => panic!("{args:?} is not one of run's outcomes"),
         }
     }
@@ -1291,19 +1477,19 @@ mod tests {
             ),
             (
                 &["run", "--allow-read", "a.js"],
-                AllowDirsBare(DirFlag::Read),
+                AllowDirsBare(ListFlag::Read),
             ),
             (
                 &["run", "--allow-write", "a.js"],
-                AllowDirsBare(DirFlag::Write),
+                AllowDirsBare(ListFlag::Write),
             ),
             (
                 &["run", "-A", "--allow-write", "a.js"],
-                AllowDirsBare(DirFlag::Write),
+                AllowDirsBare(ListFlag::Write),
             ),
             (
                 &["run", "--allow-run-in", "a.js"],
-                AllowDirsBare(DirFlag::RunIn),
+                AllowDirsBare(ListFlag::RunIn),
             ),
             // the temp flag: bare, never given a value, a script's after the file
             (&["run", "--allow-temp", "a.js"], runs("a.js", &[])),
@@ -1320,27 +1506,27 @@ mod tests {
             (&["run", "--allow-temps", "a.js"], option("--allow-temps")),
             (
                 &["run", "--allow-read=", "a.js"],
-                AllowDir(DirFlag::Read, DirFlagFault::Empty),
+                AllowDir(ListFlag::Read, DirFlagFault::Empty),
             ),
             (
                 &["run", "--allow-write=a,", "a.js"],
-                AllowDir(DirFlag::Write, DirFlagFault::Empty),
+                AllowDir(ListFlag::Write, DirFlagFault::Empty),
             ),
             (
                 &["run", "--allow-read=,a", "a.js"],
-                AllowDir(DirFlag::Read, DirFlagFault::Empty),
+                AllowDir(ListFlag::Read, DirFlagFault::Empty),
             ),
             (
                 &["run", "--allow-read=a,,b", "a.js"],
-                AllowDir(DirFlag::Read, DirFlagFault::Empty),
+                AllowDir(ListFlag::Read, DirFlagFault::Empty),
             ),
             (
                 &["run", "--allow-write=a\0", "a.js"],
-                AllowDir(DirFlag::Write, DirFlagFault::Nul),
+                AllowDir(ListFlag::Write, DirFlagFault::Nul),
             ),
             (
                 &["run", "--allow-read=a", "--allow-write=", "--x", "a.js"],
-                AllowDir(DirFlag::Write, DirFlagFault::Empty),
+                AllowDir(ListFlag::Write, DirFlagFault::Empty),
             ),
             (&["run", "--allow-write=a"], NoFile),
             // the run flags: bare, a name no program can be granted by, and
@@ -1440,6 +1626,109 @@ mod tests {
             ),
             (&["run", "--allow-run-env=A"], Run::AllowRunEnvAlone),
             (&["run", "--allow-run-env=A", "--allow-run=git"], NoFile),
+            // the write flag of one program: its program then `:` then its
+            // directories, only beside --allow-run naming the program
+            (
+                &[
+                    "run",
+                    "--allow-run=x",
+                    "--allow-run-write=x:out,a:b",
+                    "a.js",
+                ],
+                runs("a.js", &[]),
+            ),
+            (
+                &["run", "--allow-run-write=x:out", "--allow-run=y,x", "a.js"],
+                runs("a.js", &[]),
+            ),
+            (
+                &["run", "a.js", "--allow-run-write=x:out"],
+                runs("a.js", &["--allow-run-write=x:out"]),
+            ),
+            (
+                &["run", "--allow-run-write", "a.js"],
+                Run::AllowRunWriteBare,
+            ),
+            (
+                &["run", "--allow-run=x", "--allow-run-writes=x:a", "a.js"],
+                option("--allow-run-writes=x:a"),
+            ),
+            (
+                &["run", "--allow-run=x", "--allow-run-write=", "a.js"],
+                Run::AllowRunWriteShape,
+            ),
+            (
+                &["run", "--allow-run=x", "--allow-run-write=out", "a.js"],
+                Run::AllowRunWriteShape,
+            ),
+            (
+                &["run", "--allow-run=x", "--allow-run-write=:out", "a.js"],
+                Run::AllowRunWriteShape,
+            ),
+            (
+                &["run", "--allow-run=x", "--allow-run-write=x:", "a.js"],
+                Run::AllowRunWriteShape,
+            ),
+            (
+                &[
+                    "run",
+                    "--allow-run=x,y",
+                    "--allow-run-write=x,y:out",
+                    "a.js",
+                ],
+                Run::AllowRunWriteShape,
+            ),
+            (
+                &["run", "--allow-run=x", "--allow-run-write=x*:out", "a.js"],
+                Run::AllowRunWriteProgram(RunFlagFault::Glob("x*".to_owned())),
+            ),
+            (
+                &["run", "--allow-run=x", "--allow-run-write=/x:out", "a.js"],
+                Run::AllowRunWriteProgram(RunFlagFault::Absolute("/x".to_owned())),
+            ),
+            (
+                &["run", "--allow-run=x", "--allow-run-write=../x:out", "a.js"],
+                Run::AllowRunWriteProgram(RunFlagFault::Climb("../x".to_owned())),
+            ),
+            (
+                &["run", "--allow-run=x", "--allow-run-write=x\0:out", "a.js"],
+                Run::AllowRunWriteProgram(RunFlagFault::Nul),
+            ),
+            (
+                &["run", "--allow-run=x", "--allow-run-write=x:a,,b", "a.js"],
+                AllowDir(ListFlag::RunWrite, DirFlagFault::Empty),
+            ),
+            (
+                &["run", "--allow-run-write=x:out", "a.js"],
+                Run::AllowRunWriteAlone,
+            ),
+            (
+                &[
+                    "run",
+                    "--allow-run-in=bin",
+                    "--allow-run-write=x:out",
+                    "a.js",
+                ],
+                Run::AllowRunWriteAlone,
+            ),
+            (
+                &["run", "-A", "--allow-run-write=x:out", "a.js"],
+                Run::AllowRunWriteAlone,
+            ),
+            (
+                &["run", "--allow-run=y", "--allow-run-write=x:out", "a.js"],
+                Run::UngrantedRunWrite("x".to_owned()),
+            ),
+            (
+                &[
+                    "run",
+                    "-A",
+                    "--allow-run=y",
+                    "--allow-run-write=x:out",
+                    "a.js",
+                ],
+                Run::UngrantedRunWrite("x".to_owned()),
+            ),
         ];
         for (args, expected) in cases {
             assert_eq!(run_outcome(args), expected, "{args:?}");
@@ -1555,6 +1844,7 @@ mod tests {
                     read: set(&["/a", " d", "./c", "b"]),
                     write: set(&["b"]),
                     run_in: set(&["b", "x"]),
+                    run_write: BTreeMap::new(),
                 }
             )
         );
@@ -1566,6 +1856,7 @@ mod tests {
                     read: set(&[]),
                     write: set(&["w"]),
                     run_in: set(&["w"]),
+                    run_write: BTreeMap::new(),
                 }
             )
         );
@@ -1711,7 +2002,7 @@ mod tests {
     #[test]
     fn run_s_help_reads_as_argh_s() {
         const EXPECTED: &str = "\
-Usage: {BINARY_NAME} run [--allow-env=<names>] [--allow-read=<dirs>] [--allow-write=<dirs>] [--allow-temp] [--allow-run=<names>] [--allow-run-in=<dirs>] [--allow-run-env=<names>] [-A] [--] <file> [<args...>]
+Usage: {BINARY_NAME} run [--allow-env=<names>] [--allow-read=<dirs>] [--allow-write=<dirs>] [--allow-temp] [--allow-run=<names>] [--allow-run-in=<dirs>] [--allow-run-env=<names>] [--allow-run-write=<program>:<dirs>] [-A] [--] <file> [<args...>]
 
 run an ES module (.js, .mjs, .ts, or .mts) from disk
 
@@ -1764,6 +2055,12 @@ Options:
                     them, a comma-separated list of exact names or PREFIX_*
                     globs; repeatable; only beside --allow-run or
                     --allow-run-in
+  --allow-run-write=<program>:<dirs>
+                    let one program --allow-run grants write these directories:
+                    its name, `:`, then directories as --allow-write lists them;
+                    repeatable, one program each, only beside --allow-run.
+                    `{BINARY_NAME} run` starts programs in no box, so here the flag is
+                    checked and holds nothing back
   -A                run unconfined: every grant at its widest, to every module,
                     every environment variable and every directory among them
   --help, help      display usage information";

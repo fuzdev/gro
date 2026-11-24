@@ -181,6 +181,24 @@ anything else that keeps a rule from opening, like a symlink on its path, refuse
   One naming an entry the box leaves out, like `--allow-write=.git`, is honored, the command line's own choice.
   One naming a directory that holds the project root, like `--allow-write=..`, is refused, exit 2,
   since a rule there would cover `.git` and every entry the box leaves out, and Landlock can't carve them back out.
+  A directory any of these flags lists that lies inside the project by its text, relative or absolute, or through a link to the project,
+  and leads out of it through a symlink, like `--allow-read=src` with a committed `src -> ~`, is refused, exit 2,
+  naming the real path to type instead, so a flag typed as documented never grants what a link in the tree points at;
+  one through a symlink that stays inside is noted, as `fgro run` notes every one ([run](run.md#usage)),
+  unless it lands in a dot-entry or `node_modules` the path doesn't name, like `src/fixtures -> ../.git`,
+  which is refused, exit 2, naming that entry's path to type instead, as is a path typed outside the project through a link of your own into such an entry,
+  so an entry the box leaves out is written only when a flag names it.
+  `--allow-run-write=<program>:<dirs>` reads and writes directories for one program the command starts,
+  named as the tool is called, like `vitest`, or as `--allow-run=` names it, or by its name in the run, like `node_modules/.bin/vitest`,
+  each opened as a write flag's is, a rule of its own, and the root the same per-entry set.
+  Gro's own code gains nothing there.
+  A name the command may start no program by is refused, exit 2, naming those it may start,
+  and so is a plain name both the project's own tool and an `--allow-run=` grant have, the project's own then named by `node_modules/.bin/<name>`.
+  Where gro's own code writes the whole project, as under `gen`, `format`, or `sync`, or with `--allow-write=.`,
+  a program's directory under a dot-entry or `node_modules` is refused, exit 2, unless `--allow-write=` names it too,
+  since the box alone keeps gro's code out of those.
+  So is one holding the project root, and for a command that may start a program one holding the OS temporary directory.
+  The tools share the run's box today, so until each has its own, every tool writes what the flag names.
 - **A `node_modules` that's a symlink**, as agent worktrees and scratch copies make, is followed only to another checkout's:
   a directory named `node_modules` outside the project, neither inside it nor holding it.
   It's read there on its real path (and executed, for a command that may start a program), and one `note:` line names where it leads.
@@ -188,7 +206,7 @@ anything else that keeps a rule from opening, like a symlink on its path, refuse
   so a read the box allows there isn't refused as a symlink leaving the project.
   A package there resolves its imports within that `node_modules`, and nothing of the checkout holding it is read,
   its `package.json` included ([resolver](resolver.md#departures-from-node)).
-  No tool directory is made there, and nothing there is written, unless a write flag names it,
+  No tool directory is made there, and nothing there is written, unless a write flag names where it leads, by that path,
   since that checkout's own unconfined commands run what a test writes there, so a tool that needs one fails without the flag.
   A link to any other directory, like `~/.ssh` or `.git`, is refused, exit 2.
 - **Network:** the run's own namespace, whose only interface is its loopback,
@@ -236,10 +254,12 @@ and a recursive `mkdir` or copy through a symlink on the way.
 A run that exits nonzero after a tool it started ended other than by exiting 0, not counting one the run signaled itself, ends with a `note:` line naming the box's network and writes, as in
 
 ```
-note: fgro gen's tools ran in the run's kernel box, which lets them reach no network but the run's own loopback and write only to the top-level entries the project had as it started (but .git, node_modules, the dot-entries, symlinks) and a temporary directory of the run's: a tool that hits a wall fails with EACCES, EPERM, or ENOSYS, and --allow-read=, --allow-write=, and --allow-run-in= widen the box
+note: fgro gen's tools ran in the run's kernel box, which lets them reach no network but the run's own loopback and write only to the top-level entries the project had as it started (but .git, node_modules, the dot-entries, symlinks) and a temporary directory of the run's: a tool that hits a wall fails with EACCES, EPERM, or ENOSYS, and --allow-read=, --allow-write=, --allow-run-write=, and --allow-run-in= widen the box
 ```
 
 Both are built from the rules the box installed: only tool and flag directories are named, and in the host's network the note's clause reads "reach no network".
+The note names the directories `--allow-run-write=` gives a program among where the tools write, since every tool shares the run's box;
+the cause leaves them out, as gro's own code can't write there, and names the top-level entries only where gro's code writes the project.
 Both are review signals, which the run's code can print as well.
 
 ### How it goes up
@@ -248,7 +268,7 @@ The binary takes the box's steps on its one thread, before V8 or any other threa
 
 1. The pre-pass reads the command's closure, the grant flags, and the project, and holds no descriptor when it returns.
    Every fallback the command line or the project's files decide runs the Node Gro here, so Node gets the process the Node Gro would have,
-   and what it refuses, like `-A` before the command word, exits 2.
+   and what it refuses, like `-A` before the command word, or `--allow-run-write=` naming a program the command may start by no name, exits 2.
 2. It refuses what can't run boxed, before anything changes:
    a binary built without its snapshot, which would read its own sources from its build tree, exit 1 ([run](run.md#errors-and-exit-codes)),
    and `-A` after the command word, whose unconfined spelling is the Node Gro, exit 2.
@@ -260,9 +280,11 @@ The binary takes the box's steps on its one thread, before V8 or any other threa
 4. Then the first change: it closes every descriptor it inherited above stderr, and from here nothing falls back.
    It enters the network namespace, then drops its capabilities, marks itself not dumpable, lowers the `core` limit, and raises its open-files soft limit, as Node does.
 5. It opens the OS's temporary directory by its real path and removes the stale private directories there, unless it lies in the project.
-6. It resolves once what the run and its box both use: the directories the grant flags list, the programs it pins, `node` among them, and the working directory.
+6. It resolves once what the run and its box both use: the directories the grant flags list, the programs it pins, `node` among them, and the working directory,
+   refusing, exit 2, a directory listed inside the project that leads out of it through a symlink, or through one into a dot-entry or `node_modules` it doesn't name.
 7. It derives the box's plan from that resolution and the disk's facts, read once, and prints the plan's note.
-   The plan refuses, exit 2, a write flag naming a directory that holds the project root;
+   The plan refuses, exit 2, a write flag or a program's write directory naming a directory that holds the project root;
+   a program's write directory under a dot-entry or `node_modules` where gro's own code writes the whole project and no `--allow-write=` names it, naming the command;
    a `node` on `PATH` that's a script, like an asdf or nodenv shim, which reads its manager's tree under the home directory, naming the shim and the fix,
    unless an `--allow-run-in=` names the directory it's in;
    a `node_modules` symlink to anything but another checkout's `node_modules`;
@@ -288,6 +310,7 @@ The grant flags, right after the command word, widen the box for one run:
 
 - a read outside the project, like a tool's config or cache under the home directory, takes `--allow-read=<dir>`
 - a write outside the write roots takes `--allow-write=<dir>`, naming the directory itself, never one that holds the project root
+- a tool's own write, like a test updating its snapshots or `eslint --fix`, takes `--allow-run-write=<program>:<dirs>`, like `gro test --allow-run-write=vitest:src -- -u`
 - a program run from a directory outside `node_modules` and the system's takes `--allow-run-in=<dir>`
 
 No flag gives a new top-level entry a rule, since `--allow-write=.` adds one for each entry the project has as the run starts,

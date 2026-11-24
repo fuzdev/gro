@@ -39,16 +39,22 @@
 //! program under `run` can exit with a code of its own, 0 to 255, by the
 //! exit host module (`run::exit_code` has the rules). A command of Gro's
 //! exits as `run` does on the binary, its code Gro's; with `2` when its
-//! pre-pass refuses it (its grant flags, `GRO_FALLBACK`'s value, a working
-//! directory with no project's `package.json`, a project's `package.json`
-//! or installed Gro's that can't be read, a fallback `GRO_FALLBACK=command`
-//! refuses, or a fallback with no installed or built Node Gro or no `node`
-//! to run it), `1` when the grants table or the working directory can't be
-//! read or `node` fails to start; and with the Node Gro's code when it
-//! falls back. Its box adds its own (`verb::start`'s module doc has them):
-//! `2` for what the caller changes (`-A`, a socket on stdio, what the box's
-//! plan refuses, a tool directory planted as something else), `1` for a
-//! build with no snapshot and a step of the box that failed.
+//! pre-pass refuses it (its grant flags, an `--allow-run-write=` naming a
+//! program the command may start by no name or by one two share,
+//! `GRO_FALLBACK`'s value, a working directory with no project's
+//! `package.json`, a project's `package.json` or installed Gro's that can't
+//! be read, a fallback `GRO_FALLBACK=command` refuses, or a fallback with no
+//! installed or built Node Gro or no `node` to run it), `1` when the grants
+//! table or the working directory can't be read or `node` fails to start;
+//! and with the Node Gro's code when it falls back. Its box adds its own
+//! (`verb::start`'s module doc has them): `2` for what the caller changes
+//! (`-A`, a socket on stdio, a directory a grant flag lists inside the
+//! project that leads out of it through a symlink, or through one into a
+//! dot-entry or `node_modules` it doesn't name, what the box's plan
+//! refuses, an OS temporary directory inside the project or held by a rule
+//! a program's box would take, a path planted where the box opens a rule or
+//! makes a tool directory), `1` for a build with no snapshot and a step of
+//! the box that failed.
 //!
 //! Features (the binary that ships never enables `phases` or `prices`):
 //!

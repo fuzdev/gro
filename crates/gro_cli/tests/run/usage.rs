@@ -127,6 +127,90 @@ fn usage_errors_exit_2() {
     );
 }
 
+/// `--allow-run-write=` under `fgro run`: refused without `--allow-run=`,
+/// and for a program no `--allow-run=` lists, before anything runs; given
+/// one, its directories are checked, and it says once that it holds
+/// nothing back, since `fgro run` starts its programs in no box, the run
+/// otherwise unchanged; under `-A` it's checked and says nothing.
+#[test]
+fn run_checks_a_program_s_write_flag_and_says_it_holds_nothing_back() {
+    let stderr = |args: &[&str]| {
+        let output = fgro(args);
+        (
+            output.status.code(),
+            String::from_utf8(output.stdout).unwrap(),
+            String::from_utf8(output.stderr).unwrap(),
+        )
+    };
+    let help = format!("Run {BINARY_NAME} run --help for more information.\n");
+    assert_eq!(
+        stderr(&["run", "--allow-run-write=git:.", "console.js"]),
+        (
+            Some(2),
+            String::new(),
+            format!(
+                "error: --allow-run-write lets a program --allow-run grants write, and no \
+                 --allow-run grants one\n{help}"
+            )
+        )
+    );
+    assert_eq!(
+        stderr(&[
+            "run",
+            "--allow-run=git",
+            "--allow-run-write=x\u{1b}:secret",
+            "console.js"
+        ]),
+        (
+            Some(2),
+            String::new(),
+            format!(
+                "error: --allow-run-write=… names x\\u{{1b}}, which no --allow-run= grants: list \
+                 x\\u{{1b}} there too\n{help}"
+            )
+        )
+    );
+    let (code, _, missing) = stderr(&[
+        "run",
+        "--allow-run=git",
+        "--allow-run-write=git:missing",
+        "console.js",
+    ]);
+    assert_eq!(code, Some(2));
+    assert!(
+        missing.starts_with("error: a --allow-run-write directory doesn't exist: "),
+        "{missing}"
+    );
+    let (code, stdout, noted) = stderr(&[
+        "run",
+        "--allow-run=git",
+        "--allow-run-write=git:.",
+        "--allow-run-write=git:..",
+        "console.js",
+    ]);
+    assert_eq!(code, Some(0), "{noted}");
+    assert!(stdout.starts_with("log 1"), "{stdout}");
+    assert_eq!(
+        noted
+            .lines()
+            .filter(|line| line.starts_with("note:"))
+            .collect::<Vec<_>>(),
+        [format!(
+            "note: {BINARY_NAME} run starts programs in no box, so --allow-run-write= holds \
+             nothing back: a program --allow-run= grants writes wherever you can"
+        )]
+    );
+    let (code, _, all) = stderr(&[
+        "run",
+        "-A",
+        "--allow-run=git",
+        "--allow-run-write=git:.",
+        "console.js",
+    ]);
+    assert_eq!(code, Some(0), "{all}");
+    assert!(!all.contains("note:"), "{all}");
+}
+
 /// An argument that isn't UTF-8 is refused before anything runs, the file or
 /// one of the script's.
 #[test]

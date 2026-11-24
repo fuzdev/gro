@@ -4,7 +4,6 @@
 use std::ffi::OsString;
 use std::path::PathBuf;
 
-use gro_runtime::confine::plan::DirFlag;
 use gro_runtime::embed::EmbedError;
 use gro_runtime::engine::EngineError;
 use gro_runtime::prices::PricesError;
@@ -14,7 +13,7 @@ use gro_runtime::verb::table::TableError;
 use gro_runtime::{BINARY_NAME, RunError};
 use thiserror::Error;
 
-use crate::cli::GrantListError;
+use crate::cli::{ALLOW_RUN, ALLOW_RUN_WRITE, GrantListError, ListFlag, RUN};
 use crate::print::{echo_argument, escape_controls, stderr_line};
 use crate::verb::prepass::{VerbError, command_line};
 use crate::verb::start::BoxStartError;
@@ -73,9 +72,79 @@ pub enum CliError {
         bin = BINARY_NAME
     )]
     AllowRunEnvAlone,
-    /// A directory `--allow-read=`, `--allow-write=`, or `--allow-run-in=`
-    /// lists isn't one as the run starts: missing, something else, or
-    /// unreadable. Its path is named as resolved against the working
+    /// `run --allow-run-write=` without `--allow-run=`, which grants no
+    /// program to write what it names.
+    #[error(
+        "{ALLOW_RUN_WRITE} lets a program {ALLOW_RUN} grants write, and no {ALLOW_RUN} grants \
+         one\n\
+         Run {BINARY_NAME} {RUN} --help for more information."
+    )]
+    AllowRunWriteAlone,
+    /// `run --allow-run-write=` naming a program no `--allow-run=` lists,
+    /// the program echoed, escaped ([`escape_controls`]): a program's name,
+    /// never a value.
+    #[error(
+        "{ALLOW_RUN_WRITE}=… names {}, which no {ALLOW_RUN}= grants: list {} there too\n\
+         Run {BINARY_NAME} {RUN} --help for more information.",
+        escape_controls(.0),
+        escape_controls(.0)
+    )]
+    RunWriteUngranted(String),
+    /// A directory a grant flag of a command of Gro's lists, typed inside
+    /// the project by its text, whose real path leads out of it through a
+    /// symlink: named as typed and by its real path, each escaped.
+    #[error(
+        "{}{}{} names {}, which leads out of the project to {} through a symlink: a directory \
+         typed inside the project must be inside it, so name {} itself to grant it",
+        .flag,
+        .program.as_deref().map_or_else(
+            || "=".to_owned(),
+            |program| format!("={}:", escape_controls(program))
+        ),
+        escape_controls(.dir),
+        escape_controls(.dir),
+        escape_controls(&.real.to_string_lossy()),
+        escape_controls(&.real.to_string_lossy())
+    )]
+    LeavesProject {
+        /// The flag that listed it.
+        flag: ListFlag,
+        /// The program `--allow-run-write=` names it for, as written.
+        program: Option<String>,
+        /// The directory as typed.
+        dir: String,
+        /// Its real path.
+        real: PathBuf,
+    },
+    /// A directory a grant flag of a command of Gro's lists whose real path
+    /// lies in a top-level dot-entry or `node_modules` the text doesn't
+    /// name, reached through a symlink: named as typed and by its path
+    /// beneath the project, each escaped.
+    #[error(
+        "{}{}{} names {}, which leads through a symlink to {}: name {} itself to grant it",
+        .flag,
+        .program.as_deref().map_or_else(
+            || "=".to_owned(),
+            |program| format!("={}:", escape_controls(program))
+        ),
+        escape_controls(.dir),
+        escape_controls(.dir),
+        escape_controls(&.entry.to_string_lossy()),
+        escape_controls(&.entry.to_string_lossy())
+    )]
+    LinksIntoEntry {
+        /// The flag that listed it.
+        flag: ListFlag,
+        /// The program `--allow-run-write=` names it for, as written.
+        program: Option<String>,
+        /// The directory as typed.
+        dir: String,
+        /// Its real path beneath the project, starting with the entry.
+        entry: PathBuf,
+    },
+    /// A directory `--allow-read=`, `--allow-write=`, `--allow-run-in=`, or
+    /// `--allow-run-write=` lists isn't one as the run starts: missing,
+    /// something else, or unreadable. Its path is named as resolved against the working
     /// directory, escaped. `fgro run`'s help is named for its flags, and
     /// none for a command of Gro's, whose flags no help lists.
     #[error(
@@ -98,7 +167,7 @@ pub enum CliError {
     )]
     NoDir {
         /// The flag that listed it.
-        flag: DirFlag,
+        flag: ListFlag,
         /// Its absolute path.
         path: PathBuf,
         /// What's wrong with it.
@@ -275,6 +344,10 @@ impl CliError {
             | Self::RunNoFile
             | Self::GrantList(_)
             | Self::AllowRunEnvAlone
+            | Self::AllowRunWriteAlone
+            | Self::RunWriteUngranted(_)
+            | Self::LeavesProject { .. }
+            | Self::LinksIntoEntry { .. }
             | Self::NoDir { .. }
             | Self::TimeoutZero
             | Self::DriverWithExport

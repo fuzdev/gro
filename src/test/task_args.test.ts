@@ -815,7 +815,16 @@ describe('to_grant_flags', () => {
 			['check --allow-read', '`--allow-read` takes a list after `=`'],
 			['check --allow-read= --watch', '`--allow-read` takes a list after `=`'],
 			['check --allow-temp=x', '`--allow-temp` takes no value'],
-			['run --allow-run-env=X x.ts', '`gro run` was given neither']
+			['run --allow-run-env=X x.ts', '`gro run` was given neither'],
+			[
+				'test --allow-run-write',
+				'`--allow-run-write` takes a list after `=`, like `--allow-run-write=vitest:src`'
+			],
+			['run --allow-run-write=x:out x.ts', '`gro run` was given no `--allow-run`'],
+			[
+				'run --allow-run-in=bin --allow-run-write=x:out x.ts',
+				'`gro run` was given no `--allow-run`'
+			]
 		] as const) {
 			expect(() => to_grant_flags(argv.split(' '))).toThrow(TaskError);
 			expect(() => to_grant_flags(argv.split(' '))).toThrow(message);
@@ -824,5 +833,11 @@ describe('to_grant_flags', () => {
 		expect(to_grant_flags('check --allow-run-env=X'.split(' ')).grant_flags).toEqual([
 			'--allow-run-env=X'
 		]);
+		expect(to_grant_flags('test --allow-run-write=vitest:src'.split(' ')).grant_flags).toEqual([
+			'--allow-run-write=vitest:src'
+		]);
+		expect(
+			to_grant_flags('run --allow-run=x --allow-run-write=x:out x.ts'.split(' ')).grant_flags
+		).toEqual(['--allow-run=x', '--allow-run-write=x:out']);
 	});
 });

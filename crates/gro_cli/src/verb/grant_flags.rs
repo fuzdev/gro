@@ -23,8 +23,8 @@ use thiserror::Error;
 
 use super::prepass::node_gro_command;
 use crate::cli::{
-    ALLOW_ALL, ALLOW_RUN, ALLOW_RUN_ENV, ALLOW_RUN_IN, ALLOW_TEMP, FlagDirs, GrantFlag,
-    GrantListError, ListFlag, RUN, RunGrant, RunGrantBuilder,
+    ALLOW_ALL, ALLOW_RUN, ALLOW_RUN_ENV, ALLOW_RUN_IN, ALLOW_RUN_WRITE, ALLOW_TEMP, FlagDirs,
+    GrantFlag, GrantListError, ListFlag, RUN, RunGrant, RunGrantBuilder,
 };
 use crate::print::{echo_argument, escape_controls};
 
@@ -91,9 +91,10 @@ pub enum GrantFlagsError {
     },
     /// A flag that lists, with no list or an empty one.
     #[error(
-        "{name} takes a list after `=`, like {name}=a,b: {}",
+        "{name} takes a list after `=`, like {name}={example}: {}",
         echo_argument(.flag),
-        name = .list_flag.spelled()
+        name = .list_flag.spelled(),
+        example = .list_flag.example()
     )]
     TakesAList {
         /// The flag, as written.
@@ -114,6 +115,13 @@ pub enum GrantFlagsError {
          and `{BINARY_NAME} {RUN_TASK_NAME}` was given neither"
     )]
     RunEnvWithoutRun,
+    /// `run` given `--allow-run-write` with no `--allow-run`, whose
+    /// programs alone it lets write.
+    #[error(
+        "{ALLOW_RUN_WRITE} lets a program {ALLOW_RUN} grants write, and `{BINARY_NAME} \
+         {RUN_TASK_NAME}` was given no {ALLOW_RUN}"
+    )]
+    RunWriteWithoutRun,
     /// A flag's list refused, as `fgro run` refuses it, without its help's
     /// hint.
     #[error(transparent)]
@@ -143,7 +151,8 @@ fn is_grant_flag_like(arg: &str) -> bool {
 /// Returns why the flags are refused: one before the command word, then in
 /// the run, a flag spelled `--allow-*` that's no grant flag, one that lists
 /// with no list, and `--allow-temp` with a value, each in the order they
-/// come, then `run` given `--allow-run-env` alone.
+/// come, then `run` given `--allow-run-env` alone, then `run` given
+/// `--allow-run-write` with no `--allow-run`.
 pub fn split_grant_flags(cli_args: &[String]) -> Result<GrantFlagsSplit, GrantFlagsError> {
     for arg in cli_args {
         if arg == "--" || !arg.starts_with('-') {
@@ -214,6 +223,12 @@ pub fn split_grant_flags(cli_args: &[String]) -> Result<GrantFlagsSplit, GrantFl
     {
         return Err(GrantFlagsError::RunEnvWithoutRun);
     }
+    if command.is_some_and(|command| command == RUN_TASK_NAME)
+        && lists(ListFlag::RunWrite)
+        && !lists(ListFlag::Run)
+    {
+        return Err(GrantFlagsError::RunWriteWithoutRun);
+    }
     let cli_args = match command {
         Some(command) if !grant_flags.is_empty() => std::iter::once(command.clone())
             .chain(help_flags)
@@ -231,7 +246,9 @@ pub fn split_grant_flags(cli_args: &[String]) -> Result<GrantFlagsSplit, GrantFl
 /// and the directories they list, each read and checked as `fgro run`
 /// reads and checks its own ([`RunGrantBuilder`]). `--allow-run-env=` is
 /// taken alone: the split refuses it so for `run`, and it forwards to the
-/// programs a command's closure grants by a list.
+/// programs a command's closure grants by a list. So is
+/// `--allow-run-write=`, which names a program of the closure's as often
+/// as one `--allow-run=` grants, resolved by the pre-pass.
 ///
 /// # Errors
 ///
@@ -258,8 +275,6 @@ mod tests {
     use gro_runtime::EnvPattern;
 
     use super::{GrantFlagsError, split_grant_flags, to_run_grant};
-    use gro_runtime::confine::plan::DirFlag;
-
     use crate::cli::{DirFlagFault, FlagDirs, GrantListError, ListFlag, RunGrant};
     use crate::verb::tests::{has_fields, read_fixture, strings};
 
@@ -274,6 +289,7 @@ mod tests {
             GrantFlagsError::TakesAList { flag, .. } => ("takes_a_list", Some(flag), None),
             GrantFlagsError::NoGrantFlag { flag } => ("no_grant_flag", Some(flag), None),
             GrantFlagsError::RunEnvWithoutRun => ("run_env_without_run", None, None),
+            GrantFlagsError::RunWriteWithoutRun => ("run_write_without_run", None, None),
             GrantFlagsError::List(error) => panic!("the split reads no list: {error}"),
         }
     }
@@ -302,7 +318,7 @@ mod tests {
                 );
                 let fields: &[&str] = match kind {
                     "before_command" => &["kind", "flag", "command"],
-                    "run_env_without_run" => &["kind"],
+                    "run_env_without_run" | "run_write_without_run" => &["kind"],
                     _ => &["kind", "flag"],
                 };
                 assert!(has_fields(refusal, fields), "{name}");
@@ -366,14 +382,28 @@ mod tests {
             "--allow-run-in takes a list after `=`, like --allow-run-in=a,b: --allow-run-in"
         );
         assert_eq!(
+            refused(&["test", "--allow-run-write=", "--", "-u"]),
+            "--allow-run-write takes a list after `=`, like --allow-run-write=vitest:src: \
+             --allow-run-write=…"
+        );
+        assert_eq!(
+            refused(&["run", "--allow-run-write=x:secret", "x.ts"]),
+            format!(
+                "--allow-run-write lets a program --allow-run grants write, and \
+                 `{BINARY_NAME} run` was given no --allow-run"
+            )
+        );
+        assert_eq!(
             refused(&["check", "--allow-net=secret\u{1b}"]),
             "--allow-net=… is no grant flag: they're -A, --allow-temp, --allow-env, \
-             --allow-read, --allow-write, --allow-run, --allow-run-in, --allow-run-env"
+             --allow-read, --allow-write, --allow-run, --allow-run-in, --allow-run-env, \
+             --allow-run-write"
         );
         assert_eq!(
             refused(&["check", "--allow-\u{1b}[2J"]),
             "--allow-\\u{1b}[2J is no grant flag: they're -A, --allow-temp, --allow-env, \
-             --allow-read, --allow-write, --allow-run, --allow-run-in, --allow-run-env"
+             --allow-read, --allow-write, --allow-run, --allow-run-in, --allow-run-env, \
+             --allow-run-write"
         );
         assert_eq!(
             refused(&["run", "--allow-run-env=X", "x.ts"]),
@@ -405,9 +435,10 @@ mod tests {
             items.iter().map(|&item| item.to_owned()).collect()
         };
         for (argv, flag) in [
-            (["check", "--allow-read=,"], DirFlag::Read),
-            (["check", "--allow-write=a,,b"], DirFlag::Write),
-            (["check", "--allow-run-in=a,"], DirFlag::RunIn),
+            (["check", "--allow-read=,"], ListFlag::Read),
+            (["check", "--allow-write=a,,b"], ListFlag::Write),
+            (["check", "--allow-run-in=a,"], ListFlag::RunIn),
+            (["check", "--allow-run-write=vitest:a,"], ListFlag::RunWrite),
         ] {
             assert!(
                 matches!(read(&argv), Err(GrantFlagsError::List(GrantListError::Dir(refused, DirFlagFault::Empty))) if refused == flag),

@@ -3,11 +3,13 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 use gro_runtime::confine::ConfineError;
-use gro_runtime::confine::plan::{DirFlag, GrantedFlagDir, PlanRefusal, RuleSource};
+use gro_runtime::confine::plan::{
+    DirFlag, GrantedFlagDir, PlanRefusal, RootWriter, RuleSource, RunWriteDir, RunWriteGrant,
+};
 use gro_runtime::resolver::InstalledPackage;
 use gro_runtime::{BINARY_NAME, RunPins};
 
-use super::{BoxStartError, box_inputs};
+use super::{BoxStartError, TempHolder, box_inputs};
 use crate::cli::{FlagDirs, RunGrant};
 use crate::run::Environment;
 use crate::verb::fallback::{FallbackPolicy, FallbackReason, KernelLandlock, fallback_note};
@@ -65,6 +67,7 @@ fn run(
         policy,
         gro,
         programs: BTreeMap::new(),
+        run_writes: BTreeMap::new(),
         development: true,
         entry: String::new(),
     }
@@ -79,6 +82,7 @@ fn the_box_takes_the_grant_flags_directories_alone() {
         read: set(&["r"]),
         write: set(&["out"]),
         run_in: BTreeSet::new(),
+        run_write: BTreeMap::new(),
     };
     let resolved = [
         (DirFlag::Read, ".", "/p"),
@@ -94,9 +98,58 @@ fn the_box_takes_the_grant_flags_directories_alone() {
         ("HOME", "/home/u"),
         ("GIT_CONFIG_GLOBAL", "/g/config"),
     ]);
-    let run = run(flags, true, FallbackPolicy::All, None);
-    let inputs = box_inputs(&run, &resolved, &RunPins::default(), &environment);
+    let mut run = run(flags, true, FallbackPolicy::All, None);
+    run.programs.insert(
+        "node_modules/.bin/vitest".to_owned(),
+        gro_runtime::ProgramGrant::Flag {
+            forward: Vec::new(),
+        },
+    );
+    run.run_writes = BTreeMap::from([
+        ("vitest".to_owned(), "node_modules/.bin/vitest".to_owned()),
+        (
+            "node_modules/.bin/vitest".to_owned(),
+            "node_modules/.bin/vitest".to_owned(),
+        ),
+        ("git".to_owned(), "git".to_owned()),
+    ]);
+    let run_write = |named: &str, dir: &str, real: &str| RunWriteDir {
+        named: named.to_owned(),
+        dir: dir.to_owned(),
+        real: PathBuf::from(real),
+    };
+    let run_writes = [
+        run_write("git", ".git", "/p/.git"),
+        run_write("vitest", "src", "/p/src"),
+        run_write("node_modules/.bin/vitest", "out", "/p/out"),
+        // a name the pre-pass didn't resolve, which no run reaches
+        run_write("x", "y", "/p/y"),
+    ];
+    let inputs = box_inputs(
+        &run,
+        &resolved,
+        &run_writes,
+        &RunPins::default(),
+        &environment,
+    );
     assert_eq!(inputs.flags, resolved[1..]);
+    // grouped by the program each name resolved to, a table program's
+    // marked so
+    assert_eq!(
+        inputs.run_writes,
+        [
+            RunWriteGrant {
+                program: "git".to_owned(),
+                table: false,
+                dirs: vec![run_writes[0].clone()],
+            },
+            RunWriteGrant {
+                program: "node_modules/.bin/vitest".to_owned(),
+                table: true,
+                dirs: vec![run_writes[1].clone(), run_writes[2].clone()],
+            },
+        ]
+    );
     assert_eq!(inputs.root, Path::new("/p"));
     assert!(inputs.spawns && inputs.temp && !inputs.unconfined && !inputs.writes_root);
     assert_eq!(inputs.tools, set(&["vitest"]));
@@ -228,13 +281,44 @@ fn the_refusals_before_the_box_print_their_texts_and_codes() {
              snapshot: cargo xtask build"
         )
     );
-    let planted = BoxStartError::Plan(PlanRefusal::NodeModulesLink {
-        real: PathBuf::from("/h/.ssh\u{1b}[2J"),
-    });
+    let planted = BoxStartError::Plan {
+        refusal: PlanRefusal::NodeModulesLink {
+            real: PathBuf::from("/h/.ssh\u{1b}[2J"),
+        },
+        command: Some("check".to_owned()),
+    };
     assert_eq!(planted.exit_code(), EXIT_USAGE);
     let text = planted.to_string();
     assert!(text.contains("/h/.ssh\\u{1b}[2J"), "{text}");
     assert!(!text.contains('\u{1b}'), "{text}");
+    // the corner's refusal names the command that writes the project, or
+    // the flag that does, escaped
+    let corner = |command: Option<&str>, cause| BoxStartError::Plan {
+        refusal: PlanRefusal::RealmWritesProgramDir {
+            program: "svelte-kit".to_owned(),
+            dir: ".git\u{1b}[2J".to_owned(),
+            cause,
+        },
+        command: command.map(str::to_owned),
+    };
+    let closure = corner(Some("gen"), RootWriter::Closure);
+    assert_eq!(closure.exit_code(), EXIT_USAGE);
+    assert_eq!(
+        closure.to_string(),
+        format!(
+            "--allow-run-write=svelte-kit:.git\\u{{1b}}[2J would let gro's own code write \
+             .git\\u{{1b}}[2J as well, since {BINARY_NAME} gen writes the project and only the \
+             kernel box keeps it out of .git, node_modules, and the dot-entries: add \
+             --allow-write=.git\\u{{1b}}[2J to grant it to both"
+        )
+    );
+    assert_eq!(
+        corner(Some("test"), RootWriter::Flag("./".to_owned())).to_string(),
+        "--allow-run-write=svelte-kit:.git\\u{1b}[2J would let gro's own code write \
+         .git\\u{1b}[2J as well, since --allow-write=./ lets gro's own code write the project \
+         and only the kernel box keeps it out of .git, node_modules, and the dot-entries: add \
+         --allow-write=.git\\u{1b}[2J to grant it to both"
+    );
     let stdio = BoxStartError::Confine(ConfineError::StdioSocket { fds: vec![0] });
     assert_eq!(stdio.exit_code(), EXIT_USAGE);
     let threads = BoxStartError::Confine(ConfineError::Threads(gro_runtime::confine::Threads {
@@ -260,7 +344,10 @@ fn a_planted_path_exits_2_and_a_failed_step_1() {
             cli_args: Vec::new(),
         },
         BoxStartError::Confine(ConfineError::StdioSocket { fds: vec![0] }),
-        BoxStartError::Plan(PlanRefusal::Unconfined),
+        BoxStartError::Plan {
+            refusal: PlanRefusal::Unconfined,
+            command: None,
+        },
         BoxStartError::TempInProject {
             path: path(),
             variable: Some("TMPDIR"),
@@ -268,7 +355,7 @@ fn a_planted_path_exits_2_and_a_failed_step_1() {
         BoxStartError::TempHeldByRule {
             path: path(),
             rule: PathBuf::from("/"),
-            from: RuleSource::Flag(DirFlag::Read),
+            holder: TempHolder::Flag(DirFlag::Read),
             variable: Some("TMPDIR"),
         },
         BoxStartError::ToolDir(ToolDirError::NotADirectory { path: path() }),
@@ -381,7 +468,7 @@ fn the_wall_texts_follow_the_rules() {
         wall("/dev/null", RuleSource::Device, true),
         wall("/tmp/gro-1-2", RuleSource::PrivateTemp, true),
     ];
-    let cause = super::denied_write_cause(&generating, &writing);
+    let cause = super::denied_write_cause(&generating, &writing, true);
     assert_eq!(
         cause.cause,
         format!(
@@ -421,7 +508,8 @@ fn the_wall_texts_follow_the_rules() {
             "note: {BINARY_NAME} check's tools ran in the run's kernel box, which lets them reach \
              no network but the run's own loopback and write only to .svelte-kit and a temporary \
              directory of the run's: a tool that hits a wall fails with EACCES, EPERM, or ENOSYS, \
-             and --allow-read=, --allow-write=, and --allow-run-in= widen the box"
+             and --allow-read=, --allow-write=, --allow-run-write=, and --allow-run-in= widen the \
+             box"
         )
     );
     // write flags naming .git and the linked node_modules's checkout, and
@@ -433,12 +521,54 @@ fn the_wall_texts_follow_the_rules() {
         wall("/o", RuleSource::Flag(DirFlag::Write), true),
         wall("/p/out\u{1b}[2J", RuleSource::Flag(DirFlag::Write), true),
     ];
-    let cause = super::denied_write_cause(&generating, &flagged);
+    let cause = super::denied_write_cause(&generating, &flagged, false);
     assert_eq!(
         cause.cause,
         format!(
             "the run's kernel box lets {BINARY_NAME} gen write only to .git, /o, and \
              out\\u{{1b}}[2J; the other dot-entries and a new top-level entry stay read-only"
+        )
+    );
+    // a program's write rules, and the entries only a program's names the
+    // root for: the tools' note names them, as every tool shares the run's
+    // box; the realm's cause leaves them out, though the kernel lets the
+    // run write there, and they cover nothing it keeps read-only
+    let programs = [
+        wall("/p", RuleSource::Project, false),
+        wall("/p/src", RuleSource::Entry, true),
+        wall("/p/.git", RuleSource::RunWrite(0), true),
+        wall("/p/node_modules", RuleSource::RunWrite(1), true),
+        wall("/o", RuleSource::RunWrite(1), true),
+        wall("/tmp/gro-1-2", RuleSource::PrivateTemp, true),
+    ];
+    let cause = super::denied_write_cause(&check, &programs, false);
+    assert_eq!(
+        cause.cause,
+        format!(
+            "the run's kernel box lets {BINARY_NAME} check write only to a temporary directory of \
+             the run's; .git, node_modules, the other dot-entries, and a new top-level entry stay \
+             read-only"
+        )
+    );
+    assert_eq!(
+        cause.writable,
+        ["/p/src", "/p/.git", "/p/node_modules", "/o", "/tmp/gro-1-2"].map(PathBuf::from)
+    );
+    // the entries are the realm's where it writes the root
+    assert!(
+        super::denied_write_cause(&check, &programs, true)
+            .cause
+            .contains("write only to the top-level entries the project had as it started"),
+    );
+    assert_eq!(
+        super::walls_note(&check, &programs, &RunNetwork::Namespace),
+        format!(
+            "note: {BINARY_NAME} check's tools ran in the run's kernel box, which lets them reach \
+             no network but the run's own loopback and write only to the top-level entries the \
+             project had as it started (but .git, node_modules, the dot-entries, symlinks), .git, \
+             node_modules, /o, and a temporary directory of the run's: a tool that hits a wall \
+             fails with EACCES, EPERM, or ENOSYS, and --allow-read=, --allow-write=, \
+             --allow-run-write=, and --allow-run-in= widen the box"
         )
     );
     let inet = super::walls_note(
@@ -489,24 +619,37 @@ fn a_temporary_directory_lies_in_the_project_by_text_or_identity() {
 /// escaped.
 #[test]
 fn a_rule_holding_the_temporary_directory_names_its_fix() {
-    let held = |rule: &str, from, variable| {
+    let held = |rule: &str, holder, variable| {
         BoxStartError::TempHeldByRule {
             path: PathBuf::from("/tmp\u{1b}[2J"),
             rule: PathBuf::from(rule),
-            from,
+            holder,
             variable,
         }
         .to_string()
     };
     assert_eq!(
-        held("/", RuleSource::Flag(DirFlag::RunIn), Some("TMP")),
+        held("/", TempHolder::Flag(DirFlag::RunIn), Some("TMP")),
         "the kernel box makes the run's private directory in the OS's temporary directory, \
          /tmp\\u{1b}[2J, and --allow-run-in=/ holds it, so every program the run starts could \
          read the others' temporary directories there: narrow --allow-run-in to a directory \
          that doesn't hold /tmp\\u{1b}[2J, or point TMP elsewhere"
     );
     assert_eq!(
-        held("/usr", RuleSource::System, None),
+        held(
+            "/tmp",
+            TempHolder::RunWrite {
+                program: "vitest\u{1b}".to_owned()
+            },
+            Some("TMPDIR")
+        ),
+        "the kernel box makes the run's private directory in the OS's temporary directory, \
+         /tmp\\u{1b}[2J, and --allow-run-write=vitest\\u{1b}:/tmp holds it, so vitest\\u{1b} \
+         could read every other program's temporary directory there: narrow vitest\\u{1b}'s \
+         directories to ones that don't hold /tmp\\u{1b}[2J, or point TMPDIR elsewhere"
+    );
+    assert_eq!(
+        held("/usr", TempHolder::Rule, None),
         "the kernel box makes the run's private directory in the OS's temporary directory, \
          /tmp\\u{1b}[2J, and the box's rule on /usr, which every program the run starts reads, \
          holds it, so each could read the others' temporary directories there: it's the \
@@ -524,5 +667,52 @@ fn a_box_that_fails_to_go_up_says_its_cause_once() {
     assert_eq!(
         BoxStartError::Confine(ConfineError::Denylist(TreeError::Twice { nr: 1 })).to_string(),
         "failed to assemble the run's seccomp denylist: the call number 1 is classified twice"
+    );
+}
+
+/// A program's write directory holding the temporary directory is named by
+/// the spelling of the flag that named that directory, where two flags
+/// name one program two ways, not by the program's first.
+#[test]
+fn a_held_temporary_directory_names_the_flag_that_holds_it() {
+    use gro_runtime::confine::plan::{BoxFacts, BoxInputs, BoxPlan};
+
+    let dir = |named: &str, dir: &str| RunWriteDir {
+        named: named.to_owned(),
+        dir: dir.to_owned(),
+        real: PathBuf::from(dir),
+    };
+    let inputs = BoxInputs {
+        root: PathBuf::from("/p"),
+        spawns: true,
+        run_writes: vec![RunWriteGrant {
+            program: "node_modules/.bin/vitest".to_owned(),
+            table: true,
+            dirs: vec![
+                dir("vitest", "/p/src"),
+                dir("node_modules/.bin/vitest", "/tmp"),
+            ],
+        }],
+        ..BoxInputs::default()
+    };
+    let plan = BoxPlan::for_run(&inputs, &BoxFacts::default()).unwrap();
+    let (rule, from) = plan.holding(Path::new("/tmp/gro-1")).unwrap();
+    assert_eq!(rule, Path::new("/tmp"));
+    let holder = TempHolder::of(from, &rule, &plan);
+    assert_eq!(
+        holder,
+        TempHolder::RunWrite {
+            program: "node_modules/.bin/vitest".to_owned()
+        }
+    );
+    assert!(
+        BoxStartError::TempHeldByRule {
+            path: PathBuf::from("/tmp"),
+            rule,
+            holder,
+            variable: None,
+        }
+        .to_string()
+        .contains("and --allow-run-write=node_modules/.bin/vitest:/tmp holds it")
     );
 }

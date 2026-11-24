@@ -340,8 +340,8 @@ What the release leaves is stated with it:
 - the tools share the run's box until each has a box of its own, so one tool can write every write root the command has, and its code can plant in another's;
   even with each in its own, a test can write Vitest's own directories, which a dev server already running picks up,
   and the project's config and genfiles run in every tool
-- a grant flag widens the box as it widens the grants, so `--allow-write=.git` writes `.git`,
-  and a `node_modules` linked from another checkout is read there, by the box and by Gro's own code alike, and written there, its tool directories included, only when a write flag names it
+- a grant flag widens the box as it widens the grants, `--allow-run-write=` the box alone, so `--allow-write=.git` writes `.git`,
+  and a `node_modules` linked from another checkout is read there, by the box and by Gro's own code alike, and written there, its tool directories included, only when a write flag names where it leads
 - `-A` after a command word is refused, so the unconfined way to run a command is the Node Gro (`node_modules/.bin/gro`), which confines nothing
 - `fgro run` has no box yet, so a script run with it, and every program it's granted, is bounded by the runtime's own checks alone
 - a project that pins another Gro version runs on the Node Gro, unboxed, unless `GRO_FALLBACK=command` is set

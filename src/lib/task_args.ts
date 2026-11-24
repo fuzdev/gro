@@ -150,8 +150,16 @@ const GRANT_FLAGS_LISTING: ReadonlySet<string> = new Set([
 	'--allow-write',
 	'--allow-run',
 	'--allow-run-in',
-	'--allow-run-env'
+	'--allow-run-env',
+	'--allow-run-write'
 ]);
+
+/**
+ * What follows a listing grant flag's `=` in the example a refusal shows:
+ * `--allow-run-write` names a program first.
+ */
+const grant_flag_example = (name: string): string =>
+	name === '--allow-run-write' ? 'vitest:src' : 'a,b';
 
 /**
  * The grant flags that take no value, `-A` granting everything.
@@ -190,7 +198,8 @@ export interface CliGrantFlags {
  * @param cli_args - the args after the CLI's own path, the command word first
  * @throws TaskError for a grant flag before the command word, a flag in the run spelled
  *   `--allow-*` that's no grant flag, one that lists with no list or `--allow-temp` with a value,
- *   and `gro run` given `--allow-run-env` with neither `--allow-run` nor `--allow-run-in`
+ *   `gro run` given `--allow-run-env` with neither `--allow-run` nor `--allow-run-in`,
+ *   and `gro run` given `--allow-run-write` with no `--allow-run`
  */
 export const to_grant_flags = (cli_args: ReadonlyArray<string>): CliGrantFlags => {
 	for (const arg of cli_args) {
@@ -229,7 +238,7 @@ export const to_grant_flags = (cli_args: ReadonlyArray<string>): CliGrantFlags =
 		} else if (GRANT_FLAGS_LISTING.has(name)) {
 			if (equals_index === -1 || equals_index === flag.length - 1) {
 				throw new TaskError(
-					`\`${name}\` takes a list after \`=\`, like \`${name}=a,b\`: \`${flag}\``
+					`\`${name}\` takes a list after \`=\`, like \`${name}=${grant_flag_example(name)}\`: \`${flag}\``
 				);
 			}
 		} else {
@@ -249,6 +258,16 @@ export const to_grant_flags = (cli_args: ReadonlyArray<string>): CliGrantFlags =
 		throw new TaskError(
 			`\`--allow-run-env\` passes variables to the programs \`--allow-run\` or \`--allow-run-in\` grants, ` +
 				`and \`gro ${RUN_TASK_NAME}\` was given neither`
+		);
+	}
+	if (
+		command === RUN_TASK_NAME &&
+		grant_flags.some((f) => f.startsWith('--allow-run-write=')) &&
+		!grant_flags.some((f) => f.startsWith('--allow-run='))
+	) {
+		throw new TaskError(
+			`\`--allow-run-write\` lets a program \`--allow-run\` grants write, ` +
+				`and \`gro ${RUN_TASK_NAME}\` was given no \`--allow-run\``
 		);
 	}
 	return {

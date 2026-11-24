@@ -22,8 +22,10 @@
 //! 6. else the run's grants, the closure's unioned with the flags', each
 //!    flag's list checked as `fgro run` checks its own ([`to_run_grant`]),
 //!    each closure program granted by the table's policy under the name
-//!    Gro's TS asks for it by ([`table_programs`]), and the entry's text
-//!    ([`main_entry`]): [`VerbPlan::Run`].
+//!    Gro's TS asks for it by ([`table_programs`]), each program
+//!    `--allow-run-write=` names resolved to one the run grants
+//!    ([`resolve_run_writes`]), and the entry's text ([`main_entry`]):
+//!    [`VerbPlan::Run`].
 //!
 //! A flag's list is checked only for a run: a fallback passes the command
 //! line to the Node Gro as written, which takes the flags and warns.
@@ -150,6 +152,9 @@ pub struct VerbRun {
     /// The policy of each program the closure grants, by the name it's
     /// granted as; a program only a flag grants is in none.
     pub programs: BTreeMap<String, ProgramGrant>,
+    /// Each program `--allow-run-write=` names, as written, and the name
+    /// the run grants it as ([`resolve_run_writes`]).
+    pub run_writes: BTreeMap<String, String>,
     /// Whether the run's packages match the `development` condition.
     pub development: bool,
     /// The entry's text ([`main_entry`]).
@@ -276,6 +281,39 @@ pub enum VerbError {
         /// The command line, its grant flags split off.
         cli_args: Vec<String>,
     },
+    /// `--allow-run-write=` names a program the command may start by no
+    /// name, the program echoed, escaped: a program's name, never a value.
+    #[error(
+        "--allow-run-write=… names {}, and {} may start no program{}",
+        escape_controls(.program),
+        command_line(.command.as_deref()),
+        if .may_start.is_empty() {
+            String::new()
+        } else {
+            format!(" by that name: it may start {}", prose_list(.may_start))
+        }
+    )]
+    RunWriteNoProgram {
+        /// The program, as written.
+        program: String,
+        /// The command word, none for the listing.
+        command: Option<String>,
+        /// The names the command may start a program by, sorted, each
+        /// escaped.
+        may_start: Vec<String>,
+    },
+    /// `--allow-run-write=` names a program by a plain name that is both
+    /// the project's own tool's and one `--allow-run=` grants.
+    #[error(
+        "--allow-run-write=… could name the project's own {0} or the {0} --allow-run= grants: \
+         write {LOCAL_BIN_DIR}/{0} for the project's own; the other takes no directory while \
+         both are granted",
+        escape_controls(.program)
+    )]
+    RunWriteAmbiguous {
+        /// The program, as written.
+        program: String,
+    },
     /// The grants table can't be read into a run's grants: Gro's own
     /// drift, which its tests hold against.
     #[error("the grants table can't grant `{program}`: {fault}")]
@@ -317,6 +355,8 @@ impl VerbError {
             | Self::Strict { .. }
             | Self::StrictHost { .. }
             | Self::CheckTurnedOff { .. }
+            | Self::RunWriteNoProgram { .. }
+            | Self::RunWriteAmbiguous { .. }
             | Self::NoNodeGro { .. } => EXIT_USAGE,
         }
     }
@@ -371,6 +411,16 @@ fn and_list(items: impl Iterator<Item = String>) -> String {
         Some((last, [])) => last.clone(),
         Some((last, rest)) => format!("{} and {last}", rest.join(", ")),
         None => String::new(),
+    }
+}
+
+/// `items` joined for prose: `a`, `a and b`, `a, b, and c`.
+fn prose_list(items: &[String]) -> String {
+    match items {
+        [] => String::new(),
+        [one] => one.clone(),
+        [first, second] => format!("{first} and {second}"),
+        [rest @ .., last] => format!("{}, and {last}", rest.join(", ")),
     }
 }
 
@@ -457,6 +507,12 @@ pub fn plan(
         RunGrant::All => (&no_flags.0, &no_flags.1),
     };
     let programs = table_programs(&closure, flag_programs, forwards)?;
+    let run_writes = resolve_run_writes(
+        &closure,
+        flag_programs,
+        flags.run_write.keys(),
+        command.as_deref(),
+    )?;
     let grant = match grant {
         RunGrant::All => RunGrant::All,
         RunGrant::Named {
@@ -497,6 +553,7 @@ pub fn plan(
         policy,
         gro: installed,
         programs,
+        run_writes,
         development: inputs.node_env != Some(OsStr::new(NODE_ENV_PRODUCTION)),
         entry: main_entry(home.as_deref(), inputs.binary_version),
     })))
@@ -532,6 +589,85 @@ pub fn floor_fallback(run: VerbRun, reason: FallbackReason) -> Result<VerbFallba
 
 /// The project's root as a closure's write set names it.
 const ROOT_DIR: &str = ".";
+
+/// The name the run grants each program of `named`, the programs
+/// `--allow-run-write=` names as written, as: every name equal to it among
+/// those the run grants (the closure's, as [`table_programs`] names them,
+/// and `flag_programs`, those `--allow-run=` lists), joined with every
+/// local program of `closure` whose table name equals it, so a tool is
+/// named as it's called (`vitest`) or by its name in the run
+/// (`node_modules/.bin/vitest`). The match is against what the run grants,
+/// not what it starts: a program granted and never started is named
+/// harmlessly. A program found beneath an exec root has no name as the run
+/// starts, and isn't nameable.
+///
+/// Kind: a guardrail on the trusted command line, so a typo is refused
+/// before anything runs rather than surfacing as a tool's `EACCES`.
+///
+/// # Errors
+///
+/// Returns [`VerbError::RunWriteNoProgram`] for the first that names no
+/// program, listing those the command may start, and
+/// [`VerbError::RunWriteAmbiguous`] for one that names two: the project's
+/// own tool and one `--allow-run=` grants by the same plain name.
+fn resolve_run_writes<'a>(
+    closure: &CommandClosure,
+    flag_programs: &BTreeSet<String>,
+    named: impl Iterator<Item = &'a String>,
+    command: Option<&str>,
+) -> Result<BTreeMap<String, String>, VerbError> {
+    let table: Vec<(String, &str)> = closure
+        .grants
+        .programs
+        .iter()
+        .map(|program| {
+            let grant = &program.grant;
+            let key = if grant.local {
+                format!("{LOCAL_BIN_DIR}/{}", grant.name)
+            } else {
+                grant.name.clone()
+            };
+            (key, grant.name.as_str())
+        })
+        .collect();
+    let mut resolved = BTreeMap::new();
+    for program in named {
+        let keys: BTreeSet<&str> = table
+            .iter()
+            .filter(|(key, name)| key == program || name == program)
+            .map(|(key, _)| key.as_str())
+            .chain(flag_programs.get(program).map(String::as_str))
+            .collect();
+        let mut keys = keys.into_iter();
+        match (keys.next(), keys.next()) {
+            (Some(key), None) => {
+                resolved.insert(program.clone(), key.to_owned());
+            }
+            (Some(_), Some(_)) => {
+                return Err(VerbError::RunWriteAmbiguous {
+                    program: program.clone(),
+                });
+            }
+            (None, _) => {
+                let may_start: BTreeSet<String> = table
+                    .iter()
+                    .map(|(_, name)| escape_controls(name).into_owned())
+                    .chain(
+                        flag_programs
+                            .iter()
+                            .map(|name| escape_controls(name).into_owned()),
+                    )
+                    .collect();
+                return Err(VerbError::RunWriteNoProgram {
+                    program: program.clone(),
+                    command: command.map(str::to_owned),
+                    may_start: may_start.into_iter().collect(),
+                });
+            }
+        }
+    }
+    Ok(resolved)
+}
 
 /// The policy of each program `closure` grants, by the name Gro's TS asks
 /// for it by: `node_modules/.bin/<name>` for a `local` one, else its bare
