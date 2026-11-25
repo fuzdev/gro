@@ -164,10 +164,12 @@ const CASES: Array<ClosureCase> = [
 		name: 'check_no_test_no_no_test_forwarded_no_test',
 		argv: ['check', '--no-test', '--no-no-test', '--', 'gro', 'check', '--no-test']
 	},
-	{ name: 'check_forwarded_no_lint', argv: ['check', '--', 'gro', 'check', '--no-lint'] },
+	{ name: 'check_lint', argv: ['check', '--lint'] },
+	{ name: 'check_forwarded_lint', argv: ['check', '--', 'gro', 'check', '--lint'] },
+	{ name: 'check_lint_then_no_lint', argv: ['check', '--lint', '--no-lint'] },
 	{
 		name: 'check_steps_off',
-		argv: ['check', '--no-typecheck', '--no-test', '--no-gen', '--no-format', '--no-lint']
+		argv: ['check', '--no-typecheck', '--no-test', '--no-gen', '--no-format']
 	},
 	{ name: 'check_forwarded_sync_install', argv: ['check', '--', 'gro', 'sync', '--install'] },
 	{ name: 'check_grant_flags', argv: ['check', '--allow-read=.', '-A', '--build'] },

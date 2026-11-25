@@ -54,8 +54,7 @@ export const Args = s.object({
 		meta(s.boolean, { description: 'opt out of package.json check' }),
 		false
 	),
-	lint: s.with_default(meta(s.boolean, { description: 'dual of no-lint' }), true),
-	'no-lint': s.with_default(meta(s.boolean, { description: 'opt out of linting' }), false),
+	lint: s.with_default(meta(s.boolean, { description: 'opt into linting' }), false),
 	build: s.with_default(meta(s.boolean, { description: 'dual of no-build' }), false),
 	'no-build': s.with_default(meta(s.boolean, { description: 'opt out of building' }), true),
 	force_build: s.with_default(
@@ -127,7 +126,7 @@ export interface CheckOptions {
 	map_package_json: GroConfig['map_package_json'];
 	/**
 	 * The CLI args from the first `--` on, whose `gro test` or `vitest` section asks for the tests,
-	 * and whose `gro lint` or `eslint` section asks for the linter.
+	 * and whose `gro lint` or `eslint` section, given with `--lint`, asks for the linter.
 	 */
 	raw_rest_args: ReadonlyArray<string>;
 }
@@ -170,6 +169,16 @@ export const run_check = async (
 		workspace
 	} = args;
 	const paths = create_paths(fs_paths.project.path);
+
+	// linting is opt-in, so forwarded args for the linter without `--lint` fail before any step,
+	// rather than being dropped
+	const forwarded_lint_args = await has_forwarded_lint_args(raw_rest_args, fs_paths);
+	if (forwarded_lint_args && !lint) {
+		throw new TaskError(
+			'args are forwarded to the linter, which `gro check` runs only with --lint' +
+				' - pass --lint or drop the `-- gro lint` or `-- eslint` section'
+		);
+	}
 
 	// `check` writes neither the install nor `package.json`, verifying both below,
 	// but for `--install`, which installs first, as CI's setup does instead under `--workspace`;
@@ -250,10 +259,7 @@ export const run_check = async (
 	// but it's better for most usage.
 	if (lint) {
 		// forwarded args for the linter ask for it, so the lint task decides
-		if (
-			(await has_forwarded_lint_args(raw_rest_args, fs_paths)) ||
-			(await project_has_dependency(fs_paths, ESLINT_CLI, log))
-		) {
+		if (forwarded_lint_args || (await project_has_dependency(fs_paths, ESLINT_CLI, log))) {
 			await invoke_task('lint');
 		} else {
 			const eslint_config = await find_eslint_config_or_throw(fs_paths);
@@ -356,7 +362,7 @@ const to_install_mismatch_message = (mismatches: Array<NpmInstallMismatch>): str
 
 const to_undeclared_eslint_message = (eslint_config: string): string =>
 	`found ${eslint_config} but eslint isn't declared in package.json` +
-	` - add eslint to devDependencies, remove ${eslint_config}, or pass --no-lint`;
+	` - add eslint to devDependencies, remove ${eslint_config}, or drop --lint`;
 
 const find_test_files_or_throw = async (
 	fs_paths: FsPaths,

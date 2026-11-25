@@ -245,7 +245,7 @@ so a module re-exporting the `task` carries them:
 - `invokes` - the builtins it invokes, by name, each a `BuiltinInvokeGrant`, `{}` or marked:
   `when` names a boolean arg of the invoking task that the invoke runs only under, on once parsed, its default and its `no-` dual applied,
   so a [command's closure](glossary.md#commands-closure) holds the invoked builtin only when its args leave it on,
-  like `check`'s `build: {when: 'build'}` and `sync: {when: 'install'}`, off by default, a plain `gro check` holding neither,
+  like `check`'s `build: {when: 'build'}`, `sync: {when: 'install'}`, and `lint: {when: 'lint'}`, off by default, a plain `gro check` holding none of them,
   and its `test: {when: 'test'}`, on by default, so `gro check --no-test` holds no `test` and none of Vitest's grants
   (the generated table records each builtin's boolean args with their defaults for the binary, which reads the command line before any JS runs);
   `check: true` marks an invoke run with its `check` arg set, writing no source, so the closure holds the invoked
@@ -504,11 +504,14 @@ That check is a review signal against mistakes like pulling without installing,
 not a boundary: anything that can write `node_modules` can make it pass.
 `gro check --install` installs first, through `gro sync --install`, and still writes no `package.json`;
 `--workspace`, for CI, which installs in its own setup, skips `--install`.
-`gro check` runs its lint step only when ESLint is declared or args are forwarded to the linter,
-a `-- gro lint` section or a nonempty `-- eslint` one.
+Linting is opt-in: `gro check` runs its lint step only with `--lint`, as CI's `gro check --workspace --lint`
+and `gro publish` do, so the everyday check skips the linter without looking.
+Args forwarded to the linter, a `-- gro lint` section or a nonempty `-- eslint` one, fail without `--lint`
+rather than being dropped.
+With `--lint`, the step runs when ESLint is declared or args are forwarded to the linter.
 Without either, the step is skipped with a log line, unless the project's root has an ESLint config
 (`eslint.config.js` and its `.mjs`, `.cjs`, `.ts`, `.mts`, and `.cts` forms, or a legacy `.eslintrc*`),
-and then `gro check` fails naming it; `gro check --no-lint` skips the step without looking.
+and then `gro check --lint` fails naming it.
 `gro typecheck` follows the same rule with files as the evidence:
 svelte-check runs when it's declared, and a nonempty `-- tsc` section then fails, as tsc doesn't run;
 else a nonempty `-- svelte-check` section fails,
@@ -525,7 +528,7 @@ The test files' search follows them as Vitest does
 ([test](./test.md#when-vitest-isnt-declared)).
 A declared checker not installed in the project's `node_modules/.bin` fails with the install hint.
 `gro check` always runs its typecheck step, so a project with no checker declared fails there,
-where its test and lint steps would be skipped; `gro check --no-typecheck` turns the step off.
+where its test step and `--lint`'s lint step would be skipped; `gro check --no-typecheck` turns the step off.
 
 A builtin runs only its own tools, each named by its grants (`gro lint` runs ESLint),
 so a project that uses another tool runs it from a project task.
@@ -550,7 +553,7 @@ export const task: Task = {
 };
 ```
 
-and for `gro check`, which invokes the builtin `lint`, a project `check` that skips it
+and for `gro check --lint`, which invokes the builtin `lint`, a project `check` that skips it
 and invokes the project's:
 
 ```ts
@@ -561,7 +564,7 @@ import {Args} from '@fuzdev/gro/check.task.ts';
 export const task: Task<Args> = {
 	Args,
 	run: async ({task_args, invoke_task}) => {
-		await invoke_task('check', {...task_args, 'no-lint': true});
+		await invoke_task('check', {...task_args, lint: false});
 		if (task_args.lint) await invoke_task('src/lib/lint.task.ts');
 	},
 };
@@ -621,14 +624,14 @@ Some builtin Gro tasks call external commands like
 and [`tsc`](https://github.com/microsoft/typescript).
 Gro supports generic agnostic args forwarding to these tasks via the `--` pattern:
 for example, to forward args to `eslint` and `vitest`, no matter which task invokes them,
-use `gro check -- vitest --arg1 neat --arg2 22 -- eslint --arg3`.
+use `gro check --lint -- vitest --arg1 neat --arg2 22 -- eslint --arg3`.
 
 Any number of sections separated by `--` may be defined, and the first arg
 that appears after each `--` is assumed to be the CLI command.
 If `gro check` or its invoked tasks don't call `vitest` or `eslint`,
 the `--` args will be ignored.
 Otherwise `gro check` reads a nonempty `-- vitest` or `-- eslint` section as asking for its test or lint step,
-which then fails when the tool isn't declared,
+which then fails when the tool isn't declared, and the `-- eslint` one fails without `--lint`,
 and `gro typecheck` fails on a nonempty `-- svelte-check` section when svelte-check isn't declared
 and on a nonempty `-- tsc` one when it is.
 An outside command gets its section's text verbatim, never parsed and reserialized,
@@ -643,7 +646,7 @@ A literal `--` can't be forwarded, because it separates the sections
 
 A builtin refuses its tool's help and version flags in the section it reads,
 as the tool would print them in place of running and the step would pass:
-`gro check -- eslint --help` fails naming `eslint --help` to run directly.
+`gro check --lint -- eslint --help` fails naming `eslint --help` to run directly.
 `lint` refuses `--help`, `-h`, `--version`, and `-v` in the `-- eslint` section,
 `typecheck` in its `-- svelte-check` and `-- tsc` ones, and the SvelteKit library plugin in `-- svelte-package`;
 `test` (in its `-- vitest` section and its first one) and the SvelteKit app plugin (in `-- vite`)

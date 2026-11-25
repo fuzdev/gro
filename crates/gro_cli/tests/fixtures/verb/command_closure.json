@@ -403,10 +403,6 @@
 					"check": true
 				},
 				{
-					"name": "lint",
-					"check": false
-				},
-				{
 					"name": "test",
 					"check": false
 				},
@@ -426,12 +422,6 @@
 					"CI"
 				],
 				"programs": [
-					{
-						"role": "eslint_cli",
-						"name": "eslint",
-						"local": true,
-						"pass_env": "all"
-					},
 					{
 						"role": "git_cli",
 						"name": "git",
@@ -501,10 +491,6 @@
 					"check": true
 				},
 				{
-					"name": "lint",
-					"check": false
-				},
-				{
 					"name": "test",
 					"check": false
 				},
@@ -524,12 +510,6 @@
 					"CI"
 				],
 				"programs": [
-					{
-						"role": "eslint_cli",
-						"name": "eslint",
-						"local": true,
-						"pass_env": "all"
-					},
 					{
 						"role": "git_cli",
 						"name": "git",
@@ -600,10 +580,6 @@
 					"check": true
 				},
 				{
-					"name": "lint",
-					"check": false
-				},
-				{
 					"name": "test",
 					"check": false
 				},
@@ -623,12 +599,6 @@
 					"CI"
 				],
 				"programs": [
-					{
-						"role": "eslint_cli",
-						"name": "eslint",
-						"local": true,
-						"pass_env": "all"
-					},
 					{
 						"role": "git_cli",
 						"name": "git",
@@ -695,10 +665,6 @@
 					"check": true
 				},
 				{
-					"name": "lint",
-					"check": false
-				},
-				{
 					"name": "test",
 					"check": false
 				},
@@ -718,12 +684,6 @@
 					"CI"
 				],
 				"programs": [
-					{
-						"role": "eslint_cli",
-						"name": "eslint",
-						"local": true,
-						"pass_env": "all"
-					},
 					{
 						"role": "git_cli",
 						"name": "git",
@@ -794,10 +754,6 @@
 					"check": true
 				},
 				{
-					"name": "lint",
-					"check": false
-				},
-				{
 					"name": "test",
 					"check": false
 				},
@@ -817,12 +773,6 @@
 					"CI"
 				],
 				"programs": [
-					{
-						"role": "eslint_cli",
-						"name": "eslint",
-						"local": true,
-						"pass_env": "all"
-					},
 					{
 						"role": "git_cli",
 						"name": "git",
@@ -897,10 +847,6 @@
 					"check": true
 				},
 				{
-					"name": "lint",
-					"check": false
-				},
-				{
 					"name": "sync",
 					"check": false
 				},
@@ -926,12 +872,6 @@
 					"CI"
 				],
 				"programs": [
-					{
-						"role": "eslint_cli",
-						"name": "eslint",
-						"local": true,
-						"pass_env": "all"
-					},
 					{
 						"role": "git_cli",
 						"name": "git",
@@ -1020,10 +960,6 @@
 					"check": true
 				},
 				{
-					"name": "lint",
-					"check": false
-				},
-				{
 					"name": "sync",
 					"check": false
 				},
@@ -1049,12 +985,6 @@
 					"CI"
 				],
 				"programs": [
-					{
-						"role": "eslint_cli",
-						"name": "eslint",
-						"local": true,
-						"pass_env": "all"
-					},
 					{
 						"role": "git_cli",
 						"name": "git",
@@ -1145,10 +1075,6 @@
 					"check": true
 				},
 				{
-					"name": "lint",
-					"check": false
-				},
-				{
 					"name": "test",
 					"check": false
 				},
@@ -1168,12 +1094,6 @@
 					"CI"
 				],
 				"programs": [
-					{
-						"role": "eslint_cli",
-						"name": "eslint",
-						"local": true,
-						"pass_env": "all"
-					},
 					{
 						"role": "git_cli",
 						"name": "git",
@@ -1248,10 +1168,6 @@
 					"check": true
 				},
 				{
-					"name": "lint",
-					"check": false
-				},
-				{
 					"name": "test",
 					"check": false
 				},
@@ -1271,12 +1187,6 @@
 					"CI"
 				],
 				"programs": [
-					{
-						"role": "eslint_cli",
-						"name": "eslint",
-						"local": true,
-						"pass_env": "all"
-					},
 					{
 						"role": "git_cli",
 						"name": "git",
@@ -1346,10 +1256,6 @@
 					"check": true
 				},
 				{
-					"name": "lint",
-					"check": false
-				},
-				{
 					"name": "test",
 					"check": false
 				},
@@ -1369,12 +1275,6 @@
 					"CI"
 				],
 				"programs": [
-					{
-						"role": "eslint_cli",
-						"name": "eslint",
-						"local": true,
-						"pass_env": "all"
-					},
 					{
 						"role": "git_cli",
 						"name": "git",
@@ -1452,10 +1352,6 @@
 					"check": true
 				},
 				{
-					"name": "lint",
-					"check": false
-				},
-				{
 					"name": "test",
 					"check": false
 				},
@@ -1475,12 +1371,6 @@
 					"CI"
 				],
 				"programs": [
-					{
-						"role": "eslint_cli",
-						"name": "eslint",
-						"local": true,
-						"pass_env": "all"
-					},
 					{
 						"role": "git_cli",
 						"name": "git",
@@ -1557,10 +1447,6 @@
 					"check": true
 				},
 				{
-					"name": "lint",
-					"check": false
-				},
-				{
 					"name": "test",
 					"check": false
 				},
@@ -1580,12 +1466,6 @@
 					"CI"
 				],
 				"programs": [
-					{
-						"role": "eslint_cli",
-						"name": "eslint",
-						"local": true,
-						"pass_env": "all"
-					},
 					{
 						"role": "git_cli",
 						"name": "git",
@@ -1658,10 +1538,6 @@
 					"check": true
 				},
 				{
-					"name": "lint",
-					"check": false
-				},
-				{
 					"name": "test",
 					"check": false
 				},
@@ -1681,12 +1557,6 @@
 					"CI"
 				],
 				"programs": [
-					{
-						"role": "eslint_cli",
-						"name": "eslint",
-						"local": true,
-						"pass_env": "all"
-					},
 					{
 						"role": "git_cli",
 						"name": "git",
@@ -1755,10 +1625,6 @@
 					"check": true
 				},
 				{
-					"name": "lint",
-					"check": false
-				},
-				{
 					"name": "test",
 					"check": false
 				},
@@ -1778,12 +1644,6 @@
 					"CI"
 				],
 				"programs": [
-					{
-						"role": "eslint_cli",
-						"name": "eslint",
-						"local": true,
-						"pass_env": "all"
-					},
 					{
 						"role": "git_cli",
 						"name": "git",
@@ -1854,10 +1714,6 @@
 					"check": true
 				},
 				{
-					"name": "lint",
-					"check": false
-				},
-				{
 					"name": "test",
 					"check": false
 				},
@@ -1877,12 +1733,6 @@
 					"CI"
 				],
 				"programs": [
-					{
-						"role": "eslint_cli",
-						"name": "eslint",
-						"local": true,
-						"pass_env": "all"
-					},
 					{
 						"role": "git_cli",
 						"name": "git",
@@ -1956,10 +1806,6 @@
 					"check": true
 				},
 				{
-					"name": "lint",
-					"check": false
-				},
-				{
 					"name": "test",
 					"check": false
 				},
@@ -1979,12 +1825,6 @@
 					"CI"
 				],
 				"programs": [
-					{
-						"role": "eslint_cli",
-						"name": "eslint",
-						"local": true,
-						"pass_env": "all"
-					},
 					{
 						"role": "git_cli",
 						"name": "git",
@@ -2053,10 +1893,6 @@
 					"check": true
 				},
 				{
-					"name": "lint",
-					"check": false
-				},
-				{
 					"name": "test",
 					"check": false
 				},
@@ -2076,12 +1912,6 @@
 					"CI"
 				],
 				"programs": [
-					{
-						"role": "eslint_cli",
-						"name": "eslint",
-						"local": true,
-						"pass_env": "all"
-					},
 					{
 						"role": "git_cli",
 						"name": "git",
@@ -2151,10 +1981,6 @@
 					"check": true
 				},
 				{
-					"name": "lint",
-					"check": false
-				},
-				{
 					"name": "test",
 					"check": false
 				},
@@ -2174,12 +2000,6 @@
 					"CI"
 				],
 				"programs": [
-					{
-						"role": "eslint_cli",
-						"name": "eslint",
-						"local": true,
-						"pass_env": "all"
-					},
 					{
 						"role": "git_cli",
 						"name": "git",
@@ -2245,10 +2065,6 @@
 					"check": true
 				},
 				{
-					"name": "lint",
-					"check": false
-				},
-				{
 					"name": "test",
 					"check": false
 				},
@@ -2268,12 +2084,6 @@
 					"CI"
 				],
 				"programs": [
-					{
-						"role": "eslint_cli",
-						"name": "eslint",
-						"local": true,
-						"pass_env": "all"
-					},
 					{
 						"role": "git_cli",
 						"name": "git",
@@ -2472,10 +2282,6 @@
 					"check": true
 				},
 				{
-					"name": "lint",
-					"check": false
-				},
-				{
 					"name": "test",
 					"check": false
 				},
@@ -2495,12 +2301,6 @@
 					"CI"
 				],
 				"programs": [
-					{
-						"role": "eslint_cli",
-						"name": "eslint",
-						"local": true,
-						"pass_env": "all"
-					},
 					{
 						"role": "git_cli",
 						"name": "git",
@@ -2568,10 +2368,6 @@
 					"check": true
 				},
 				{
-					"name": "lint",
-					"check": false
-				},
-				{
 					"name": "typecheck",
 					"check": false
 				}
@@ -2587,12 +2383,6 @@
 					"CI"
 				],
 				"programs": [
-					{
-						"role": "eslint_cli",
-						"name": "eslint",
-						"local": true,
-						"pass_env": "all"
-					},
 					{
 						"role": "git_cli",
 						"name": "git",
@@ -2653,10 +2443,6 @@
 					"check": true
 				},
 				{
-					"name": "lint",
-					"check": false
-				},
-				{
 					"name": "test",
 					"check": false
 				},
@@ -2676,12 +2462,6 @@
 					"CI"
 				],
 				"programs": [
-					{
-						"role": "eslint_cli",
-						"name": "eslint",
-						"local": true,
-						"pass_env": "all"
-					},
 					{
 						"role": "git_cli",
 						"name": "git",
@@ -2757,10 +2537,6 @@
 					"check": true
 				},
 				{
-					"name": "lint",
-					"check": false
-				},
-				{
 					"name": "test",
 					"check": false
 				},
@@ -2780,12 +2556,6 @@
 					"CI"
 				],
 				"programs": [
-					{
-						"role": "eslint_cli",
-						"name": "eslint",
-						"local": true,
-						"pass_env": "all"
-					},
 					{
 						"role": "git_cli",
 						"name": "git",
@@ -2852,6 +2622,244 @@
 					"check": true
 				},
 				{
+					"name": "test",
+					"check": false
+				},
+				{
+					"name": "typecheck",
+					"check": false
+				}
+			],
+			"grants": {
+				"fs": {
+					"read": [
+						"."
+					],
+					"write": []
+				},
+				"env": [
+					"CI"
+				],
+				"programs": [
+					{
+						"role": "git_cli",
+						"name": "git",
+						"pass_env": [
+							"GIT_*",
+							"XDG_CONFIG_HOME",
+							"SUDO_UID"
+						]
+					},
+					{
+						"role": "svelte_check_cli",
+						"name": "svelte-check",
+						"local": true,
+						"pass_env": "all",
+						"env": {
+							"FORCE_COLOR": "1"
+						}
+					},
+					{
+						"role": "sveltekit_cli",
+						"name": "svelte-kit",
+						"local": true,
+						"pass_env": "all"
+					},
+					{
+						"role": "typescript_cli",
+						"name": "tsc",
+						"local": true,
+						"pass_env": "all"
+					},
+					{
+						"role": "vitest_cli",
+						"name": "vitest",
+						"local": true,
+						"pass_env": "all"
+					}
+				],
+				"project_modules": true,
+				"stdout": true,
+				"stderr": true
+			},
+			"fallback": [],
+			"check_turned_off": []
+		},
+		{
+			"name": "check_no_no_test_then_no_test",
+			"argv": [
+				"check",
+				"--no-no-test",
+				"--no-test"
+			],
+			"outcome": "runs",
+			"builtins": [
+				{
+					"name": "check",
+					"check": false
+				},
+				{
+					"name": "format",
+					"check": true
+				},
+				{
+					"name": "gen",
+					"check": true
+				},
+				{
+					"name": "typecheck",
+					"check": false
+				}
+			],
+			"grants": {
+				"fs": {
+					"read": [
+						"."
+					],
+					"write": []
+				},
+				"env": [
+					"CI"
+				],
+				"programs": [
+					{
+						"role": "git_cli",
+						"name": "git",
+						"pass_env": [
+							"GIT_*",
+							"XDG_CONFIG_HOME",
+							"SUDO_UID"
+						]
+					},
+					{
+						"role": "svelte_check_cli",
+						"name": "svelte-check",
+						"local": true,
+						"pass_env": "all",
+						"env": {
+							"FORCE_COLOR": "1"
+						}
+					},
+					{
+						"role": "sveltekit_cli",
+						"name": "svelte-kit",
+						"local": true,
+						"pass_env": "all"
+					},
+					{
+						"role": "typescript_cli",
+						"name": "tsc",
+						"local": true,
+						"pass_env": "all"
+					}
+				],
+				"project_modules": true,
+				"stdout": true,
+				"stderr": true
+			},
+			"fallback": [],
+			"check_turned_off": []
+		},
+		{
+			"name": "check_no_test_no_no_test_forwarded_no_test",
+			"argv": [
+				"check",
+				"--no-test",
+				"--no-no-test",
+				"--",
+				"gro",
+				"check",
+				"--no-test"
+			],
+			"outcome": "runs",
+			"builtins": [
+				{
+					"name": "check",
+					"check": false
+				},
+				{
+					"name": "format",
+					"check": true
+				},
+				{
+					"name": "gen",
+					"check": true
+				},
+				{
+					"name": "typecheck",
+					"check": false
+				}
+			],
+			"grants": {
+				"fs": {
+					"read": [
+						"."
+					],
+					"write": []
+				},
+				"env": [
+					"CI"
+				],
+				"programs": [
+					{
+						"role": "git_cli",
+						"name": "git",
+						"pass_env": [
+							"GIT_*",
+							"XDG_CONFIG_HOME",
+							"SUDO_UID"
+						]
+					},
+					{
+						"role": "svelte_check_cli",
+						"name": "svelte-check",
+						"local": true,
+						"pass_env": "all",
+						"env": {
+							"FORCE_COLOR": "1"
+						}
+					},
+					{
+						"role": "sveltekit_cli",
+						"name": "svelte-kit",
+						"local": true,
+						"pass_env": "all"
+					},
+					{
+						"role": "typescript_cli",
+						"name": "tsc",
+						"local": true,
+						"pass_env": "all"
+					}
+				],
+				"project_modules": true,
+				"stdout": true,
+				"stderr": true
+			},
+			"fallback": [],
+			"check_turned_off": []
+		},
+		{
+			"name": "check_lint",
+			"argv": [
+				"check",
+				"--lint"
+			],
+			"outcome": "runs",
+			"builtins": [
+				{
+					"name": "check",
+					"check": false
+				},
+				{
+					"name": "format",
+					"check": true
+				},
+				{
+					"name": "gen",
+					"check": true
+				},
+				{
 					"name": "lint",
 					"check": false
 				},
@@ -2926,11 +2934,13 @@
 			"check_turned_off": []
 		},
 		{
-			"name": "check_no_no_test_then_no_test",
+			"name": "check_forwarded_lint",
 			"argv": [
 				"check",
-				"--no-no-test",
-				"--no-test"
+				"--",
+				"gro",
+				"check",
+				"--lint"
 			],
 			"outcome": "runs",
 			"builtins": [
@@ -2948,6 +2958,10 @@
 				},
 				{
 					"name": "lint",
+					"check": false
+				},
+				{
+					"name": "test",
 					"check": false
 				},
 				{
@@ -3001,93 +3015,10 @@
 						"name": "tsc",
 						"local": true,
 						"pass_env": "all"
-					}
-				],
-				"project_modules": true,
-				"stdout": true,
-				"stderr": true
-			},
-			"fallback": [],
-			"check_turned_off": []
-		},
-		{
-			"name": "check_no_test_no_no_test_forwarded_no_test",
-			"argv": [
-				"check",
-				"--no-test",
-				"--no-no-test",
-				"--",
-				"gro",
-				"check",
-				"--no-test"
-			],
-			"outcome": "runs",
-			"builtins": [
-				{
-					"name": "check",
-					"check": false
-				},
-				{
-					"name": "format",
-					"check": true
-				},
-				{
-					"name": "gen",
-					"check": true
-				},
-				{
-					"name": "lint",
-					"check": false
-				},
-				{
-					"name": "typecheck",
-					"check": false
-				}
-			],
-			"grants": {
-				"fs": {
-					"read": [
-						"."
-					],
-					"write": []
-				},
-				"env": [
-					"CI"
-				],
-				"programs": [
-					{
-						"role": "eslint_cli",
-						"name": "eslint",
-						"local": true,
-						"pass_env": "all"
 					},
 					{
-						"role": "git_cli",
-						"name": "git",
-						"pass_env": [
-							"GIT_*",
-							"XDG_CONFIG_HOME",
-							"SUDO_UID"
-						]
-					},
-					{
-						"role": "svelte_check_cli",
-						"name": "svelte-check",
-						"local": true,
-						"pass_env": "all",
-						"env": {
-							"FORCE_COLOR": "1"
-						}
-					},
-					{
-						"role": "sveltekit_cli",
-						"name": "svelte-kit",
-						"local": true,
-						"pass_env": "all"
-					},
-					{
-						"role": "typescript_cli",
-						"name": "tsc",
+						"role": "vitest_cli",
+						"name": "vitest",
 						"local": true,
 						"pass_env": "all"
 					}
@@ -3100,12 +3031,10 @@
 			"check_turned_off": []
 		},
 		{
-			"name": "check_forwarded_no_lint",
+			"name": "check_lint_then_no_lint",
 			"argv": [
 				"check",
-				"--",
-				"gro",
-				"check",
+				"--lint",
 				"--no-lint"
 			],
 			"outcome": "runs",
@@ -3193,8 +3122,7 @@
 				"--no-typecheck",
 				"--no-test",
 				"--no-gen",
-				"--no-format",
-				"--no-lint"
+				"--no-format"
 			],
 			"outcome": "runs",
 			"builtins": [
@@ -3261,10 +3189,6 @@
 					"check": true
 				},
 				{
-					"name": "lint",
-					"check": false
-				},
-				{
 					"name": "test",
 					"check": false
 				},
@@ -3284,12 +3208,6 @@
 					"CI"
 				],
 				"programs": [
-					{
-						"role": "eslint_cli",
-						"name": "eslint",
-						"local": true,
-						"pass_env": "all"
-					},
 					{
 						"role": "git_cli",
 						"name": "git",
@@ -3361,10 +3279,6 @@
 					"check": true
 				},
 				{
-					"name": "lint",
-					"check": false
-				},
-				{
 					"name": "test",
 					"check": false
 				},
@@ -3384,12 +3298,6 @@
 					"CI"
 				],
 				"programs": [
-					{
-						"role": "eslint_cli",
-						"name": "eslint",
-						"local": true,
-						"pass_env": "all"
-					},
 					{
 						"role": "git_cli",
 						"name": "git",
@@ -3460,10 +3368,6 @@
 					"check": true
 				},
 				{
-					"name": "lint",
-					"check": false
-				},
-				{
 					"name": "test",
 					"check": false
 				},
@@ -3483,12 +3387,6 @@
 					"CI"
 				],
 				"programs": [
-					{
-						"role": "eslint_cli",
-						"name": "eslint",
-						"local": true,
-						"pass_env": "all"
-					},
 					{
 						"role": "git_cli",
 						"name": "git",
@@ -4127,10 +4025,6 @@
 					"check": true
 				},
 				{
-					"name": "lint",
-					"check": false
-				},
-				{
 					"name": "test",
 					"check": false
 				},
@@ -4150,12 +4044,6 @@
 					"CI"
 				],
 				"programs": [
-					{
-						"role": "eslint_cli",
-						"name": "eslint",
-						"local": true,
-						"pass_env": "all"
-					},
 					{
 						"role": "git_cli",
 						"name": "git",
@@ -4231,10 +4119,6 @@
 					"check": true
 				},
 				{
-					"name": "lint",
-					"check": false
-				},
-				{
 					"name": "sync",
 					"check": false
 				},
@@ -4260,12 +4144,6 @@
 					"CI"
 				],
 				"programs": [
-					{
-						"role": "eslint_cli",
-						"name": "eslint",
-						"local": true,
-						"pass_env": "all"
-					},
 					{
 						"role": "git_cli",
 						"name": "git",
@@ -4352,10 +4230,6 @@
 					"check": true
 				},
 				{
-					"name": "lint",
-					"check": false
-				},
-				{
 					"name": "test",
 					"check": false
 				},
@@ -4375,12 +4249,6 @@
 					"CI"
 				],
 				"programs": [
-					{
-						"role": "eslint_cli",
-						"name": "eslint",
-						"local": true,
-						"pass_env": "all"
-					},
 					{
 						"role": "git_cli",
 						"name": "git",

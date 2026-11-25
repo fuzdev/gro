@@ -1,7 +1,8 @@
 import { describe, test, assert, vi, beforeEach } from 'vitest';
 import type { PackageJson } from '@fuzdev/fuz_util/package_json.ts';
+import * as s from '@fuzdev/fuz_schema/schema.ts';
 
-import { run_check, type Args, type CheckDeps } from '#lib/check.task.ts';
+import { run_check, Args, type CheckDeps } from '#lib/check.task.ts';
 import { is_task_error } from '#lib/task_error.ts';
 import { FsError } from '#lib/fs_error.ts';
 
@@ -121,7 +122,7 @@ describe('gro check lint step', () => {
 		assert.strictEqual(
 			error.message,
 			"found eslint.config.js but eslint isn't declared in package.json" +
-				' - add eslint to devDependencies, remove eslint.config.js, or pass --no-lint'
+				' - add eslint to devDependencies, remove eslint.config.js, or drop --lint'
 		);
 		assert.strictEqual(lint_invocations(deps), 0);
 		assert.deepEqual(skip_log_calls(deps), []);
@@ -137,7 +138,7 @@ describe('gro check lint step', () => {
 		assert.strictEqual(error.cause, fs_error);
 	});
 
-	test('--no-lint skips without detection or a lookup', async () => {
+	test('lint off, the default, skips without detection or a lookup', async () => {
 		const deps = create_deps();
 		await run(deps, { lint: false });
 		assert.strictEqual(lint_invocations(deps), 0);
@@ -157,6 +158,29 @@ describe('gro check lint step', () => {
 			assert.strictEqual(lint_invocations(deps), 1, forwarded.join(' '));
 			assert.strictEqual((await config_mock()).mock.calls.length, 0);
 		}
+	});
+
+	test('a forwarded `gro lint` or eslint section without --lint fails before any step', async () => {
+		for (const forwarded of [
+			['--', 'gro', 'lint', 'src'],
+			['--', 'eslint', '--no-cache']
+		]) {
+			await declare(DECLARED);
+			const deps = create_deps();
+			let error: unknown;
+			try {
+				await run(deps, { lint: false, typecheck: true }, forwarded);
+			} catch (e) {
+				error = e;
+			}
+			assert(is_task_error(error), forwarded.join(' '));
+			assert.include(error.message, 'runs only with --lint');
+			assert.strictEqual(vi.mocked(deps.invoke_task).mock.calls.length, 0);
+		}
+	});
+
+	test('the default Args leave lint off', () => {
+		assert.strictEqual(s.parse_or_throw(Args, {}).lint, false);
 	});
 
 	test("an empty eslint section or another task's section still detects", async () => {

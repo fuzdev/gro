@@ -101,8 +101,8 @@ errors and exit codes. Where it lives:
   and `run_task` cuts it by the table (`create_builtin_host`) into the `host`
   of a `BuiltinTaskContext`, only for a builtin, refusing an invoke its grants
   don't name, or one marked `when` an arg the task's args leave off (`invokes` is a
-  record of `BuiltinInvokeGrant`s, `check`'s `build` marked `{when: 'build'}` and its `sync`
-  `{when: 'install'}`, so a plain `check`'s closure holds neither, each step it can skip marked
+  record of `BuiltinInvokeGrant`s, `check`'s `build` marked `{when: 'build'}`, its `sync`
+  `{when: 'install'}`, and its `lint` `{when: 'lint'}`, so a plain `check`'s closure holds none of them, each step it can skip marked
   by its own flag, like `test: {when: 'test'}`, so `check --no-test`'s holds no `test`, the table
   recording each builtin's boolean args with their defaults for the binary, and its `gen` and `format`
   also `{check: true}`, run writing no source, as `check` verifies the install and `package.json`

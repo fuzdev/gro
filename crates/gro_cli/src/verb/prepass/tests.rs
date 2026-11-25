@@ -186,8 +186,8 @@ fn a_command_runs_with_its_closure_s_grants() {
 
     let check = run(&["check"]);
     assert_eq!(check.dirs, dirs(&["."], &[]));
+    // linting is opt-in, so a plain `check` holds no eslint
     let tools = [
-        "node_modules/.bin/eslint",
         "node_modules/.bin/svelte-check",
         "node_modules/.bin/svelte-kit",
         "node_modules/.bin/tsc",
@@ -741,7 +741,7 @@ fn a_run_write_flag_naming_no_one_program_is_refused() {
         refused(&["check", "--allow-run-write=vitest:src", "--no-test"]),
         format!(
             "--allow-run-write=… names vitest, and {bin} check may start no program by that name: \
-             it may start eslint, git, svelte-check, svelte-kit, and tsc"
+             it may start git, svelte-check, svelte-kit, and tsc"
         )
     );
     assert_eq!(

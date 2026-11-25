@@ -45,7 +45,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run bootstrap
-      - run: npx @fuzdev/gro check --workspace --build
+      - run: npx @fuzdev/gro check --workspace --build --lint
       # The JS/TS under crates/ (the runtime's extension sources, the bench
       # workloads, the test fixtures), which `gro check` doesn't reach and which
       # read the `dist` built above. It builds only the xtask, with the toolchain

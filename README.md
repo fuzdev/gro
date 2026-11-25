@@ -207,6 +207,7 @@ gro typecheck # svelte-check with tsc fallback
 gro test # run tests
 gro gen --check # ensure generated files are current
 gro format --check # ensure everything is formatted
+gro check --lint # also lints, as CI and `gro publish` do:
 gro lint # eslint
 ```
 
