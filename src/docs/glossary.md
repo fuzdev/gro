@@ -52,8 +52,8 @@ each with what defeats it, like an engine exploit for the runtime's own checks (
 The kernel rules (Landlock and seccomp, and for a run a network namespace) a process is held in on Linux, with every program it starts:
 a coarsening of the grant set, installed from the process's one thread before V8 starts and inherited by every child process,
 which backs up the runtime's own checks rather than replacing them.
-Built for `fgro eval` ([eval](eval.md#the-box)) and for every command of Gro's the binary runs, each tool it starts in a box of its own inside it
-([box](box.md#what-a-commands-box-admits)); designed for `fgro run` ([box](box.md)).
+Built for `fgro eval` ([eval](eval.md#the-box)), for `fgro run` ([box](box.md#fgro-run)), and for every command of Gro's the binary runs, each program they start in a box of its own inside it
+([box](box.md#what-a-commands-box-admits)).
 
 ## builtin module
 
@@ -91,7 +91,7 @@ It's where host modules are best imported, since inference proposes a grant for 
 The default [run kind](#run-kinds), bounded by its grants and not replayable.
 It's a policy property, not by itself an OS sandbox: the [box](#box) is what makes it hold
 against code that escapes the engine. For `fgro run` and `fgro <command>` its link-time grant check is built,
-and the box is built for `fgro <command>` and not yet for `fgro run`.
+and so is the box.
 
 ## declared
 
@@ -138,15 +138,14 @@ the value, or an error with its kind, which a caller branches on.
 `-A` (Deno's `--allow-all`, which `fgro run` spells only `-A`), which makes a run [unconfined](#unconfined):
 built on `fgro run`, where it grants every builtin module to every module of the run, `env` with every variable, `fs` with every directory, `spawn` with any program.
 `fgro <command>` refuses it before the command word, and after it for every command the binary runs itself, since that run is always boxed (a command left to Node passes it to the Node Gro), so a command of Gro's runs unconfined only on the Node Gro (`node_modules/.bin/gro`).
-It's the one flag that widens everything but the always-on [deny overlay](#deny-overlays) (designed), never a default; some grants are as strong (any program under `fgro run`, which starts children unboxed, a child's whole environment) and are shown that way.
+It's the one flag that widens everything but the always-on [deny overlay](#deny-overlays) (designed), never a default; some grants are as strong (a child's whole environment) and are shown that way.
 Narrower ways to widen sit beside each default, like a blanket net grant and the JIT flag for `gro eval`.
 
 ## exec root
 
 A directory a run grants for `spawn.program_in` and `find_in`, beneath which they find a program to run: on `fgro`, one `fgro run --allow-run-in=` names, opened as the run starts and held to the directory it named then ([host modules](host_modules.md#spawn-on-fgro)).
 One may also be a [write root](#write-root), as a build's output directory is, so a run granted both runs what it writes there, and each is declared and reviewed as narrowly.
-In a run of `fgro <command>` the run's box reads and executes beneath each one the grant flags name;
-for `fgro run` the kernel's rule on one is designed ([box](box.md#what-a-commands-box-admits)).
+In a run of `fgro <command>` or `fgro run` the run's box reads and executes beneath each one the grant flags name ([box](box.md#what-a-commands-box-admits)).
 
 ## fallback
 
@@ -168,8 +167,8 @@ and hands Gro's CLI what it imported ([runtime](runtime.md#gros-workflow-on-the-
 
 One accepted reach, like a host module, named network hosts, or a read root.
 A grant is always of something specific, so even a wide one keeps a run [confined](#confined).
-A `spawn` grant under `fgro run` is the exception until its children are boxed, since a granted program is close to `-A` ([run](run.md#usage));
-a command of Gro's starts the programs it's granted in the run's [box](#box).
+A program a `spawn` grant names runs in a [box](#box) of its own inside the run's, under `fgro run` and a command of Gro's alike, and reaches what that box holds,
+since its arguments are code ([run](run.md#usage)).
 
 ## graph dump
 
@@ -402,6 +401,7 @@ every grant at its widest, with no global added and native code still out of pro
 
 A directory a run may write.
 As designed, a project's are declared and accepted like any [grant](#grant) (`dist/`, `build/`, `.gro/`).
-In a run of `fgro <command>` the run's [box](#box) sets them ([box](box.md#what-a-commands-box-admits));
-on `fgro run` today, a run's write roots are each directory `--allow-write=` names, or `/` under `-A`, and each directory `fs.temp_dir` makes under `--allow-temp`, read and written, until it's disposed of.
+In a run of `fgro <command>` or `fgro run` the run's [box](#box) sets them ([box](box.md#what-a-commands-box-admits));
+on `fgro run` the realm's are each directory `--allow-write=` names, or `/` under `-A`, and each directory `fs.temp_dir` makes under `--allow-temp`, read and written, until it's disposed of,
+the box writing a flag naming the root only as its top-level entries as the run started, never `.git`, `node_modules`, another dot-entry, a symlink, or a new one.
 A read root is the same for reads. On `fgro`, each read or write root is one of the `fs` module's [roots](#root).

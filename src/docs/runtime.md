@@ -7,7 +7,7 @@
 > Built today, for x86_64 Linux alone (its crates refuse to compile for another OS), as `fgro` (renamed `gro` when ready):
 >
 > - `fgro run <file>` runs a JS or TypeScript module from disk on V8, using Deno's libraries,
->   with strict resolution and origin containment ([run](run.md))
+>   with strict resolution and origin containment, in a kernel box with every program it starts ([run](run.md))
 > - `fgro eval <module>` evaluates one to JSON data, jitless, with the clock and randomness denied,
 >   its heap, memory, and time limited, and its process in a kernel box read-only to its project
 >   ([eval](eval.md))
@@ -19,13 +19,9 @@
 > Designed, not built: the host modules not marked built in [host modules](host_modules.md#the-modules) (`net`, `watch`, and `stdin`;
 > every host module exists as its Node implementation), the grant flags beyond those listed in [run](run.md#usage), the policy file,
 > and the seal on the global object.
-> So is the box for `fgro run`.
-> Until they land, `fgro run` gives code no API past its own module graph, the console, and the builtin modules [host modules](host_modules.md#the-modules) marks built,
-> but the process itself isn't confined or limited: against code that exploits V8 it's an ordinary process with your user's authority,
-> the same class as Deno with no permissions granted;
-> and with no exploit at all, a run that `--allow-run=` or `--allow-run-in=` grants a program is close to `-A`, as Deno's `--allow-run` is.
-> A command of Gro's runs in the run's box, and each tool it starts in a narrower box of its own inside it, so a tool its closure grants is bounded by those boxes' rules
-> ([box](box.md#what-a-commands-box-admits)), not by the grants.
+> Until they land, `fgro run` gives code no API past its own module graph, the console, and the builtin modules [host modules](host_modules.md#the-modules) marks built.
+> `fgro run` and a command of Gro's run in the run's box, and each program they start in a narrower box of its own inside it, so a program a run grants is bounded by those boxes' rules
+> ([box](box.md#fgro-run)), not by the grants; neither process is limited, and `fgro run -A` runs in no box, an ordinary process with your user's authority.
 > The [roadmap](#roadmap) marks what's built, the design doesn't have every answer yet
 > ([open questions](#open-questions)), and feedback is welcome in [discussions](https://github.com/fuzdev/gro/discussions).
 
@@ -135,8 +131,8 @@ any language compiled to it (see [polyglot confinement](#what-the-design-opens-u
 
 Of all this, the omissions are built (`fgro` has no runtime namespace, no Node compat, no remote imports, and no authority globals),
 `fgro eval`'s box is built, the link-time grant check is built, over the builtin modules [host modules](host_modules.md#the-modules) marks built, which are its only host APIs,
-the grant flags [run](run.md#usage) lists are built, the run's box is built for every command of Gro's on the binary,
-and the rest of the host modules, the other grant flags, the policy file, the seal, and the box for `fgro run` are designed.
+the grant flags [run](run.md#usage) lists are built, the run's box is built for every command of Gro's and every `fgro run` but `-A` on the binary,
+and the rest of the host modules, the other grant flags, the policy file, and the seal are designed.
 
 ## Design
 
@@ -213,7 +209,7 @@ Each bullet marks what's built; anything unmarked past the omissions is designed
 - **A kernel box.** On Linux a coarsening of the grant set also becomes kernel rules for the whole invocation,
   installed before V8 starts a thread and inherited by every child process.
   Installed for `fgro eval`, as a fixed box with no grants to enforce yet, and for every command of Gro's on the binary, as the run's box,
-  derived from the command's closure and the grant flags, with each tool it starts in a box of its own inside it; designed for `fgro run`
+  derived from the command's closure and the grant flags, with each tool it starts in a box of its own inside it, and for `fgro run`, derived from its flags and its entry
   ([eval](eval.md#the-box) has eval's exact walls; [box](box.md) has what each layer holds, the one namespace the box takes, and the run's walls).
 - **Native code: first-party crates linked in, WASM as the portable path, FFI as a grant.**
   blake3 and tsv are exposed as builtin modules (`@fuzdev/gro/blake3.ts`, `@fuzdev/gro/tsv.ts`), with no boundary to cross.
@@ -272,9 +268,8 @@ where Deno's equivalents are flags that hold for the runs that pass them.
 The rest, like the kernel box, no prompts, and deterministic runs,
 are defaults Deno could adopt without breaking anyone, and Gro's design turns them on;
 with Deno in maintenance until its end of life in October 2027 ([Why](#why)), we don't expect them to land there.
-Until the box lands for `fgro run`, its checks are, like Deno's, in-process checks in a process that holds your user's authority,
-and there the difference is where authority enters, not yet how strongly it's contained;
-a command of Gro's on the binary already runs in the kernel's box.
+Gro's checks are, like Deno's, in-process checks, and the difference there is where authority enters;
+under them `fgro run` and a command of Gro's on the binary run in the kernel's box, each program they start in a narrower one.
 
 ## What the design opens up
 
@@ -441,7 +436,7 @@ where the host modules and grants land with their first consumer.
 - [ ] the host modules (fs, spawn, watch, net, and the process modules), the grants
       (built so far: the link-time check, the modules [host modules](host_modules.md#the-modules) marks built, and the flags [run](run.md#usage) lists),
       and the policy file, enforced, with the box under every run and its children
-      (built for every command of Gro's on the binary, each tool in a box of its own inside it, and designed for `fgro run`,
+      (built for every command of Gro's and every `fgro run` but `-A` on the binary, each program in a box of its own inside it,
       [box](box.md#the-box-for-runs-and-children)), landing with Gro on Gro
 - [x] each tool in a box of its own inside the run's, writing only the directories the grants table names for it
       ([box](box.md#a-box-for-each-tool))

@@ -31,9 +31,8 @@ The runtime grew out of the loader Gro already uses to run tasks, config, and co
 and makes a clean break from Node toward web standards.
 Its model, authority by import with nothing ambient, is why it's a new runtime and not Deno with other defaults.
 It's an in-progress design. Built so far: `fgro eval`'s kernel box,
-the kernel box every `fgro <command>` the binary runs itself starts in (the project read-only but for the command's write roots, each tool in a narrower box of its own),
+the kernel box every `fgro <command>` the binary runs itself, and every `fgro run` but `-A`, starts in (the project read-only but for the write roots, each program in a narrower box of its own),
 and the link-time grant check of `fgro run` and `fgro <command>`.
-`fgro run`'s process isn't boxed yet, and a program it's granted runs unboxed, so granting one is close to `-A`.
 See [the runtime docs](/src/docs/runtime.md) for why it exists, the model in a page, the API, the grant flags, the design, and the roadmap;
 feedback is welcome in [discussions](https://github.com/fuzdev/gro/discussions).
 

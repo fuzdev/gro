@@ -166,7 +166,9 @@ Every member is built.
 How each part is built is in the module docs of `crates/gro_runtime/src/host/fs.rs` and its children.
 
 - The run's roots are the directories it reads or writes, opened the first time the run imports `fs`:
-  the entry's [project root](glossary.md#project-root), read with no flag, so `fs.project` is that directory, never the working directory;
+  the entry's [project root](glossary.md#project-root), read with no flag, so `fs.project` is that directory, never the working directory,
+  but for an entry in no project (no `package.json` at or above it but [type markers](glossary.md#type-marker)), whose root is its own directory, read and written only as a flag naming it grants
+  (`--allow-read=.` from it), a refusal there hinting that flag;
   each directory `--allow-read=` and `--allow-write=` grant; and under `-A`, `/`, read and written.
   Each directory `fs.temp_dir` makes, with `--allow-temp` or `-A`, joins them as the run goes.
 - A flag's directory is the one its path named as the run started:
@@ -268,6 +270,7 @@ How each part is built is in the module docs of `crates/gro_runtime/src/host/fs.
   `set_mode` on a root's own directory changes its bits and nothing of the roots, as on Node.
 - `symlink` makes its link by its name in the parent opened beneath the handle, never following it.
 - `fs.temp_dir` needs `--allow-temp` (or `-A`): without it it's `not_granted`, listed, naming the prefix, never the temporary directory, with a hint naming the flag.
+  In the run's kernel box `TMPDIR` names the run's private directory under the OS's temporary directory, so its directories are made there, and a later run sweeps one never disposed of once the run is gone.
   The temporary directory is `TMPDIR`, `TMP`, or `TEMP`, the first set and not empty, else `/tmp`, as Node's `os.tmpdir()` names it, read as the run starts, and only when the run grants it,
   a relative one resolved against the working directory, so an error names it absolute, by its real path, where Node's names it as given.
   It's held to its real path then (where it can't be resolved then, to its path with its `.` and `..` resolved by their text):
@@ -334,8 +337,8 @@ const result = await check.closed;
   and any other failure, like `not_executable`, still throws.
 - A program handle bounds which binary runs, not what it does: for most tools the arguments are code
   (`git -c core.sshCommand=…`, `node -e`, `ssh -o ProxyCommand=`, `find -exec`), and a tool reads its own config from the project and `HOME`,
-  so on `fgro` a spawn grant is bounded by the box around the child, built for a command of Gro's, whose tools run each in a box of its own inside the run's,
-  and designed for `fgro run`, and the policy diff is designed to show it that way ([box](box.md#the-box-for-runs-and-children)).
+  so on `fgro` a spawn grant is bounded by the box around the child, built for a command of Gro's and `fgro run`, whose programs run each in a box of its own inside the run's,
+  and the policy diff is designed to show it that way ([box](box.md#the-box-for-runs-and-children)).
 - A bare name walks the host's `PATH` synchronously, absolute entries only, to the first regular executable.
   The child's own `PATH` lookups use the host `PATH` as it is, so a relative or empty entry in it resolves against the child's cwd,
   and its `node_modules/.bin` entries stay, so a child's own lookup, like a `#!/usr/bin/env node` script's, still searches them.
@@ -538,10 +541,10 @@ a program's `run`, `out`, `out_bytes`, and `start`, and a started child's `Spawn
 Not built: a call's `signal` option, which, given, rejects with a plain `Error`.
 How it's built is in the module docs of `crates/gro_runtime/src/host/spawn.rs` and its children, `spawn/pins.rs`, `spawn/exec_roots.rs`, `spawn/launch.rs`, `spawn/watch.rs`, `spawn/start.rs`, and `spawn/child.rs`.
 
-- In `fgro run`, which has no box yet ([native requirements](#native-requirements)), granting any program is close to granting what `-A` grants:
+- In `fgro run` each program runs in a kernel box of its own inside the run's ([box](box.md#fgro-run)), and reaches what that box holds:
   most programs can be made to run code by their arguments or environment, a shell, git, and cargo among them,
   and the root's `env` values set any variable for a program, `LD_PRELOAD` and `PATH` among them.
-  Hand library code a narrowed root, which refuses `env` values.
+  Hand library code a narrowed root, which refuses `env` values. `fgro run -A`, and a run where the box can't go up, start programs in no box.
 - The run's root makes only the programs `--allow-run=` names, and in a run of `fgro <command>` those its closure grants, each by the name a program asks for, and any other name is `not_granted`, where Node's root makes any;
   under `-A` it makes any, as Node's does.
 - Each granted name is pinned as the run starts, once the entry has resolved and before any module evaluates, by the Node module's rules,
@@ -589,8 +592,8 @@ How it's built is in the module docs of `crates/gro_runtime/src/host/spawn.rs` a
   though a value it leaves unset lets the host's own value of that variable through where `pass_env` passes it, the base set's `FORCE_COLOR` among them.
   A call asking for more is `not_granted`, with no hint, since no flag widens the table's policy, and the refusal names a variable but never a value.
   This bounds what the run's code can hand a child against code built to defeat it, a native check; a granted tool's arguments and config are still code,
-  and under `fgro run`, which has no box, it can read its parent's environment from `/proc`;
-  in a command of Gro's the run is not dumpable, so its tools can't, and each tool runs in a box of its own, so none reads another's ([box](box.md#a-box-for-each-tool)).
+  and under `fgro run` in no box (`-A`, or where the box can't go up) it can read its parent's environment from `/proc`;
+  in the run's box the run is not dumpable, so its tools can't, and each tool runs in a box of its own, so none reads another's ([box](box.md#a-box-for-each-tool)).
 - A child is started by `posix_spawn`, no code run between its fork and its exec: a native binary by its pin's descriptor, a script by its path,
   so a native child's process name, which `ps` and `pkill` read, is that descriptor's number, where Node's is the binary's name;
   its working directory by a descriptor too, the `cwd` handle's directory opened beneath its root, or the project's, opened as the run started,
@@ -1552,7 +1555,7 @@ what can fail for a reason of the run's fails in what the module exports, as `cw
 - Confine the child with the run's kernel rules:
   the project and the linked packages readable, writable only its own tool directories, its own temporary directory, and what `--allow-run-write=` names for it, never the project root,
   the network the run's own loopback (or, where user namespaces are restricted, no internet socket), and seccomp refusing unix sockets by path, nested user namespaces, and terminal input injection (`TIOCSTI`, `TIOCLINUX`)
-  ([box](box.md#what-a-commands-box-admits)) (built for a command of Gro's, whose children start each in a box of its own inside the run's; designed for `fgro run`, whose children run unboxed).
+  ([box](box.md#what-a-commands-box-admits)) (built for a command of Gro's and `fgro run`, whose children start each in a box of its own inside the run's).
 - Keep the runtime's own environment and memory from a child that can read `/proc`:
   the run marks itself not dumpable before its box goes up (built for a command of Gro's, whose box reads `/proc` whole,
   refusing the environment, memory, and working directory of a process outside it, [box](box.md#what-a-commands-box-admits)).

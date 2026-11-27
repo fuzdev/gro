@@ -1,12 +1,12 @@
 # box
 
 > The box, the kernel layer under the runtime's own checks: what Landlock and seccomp each hold and can't,
-> the one namespace the box takes, the box a command of Gro's runs in on the binary and the one each tool runs in inside it, the terminal as a channel, and resource limits
+> the one namespace the box takes, the box a command of Gro's and `fgro run` run in on the binary and the one each tool runs in inside it, the terminal as a channel, and resource limits
 
 > **status**: `fgro eval`'s box is built ([eval](eval.md#the-box) has its exact walls),
 > and so is the run's box, which every command of Gro's the binary runs starts in, `fgro check` and `fgro gen` among them
 > ([below](#what-a-commands-box-admits) has its exact walls).
-> `fgro run` has no kernel box and no resource limits yet ([run](run.md)): its box is designed, to come after.
+> So is `fgro run`'s, the same box derived from its flags and its entry ([below](#fgro-run)); `fgro run -A` runs in none.
 > Each tool the run starts runs in a narrower box of its own inside the run's,
 > writing only its own directories ([below](#a-box-for-each-tool)).
 > The read-deny overlay and the rest here not marked built are designed too.
@@ -87,8 +87,9 @@ Where unprivileged user namespaces are restricted (by a sysctl, by AppArmor's po
 the box keeps the host's network and refuses every internet socket instead, loopback's included, so such a test fails there.
 AppArmor's restriction is read before the namespace is made, since under it the namespace is made
 and then left unusable, stranding the process.
-Built for every command of Gro's the binary runs.
-Without the namespace, a `note:` line once the box is up says why and that a test binding `127.0.0.1` fails.
+Built for every command of Gro's and every `fgro run` the binary runs that may start a program;
+one that starts none stays in the host's network with every internet socket refused, its realm having no socket of its own to bind, and says nothing.
+Without the namespace where one was sought, a `note:` line once the box is up says why and that a test binding `127.0.0.1` fails (`fgro run`: a program binding it).
 
 ## The box for runs and children
 
@@ -96,7 +97,7 @@ Every command of Gro's that the binary runs, like `fgro check` or `fgro gen`, st
 its rules are derived from the command's closure (the grants of the builtins it runs, [task](task.md#a-builtins-host-and-grants)) and the grant flags,
 installed from the process's one thread before V8 starts, and every program the run starts inherits them.
 A command the binary leaves to Node runs on the Node Gro, which confines nothing ([fallback](glossary.md#fallback)).
-`fgro run` has no box yet: its box, derived from the run's grant flags alone, is designed to come after.
+`fgro run` starts in the same box (built), derived from its grant flags and its entry ([below](#fgro-run)).
 Each program the run starts runs in a narrower box of its own inside the run's ([below](#a-box-for-each-tool)).
 
 ### What a command's box admits
@@ -309,6 +310,31 @@ and the programs the command may start; it never names what `--allow-write=` nam
 In the host's network the note's clause reads "reach no network".
 Both are review signals, which the run's code can print as well.
 
+### `fgro run`
+
+`fgro run` starts in the same box, its rules derived from its grant flags and its entry rather than a closure.
+Its root is the entry's project root, the directory of the first project's `package.json` at or above the entry ([resolver](resolver.md)),
+or, for an entry in no project, its own directory, whose type markers above it are each read file-only by its real path, since a `.js` module's type is read as it loads.
+The flags widen it as a command's grant flags do: a write flag naming the root gets the root's top-level entries as the run started, but `.git`, `node_modules`, the dot-entries, and symlinks,
+so `--allow-write=.` writes neither `.git` nor a new top-level entry, and one holding the root is refused;
+a relative flag path through a symlink is noted, never refused, the command line being the person's ([run](run.md#usage)).
+A run that may start a program gets the pinned files, `node_modules`, and its private directory, with git's home config and the project's git directories outside the root only when `--allow-run=` names `git`;
+each program runs in a box of its own ([below](#a-box-for-each-tool)), writing what `--allow-run-write=` names for it.
+An entry in no project's directory is the run's alone, for its loader: a program reads it, its working directory among it, only as `--allow-read=` or `--allow-run-in=` names it (`--allow-read=.` from there), or all of it as `--allow-run-write=` names it for that program, and a `node_modules` there as every run that may start a program reads one.
+`--allow-temp` gets the private directory too, where `fs.temp_dir` makes its directories.
+
+It goes up as a command's does ([below](#how-it-goes-up)), its entry resolved first on the main thread and its pins made beneath the root.
+A root that is or holds the home directory, found by a `package.json` or a `node_modules` at or above the entry, is refused before anything changes, exit 2.
+Where the box can't go up, the kernel below the floor or a build with no snapshot, it runs in no box after a `note:` line saying so, refused under `GRO_FALLBACK=command`, exit 2;
+`-A` runs in no box, unconfined, and says nothing.
+An entry in no project in the OS's temporary directory itself has its private directory made in its own root, which no project holds, so `fgro run --allow-temp /tmp/x.ts` runs,
+and so does a run there that may start a program, whose programs read nothing of that directory but a `node_modules` in it;
+a flag that gives a program that directory is refused there, since the program would read the others' temporary directories through it.
+
+What it leaves, beside what a command's box leaves ([below](#what-it-holds-and-what-it-leaves)):
+an entry in no project reads its own directory only as a flag names it, and so does every program the run starts, but the box reads all of that directory for the loader, so an exploit of the engine there reads it:
+all of the home directory for `~/x.ts`, and every file in a world-writable directory like `/var/tmp` for an entry there.
+
 ### How it goes up
 
 The binary takes the box's steps on its one thread, before V8 or any other thread starts, in an order that keeps a fallback an unchanged process:
@@ -329,8 +355,8 @@ The binary takes the box's steps on its one thread, before V8 or any other threa
    A socket on stdin, stdout, or stderr that isn't a connected unix stream is refused, exit 2, since a box can't hold where it leads,
    so an inetd-style launch fails, while a pipe, a file, a terminal, `/dev/null`, and a connected socket pair, like Node's `spawn` makes, pass.
 4. Then the first change: it closes every descriptor it inherited above stderr, and from here nothing falls back.
-   It enters the network namespace, then drops its capabilities, marks itself not dumpable, lowers the `core` limit, and raises its open-files soft limit, as Node does.
-5. It opens the OS's temporary directory by its real path and removes the stale private directories there, unless it lies in the project.
+   It enters the network namespace, for a run that may start a program, then drops its capabilities, marks itself not dumpable, lowers the `core` limit, and raises its open-files soft limit, as Node does.
+5. It opens the OS's temporary directory by its real path.
 6. It resolves once what the run and its box both use: the directories the grant flags list, the programs it pins, `node` among them, and the working directory,
    refusing, exit 2, a directory listed inside the project that leads out of it through a symlink, or through one into a dot-entry or `node_modules` it doesn't name.
 7. It derives the box's plan from that resolution and the disk's facts, read once, and prints the plan's note.
@@ -340,8 +366,9 @@ The binary takes the box's steps on its one thread, before V8 or any other threa
    (the real `node` first on `PATH`, or `--allow-run-in=` naming the version manager's directory), unless an `--allow-run-in=` names the directory it's in,
    while a native shim, like volta's, can't be told apart from `node`, and its tools fail inside the box;
    a `node_modules` symlink to anything but another checkout's `node_modules`;
-   and, for a command that may start a program, git's files it can't read.
-8. It makes its private directory, where it has one, refusing an OS temporary directory inside the project, exit 2, then the tool directories.
+   and, for a command that may start a program, or an `fgro run` that may start git, git's files it can't read.
+8. It makes its private directory, where it has one, refusing an OS temporary directory inside the project, exit 2,
+   after removing the stale private directories there, then the tool directories.
 9. It sets the run's environment, the temp and XDG variables pointed into the private directory and the vendored `deno_core`'s diagnostic variables removed,
    and puts `SIGCHLD` back at its default, so each tool it starts is reaped by its own handle.
 10. It opens the rules from the same plan, so a rule and the pin it admits can't name different files,
@@ -422,7 +449,7 @@ and the `node_modules/.vite-temp` of `svelte-kit`, svelte-check, and Vitest; and
 
 Each program the run starts runs in a box of its own, nested in the run's (`gro_runtime`'s `confine/program.rs`),
 built at the program's first launch and kept for every launch after, one box for each name the run grants a program by and one for each program found beneath an exec root,
-and installed at every launch of a command of Gro's; `fgro run` launches in none.
+and installed at every launch of a command of Gro's or of `fgro run`; `fgro run -A` launches in none.
 A box that can't be built fails each launch of its program, `launch_failed`, as the first did.
 Landlock restricts the thread that installs its rules, so a launch given a program's box starts the program from a short-lived thread that first restricts itself with that box
 and then spawns it as today, and the program inherits the narrower box (`host/spawn/launch.rs`); nothing re-executes the binary.
@@ -478,10 +505,10 @@ and a cache over it trusts the run that wrote each entry, which no check of the 
 
 `fgro eval` caps its heap, its process memory, its module and envelope sizes, and its wall-clock time ([eval](eval.md#the-engine)), and can't fork ([eval](eval.md#the-box)).
 Its timeout is cooperative: V8 is asked to stop, and a long builtin call finishes first.
-A command of Gro's lowers its `core` hard limit to 0 in its box ([above](#what-a-commands-box-admits)) and caps nothing else,
-`fgro run` has no limits today, and availability is outside the grant model:
+A command of Gro's and `fgro run` lower their `core` hard limit to 0 in the box ([above](#what-a-commands-box-admits)) and cap nothing else,
+and availability is outside the grant model:
 a confined run can spend CPU, memory, and file descriptors, and fill its writable roots.
-Designed: a heap cap, a wall clock, and output caps per run kind, the `core` limit for `fgro run`, and a hard deadline behind eval's cooperative stop.
+Designed: a heap cap, a wall clock, and output caps per run kind, and a hard deadline behind eval's cooperative stop.
 
 ## Open
 

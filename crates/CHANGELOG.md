@@ -11,8 +11,18 @@ for Linux x86_64 only, built from source ([install](../src/docs/runtime.md#insta
 
 - `fgro run <file>` runs a JS or TypeScript module from disk.
   Every argument after the file is the script's, passed as written.
-  It checks what a program reaches inside the process only: the process has no kernel box and no resource limits, the JIT is on,
-  and console output reaches the terminal unescaped, so `fgro run` isn't yet for code you treat as hostile.
+  It checks what a program reaches inside the process, and runs in the run's kernel box under those checks, as a command of Gro's does
+  ([box](../src/docs/box.md#fgro-run)): the box reads the entry's project root, the directories the flags name, and the system's, writes what `--allow-write=` names and its private directory,
+  `--allow-write=.` the root's top-level entries as the run started but never `.git`, `node_modules`, another dot-entry, a symlink, or a new one, and reaches no network,
+  a run that starts no program staying in the host's network with every internet socket refused, one that may start one taking a namespace of its own;
+  each program it starts runs in a box of its own inside it, writing its own temporary directory and what `--allow-run-write=` names for it, git's home config read only when `--allow-run=` names `git`.
+  `fs.temp_dir` makes its directories in the run's private directory, which `TMPDIR` names to the run.
+  An entry in no project (no `package.json` at or above it but [type markers](../src/docs/glossary.md#type-marker)) reads and writes its own directory only as a flag names it, a refusal there hinting `--allow-read=.` or its path,
+  and the programs it starts read that directory only as a flag names it too;
+  and the box reads each type marker above it, file-only; a project root that is or holds the home directory, found by a `package.json` or a `node_modules` at or above the entry, is refused, exit 2.
+  `-A` runs in no box and says nothing; where Landlock is below the box's floor, or the build has no snapshot, it runs in no box after a note saying so,
+  which `GRO_FALLBACK=command` refuses, exit 2, and a `GRO_FALLBACK` naming no policy is refused, exit 2.
+  There are no resource limits, the JIT is on, and console output reaches the terminal unescaped.
   - A program reaches the OS only through the builtin host modules, imports under `@fuzdev/gro/*` that the binary resolves ahead of package lookup,
     each with the exports and types of its Node module in the npm package.
     A run grants the ones that need a grant to the project's own modules only, `env` only under `--allow-env=` and `spawn` only under `--allow-run=` or `--allow-run-in=`:
@@ -68,7 +78,7 @@ for Linux x86_64 only, built from source ([install](../src/docs/runtime.md#insta
     An exec root that is also a write root runs what the run writes there.
     A run that grants a program raises its soft limit on open descriptors to the hard one as it starts, as Node does, and goes on when the kernel refuses the raise.
     A call's `signal` option isn't built: given, it rejects saying so.
-    Since `fgro run` starts each child unboxed, granting any program there is close to granting what `-A` grants, since most programs can be made to run code
+    Each program runs in a kernel box of its own inside the run's, and reaches what that box holds, since most programs can be made to run code
     by their arguments or environment and the root's `env` values set any variable; hand library code a narrowed root, which refuses them.
     A program outside a handle's set, a directory outside every exec root, or a variable its program's grant doesn't forward, throws `SpawnError` `not_granted`.
   - More builtin modules need no grant, so a package's modules import them as the project's do:
@@ -159,7 +169,7 @@ for Linux x86_64 only, built from source ([install](../src/docs/runtime.md#insta
     It widens that program's box and the run's, and gives Gro's own code nothing; `--allow-write=` widens no tool's box, so a tool's own write takes this flag.
     A name the command may start no program by, and a plain name both the project's own tool and an `--allow-run=` grant have, are refused before anything runs, exit 2,
     and so is a program's directory under a dot-entry or `node_modules` where Gro's own code writes the whole project (`gen`, `format`, `sync`, or `--allow-write=.`) and no `--allow-write=` names it too.
-    `fgro run` takes the flag beside `--allow-run=` naming the program, checks it, and says once that it holds nothing back there.
+    `fgro run` takes the flag beside `--allow-run=` naming the program, and widens that program's box alone.
   - Before the box it refuses `-A` before the command word, or after it for a command the binary runs itself, a `node` on `PATH` that's a script, a write flag or a program's write directory naming a directory that holds the project root,
     a directory any grant flag lists inside the project, relative or absolute, that leads out of it through a symlink, or through one into a dot-entry or `node_modules` it doesn't name, where `fgro run` notes one (so a linked `node_modules` takes the path it leads to, not `--allow-write=node_modules`),
     a `node_modules` symlink to anything but another checkout's `node_modules`, git's files it can't read when the command may start a program,

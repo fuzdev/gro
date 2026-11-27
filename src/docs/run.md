@@ -17,7 +17,7 @@ fgro run --allow-read=../data --allow-write=out <file>   # fs reads ../data, and
 fgro run --allow-temp <file>   # fs.temp_dir makes fresh directories under the OS's temporary directory
 fgro run --allow-run=git,cargo --allow-run-env='CARGO_*' <file>   # spawn makes these programs, each may be passed what CARGO_* covers when its pass_env names it
 fgro run --allow-write=target --allow-run-in=target <file>   # spawn.program_in runs what the run builds in target/
-fgro run --allow-run=cargo --allow-run-write=cargo:target <file>   # checked, and holds nothing back: fgro run starts programs in no box
+fgro run --allow-run=cargo --allow-run-write=cargo:target <file>   # cargo writes target/ from a kernel box of its own
 fgro run -A <file>          # unconfined: every grant at its widest
 fgro --version              # the version, the git commit, the V8 version, and whether a startup snapshot is embedded
 ```
@@ -43,7 +43,10 @@ Arguments the command-line parser refuses before `run` reads its own, an unknown
 `error: invalid arguments to fgro eval: <the arguments>` (or `to fgro:`) and `Run fgro eval --help for more information.`,
 the first 16 arguments each printed by that rule and cut past 80 characters, then a count of the rest, and no other text, so the message doesn't say which argument was wrong;
 a file whose name starts with `-` goes after `--`.
-A run grants the project's own modules `args`, `exit`, `stdout`, `stderr`, and `fs`, whose root reads the project's tree and writes nothing, and these widen it, for that run only:
+A run grants the project's own modules `args`, `exit`, `stdout`, `stderr`, and `fs`, whose root reads the project's tree and writes nothing,
+but for an entry in no project (no `package.json` at or above it but [type markers](glossary.md#type-marker), which only mark a module type), whose own directory is its root and which reads and writes it only as a flag names it
+(`--allow-read=.` from that directory, which a refusal there hints), its imports loading from it all the same;
+and these widen it, for that run only:
 
 - `--allow-env=A,B` grants `@fuzdev/gro/env.ts` to the project's modules, its root handle reading exactly those variables.
   It's repeatable, the names of every one joined, and each name is exact and case-sensitive,
@@ -53,7 +56,7 @@ A run grants the project's own modules `args`, `exit`, `stdout`, `stderr`, and `
   `fgro` reads the granted variables once, as the run starts, and the runtime reads none of them;
   a value that isn't UTF-8 is read with U+FFFD in place of each invalid sequence, as Node reads one.
 - `--allow-read=a,/b` grants `@fuzdev/gro/fs.ts` reading these directories, and `--allow-write=a,/b` writing them,
-  beside the project's root, which `fs` reads with neither and writes only when a directory holding it is written.
+  beside the project's root, which `fs` reads with neither (but an entry's in no project, above) and writes only when a directory holding it is written.
   Each is repeatable, its directories one set, a path relative to the working directory or absolute,
   and each must be a directory when the run starts, under `-A` too:
   a path missing, a file, or one `fgro` can't look at is a usage error naming it as resolved, before anything runs.
@@ -70,6 +73,8 @@ A run grants the project's own modules `args`, `exit`, `stdout`, `stderr`, and `
   ([host modules](host_modules.md#fs-on-fgro) has how a handle carries its scope).
 - `--allow-temp` grants `@fuzdev/gro/fs.ts`'s `temp_dir` making fresh directories under the OS's temporary directory,
   each a root the run reads and writes, added as the run goes, and nothing else of the temporary directory, which it neither reads nor writes.
+  In the run's box each is made in the run's private directory there (`$TMPDIR/gro-<pid>-<start>/`), which `TMPDIR` names to the run,
+  and one never disposed of stays until a later run that makes its own private directory sweeps it.
   It takes no value: `--allow-temp=` with anything after it is a usage error, its value never echoed.
   `fgro` reads the temporary directory as Node's `os.tmpdir()` names it, the first of `TMPDIR`, `TMP`, and `TEMP` set and not empty, else `/tmp`,
   once as the run starts and only for a run that grants it, so a run that doesn't learns nothing of where it is,
@@ -83,15 +88,18 @@ A run grants the project's own modules `args`, `exit`, `stdout`, `stderr`, and `
   and pins each name then, once the entry has resolved and before any module evaluates, to the file it finds and that file's real path ([host modules](host_modules.md#spawn-on-fgro)),
   a script at a `node_modules/.bin` name with the `node` it runs under, read from its `#!` line, which must name `node` through `/usr/bin/env`;
   a name that finds nothing is no error, and `find` returns `null` for it.
-  Since `fgro run` starts each child unboxed, granting any program there is close to granting what `-A` grants:
-  most programs can be made to run code by their arguments or environment, a shell, git, and cargo among them,
+  Each program runs in a kernel box of its own inside the run's ([box](box.md#fgro-run)), writing only a temporary directory of its own and what `--allow-run-write=` names for it,
+  and reading what the run's box reads, git's home config among it only when `--allow-run=` names `git`,
+  but an entry in no project's own directory, its working directory among it, which a program reads only as a flag names it (`--allow-read=.` from there).
+  A program installed under the home directory reads its own files only as a flag names them: a rustup `cargo` needs `--allow-read=` naming `~/.rustup` and `~/.cargo` and `--allow-run-in=` naming its toolchain.
+  Most programs can be made to run code by their arguments or environment, a shell, git, and cargo among them, so a granted program reaches what its box holds,
   and the root's `env` values set any variable for a program; hand library code a narrowed root, which refuses `env` values.
 - `--allow-run-in=target,../tools` grants `@fuzdev/gro/spawn.ts` to the project's modules with these directories as exec roots, listed as `--allow-read=` lists its own:
   `spawn.program_in(dir, name)` and `find_in` find a program beneath an fs handle's directory that lies beneath one, and refuse any other directory `not_granted`.
   Each is checked to be a directory as the run starts, then opened by its real path, beside the pins, and held to the directory it named then,
   so one replaced between is refused ([host modules](host_modules.md#spawn-on-fgro)). A bare `--allow-run-in` is a usage error.
-  An exec root that is also a directory `--allow-write=` grants runs what the run writes there, so a run granted both can write a program and run it:
-  as for `--allow-run=`, granting one is close to granting what `-A` grants.
+  An exec root that is also a directory `--allow-write=` grants runs what the run writes there, so a run granted both can write a program and run it;
+  a program found beneath one runs in a box of its own, as `--allow-run=`'s do.
 - `--allow-run-env=A,CARGO_*` lets the programs `--allow-run=` grants, and those found beneath what `--allow-run-in=` grants, be passed these variables, when a program's `pass_env` names them:
   each an exact name, or a `PREFIX_*` glob, which covers every name it starts and lets `pass_env` name a glob within it.
   It's repeatable, its names one set, and it's a usage error without `--allow-run=` or `--allow-run-in=`, bare, or naming what no variable can be named: an empty name, a NUL byte, a `=`, a `*` before a name's end, or `*` alone, which would pass every variable without saying so.
@@ -99,9 +107,7 @@ A run grants the project's own modules `args`, `exit`, `stdout`, `stderr`, and `
   a script reads none of them: the spawn module gives a child what its program's options name, and no member returns a value.
   A variable of the base set needs no grant: `pass_env` may name one exactly, since every child is given it.
 - `--allow-run-write=cargo:target,out` names one program `--allow-run=` grants, then `:`, then directories as `--allow-write=` lists them,
-  which a command of Gro's lets that program write ([box](box.md#what-a-commands-box-admits)).
-  `fgro run` starts its programs in no box, so here the flag is checked and holds nothing back: a program `--allow-run=` grants writes wherever the user can,
-  and the run says so once on stderr, `note: fgro run starts programs in no box, so --allow-run-write= holds nothing back: a program --allow-run= grants writes wherever you can`.
+  which that program writes from its own box, as under a command of Gro's ([box](box.md#what-a-commands-box-admits)).
   It's repeatable, one program each, the directories of a program joined across flags, and it grants the project's modules nothing.
   The value splits at its first `:`, so a directory may hold one and a program's name can't.
   It's a usage error bare, with no `:`, nothing before or after it, or a `,` before it, which would name two programs;
@@ -122,15 +128,28 @@ User code can't read stdin (there is no `process` global, `Deno`, or `Bun`) and 
 it reads the filesystem only through `@fuzdev/gro/fs.ts`, beneath the project's root, the directories `--allow-read=` names, and those `fs.temp_dir` makes under `--allow-temp` (everything under `-A`),
 and writes only beneath the directories `--allow-write=` names and those `fs.temp_dir` makes under `--allow-temp`;
 it starts only the programs `--allow-run=` names and those found beneath what `--allow-run-in=` names, through `@fuzdev/gro/spawn.ts` (any under `-A`), and no module gives it the network.
-That is the whole of today's confinement: the process itself has no kernel box and no resource limits, the JIT is on,
+Those are the runtime's native checks. Under them the run's process runs in the run's kernel box ([box](box.md#fgro-run)), on Linux with Landlock at ABI 6 (Linux 6.12) or later and a snapshot build:
+it reads the project's root, or an entry's own directory in no project and each type marker above it, file-only, the directories the flags name, and the system's;
+it writes only what `--allow-write=` names and its private directory, a flag naming the root writing the root's top-level entries as the run started but `.git`, `node_modules`, the dot-entries, and symlinks,
+so `--allow-write=.` writes neither `.git` nor a new top-level entry, and a write the box refuses names where it lets the run write;
+a run that starts no program stays in the host's network with every internet socket refused, and one that may start one takes a network namespace of its own, its loopback only;
+the process isn't dumpable, its `core` limit 0, and a run that fails after a program it started failed ends with a note naming the box's walls.
+An exploit of the engine lands in the box; what the box leaves open, `.env*` and every other secret in the readable tree among it, is [box](box.md#fgro-run)'s.
+`-A` runs in no box, unconfined, and says nothing.
+Where the box can't go up, the kernel's Landlock missing, off, or below ABI 6, or a build with no snapshot, the run runs in no box after
+`note: fgro run runs in no kernel box here, so only the runtime's own checks hold its grants: <why>`
+(for a plain build, `note: fgro run runs in no kernel box, since this build has no startup snapshot (cargo xtask build makes one), so only the runtime's own checks hold its grants`),
+with `, and the programs it starts run in no box of their own, writing wherever you can` for a run that may start a program;
+`GRO_FALLBACK=command` refuses it instead, exit 2, and a `GRO_FALLBACK` naming no policy is refused before anything runs, as for a command of Gro's.
+A project root that is or holds the home directory, found by a `package.json` or a `node_modules` at or above the entry (a stray `~/package.json`), is refused before anything runs, naming what made it the root;
+an entry in no project is never refused, its own directory read, by the run and by every program it starts, only as a flag names it.
+There are no resource limits, the JIT is on,
 and console output reaches the terminal unescaped: it's the program's own, and can imitate `fgro`'s lines, an `error:` or a `hint:` among them.
-The vendored `deno_core` reads three diagnostic variables of its own, which `fgro run` leaves in place
-(`fgro eval` clears its environment, and a command of Gro's removes the three for its run and its tools):
+The vendored `deno_core` reads three diagnostic variables of its own, which a run in the box removes and a run in no box leaves in place
+(`fgro eval` clears its environment):
 `DENO_STARTUP_PHASES` and `DENO_LOG_LAZY_LOAD` print startup timings and lazy loads to stderr,
 and `DENO_SNAPSHOT_IMPORT_GRAPH` names a file every module's imports are appended to, a write outside every grant,
 the process stopping when the file can't be opened.
-So `fgro run` is not yet for code you treat as hostile
-([authority](authority.md#threat-model) and [box](box.md) have what's designed).
 The event loop drains before the run ends, so timers and pending promises complete,
 and a top-level `await` on a promise nothing settles or waits on ends the run as an error, not a hang;
 a call's child is waited on until it ends, so a run awaiting a child that never ends waits for it, as on Node.
@@ -139,7 +158,7 @@ A run that grants a program (`--allow-run=`, `--allow-run-in=`, or `-A`) raises 
 and each child inherits the raised limit; a raise the kernel refuses leaves the limit as it was and the run going, as on Node.
 Linux x86_64 only.
 A binary from `cargo xtask build` starts from its embedded snapshot and runs anywhere,
-while a plain `cargo build` runs only from its build tree, and refuses every command of Gro's it would run in its box, which needs the snapshot.
+while a plain `cargo build` runs only from its build tree, refuses every command of Gro's it would run in its box, which needs the snapshot, and runs `fgro run` in no box, saying so.
 The snapshot build is reproducible: a clean checkout of one commit, with the same toolchain (Rust's, and the system's C compiler and C library) and cargo home (whose registry paths the binary names), builds the same `fgro`, byte for byte, from any path.
 The binary embeds the commit, so a dirty tree (a changed file, or an untracked one git doesn't ignore) builds other bytes, and so does one git can't read as its own checkout (outside git, or a copy inside another repo), which embeds none.
 
@@ -394,7 +413,7 @@ Whether a stream is colored is decided once per process, in order:
 | 0              | the module ran to completion with no code set, or called `exit()` with none set, or `--help` or `--version`                                                  |
 | the program's  | the code given to `exit(code)`, or the one `set_exit_code` set when the module then ran to completion or called `exit()` with none: an integer from 0 to 255 |
 | 1              | the module threw, rejected a promise no one handled, left a top-level `await` unsettled, an import failed to resolve, load, or strip, or the runtime failed to start, or a run that grants a program couldn't make ready to start one, whatever code `set_exit_code` set; or an `import()` was refused by one of gro's rules, or a call for a grant its handle lacks, caught or not, in a run that would have exited 0 |
-| 2              | a usage error (an unknown flag of `eval`, or one after `--version`, `--help`, or `help`, a flag before `run`'s file other than `--help`, `--allow-env=`, `--allow-read=`, `--allow-write=`, `--allow-temp`, `--allow-run=`, `--allow-run-in=`, `--allow-run-env=`, `--allow-run-write=`, or `-A`, a bare one of these or a name it can't grant, `--allow-temp` given a value, `--allow-run-env=` without `--allow-run=` or `--allow-run-in=`, `--allow-run-write=` naming no one program before its `:`, without `--allow-run=`, or naming a program no `--allow-run=` lists, a directory missing, no directory, or one that can't be looked at, no file, an extra argument to `eval`, a non-UTF-8 argument, the script's included, `--version` with a subcommand), or an entry that doesn't resolve (missing, the wrong extension, a `.js` file not under `"type": "module"`) |
+| 2              | `GRO_FALLBACK` naming no policy, a project root that is or holds the home directory, `GRO_FALLBACK=command` refusing a run in no kernel box, what the run's box refuses before anything runs ([box](box.md#how-it-goes-up)); a usage error (an unknown flag of `eval`, or one after `--version`, `--help`, or `help`, a flag before `run`'s file other than `--help`, `--allow-env=`, `--allow-read=`, `--allow-write=`, `--allow-temp`, `--allow-run=`, `--allow-run-in=`, `--allow-run-env=`, `--allow-run-write=`, or `-A`, a bare one of these or a name it can't grant, `--allow-temp` given a value, `--allow-run-env=` without `--allow-run=` or `--allow-run-in=`, `--allow-run-write=` naming no one program before its `:`, without `--allow-run=`, or naming a program no `--allow-run=` lists, a directory missing, no directory, or one that can't be looked at, no file, an extra argument to `eval`, a non-UTF-8 argument, the script's included, `--version` with a subcommand), or an entry that doesn't resolve (missing, the wrong extension, a `.js` file not under `"type": "module"`) |
 
 Every other first argument, a flag among them, and none run a command of Gro's ([runtime](runtime.md#gros-workflow-on-the-runtime)),
 which runs in the run's kernel box and exits with Gro's code as a run does,
