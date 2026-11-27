@@ -10,18 +10,33 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use super::Scratch;
-use crate::confine::plan::{DirFlag, RuleSource, ToolDir};
+use crate::confine::plan::{DirFlag, RuleSource, ToolDir, ToolDirs};
 use crate::confine::program::{
     ProgramBox, ProgramBoxError, ProgramBoxes, ProgramRules, ProgramWrites, program_rights,
 };
 use crate::confine::rules::{BoxRules, InstalledRule, Need, Rights};
 
-/// The write set of the program `--allow-run-write=` names at `index`,
-/// a tool of the table when `table`, writing the root's entries when
-/// `root`.
-const fn named(index: usize, table: bool, root: bool) -> ProgramWrites {
+/// The tool directories a program of the table writing all of
+/// `.svelte-kit` writes.
+fn kit_dirs() -> ToolDirs {
+    std::iter::once(ToolDir::SvelteKit).collect()
+}
+
+/// The write set of a program of the table writing all of `.svelte-kit`,
+/// that no `--allow-run-write=` names.
+fn kit() -> ProgramWrites {
     ProgramWrites {
-        tool_dirs: table,
+        tool_dirs: kit_dirs(),
+        ..ProgramWrites::NONE
+    }
+}
+
+/// The write set of the program `--allow-run-write=` names at `index`,
+/// a tool of the table writing all of `.svelte-kit` when `table`,
+/// writing the root's entries when `root`.
+fn named(index: usize, table: bool, root: bool) -> ProgramWrites {
+    ProgramWrites {
+        tool_dirs: if table { kit_dirs() } else { ToolDirs::EMPTY },
         root,
         run_write: Some(index),
     }
@@ -31,7 +46,7 @@ const fn named(index: usize, table: bool, root: bool) -> ProgramWrites {
 /// by its write set, and takes nothing of the private directory or of what
 /// a write flag names, read included; the devices it takes as the run has
 /// them, `/dev/null` written; a tool directory it writes only as a program
-/// of the table, an entry only as one whose set names the root, and a rule
+/// whose write set holds it, never one another program's set holds, an entry only as one whose set names the root, and a rule
 /// `--allow-run-write=` made only as the program it names, read included.
 #[test]
 fn a_program_takes_the_run_s_rules_but_its_writes() {
@@ -40,6 +55,7 @@ fn a_program_takes_the_run_s_rules_but_its_writes() {
     let read_execute = Rights::READ | Rights::EXECUTE;
     let all = Rights::READ | Rights::WRITE | Rights::EXECUTE;
     let tool_dir = RuleSource::ToolDir(ToolDir::SvelteKit);
+    let plain = Rights::WRITE_PLAIN;
     // the table's, a flag's, and the one named at 0 writing the root
     let rooted = named(0, false, true);
     for (source, rights, table, flag, named_root) in [
@@ -57,7 +73,7 @@ fn a_program_takes_the_run_s_rules_but_its_writes() {
             None,
             Some(Rights::WRITE),
         ),
-        (tool_dir, Rights::WRITE, Some(Rights::WRITE), None, None),
+        (tool_dir, plain, Some(plain), None, None),
         (RuleSource::PrivateTemp, all, None, None, None),
         (
             RuleSource::Device,
@@ -127,12 +143,12 @@ fn a_program_takes_the_run_s_rules_but_its_writes() {
         ),
     ] {
         assert_eq!(
-            program_rights(source, rights, ProgramWrites::TABLE),
+            program_rights(source, rights, kit()),
             table,
             "{source:?} {rights:?}"
         );
         assert_eq!(
-            program_rights(source, rights, ProgramWrites::FLAG),
+            program_rights(source, rights, ProgramWrites::NONE),
             flag,
             "{source:?} {rights:?}"
         );
@@ -142,10 +158,43 @@ fn a_program_takes_the_run_s_rules_but_its_writes() {
             "{source:?} {rights:?}"
         );
     }
-    // a named tool of the table writes the tool directories beside its own
+    // a program writing other tool directories writes none of this one
+    let vitest = ProgramWrites {
+        tool_dirs: [
+            ToolDir::SvelteKitDev,
+            ToolDir::SvelteKitTypes,
+            ToolDir::App,
+            ToolDir::ViteTemp,
+            ToolDir::Vitest,
+        ]
+        .into_iter()
+        .collect(),
+        ..ProgramWrites::NONE
+    };
+    assert_eq!(program_rights(tool_dir, plain, vitest), None);
     assert_eq!(
-        program_rights(tool_dir, Rights::WRITE, named(1, true, false)),
-        Some(Rights::WRITE)
+        program_rights(RuleSource::ToolDir(ToolDir::SvelteKitDev), plain, vitest),
+        Some(plain)
+    );
+    assert_eq!(
+        program_rights(RuleSource::ToolDir(ToolDir::SvelteKitDev), plain, kit()),
+        None
+    );
+    // a named tool of the table writes its tool directories beside its own
+    assert_eq!(
+        program_rights(tool_dir, plain, named(1, true, false)),
+        Some(plain)
+    );
+    // a program takes a rule's writing as the run's box has it, plain or
+    // whole, never widening a plain one
+    assert!(plain.writes() && !plain.writes_special() && Rights::WRITE.writes_special());
+    assert_eq!(
+        program_rights(RuleSource::RunWrite(0), Rights::READ | plain, rooted),
+        Some(Rights::READ | plain)
+    );
+    assert!(
+        program_rights(RuleSource::Entry, Rights::WRITE, rooted)
+            .is_some_and(Rights::writes_special)
     );
     assert_eq!(
         program_rights(RuleSource::RunWrite(1), read_write, named(1, true, false)),
@@ -180,7 +229,7 @@ fn run_rules(scratch: &Scratch) -> BoxRules {
         ("project/src", Rights::WRITE, RuleSource::Entry),
         (
             "project/.svelte-kit",
-            Rights::WRITE,
+            Rights::WRITE_PLAIN,
             RuleSource::ToolDir(ToolDir::SvelteKit),
         ),
         (
@@ -239,9 +288,9 @@ fn granted(programs: &ProgramRules, writes: ProgramWrites) -> Vec<(PathBuf, Righ
 
 /// A run that may start a program keeps every rule as data, and holds the
 /// handles some program of its box takes, the private directory's among
-/// them: a program of the table reads the project, writes the tool
-/// directory and `/dev/null`, and nothing of what a write flag names; one a
-/// flag grants writes only `/dev/null`; each program `--allow-run-write=`
+/// them: a program of the table reads the project, writes its tool
+/// directory and `/dev/null`, and nothing of what a write flag names; one
+/// with no write set writes only `/dev/null`; each program `--allow-run-write=`
 /// names writes its own directories and no other's, and the entries only
 /// where its set names the root. A rule no program of the run takes, an
 /// entry no program writes and the write flag's, is held for none.
@@ -255,7 +304,7 @@ fn a_spawning_run_holds_what_its_programs_boxes_take() {
     assert!(absent.is_empty());
     let (installed, programs) = ProgramRules::hold(
         rules,
-        &[ProgramWrites::TABLE, first, second],
+        &[ProgramWrites::NONE, kit(), first, second],
         BTreeMap::new(),
     );
     let sources: Vec<_> = installed.iter().map(InstalledRule::source).collect();
@@ -276,22 +325,22 @@ fn a_spawning_run_holds_what_its_programs_boxes_take() {
     let null = Path::new("/").join("dev/null");
     let read_write = Rights::READ | Rights::WRITE;
     assert_eq!(
-        granted(&programs, ProgramWrites::TABLE),
+        granted(&programs, kit()),
         [
             (at("project"), Rights::READ),
-            (at("project/.svelte-kit"), Rights::WRITE),
+            (at("project/.svelte-kit"), Rights::WRITE_PLAIN),
             (null.clone(), read_write),
         ]
     );
     assert_eq!(
-        granted(&programs, ProgramWrites::FLAG),
+        granted(&programs, ProgramWrites::NONE),
         [(at("project"), Rights::READ), (null.clone(), read_write)]
     );
     assert_eq!(
         granted(&programs, first),
         [
             (at("project"), Rights::READ),
-            (at("project/.svelte-kit"), Rights::WRITE),
+            (at("project/.svelte-kit"), Rights::WRITE_PLAIN),
             (at("first"), read_write),
             (null.clone(), read_write),
         ]
@@ -311,7 +360,7 @@ fn a_spawning_run_holds_what_its_programs_boxes_take() {
     let (rules, _) = run_rules(&scratch).into_installed();
     let (_, programs) = ProgramRules::hold(
         rules,
-        &[ProgramWrites::TABLE, named(1, false, false)],
+        &[ProgramWrites::NONE, kit(), named(1, false, false)],
         BTreeMap::new(),
     );
     let programs = programs.unwrap();
@@ -356,10 +405,11 @@ fn no_rule_holding_the_private_directory_is_held() {
         )
         .unwrap();
     let (rules, _) = rules.into_installed();
-    let (installed, programs) = ProgramRules::hold(rules, &[ProgramWrites::TABLE], BTreeMap::new());
+    let (installed, programs) =
+        ProgramRules::hold(rules, &[ProgramWrites::NONE, kit()], BTreeMap::new());
     assert_eq!(installed.len(), 10);
     let programs = programs.unwrap();
-    for program in [ProgramWrites::TABLE, ProgramWrites::FLAG] {
+    for program in [kit(), ProgramWrites::NONE] {
         let sources: Vec<_> = programs
             .granted(program)
             .map(|(rule, _)| rule.source())
@@ -371,7 +421,7 @@ fn no_rule_holding_the_private_directory_is_held() {
             "{program:?}: {sources:?}"
         );
     }
-    assert_eq!(granted(&programs, ProgramWrites::TABLE).len(), 3);
+    assert_eq!(granted(&programs, kit()).len(), 3);
 }
 
 /// A run that starts nothing holds no handle past its box, nor does one
@@ -389,8 +439,7 @@ fn a_run_that_starts_nothing_holds_no_handle() {
         .into_iter()
         .filter(|(rule, _)| rule.source() != RuleSource::PrivateTemp)
         .collect();
-    let (installed, programs) =
-        ProgramRules::hold(without_private, &[ProgramWrites::TABLE], BTreeMap::new());
+    let (installed, programs) = ProgramRules::hold(without_private, &[kit()], BTreeMap::new());
     assert_eq!(installed.len(), 7);
     assert!(programs.is_none());
 }
@@ -405,9 +454,9 @@ fn a_program_s_box_makes_its_temp_dir_by_its_place() {
     let scratch = Scratch::new("program_temp");
     let outside = scratch.dir("outside");
     let (rules, _) = run_rules(&scratch).into_installed();
-    let (_, programs) = ProgramRules::hold(rules, &[ProgramWrites::TABLE], BTreeMap::new());
+    let (_, programs) = ProgramRules::hold(rules, &[kit()], BTreeMap::new());
     let programs = programs.unwrap();
-    let made = programs.program_box(ProgramWrites::TABLE, 3).unwrap();
+    let made = programs.program_box(kit(), 3).unwrap();
     let temp = scratch.path().join("private/program_3");
     assert_eq!(made.temp_dir(), temp);
     let metadata = std::fs::symlink_metadata(&temp).unwrap();
@@ -418,16 +467,16 @@ fn a_program_s_box_makes_its_temp_dir_by_its_place() {
         other => panic!("not refused for its temporary directory: {other:?}"),
     };
     assert_eq!(
-        refused(programs.program_box(ProgramWrites::FLAG, 3)),
+        refused(programs.program_box(ProgramWrites::NONE, 3)),
         (temp, Some(libc::EEXIST))
     );
     scratch.link(&outside.join("planted"), "private/program_4");
     assert_eq!(
-        refused(programs.program_box(ProgramWrites::FLAG, 4)),
+        refused(programs.program_box(ProgramWrites::NONE, 4)),
         (scratch.path().join("private/program_4"), Some(libc::EEXIST))
     );
     assert!(!outside.join("planted").exists());
-    assert!(programs.program_box(ProgramWrites::FLAG, 5).is_ok());
+    assert!(programs.program_box(ProgramWrites::NONE, 5).is_ok());
 }
 
 /// The run's boxes build each place's box once, at its first ask, and keep
@@ -438,15 +487,12 @@ fn a_program_s_box_makes_its_temp_dir_by_its_place() {
 fn a_program_s_box_is_built_once_and_kept() {
     let scratch = Scratch::new("program_boxes");
     let (rules, _) = run_rules(&scratch).into_installed();
-    let (_, programs) = ProgramRules::hold(rules, &[ProgramWrites::TABLE], BTreeMap::new());
+    let (_, programs) = ProgramRules::hold(rules, &[kit()], BTreeMap::new());
     let boxes = ProgramBoxes::new(programs.unwrap());
-    let built = boxes.box_for(0, ProgramWrites::TABLE).unwrap();
-    assert!(Rc::ptr_eq(
-        &built,
-        &boxes.box_for(0, ProgramWrites::TABLE).unwrap()
-    ));
+    let built = boxes.box_for(0, kit()).unwrap();
+    assert!(Rc::ptr_eq(&built, &boxes.box_for(0, kit()).unwrap()));
     std::fs::create_dir(scratch.path().join("private/program_1")).unwrap();
-    let failed = boxes.box_for(1, ProgramWrites::FLAG).unwrap_err();
+    let failed = boxes.box_for(1, ProgramWrites::NONE).unwrap_err();
     assert_eq!(
         &*failed,
         format!(
@@ -455,35 +501,37 @@ fn a_program_s_box_is_built_once_and_kept() {
         )
     );
     std::fs::remove_dir(scratch.path().join("private/program_1")).unwrap();
-    assert_eq!(boxes.box_for(1, ProgramWrites::FLAG).unwrap_err(), failed);
-    assert!(boxes.box_for(2, ProgramWrites::FLAG).is_ok());
+    assert_eq!(boxes.box_for(1, ProgramWrites::NONE).unwrap_err(), failed);
+    assert!(boxes.box_for(2, ProgramWrites::NONE).is_ok());
 }
 
-/// What `--allow-run-write=` names a program for is its write set, and
-/// every other program's is the table's or a flag's by its grant.
+/// A program's write set is the one the run holds for its name, the
+/// table's and `--allow-run-write=`'s joined, and a program with none
+/// writes nothing.
 #[test]
-fn a_program_s_writes_follow_its_grant() {
+fn a_program_s_writes_follow_its_name() {
     let scratch = Scratch::new("program_writes");
     let (rules, _) = run_rules(&scratch).into_installed();
     let named_table = named(0, true, false);
     let named_flag = named(1, false, true);
     let (_, programs) = ProgramRules::hold(
         rules,
-        &[ProgramWrites::TABLE, named_table, named_flag],
+        &[ProgramWrites::NONE, kit(), named_table, named_flag],
         BTreeMap::from([
+            ("node_modules/.bin/svelte-kit".to_owned(), kit()),
             ("node_modules/.bin/vitest".to_owned(), named_table),
             ("python3".to_owned(), named_flag),
         ]),
     );
     let programs = programs.unwrap();
-    for (name, table, writes) in [
-        ("node_modules/.bin/vitest", true, named_table),
-        ("python3", false, named_flag),
-        ("python3", true, named_flag),
-        ("git", true, ProgramWrites::TABLE),
-        ("sh", false, ProgramWrites::FLAG),
+    for (name, writes) in [
+        ("node_modules/.bin/svelte-kit", kit()),
+        ("node_modules/.bin/vitest", named_table),
+        ("python3", named_flag),
+        ("svelte-kit", ProgramWrites::NONE),
+        ("node_modules/.bin/tsc", ProgramWrites::NONE),
     ] {
-        assert_eq!(programs.writes(name, table), writes, "{name}");
+        assert_eq!(programs.writes(name), writes, "{name}");
     }
 }
 

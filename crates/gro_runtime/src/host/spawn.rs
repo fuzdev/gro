@@ -451,19 +451,8 @@ impl SpawnRun {
         }
         let key = self.keys.borrow().get(place).cloned();
         let writes = match key {
-            Some(ProgramKey::Granted(name)) => {
-                let table = self.scopes.get(PROJECT_SCOPE).is_some_and(|scope| {
-                    matches!(
-                        &scope.programs,
-                        Programs::Granted(programs) if matches!(
-                            programs.get(&name),
-                            Some(GrantedProgram { grant: ProgramGrant::Table { .. }, .. })
-                        )
-                    )
-                });
-                boxes.rules().writes(&name, table)
-            }
-            Some(ProgramKey::Found { .. }) => ProgramWrites::FLAG,
+            Some(ProgramKey::Granted(name)) => boxes.rules().writes(&name),
+            Some(ProgramKey::Found { .. }) => ProgramWrites::NONE,
             None => return Err(Rc::from("a program handle names no key of the run's")),
         };
         boxes.box_for(place, writes).map(Some)

@@ -141,14 +141,17 @@ for Linux x86_64 only, built from source ([install](../src/docs/runtime.md#insta
   A step the command line turns off, like `fgro check --no-test`, leaves the command's grants, its tools neither pinned nor granted, and their tool directories not made.
   - The command runs in a kernel box with every tool it starts ([box](../src/docs/box.md#what-a-commands-box-admits)):
     the project read-only but for the command's write roots (a rule per top-level entry but `.git`, `node_modules`, and the other dot-entries under `gen`, `format`, and `sync`,
-    and the tool directories, like `.svelte-kit` and `node_modules/.vite`, under a command that starts a tool from `node_modules/.bin`, as the project's dependencies call for),
+    and the tool directories, like `.svelte-kit` and `node_modules/.vite/vitest`, under a command that starts a tool that writes them, as the project's dependencies call for),
     nothing under the home directory but the project's own trees, what git reads there (its global config, ignore and attributes files, and the files the config includes or names, never its credential store unless that config names it) and the programs the run pins, `node`'s file among them,
     no network but the run's own loopback,
     for a run that may start a program or that `--allow-temp` grants, a temp directory private to the run that `TMPDIR`, `TMP` and `TEMP` where set, and the XDG data, cache, and state variables name,
     not dumpable, and the `core` limit 0.
     `.env*` in the project stays readable, `/proc` is readable but for the environment, memory, and working directory of a process outside the box.
     Each tool it starts runs in a box of its own inside it, writing a temporary directory of its own, which its `TMPDIR`, its `TMP` and `TEMP` where it has them, and its XDG variables name,
-    the command's tool directories for the grants table's tools, and what `--allow-run-write=` names for it, never what `--allow-write=` names;
+    the tool directories its grant in the grants table names, making no symlink or FIFO there and moving no entry in from another directory, not even under a write flag: a directory `--allow-write=` or `--allow-run-write=` names that is a tool directory or where a linked `node_modules` leads, lies in one, or holds either is written plain too, and every other keeps those rights (`svelte-kit` all of `.svelte-kit`, `node_modules/$app`, and `.vite-temp`;
+    svelte-check `.svelte-kit/generated/dev` and `.vite-temp`; Vitest those two, `.svelte-kit/types`, and its own cache in `node_modules/.vite/vitest`, `gro test` syncing SvelteKit first;
+    tsc, ESLint, git, and npm none), and what `--allow-run-write=` names for it, never what `--allow-write=` names;
+    no tool writes `node_modules/.vite` beside Vitest's cache, nor fuz_css's `.fuz/cache`, which a later `dev` or `build` trusts;
     no tool reads another's environment, memory, or temporary directory, and the tools see the run's whole environment.
   - `--allow-run-write=<program>:<dirs>` lets one program the command starts write these directories, named as the tool is called (`vitest`), as `--allow-run=` names it, or by its name in the run (`node_modules/.bin/vitest`):
     `gro test --allow-run-write=vitest:src -- -u`, `gro lint --allow-run-write=eslint:src -- eslint --fix`.

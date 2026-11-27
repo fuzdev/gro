@@ -6,12 +6,13 @@
 //! directory, beneath the project's root (never where a `node_modules`
 //! symlink leads, which the plan gives none), every directory on the way
 //! opened by its own name with every symlink refused
-//! (`gro_sys::beneath::Links::Refused`), a missing one made (`.fuz` for
-//! `.fuz/cache`), and the last made by `mkdirat` in the directory so held.
+//! (`gro_sys::beneath::Links::Refused`), a missing one made (`.vite` for
+//! `node_modules/.vite/vitest`), and the last made by `mkdirat` in the
+//! directory so held.
 //! One there already passes only as a directory: a symlink
 //! (`node_modules/.vite` linked to the home directory, `.svelte-kit` to
-//! `/tmp`) or a file is refused, as is a file on the way to one (`.fuz` for
-//! `.fuz/cache`), and nothing is made where it leads.
+//! `/tmp`) or a file is refused, as is a file on the way to one (`.vite` for
+//! `node_modules/.vite/vitest`), and nothing is made where it leads.
 //!
 //! Kind: part of the box's boundary, the opening without following a
 //! symlink, against a symlink planted before the box by code that ran
@@ -36,7 +37,7 @@ const TOOL_DIR_MODE: u32 = 0o777;
 #[derive(Debug, thiserror::Error)]
 pub enum ToolDirError {
     /// Something other than a directory is at its path or on the way to it
-    /// (a file at `.fuz` for `.fuz/cache`).
+    /// (a file at `node_modules/.vite` for `node_modules/.vite/vitest`).
     #[error(
         "the box's tool directory {} is refused: something other than a directory is there or on \
          the way to it, and a tool directory is made only as a real one",

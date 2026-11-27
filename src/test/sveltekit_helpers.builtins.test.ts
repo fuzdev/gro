@@ -77,11 +77,16 @@ const run_in = async (
 	return { spawn, log: ctx.log };
 };
 
-test("`gen`, `lint`, and `check` each grant themselves the project's `svelte-kit`", () => {
+test("`gen`, `lint`, and `check` each grant themselves the project's `svelte-kit` and its tool directories", () => {
 	for (const name of Object.keys(SYNCING)) {
 		assert.deepEqual(
 			GRO_BUILTIN_TASK_GRANTS[name as keyof typeof SYNCING]?.programs?.sveltekit_cli,
-			{ name: 'svelte-kit', local: true, pass_env: 'all' },
+			{
+				name: 'svelte-kit',
+				local: true,
+				pass_env: 'all',
+				write: ['.svelte-kit', 'node_modules/$app', 'node_modules/.vite-temp']
+			},
 			name
 		);
 	}

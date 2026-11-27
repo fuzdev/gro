@@ -210,7 +210,11 @@ and the contracts no one module doc owns.
   descriptors close. A program's own box (`confine/program.rs`), nested
   in the run's, names only handles the run's box held past it, none on
   the private directory or a directory holding it, taking what its write
-  set (`ProgramWrites`) names and never what `--allow-write=` names, and
+  set (`ProgramWrites`) names (the tool directories its grants table entry
+  names in `write`, which no other program's box takes, without Landlock's
+  `MakeSym`, and what
+  `--allow-run-write=` names for it) and never what `--allow-write=` names,
+  and
   its own temporary directory, made beneath the held private directory's handle, an entry
   already there refused, named by its key's place in the run's table of
   programs (`ProgramKey`: a granted name, or a find's pin, so a find

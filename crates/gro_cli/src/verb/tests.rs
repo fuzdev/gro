@@ -44,7 +44,9 @@ pub fn has_fields(value: &Value, fields: &[&str]) -> bool {
 /// them.
 fn program(value: &Value) -> ClosureProgram {
     let field = |name| value.get(name);
-    let known = ["role", "name", "local", "pass_env", "omit_env", "env"];
+    let known = [
+        "role", "name", "local", "pass_env", "omit_env", "env", "write",
+    ];
     let unknown: Vec<&String> = value
         .as_object()
         .unwrap()
@@ -71,6 +73,9 @@ fn program(value: &Value) -> ClosureProgram {
                     .iter()
                     .map(|(name, value)| (name.clone(), value.as_str().unwrap().to_owned()))
                     .collect::<BTreeMap<_, _>>()
+            }),
+            write: field("write").map_or_else(Vec::new, |write| {
+                serde_json::from_value(write.clone()).unwrap()
             }),
         },
     }

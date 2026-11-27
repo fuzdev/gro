@@ -63,13 +63,20 @@ use super::landlock::LANDLOCK_ABI;
 use super::plan::RuleSource;
 
 /// What a rule grants beneath its handle: any of reading, writing, and
-/// executing, joined by `|`.
+/// executing, joined by `|`, writing whole or plain ([`Rights::WRITE_PLAIN`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "four independent rights, each a set of Landlock's, joined by `|`"
+)]
 pub struct Rights {
     /// Reading files and listing directories.
     read: bool,
     /// Writing files, and making, removing, and renaming entries.
     write: bool,
+    /// Making symlinks and FIFOs, and moving or linking an entry in from
+    /// another directory, where it writes.
+    special: bool,
     /// Executing files.
     execute: bool,
 }
@@ -80,6 +87,7 @@ impl Rights {
     pub const READ: Self = Self {
         read: true,
         write: false,
+        special: false,
         execute: false,
     };
 
@@ -90,6 +98,23 @@ impl Rights {
     pub const WRITE: Self = Self {
         read: false,
         write: true,
+        special: true,
+        execute: false,
+    };
+
+    /// Writing plain entries alone: [`Rights::WRITE`] without making a
+    /// symlink or a FIFO, Landlock's `MakeSym` and `MakeFifo`, or moving or
+    /// linking an entry in from another directory, its `Refer`, which could
+    /// bring a symlink along. A tool directory is written so, and a
+    /// directory `--allow-write=` or `--allow-run-write=` names that is a
+    /// tool directory or where a linked `node_modules` leads, lies in one,
+    /// or holds either (`plan::BoxPlan`), since a later unconfined tool that
+    /// writes a file there by its name follows a symlink planted at it, and
+    /// blocks reading a FIFO; a rename within one directory is kept.
+    pub const WRITE_PLAIN: Self = Self {
+        read: false,
+        write: true,
+        special: false,
         execute: false,
     };
 
@@ -97,6 +122,7 @@ impl Rights {
     pub const EXECUTE: Self = Self {
         read: false,
         write: false,
+        special: false,
         execute: true,
     };
 
@@ -105,11 +131,19 @@ impl Rights {
         self.write
     }
 
+    /// Whether these grant writing beyond plain entries: making a symlink
+    /// or a FIFO, or moving an entry in from another directory.
+    #[cfg(test)]
+    pub(super) const fn writes_special(self) -> bool {
+        self.write && self.special
+    }
+
     /// These without writing: what a program's box keeps of a rule it only
     /// reads beneath (`program::program_rights`).
     pub(super) const fn without_write(self) -> Self {
         Self {
             write: false,
+            special: false,
             ..self
         }
     }
@@ -130,6 +164,9 @@ impl Rights {
         }
         if self.write {
             access |= WRITE_ACCESS;
+            if !self.special {
+                access &= !SPECIAL_ACCESS;
+            }
         }
         if self.execute {
             access |= AccessFs::Execute;
@@ -148,6 +185,7 @@ impl BitOr for Rights {
         Self {
             read: self.read || other.read,
             write: self.write || other.write,
+            special: self.special || other.special,
             execute: self.execute || other.execute,
         }
     }
@@ -160,6 +198,9 @@ const READ_ACCESS: BitFlags<AccessFs> = make_bitflags!(AccessFs::{ReadFile | Rea
 const WRITE_ACCESS: BitFlags<AccessFs> = make_bitflags!(AccessFs::{
     WriteFile | Truncate | MakeReg | MakeDir | MakeFifo | MakeSym | RemoveFile | RemoveDir | Refer
 });
+
+/// The rights of [`Rights::WRITE`] that [`Rights::WRITE_PLAIN`] leaves out.
+const SPECIAL_ACCESS: BitFlags<AccessFs> = make_bitflags!(AccessFs::{MakeSym | MakeFifo | Refer});
 
 /// What a rule opened by its real path grants, which never writes: a rule
 /// that writes is opened beneath a directory's descriptor, every symlink

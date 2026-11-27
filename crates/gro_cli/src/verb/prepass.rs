@@ -45,11 +45,12 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
+use gro_runtime::confine::plan::{ToolDir, ToolWrites};
 use gro_runtime::resolver::{GRO_PACKAGE, InstalledPackage, ProjectPackage, ResolveErrorKind};
 use gro_runtime::verb::closure::{
     ClosureFallback, CommandClosure, TASK_VERB, command_closure, command_word, is_task_path_input,
 };
-use gro_runtime::verb::table::{BuiltinGrantsTable, PassEnv};
+use gro_runtime::verb::table::{BuiltinGrantsTable, BuiltinProgramGrant, PassEnv};
 use gro_runtime::{BINARY_NAME, EnvPattern, PassEnvGrant, ProgramGrant};
 use thiserror::Error;
 
@@ -136,9 +137,11 @@ pub struct VerbRun {
     /// Whether the closure writes the project's root, its check mode's
     /// writes dropped.
     pub writes_root: bool,
-    /// The project's local programs the closure grants, each by its bare
-    /// name (`vitest`, `svelte-kit`).
-    pub tools: BTreeSet<String>,
+    /// The programs of the grants table the closure grants that write tool
+    /// directories, by the name the run grants each as
+    /// (`node_modules/.bin/vitest`), each with its table name and its
+    /// `write`.
+    pub tools: BTreeMap<String, ToolWrites>,
     /// The packages the project's `package.json` declares in
     /// `dependencies` or `devDependencies`, by name.
     pub declared: BTreeSet<String>,
@@ -331,7 +334,8 @@ pub enum VerbError {
 /// Why the grants table can't grant a program.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum TableFault {
-    /// Two builtins in one closure grant it by different policies.
+    /// Two builtins in one closure grant it by different policies or tool
+    /// directories.
     #[error("two builtins in the command's closure grant it by different policies")]
     TwoPolicies,
     /// An `omit_env` beside a `pass_env` that isn't `'all'`, which Gro's TS
@@ -509,7 +513,7 @@ pub fn plan(
         RunGrant::Named { run, run_env, .. } => (run, run_env),
         RunGrant::All => (&no_flags.0, &no_flags.1),
     };
-    let programs = table_programs(&closure, flag_programs, forwards)?;
+    let (programs, tools) = table_programs(&closure, flag_programs, forwards)?;
     let run_writes = resolve_run_writes(
         &closure,
         flag_programs,
@@ -538,13 +542,6 @@ pub fn plan(
     dirs.read.extend(closure.grants.read.iter().cloned());
     dirs.write.extend(closure.grants.write.iter().cloned());
     let home = inputs.home.map(|home| home.to_string_lossy());
-    let tools = closure
-        .grants
-        .programs
-        .iter()
-        .filter(|program| program.grant.local)
-        .map(|program| program.grant.name.clone())
-        .collect();
     Ok(VerbPlan::Run(Box::new(VerbRun {
         cli_args: split.cli_args,
         root: inputs.root.to_owned(),
@@ -627,11 +624,7 @@ fn resolve_run_writes<'a>(
         .iter()
         .map(|program| {
             let grant = &program.grant;
-            let key = if grant.local {
-                format!("{LOCAL_BIN_DIR}/{}", grant.name)
-            } else {
-                grant.name.clone()
-            };
+            let key = program_key(grant);
             (key, grant.name.as_str())
         })
         .collect();
@@ -682,9 +675,26 @@ fn may_start(closure: &CommandClosure, flag_programs: &BTreeSet<String>) -> BTre
         .collect()
 }
 
+/// What [`table_programs`] reads from a closure: the policy of each
+/// program, and the tool directories of each that writes any, both by the
+/// name the run grants it as.
+type TablePrograms = (BTreeMap<String, ProgramGrant>, BTreeMap<String, ToolWrites>);
+
+/// The name the run grants the table's program `grant` as, which Gro's TS
+/// asks for it by: `node_modules/.bin/<name>` for a `local` one, else its
+/// bare name.
+fn program_key(grant: &BuiltinProgramGrant) -> String {
+    if grant.local {
+        format!("{LOCAL_BIN_DIR}/{}", grant.name)
+    } else {
+        grant.name.clone()
+    }
+}
+
 /// The policy of each program `closure` grants, by the name Gro's TS asks
 /// for it by: `node_modules/.bin/<name>` for a `local` one, else its bare
-/// name. A `pass_env` list, or none, becomes the names it lists, joined to
+/// name, beside the tool directories each that writes any names, by the
+/// same name. A `pass_env` list, or none, becomes the names it lists, joined to
 /// `forwards`, what `--allow-run-env=` forwards, when `flag_programs`, the
 /// programs `--allow-run=` names, names it too, a flag adding its forwards
 /// to a listed program it grants as well, and to no other; `'all'` passes
@@ -694,22 +704,19 @@ fn may_start(closure: &CommandClosure, flag_programs: &BTreeSet<String>) -> BTre
 /// # Errors
 ///
 /// Returns [`VerbError::Table`] for a name two builtins grant by different
-/// policies, an `omit_env` beside a list, and a list name that names no
+/// policies or tool directories, an `omit_env` beside a list, and a list name that names no
 /// variable or glob, each a table Gro's TS refuses or its tests hold
 /// against.
 fn table_programs(
     closure: &CommandClosure,
     flag_programs: &BTreeSet<String>,
     forwards: &BTreeSet<EnvPattern>,
-) -> Result<BTreeMap<String, ProgramGrant>, VerbError> {
+) -> Result<TablePrograms, VerbError> {
     let mut programs: BTreeMap<String, ProgramGrant> = BTreeMap::new();
+    let mut writes: BTreeMap<String, &[ToolDir]> = BTreeMap::new();
     for program in &closure.grants.programs {
         let grant = &program.grant;
-        let name = if grant.local {
-            format!("{LOCAL_BIN_DIR}/{}", grant.name)
-        } else {
-            grant.name.clone()
-        };
+        let name = program_key(grant);
         let fault = |fault| VerbError::Table {
             program: name.clone(),
             fault,
@@ -742,14 +749,34 @@ fn table_programs(
             env: grant.env.clone().unwrap_or_default(),
         };
         match programs.get(&name) {
-            Some(granted) if *granted != table => return Err(fault(TableFault::TwoPolicies)),
+            Some(granted)
+                if *granted != table || writes.get(&name).copied() != Some(&grant.write) =>
+            {
+                return Err(fault(TableFault::TwoPolicies));
+            }
             Some(_) => {}
             None => {
+                writes.insert(name.clone(), &grant.write);
                 programs.insert(name, table);
             }
         }
     }
-    Ok(programs)
+    let tools = closure
+        .grants
+        .programs
+        .iter()
+        .filter(|program| !program.grant.write.is_empty())
+        .map(|program| {
+            let grant = &program.grant;
+            let name = program_key(grant);
+            let tool = ToolWrites {
+                name: grant.name.clone(),
+                tool_dirs: grant.write.iter().copied().collect(),
+            };
+            (name, tool)
+        })
+        .collect();
+    Ok((programs, tools))
 }
 
 #[cfg(test)]

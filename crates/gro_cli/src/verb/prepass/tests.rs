@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
+use gro_runtime::confine::plan::ToolDir;
 use gro_runtime::resolver::{InstalledPackage, ProjectPackage, ResolveErrorKind};
 use gro_runtime::verb::table::BuiltinGrantsTable;
 use gro_runtime::{EnvPattern, PassEnvGrant, ProgramGrant};
@@ -206,6 +207,49 @@ fn a_command_runs_with_its_closure_s_grants() {
     let mut run_names = tools.to_vec();
     run_names.push("git");
     assert_eq!(check.grant, named(&["CI"], &run_names));
+    // each program writes the tool directories its table entry names, and
+    // one that writes none is no tool of the box's
+    let written = |run: &VerbRun| -> Vec<(String, String, Vec<&'static str>)> {
+        run.tools
+            .iter()
+            .map(|(program, tool)| {
+                let dirs = tool.tool_dirs.iter().map(ToolDir::path).collect();
+                (program.clone(), tool.name.clone(), dirs)
+            })
+            .collect()
+    };
+    let kit = (
+        "node_modules/.bin/svelte-kit".to_owned(),
+        "svelte-kit".to_owned(),
+        vec![
+            ".svelte-kit",
+            "node_modules/$app",
+            "node_modules/.vite-temp",
+        ],
+    );
+    let svelte_check = (
+        "node_modules/.bin/svelte-check".to_owned(),
+        "svelte-check".to_owned(),
+        vec![".svelte-kit/generated/dev", "node_modules/.vite-temp"],
+    );
+    let vitest = (
+        "node_modules/.bin/vitest".to_owned(),
+        "vitest".to_owned(),
+        vec![
+            ".svelte-kit/generated/dev",
+            ".svelte-kit/types",
+            "node_modules/.vite-temp",
+            "node_modules/.vite/vitest",
+        ],
+    );
+    assert_eq!(
+        written(&check),
+        [svelte_check.clone(), kit.clone(), vitest.clone()]
+    );
+    assert_eq!(written(&run(&["test"])), [kit.clone(), vitest]);
+    assert_eq!(written(&run(&["typecheck"])), [svelte_check, kit.clone()]);
+    assert_eq!(written(&run(&["lint"])), [kit]);
+    assert_eq!(written(&run(&["format"])), []);
 }
 
 /// The flags join the closure's grants, a flag's program the table also
@@ -598,6 +642,15 @@ fn a_table_that_grants_a_program_two_ways_is_refused() {
         r#"{"git_cli": {"name": "git", "pass_env": "all"}}"#,
     );
     assert_eq!(refused(&two), ("git".to_owned(), TableFault::TwoPolicies));
+    // or with two sets of tool directories
+    let two_writes = table(
+        r#"{"x_cli": {"name": "x", "local": true, "write": [".svelte-kit"]}}"#,
+        r#"{"x_cli": {"name": "x", "local": true, "write": [".svelte-kit/types"]}}"#,
+    );
+    assert_eq!(
+        refused(&two_writes),
+        ("node_modules/.bin/x".to_owned(), TableFault::TwoPolicies)
+    );
     // two roles naming one program alike are one grant
     let alike = table(
         r#"{"a_cli": {"name": "x", "local": true, "pass_env": "all"}}"#,
@@ -733,7 +786,7 @@ fn a_run_write_flag_naming_no_one_program_is_refused() {
         refused(&["test", "--allow-run-write=vitests:src"]),
         format!(
             "--allow-run-write=… names vitests, and {bin} test may start no program by that name: \
-             it may start vitest"
+             it may start svelte-kit and vitest"
         )
     );
     // the closure as the command line leaves it: no vitest without its step

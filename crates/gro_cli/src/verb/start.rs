@@ -633,12 +633,7 @@ fn boxed(
              in its place: tests that bind 127.0.0.1 fail"
         ));
     }
-    let walls = walls_note(
-        run,
-        &wall_rules(&confined),
-        plan.run_writes(),
-        confined.network(),
-    );
+    let walls = walls_note(run, &wall_rules(&confined), &plan, confined.network());
     Ok(Boxed {
         confined,
         options,
@@ -755,7 +750,6 @@ fn run_write_grants(run: &VerbRun, dirs: &[RunWriteDir]) -> Vec<RunWriteGrant> {
             Some(grant) => grant.dirs.push(dir.clone()),
             None => grants.push(RunWriteGrant {
                 program: program.clone(),
-                table: run.programs.contains_key(program),
                 dirs: vec![dir.clone()],
             }),
         }
@@ -847,51 +841,71 @@ fn writes_clause(root: &Path, rules: &[WallRule], writes_root: bool) -> String {
 
 /// Where `rules`, a box's for the project at `root`, let the tools write,
 /// each in a box of its own, as a clause: a temporary directory of each
-/// one's own, the tool directories for the grants table's tools, and what
-/// `--allow-run-write=` names for each program it names, `run_writes`, by
-/// the name the flag gives it, the top-level entries summarized for one
-/// that names the root. What `--allow-write=` names is left out, as no
-/// tool writes it.
-fn tools_writes_clause(root: &Path, rules: &[WallRule], run_writes: &[RunWriteGrant]) -> String {
+/// one's own, then each program's own directories, by `plan`'s write sets
+/// (`BoxPlan::writes_by_name`): the tool directories its table entry names
+/// that the box made, the top-level entries summarized for one whose
+/// `--allow-run-write=` names the root, and what that flag names for it.
+/// A program of the grants table is named as the table names it, one only
+/// `--allow-run-write=` names as the flag first names it, and a program
+/// that writes nothing of the project is left out. What `--allow-write=`
+/// names is left out, as no tool writes it.
+fn tools_writes_clause(root: &Path, rules: &[WallRule], plan: &BoxPlan) -> String {
     let writing = || rules.iter().filter(|rule| rule.writes);
-    let mut named = Vec::new();
-    if writing().any(|rule| rule.source == RuleSource::PrivateTemp) {
-        named.push("a temporary directory of their own".to_owned());
-    }
-    let tool_dirs: Vec<String> = writing()
-        .filter(|rule| matches!(rule.source, RuleSource::ToolDir(_)))
-        .map(|rule| shown(root, &rule.path))
-        .collect();
-    if !tool_dirs.is_empty() {
-        named.push(format!(
-            "the grants table's tools also to {}",
-            listed(&tool_dirs)
-        ));
-    }
-    for (index, grant) in run_writes.iter().enumerate() {
-        let mut dirs = Vec::new();
-        if grant.dirs.iter().any(|dir| dir.real == root)
-            && writing().any(|rule| rule.source == RuleSource::Entry)
-        {
+    let mut own: Vec<(String, Vec<String>)> = Vec::new();
+    for (program, writes) in plan.writes_by_name() {
+        let named = plan.tools().get(&program).map_or_else(
+            || {
+                writes
+                    .run_write
+                    .and_then(|index| plan.run_write(index))
+                    .and_then(|grant| grant.dirs.first())
+                    .map(|dir| dir.named.clone())
+            },
+            |tool| Some(tool.name.clone()),
+        );
+        let Some(named) = named else {
+            continue;
+        };
+        let mut dirs: Vec<String> = writing()
+            .filter(|rule| {
+                matches!(rule.source, RuleSource::ToolDir(dir) if writes.tool_dirs.contains(dir))
+            })
+            .map(|rule| shown(root, &rule.path))
+            .collect();
+        if writes.root && writing().any(|rule| rule.source == RuleSource::Entry) {
             dirs.push(ENTRIES.to_owned());
         }
-        dirs.extend(
-            writing()
-                .filter(|rule| rule.source == RuleSource::RunWrite(index))
-                .map(|rule| shown(root, &rule.path)),
-        );
-        if let (Some(dir), false) = (grant.dirs.first(), dirs.is_empty()) {
-            named.push(format!(
-                "{} also to {}",
-                escape_controls(&dir.named),
-                listed(&dirs)
-            ));
+        if let Some(index) = writes.run_write {
+            dirs.extend(
+                writing()
+                    .filter(|rule| rule.source == RuleSource::RunWrite(index))
+                    .map(|rule| shown(root, &rule.path)),
+            );
+        }
+        // a directory the flag names that's also one of its tool directories
+        // is named once
+        let mut seen = BTreeSet::new();
+        dirs.retain(|dir| seen.insert(dir.clone()));
+        if !dirs.is_empty() {
+            own.push((escape_controls(&named).into_owned(), dirs));
         }
     }
-    if named.is_empty() {
-        "write nothing".to_owned()
-    } else {
-        format!("write only to {}", listed(&named))
+    own.sort();
+    let temp = writing().any(|rule| rule.source == RuleSource::PrivateTemp);
+    let own = (!own.is_empty()).then(|| {
+        let each: Vec<String> = own
+            .iter()
+            .map(|(name, dirs)| format!("{name}: {}", dirs.join(", ")))
+            .collect();
+        format!("their own directories ({})", each.join("; "))
+    });
+    match (temp, own) {
+        (true, Some(own)) => {
+            format!("write only to a temporary directory of their own and to {own}")
+        }
+        (true, None) => "write only to a temporary directory of their own".to_owned(),
+        (false, Some(own)) => format!("write only to {own}"),
+        (false, None) => "write nothing".to_owned(),
     }
 }
 
@@ -970,19 +984,14 @@ fn denied_write_cause(run: &VerbRun, rules: &[WallRule], writes_root: bool) -> D
 /// The note a run boxed by `rules`, in `network`, prints when it failed and
 /// a tool it started ended other than by exiting 0, by no signal of the
 /// run's, which may be a wall the tool met: what each tool's box, nested in
-/// the run's, lets it reach and write, `run_writes` the directories
-/// `--allow-run-write=` names for each program, and which flag widens what,
+/// the run's, lets it reach and write, each program's own directories by
+/// `plan`'s write sets, and which flag widens what,
 /// naming the programs the command may start, and leaving
 /// `--allow-run-write=` out where it may start none by a name.
 ///
 /// Kind: a review signal the run's code can print as well, and set off by
 /// starting a program that fails.
-fn walls_note(
-    run: &VerbRun,
-    rules: &[WallRule],
-    run_writes: &[RunWriteGrant],
-    network: &RunNetwork,
-) -> String {
+fn walls_note(run: &VerbRun, rules: &[WallRule], plan: &BoxPlan, network: &RunNetwork) -> String {
     let network = match network {
         RunNetwork::Namespace => "reach no network but the run's own loopback",
         RunNetwork::InetRefused { .. } => "reach no network",
@@ -1013,7 +1022,7 @@ fn walls_note(
          {run_write}--allow-read= and --allow-run-in= widen every box, and --allow-write= widens \
          only what gro's own code writes",
         command_line(command_of(&run.cli_args).as_deref()),
-        tools_writes_clause(&run.root, rules, run_writes)
+        tools_writes_clause(&run.root, rules, plan)
     )
 }
 

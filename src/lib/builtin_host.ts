@@ -70,7 +70,32 @@ export interface BuiltinProgramGrant {
 	 * The variables set for the program, whatever the host's are.
 	 */
 	readonly env?: Readonly<Record<string, string>>;
+	/**
+	 * The tool directories the program writes on its own, each made a write root of its box
+	 * on the binary when the project declares the dependency that writes it,
+	 * so the program writes them and no other program's;
+	 * nothing reads it on Node, where no box holds a program.
+	 */
+	readonly write?: ReadonlyArray<BuiltinToolDir>;
 }
+
+/**
+ * A directory a tool writes on its own, relative to the project root,
+ * which a program's grant names as its `write`:
+ * SvelteKit's whole output, the modules it generates for a dev server, and its route types;
+ * its generated tsconfig and types in `node_modules/$app`;
+ * Vite's bundled config, written and removed as a config loads;
+ * and Vitest's own cache.
+ * `node_modules/.vite`, the optimized dependencies a later `dev` loads, is no tool's,
+ * and neither is fuz_css's `.fuz/cache`, whose entries a later `dev` or `build` trusts.
+ */
+export type BuiltinToolDir =
+	| '.svelte-kit'
+	| '.svelte-kit/generated/dev'
+	| '.svelte-kit/types'
+	| 'node_modules/$app'
+	| 'node_modules/.vite-temp'
+	| 'node_modules/.vite/vitest';
 
 /**
  * The filesystem a builtin reaches, each path relative to the project root, `.` the project.

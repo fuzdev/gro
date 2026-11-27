@@ -238,7 +238,9 @@ so a module re-exporting the `task` carries them:
   the tool being the product when its program is named otherwise (`typescript_cli` runs `tsc`).
   A grant has the program's `name`, the only program the role runs,
   `local` for the project's own install, `node_modules/.bin/<name>`, never one on `PATH`,
-  and its environment as `SpawnProgramOptions` has it, `pass_env`, `omit_env`, and `env`
+  its environment as `SpawnProgramOptions` has it, `pass_env`, `omit_env`, and `env`,
+  and `write`, the [tool directories](glossary.md#tool-directory) it writes on its own (a `BuiltinToolDir`),
+  which the binary's box holds it to and which nothing reads on Node
 - `stdout`, `stderr` - that it writes to them
 - `project_modules` - that it loads the project's modules, like `gen`'s genfiles,
   which run as the project's code

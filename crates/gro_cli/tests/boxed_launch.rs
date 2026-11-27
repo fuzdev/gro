@@ -494,8 +494,8 @@ fn boxed(scratch: &Path) -> (RunConfined, ProgramBox, ProgramBox) {
     gro_sys::child::default_child_signal().unwrap();
     gro_sys::guard_children_on_signal().unwrap();
     let programs = confined.take_program_rules().unwrap();
-    let first = programs.program_box(ProgramWrites::FLAG, 0).unwrap();
-    let second = programs.program_box(ProgramWrites::FLAG, 1).unwrap();
+    let first = programs.program_box(ProgramWrites::NONE, 0).unwrap();
+    let second = programs.program_box(ProgramWrites::NONE, 1).unwrap();
     (confined, first, second)
 }
 

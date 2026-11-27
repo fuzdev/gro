@@ -13,7 +13,7 @@ import {
 	spawn_result_is_ok,
 	to_spawn_result_message
 } from './cli.ts';
-import { SVELTE_CHECK_CLI, SVELTEKIT_CLI } from './constants.ts';
+import { SVELTE_CHECK_CLI } from './constants.ts';
 import type { FsPaths } from './fs_paths.ts';
 import { cwd as process_cwd } from './cwd.ts';
 import { create_paths, to_root_path } from './paths.ts';
@@ -22,7 +22,11 @@ import type { FsSearchResult } from './fs_search.ts';
 import { is_fs_error } from './fs_error.ts';
 import { format_error_detail } from './error_detail.ts';
 import { find_svelte_files } from './svelte_helpers.ts';
-import { project_has_sveltekit_app, sveltekit_sync } from './sveltekit_helpers.ts';
+import {
+	project_has_sveltekit_app,
+	SVELTEKIT_CLI_GRANT,
+	sveltekit_sync
+} from './sveltekit_helpers.ts';
 import { TaskError } from './task_error.ts';
 import type { BuiltinPrograms, BuiltinTask, BuiltinTaskGrants } from './builtin_host.ts';
 
@@ -50,13 +54,16 @@ const grants = {
 	fs: { read: ['.'] },
 	// each loads the project's config and code, whose environment Gro can't know
 	programs: {
-		sveltekit_cli: { name: SVELTEKIT_CLI, local: true, pass_env: 'all' },
+		sveltekit_cli: SVELTEKIT_CLI_GRANT,
 		svelte_check_cli: {
 			name: SVELTE_CHECK_CLI,
 			local: true,
 			pass_env: 'all',
 			// for svelte-check's colors through the pipe its output is mapped on
-			env: { FORCE_COLOR: '1' }
+			env: { FORCE_COLOR: '1' },
+			// SvelteKit's plugin writes the dev server's manifest as the config resolves,
+			// which Vite bundles first
+			write: ['.svelte-kit/generated/dev', 'node_modules/.vite-temp']
 		},
 		typescript_cli: { name: TYPESCRIPT_CLI, local: true, pass_env: 'all' }
 	},

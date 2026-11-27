@@ -26,6 +26,7 @@ import { package_json_has_dependency, package_json_load } from './package_json.t
 import { TaskError } from './task_error.ts';
 import type { FsPaths } from './fs_paths.ts';
 import type { Spawn, SpawnProgram } from './spawn.ts';
+import type { BuiltinProgramGrant } from './builtin_host.ts';
 import { posix_join } from './internal/posix_path.ts';
 
 /**
@@ -92,6 +93,19 @@ export const has_sveltekit_library = async (
  * code whose environment Gro can't know.
  */
 export const SVELTEKIT_PROGRAM_OPTIONS = { pass_env: 'all' } as const;
+
+/**
+ * The SvelteKit CLI's grant, the one every builtin that syncs declares:
+ * the project's own install, its whole environment as `SVELTEKIT_PROGRAM_OPTIONS` says,
+ * and the tool directories `svelte-kit sync` writes, all of `.svelte-kit`, which `vite build` reads,
+ * its generated tsconfig and types in `node_modules/$app`, and Vite's bundled config.
+ */
+export const SVELTEKIT_CLI_GRANT = {
+	name: SVELTEKIT_CLI,
+	local: true,
+	pass_env: 'all',
+	write: ['.svelte-kit', 'node_modules/$app', 'node_modules/.vite-temp']
+} as const satisfies BuiltinProgramGrant;
 
 /**
  * Runs `svelte-kit sync`, with nothing checking that the project uses SvelteKit.

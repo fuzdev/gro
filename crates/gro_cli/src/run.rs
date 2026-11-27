@@ -1984,7 +1984,7 @@ mod tests {
             dirs: FlagDirs::default(),
             flag_dirs: FlagDirs::default(),
             writes_root: false,
-            tools: BTreeSet::new(),
+            tools: BTreeMap::new(),
             declared: BTreeSet::new(),
             policy: crate::verb::fallback::FallbackPolicy::All,
             gro: None,

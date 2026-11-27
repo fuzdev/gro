@@ -1717,6 +1717,7 @@ fn a_linked_node_modules_is_written_only_by_a_program_s_flag() {
             ("project/src/probe.ts", "// probed\n"),
             ("other/node_modules/.bin/vitest", FAKE_TOOL),
             ("other/node_modules/.bin/svelte-kit", FAKE_TOOL),
+            ("other/node_modules/$app/.keep", ""),
             (
                 "other/node_modules/vitest/package.json",
                 r#"{"name": "vitest", "version": "1.0.0"}"#,
@@ -1778,9 +1779,15 @@ fn a_linked_node_modules_is_written_only_by_a_program_s_flag() {
             "{name}: {output}"
         );
     }
-    for dir in [".vite", ".vite-temp", "$app"] {
+    for dir in [".vite", ".vite-temp"] {
         assert!(!other.join(dir).exists(), "{dir}: {output}");
     }
+    // the checkout's own `$app`, which no tool wrote
+    assert_eq!(
+        std::fs::read_dir(other.join("$app")).unwrap().count(),
+        1,
+        "{output}"
+    );
     assert!(!other.join("vitest_w").exists(), "{output}");
     assert_eq!(
         note,
@@ -1811,6 +1818,19 @@ fn a_linked_node_modules_is_written_only_by_a_program_s_flag() {
         format!("{link}of the tools only vitest writes in it, where --allow-run-write= names"),
         "{output}"
     );
+    // svelte-kit's flag on `$app` there, as the linked-worktree spelling
+    // names it: its files written, and no symlink made there
+    let (output, probed, _) = run_check(&format!(
+        "--allow-run-write=svelte-kit:{}",
+        other.join("$app").display()
+    ));
+    for (name, what) in [("svelte-kit_app", "ok"), ("svelte-kit_link_app", "EACCES")] {
+        assert_eq!(
+            probed.get(name).map(String::as_str),
+            Some(what),
+            "{name}: {output}"
+        );
+    }
 }
 
 /// Why a private user and mount namespace can't bind-mount here, by trying
@@ -1899,6 +1919,7 @@ fn a_temporary_directory_in_the_project_s_bind_mount_is_refused() {
 const FAKE_TOOL: &str = "#!/usr/bin/env node
 import fs from 'node:fs';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 const me = path.basename(process.argv[1]);
 const attempt = (name, act) => {
 \ttry {
@@ -1913,9 +1934,39 @@ for (const [name, at] of [
 	['vite', 'node_modules/.vite/w'],
 	['nm', `node_modules/${me}_w`],
 	['src', 'src/w'],
+	['kit', `.svelte-kit/${me}_w`],
+	['dev', `.svelte-kit/generated/dev/${me}_w`],
+	['types', `.svelte-kit/types/${me}_w`],
+	['app', `node_modules/$app/${me}_w`],
+	['temp', `node_modules/.vite-temp/${me}_w`],
+	['cache', `node_modules/.vite/vitest/${me}_w`],
 ]) {
 \tattempt(name, () => fs.writeFileSync(at, me));
 }
+const own = `${me}_${process.pid}`;
+attempt('link_dev', () => fs.symlinkSync('/nowhere', `.svelte-kit/generated/dev/${own}_l`));
+attempt('link_out', () => fs.symlinkSync('/nowhere', `out/${own}_l`));
+attempt('link_app', () => fs.symlinkSync('/nowhere', `node_modules/$app/${own}_l`));
+attempt('link_cache', () => fs.symlinkSync('/nowhere', `node_modules/.vite/vitest/${own}_l`));
+attempt('move_out', () => {
+\tfs.mkdirSync(`out/${own}_m`);
+\tfs.symlinkSync('/nowhere', `out/${own}_m/l`);
+\tfs.renameSync(`out/${own}_m`, `.svelte-kit/generated/dev/${own}_m`);
+});
+attempt('move_tmp', () => {
+\tconst made = `${process.env.TMPDIR}/${own}_t`;
+\tfs.mkdirSync(made);
+\tfs.symlinkSync('/nowhere', `${made}/l`);
+\tfs.renameSync(made, `.svelte-kit/generated/dev/${own}_t`);
+});
+attempt('fifo_dev', () => {
+\tconst made = spawnSync('mkfifo', [`.svelte-kit/generated/dev/${own}_f`], { encoding: 'utf8' });
+\tif (made.status !== 0) {
+\t\tthrow Object.assign(new Error(made.stderr), {
+\t\t\tcode: made.stderr.includes('Permission denied') ? 'EACCES' : `status ${made.status}`
+\t\t});
+\t}
+});
 console.log(`probe: ${me}_tmpdir ${process.env.TMPDIR}`);
 ";
 
@@ -1947,8 +1998,15 @@ export const gen = async () => {
 
 /// Each program writes by its own grant beside the grants table's tools:
 /// `vitest`, named by its plain name by `--allow-run-write=`, writes its
-/// directory and the tool directories, `svelte-kit`, a table tool no flag
-/// names, the tool directories and not that directory, and neither `src`;
+/// directory and its own tool directories, `svelte-kit`, a table tool no
+/// flag names, its own and not that directory, eslint, one that names
+/// none, no tool directory, none writes another's or `src`, no tool
+/// writes `node_modules/.vite` beside vitest's own cache, and `$app` is
+/// `svelte-kit`'s alone; no tool makes a symlink or a FIFO in a tool
+/// directory, even its own, nor moves a directory in from the one its flag
+/// names or its own temporary directory, where vitest still makes a symlink
+/// in the directory its flag names, unless that directory is in a tool
+/// directory;
 /// a program a flag grants and one found beneath an exec root write no
 /// tool directory, and each program keeps one temporary directory across
 /// its handles and launches, apart from every other program's.
@@ -1960,7 +2018,7 @@ export const gen = async () => {
 fn each_program_writes_by_its_grant_beside_the_table_s() {
     let python_dir = python3().parent().unwrap().to_owned();
     let genfile = GRANT_GENFILE.replace("PYDIR", &python_dir.display().to_string());
-    let package_json = r#"{"name": "p", "type": "module", "devDependencies": {"vitest": "*", "@sveltejs/kit": "*"}}"#;
+    let package_json = r#"{"name": "p", "type": "module", "devDependencies": {"vitest": "*", "@sveltejs/kit": "*", "eslint": "*"}}"#;
     let scratch = Scratch::new(
         "verb_box_grant_writes",
         &[
@@ -1971,6 +2029,7 @@ fn each_program_writes_by_its_grant_beside_the_table_s() {
             ("project/out/.keep", ""),
             ("project/node_modules/.bin/vitest", FAKE_TOOL),
             ("project/node_modules/.bin/svelte-kit", FAKE_TOOL),
+            ("project/node_modules/.bin/eslint", FAKE_TOOL),
             (
                 "project/node_modules/vitest/package.json",
                 r#"{"name": "vitest", "version": "1.0.0"}"#,
@@ -1983,6 +2042,7 @@ fn each_program_writes_by_its_grant_beside_the_table_s() {
     );
     scratch.set_mode("project/node_modules/.bin/vitest", 0o755);
     scratch.set_mode("project/node_modules/.bin/svelte-kit", 0o755);
+    scratch.set_mode("project/node_modules/.bin/eslint", 0o755);
     let project = scratch.0.join("project");
     for package in ["@fuzdev/fuz_util", "@fuzdev/fuz_schema", "esm-env"] {
         copy_tree(
@@ -1999,9 +2059,9 @@ fn each_program_writes_by_its_grant_beside_the_table_s() {
         &run_in,
         &read,
         "--no-typecheck",
-        "--no-lint",
         "--no-format",
         "--no-package_json",
+        "--lint",
     ]);
     for name in CLEARED {
         command.env_remove(name);
@@ -2015,11 +2075,36 @@ fn each_program_writes_by_its_grant_beside_the_table_s() {
     let probed = probed(&stdout, &stderr);
     for (name, what) in [
         ("vitest_out", "ok"),
-        ("vitest_vite", "ok"),
+        ("vitest_vite", "EACCES"),
         ("vitest_src", "EACCES"),
+        ("vitest_kit", "EACCES"),
+        ("vitest_dev", "ok"),
+        ("vitest_types", "ok"),
+        ("vitest_app", "EACCES"),
+        ("vitest_link_dev", "EACCES"),
+        ("vitest_link_out", "ok"),
+        ("vitest_move_out", "EXDEV"),
+        ("vitest_move_tmp", "EXDEV"),
+        ("svelte-kit_move_tmp", "EXDEV"),
+        ("vitest_fifo_dev", "EACCES"),
+        ("svelte-kit_fifo_dev", "EACCES"),
+        ("svelte-kit_link_dev", "EACCES"),
+        ("eslint_link_dev", "EACCES"),
+        ("vitest_temp", "ok"),
+        ("vitest_cache", "ok"),
         ("svelte-kit_out", "EACCES"),
-        ("svelte-kit_vite", "ok"),
+        ("svelte-kit_vite", "EACCES"),
         ("svelte-kit_src", "EACCES"),
+        ("svelte-kit_kit", "ok"),
+        ("svelte-kit_app", "ok"),
+        ("svelte-kit_temp", "ok"),
+        ("svelte-kit_cache", "EACCES"),
+        ("eslint_out", "EACCES"),
+        ("eslint_kit", "EACCES"),
+        ("eslint_dev", "EACCES"),
+        ("eslint_app", "EACCES"),
+        ("eslint_temp", "EACCES"),
+        ("eslint_cache", "EACCES"),
         ("flag_vite", "Permission denied"),
         ("found_vite", "Permission denied"),
     ] {
@@ -2042,9 +2127,167 @@ fn each_program_writes_by_its_grant_beside_the_table_s() {
         "found_tmpdir",
         "vitest_tmpdir",
         "svelte-kit_tmpdir",
+        "eslint_tmpdir",
     ]
     .iter()
     .map(|name| probed[*name].as_str())
     .collect();
-    assert_eq!(temps.len(), 4, "{output}");
+    assert_eq!(temps.len(), 5, "{output}");
+    // only what some program of the command writes is made, and nothing
+    // beside vitest's cache in `node_modules/.vite`
+    for (dir, made) in [
+        (".svelte-kit/generated/dev", true),
+        ("node_modules/.vite/vitest", true),
+        ("node_modules/.vite/deps", false),
+        (".fuz", false),
+    ] {
+        assert_eq!(project.join(dir).is_dir(), made, "{dir}: {output}");
+    }
+    // a flag naming a tool directory gives no symlink, FIFO, or entry moved
+    // in there, though its writes, the directory named once in the note
+    let mut command = fgro_command(&["test", "--allow-run-write=vitest:.svelte-kit/generated/dev"]);
+    for name in CLEARED {
+        command.env_remove(name);
+    }
+    command
+        .current_dir(&project)
+        .env("TMPDIR", scratch.0.join("tmp"));
+    let (code, stdout, stderr) = run(command);
+    let output = format!("{stdout}{stderr}");
+    assert_eq!(code, Some(0), "{output}");
+    let probed = crate::probed(&stdout, &stderr);
+    for (name, what) in [
+        ("vitest_dev", "ok"),
+        ("vitest_link_dev", "EACCES"),
+        ("vitest_fifo_dev", "EACCES"),
+        ("vitest_move_tmp", "EXDEV"),
+    ] {
+        assert_eq!(
+            probed.get(name).map(String::as_str),
+            Some(what),
+            "{name}: {output}"
+        );
+    }
+    // a flag on a directory holding a tool directory, and lying in none,
+    // writes it plain too, so the special rights don't come back inside the
+    // tool directory by Landlock's union along the path
+    let mut command = fgro_command(&["test", "--allow-run-write=vitest:node_modules"]);
+    for name in CLEARED {
+        command.env_remove(name);
+    }
+    command
+        .current_dir(&project)
+        .env("TMPDIR", scratch.0.join("tmp"));
+    let (code, stdout, stderr) = run(command);
+    let output = format!("{stdout}{stderr}");
+    assert_eq!(code, Some(0), "{output}");
+    let probed = crate::probed(&stdout, &stderr);
+    for (name, what) in [
+        ("vitest_cache", "ok"),
+        ("vitest_nm", "ok"),
+        ("vitest_link_cache", "EACCES"),
+        ("vitest_link_app", "EACCES"),
+    ] {
+        assert_eq!(
+            probed.get(name).map(String::as_str),
+            Some(what),
+            "{name}: {output}"
+        );
+    }
+}
+
+/// The genfile of [`a_write_flag_on_a_tool_directory_writes_it_plain`]:
+/// gro's own code makes a symlink in a tool directory `--allow-write=`
+/// names, and in a directory it names elsewhere, `VICTIM` the link's target.
+const PLAIN_GENFILE: &str = "import {fs} from '@fuzdev/gro/fs.ts';
+const attempt = async (name, dir) => {
+\tlet result;
+\ttry {
+\t\tconst opened = await fs.open_dir(`${fs.project.path}/${dir}`);
+\t\tresult = await opened.symlink('realm_l', 'VICTIM');
+\t} catch (error) {
+\t\tresult = String(error?.kind ?? error?.code ?? error);
+\t}
+\tconsole.error(`probe: ${name} ${result}`);
+};
+export const gen = async () => {
+\tawait attempt('realm_link_dev', '.svelte-kit/generated/dev');
+\tawait attempt('realm_link_out', 'out');
+\treturn '// probed\\n';
+};
+";
+
+/// `--allow-write=` on a tool directory writes it plain, as
+/// `--allow-run-write=` does: a genfile under `fgro gen` makes no symlink
+/// there, where it still makes one in a directory the flag names elsewhere.
+#[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "a command of Gro's runs in its box only from a snapshot build"
+)]
+fn a_write_flag_on_a_tool_directory_writes_it_plain() {
+    let package_json =
+        r#"{"name": "p", "type": "module", "devDependencies": {"@sveltejs/kit": "*"}}"#;
+    let scratch = Scratch::new(
+        "verb_box_flag_plain",
+        &[
+            ("tmp/.keep", ""),
+            ("victim.txt", "kept\n"),
+            ("project/package.json", package_json),
+            ("project/out/.keep", ""),
+            ("project/.svelte-kit/generated/dev/.keep", ""),
+            ("project/.svelte-kit/types/route_meta_data.json", "{}"),
+            ("project/node_modules/$app/tsconfig.json", "{}"),
+            ("project/node_modules/.bin/svelte-kit", FAKE_TOOL),
+            (
+                "project/node_modules/@sveltejs/kit/package.json",
+                r#"{"name": "@sveltejs/kit", "version": "1.0.0"}"#,
+            ),
+        ],
+    );
+    scratch.set_mode("project/node_modules/.bin/svelte-kit", 0o755);
+    let victim = scratch.0.join("victim.txt");
+    std::fs::create_dir_all(scratch.0.join("project/src")).unwrap();
+    std::fs::write(
+        scratch.0.join("project/src/probe.gen.ts"),
+        PLAIN_GENFILE.replace("VICTIM", &victim.display().to_string()),
+    )
+    .unwrap();
+    let project = scratch.0.join("project");
+    for package in ["@fuzdev/fuz_util", "@fuzdev/fuz_schema", "esm-env"] {
+        copy_tree(
+            &checkout_node_modules().join(package),
+            &project.join("node_modules").join(package),
+        );
+    }
+    let mut command = fgro_command(&[
+        "gen",
+        "--allow-write=.svelte-kit/generated/dev",
+        "--allow-write=out",
+    ]);
+    for name in CLEARED {
+        command.env_remove(name);
+    }
+    command
+        .current_dir(&project)
+        .env("TMPDIR", scratch.0.join("tmp"));
+    let (code, stdout, stderr) = run(command);
+    let output = format!("{stdout}{stderr}");
+    assert_eq!(code, Some(0), "{output}");
+    let probed = probed(&stdout, &stderr);
+    for (name, what) in [
+        ("realm_link_dev", "permission_denied"),
+        ("realm_link_out", "created"),
+    ] {
+        assert_eq!(
+            probed.get(name).map(String::as_str),
+            Some(what),
+            "{name}: {output}"
+        );
+    }
+    assert!(
+        !project.join(".svelte-kit/generated/dev/realm_l").exists(),
+        "{output}"
+    );
+    assert_eq!(std::fs::read_to_string(&victim).unwrap(), "kept\n");
 }

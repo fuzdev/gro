@@ -115,6 +115,17 @@ describe('gro check test step', () => {
 		assert.deepEqual(skip_log_calls(ctx), []);
 	});
 
+	test("turns the test task's sync off after the typecheck synced, and on without it", async () => {
+		await declare(DECLARED);
+		const test_args = async (args: Partial<Args>) => {
+			const ctx = create_ctx(args);
+			await run(ctx);
+			return vi.mocked(ctx.deps.invoke_task).mock.calls.find((c) => c[0] === 'test')?.[1];
+		};
+		assert.deepEqual(await test_args({ typecheck: true }), { sync: false });
+		assert.deepEqual(await test_args({}), {});
+	});
+
 	test('reads package.json with the task log, so a malformed one is reported', async () => {
 		await declare(DECLARED);
 		const ctx = create_ctx();

@@ -218,9 +218,9 @@ pub struct RunPrepared {
     /// starts none, whose boxes are built from the rules' handles, held
     /// past the run's.
     programs: Vec<ProgramWrites>,
-    /// The write set of each program `--allow-run-write=` names, by the
-    /// name the run grants it as.
-    named: BTreeMap<String, ProgramWrites>,
+    /// The write set of each program that has one, by the name the run
+    /// grants it as.
+    writes: BTreeMap<String, ProgramWrites>,
     /// The network the box is for.
     network: RunNetwork,
     /// The run's private directory, if it has one, held, its lock with it,
@@ -559,7 +559,7 @@ impl RunHardened {
         Ok(RunPrepared {
             rules,
             programs: plan.program_writes(),
-            named: plan.named_writes(),
+            writes: plan.writes_by_name(),
             network: self.network,
             private,
         })
@@ -641,7 +641,7 @@ impl RunPrepared {
             seccompiler::apply_filter(denylist).map_err(ConfineError::Seccomp)?;
         }
         let (rules, absent) = self.rules.into_installed();
-        let (rules, programs) = ProgramRules::hold(rules, &self.programs, self.named);
+        let (rules, programs) = ProgramRules::hold(rules, &self.programs, self.writes);
         let programs = programs.map(Box::new);
         Ok(RunConfined {
             rules,

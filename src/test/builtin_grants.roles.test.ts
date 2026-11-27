@@ -40,3 +40,17 @@ test('no arg and no config field chooses a program', async () => {
 		assert.notOk(key.endsWith('_cli'), key);
 	}
 });
+
+test('a program several builtins grant names one set of tool directories', () => {
+	const writes_by_name: Map<string, string> = new Map();
+	for (const [task_name, grants] of Object.entries(GRO_BUILTIN_TASK_GRANTS)) {
+		if (!grants?.programs) continue;
+		for (const grant of Object.values(grants.programs)) {
+			const write = JSON.stringify(grant.write ?? []);
+			const seen = writes_by_name.get(grant.name);
+			if (seen === undefined) writes_by_name.set(grant.name, write);
+			else assert.strictEqual(write, seen, `${task_name}'s \`${grant.name}\``);
+		}
+	}
+	assert.ok(writes_by_name.size > 1);
+});

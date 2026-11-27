@@ -1549,7 +1549,7 @@ what can fail for a reason of the run's fails in what the module exports, as `cw
 - Inherit only fds 0, 1, and 2 into the child (built: a run that grants a program marks every descriptor it inherited
   above stderr close-on-exec before anything runs, and what the runtime opens is close-on-exec already).
 - Confine the child with the run's kernel rules:
-  the project and the linked packages readable, only the run's write roots writable (the tool directories among them), never the project root,
+  the project and the linked packages readable, only the run's write roots writable (the tool directories among them, each child only its own), never the project root,
   the network the run's own loopback (or, where user namespaces are restricted, no internet socket), and seccomp refusing unix sockets by path, nested user namespaces, and terminal input injection (`TIOCSTI`, `TIOCLINUX`)
   ([box](box.md#what-a-commands-box-admits)) (built for a command of Gro's, whose children start each in a box of its own inside the run's; designed for `fgro run`, whose children run unboxed).
 - Keep the runtime's own environment and memory from a child that can read `/proc`:

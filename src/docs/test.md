@@ -58,6 +58,16 @@ See [the Vitest docs](https://vitest.dev/) for more.
 
 Gro supports Vitest 5, the range `^5` of its `vitest` peer dependency.
 
+## SvelteKit's files, synced first
+
+In a SvelteKit project `gro test` runs `svelte-kit sync` before Vitest, as `gro typecheck` does,
+and `gro check` turns that off with `--no-sync` once its typecheck has synced.
+SvelteKit's plugin in Vitest then finds the tsconfig and types it generates in `node_modules/$app` current and writes nothing there,
+so on the binary the [box](box.md#what-a-commands-box-admits) lets only `svelte-kit` write `$app`:
+a later typecheck, `dev`, `build`, and the editor trust what's there,
+and a file planted beside the generated ones, like a `package.json` whose `exports` redirect `$app/tsconfig`, survives every sync.
+`gro test --no-sync` skips the sync, so on the binary it fails on an unsynced tree, where Vitest would have to write `$app`.
+
 ## Vitest's module cache
 
 `gro test` passes Vitest `--fsModuleCache=false`, turning off its `fsModuleCache`,

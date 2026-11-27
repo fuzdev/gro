@@ -25,12 +25,20 @@
 //! - the devices as the run's box grants them, `/dev/null` read and
 //!   written, which every redirect to it opens;
 //! - what the program writes, by its write set ([`ProgramWrites`]): for a
-//!   program of the grants table, the command's tool directories; for one
-//!   whose `--allow-run-write=` names the root, the root's per-entry rules;
-//!   and the directories `--allow-run-write=` names for it, read and
-//!   written, each a rule of the run's that no other program's box takes;
-//!   for one a flag grants, or one found beneath an exec root, nothing of
-//!   the project but what that flag names for it;
+//!   program of the grants table, the tool directories its `write` names
+//!   that the run made, and no other program's, written plain as the run
+//!   writes them (`rules::Rights::WRITE_PLAIN`: no symlink or FIFO made
+//!   there, no entry moved in from another directory), since a later
+//!   unconfined tool writing a file there by its name would follow a
+//!   planted link out of the project; for one whose `--allow-run-write=`
+//!   names the root, the root's per-entry rules; and the directories
+//!   `--allow-run-write=` names for it, read and written, each a rule of the
+//!   run's that no other program's box takes, plain where it is a tool
+//!   directory or where a linked `node_modules` leads, lies in one, or
+//!   holds either; for one a
+//!   flag grants, one found beneath an exec root, or one of the table that
+//!   names no tool directory, nothing of the project but what that flag
+//!   names for it;
 //! - nothing of what `--allow-write=` names, not even its read: that flag
 //!   is gro's own code's, and `--allow-read=` is what widens every box;
 //! - a temporary directory of its own, granted as the run's rule grants the
@@ -62,8 +70,11 @@
 //! programs' write roots and temporary directories, other processes'
 //! environment, memory, and working directory, and signalling the run or a
 //! sibling. It is defeated by a kernel bug; by a program's own write roots,
-//! which a later command runs; by the tool directories every program of the
-//! table shares; by realm code, which holds the outer domain and can start
+//! which a later command runs; by a tool directory two programs of the
+//! table both write (`.svelte-kit/generated/dev`, `.svelte-kit/types`
+//! within `svelte-kit`'s `.svelte-kit`, `node_modules/.vite-temp`), where
+//! one plants what the other reads; by
+//! realm code, which holds the outer domain and can start
 //! any program of the closure with arguments of its own choosing, so a
 //! directory `--allow-run-write=` names for a program is one deliberate
 //! project code writes; by everything the named program runs (its config,
@@ -92,16 +103,16 @@ use gro_sys::beneath::{self, Last, Links, OpenAs};
 
 use super::ConfineError;
 use super::landlock::{self, TcpWall};
-use super::plan::{DirFlag, RuleSource, holds};
+use super::plan::{DirFlag, RuleSource, ToolDirs, holds};
 use super::rules::{InstalledRule, Kind, Rights};
 
 /// What a program's box writes beyond its own temporary directory: its
 /// write set, which `program_rights` reads beside each rule's source.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ProgramWrites {
-    /// Whether it writes the command's tool directories, as a program of
-    /// the grants table does.
-    pub tool_dirs: bool,
+    /// The tool directories it writes, as the grants table names them for
+    /// a program of its own.
+    pub tool_dirs: ToolDirs,
     /// Whether it writes the root's per-entry rules, as one whose
     /// `--allow-run-write=` names the root does.
     pub root: bool,
@@ -111,18 +122,12 @@ pub struct ProgramWrites {
 }
 
 impl ProgramWrites {
-    /// A program of the grants table no `--allow-run-write=` names: the
-    /// command's tool directories.
-    pub const TABLE: Self = Self {
-        tool_dirs: true,
-        root: false,
-        run_write: None,
-    };
-
-    /// A program a flag grants, or one found beneath an exec root, that no
-    /// `--allow-run-write=` names: nothing of the project.
-    pub const FLAG: Self = Self {
-        tool_dirs: false,
+    /// A program with no write set of its own: one of the grants table that
+    /// writes no tool directory, one a flag grants, or one found beneath an
+    /// exec root, that no `--allow-run-write=` names. It writes nothing of
+    /// the project.
+    pub const NONE: Self = Self {
+        tool_dirs: ToolDirs::EMPTY,
         root: false,
         run_write: None,
     };
@@ -164,8 +169,9 @@ const TEMP_MODE: u32 = 0o700;
 /// What a program's box grants beneath a rule of the run's box from
 /// `source` granting `rights`, for a program writing `writes`, as the
 /// [module doc](self) says: none for the run's private directory, the
-/// devices as the run has them, a tool directory as the run has it for a
-/// program that writes the tool directories, an entry's rule for one that
+/// devices as the run has them, a tool directory as the run has it, plain,
+/// for a program whose write set holds it and none for any other, an
+/// entry's rule for one that
 /// writes the root, a rule `--allow-run-write=` made as the run has it for
 /// the program it names and none for any other, none for what a write flag
 /// names, and the rest without writing; none where that leaves nothing.
@@ -179,7 +185,7 @@ pub(super) const fn program_rights(
 ) -> Option<Rights> {
     let rights = match source {
         RuleSource::PrivateTemp | RuleSource::Flag(DirFlag::Write) => return None,
-        RuleSource::ToolDir(_) if writes.tool_dirs => rights,
+        RuleSource::ToolDir(dir) if writes.tool_dirs.contains(dir) => rights,
         RuleSource::Entry if writes.root => rights,
         RuleSource::RunWrite(index) => match writes.run_write {
             Some(named) if named == index => rights,
@@ -216,8 +222,7 @@ struct HeldRule {
 ///
 /// Each is the handle of a rule of the run's box, held past it, beside the
 /// run's private directory, held to make each program's temporary
-/// directory in, and the write set of each program `--allow-run-write=`
-/// names.
+/// directory in, and the write set of each program that has one.
 #[derive(Debug)]
 pub struct ProgramRules {
     /// The run's rules a program's box takes in some part, in the run's
@@ -225,16 +230,16 @@ pub struct ProgramRules {
     rules: Vec<HeldRule>,
     /// The run's rule on its private directory.
     private: HeldRule,
-    /// The write set of each program `--allow-run-write=` names, by the
-    /// name the run grants it as (`BoxPlan::named_writes`).
-    named: BTreeMap<String, ProgramWrites>,
+    /// The write set of each program that has one, by the name the run
+    /// grants it as (`BoxPlan::writes_by_name`).
+    writes: BTreeMap<String, ProgramWrites>,
 }
 
 /// Equal as the same rules and private directory, the handles aside.
 impl PartialEq for ProgramRules {
     fn eq(&self, other: &Self) -> bool {
         self.private.rule == other.private.rule
-            && self.named == other.named
+            && self.writes == other.writes
             && self
                 .rules
                 .iter()
@@ -249,8 +254,8 @@ impl ProgramRules {
     /// The run's box's rules as installed, `rules`, each with its handle,
     /// split into what the run keeps of them, its rules as data, and, for a
     /// run whose programs write `programs` (`BoxPlan::program_writes`, none
-    /// for a run that starts nothing), those `--allow-run-write=` names by
-    /// name in `named` (`BoxPlan::named_writes`), the rules its programs'
+    /// for a run that starts nothing), each that has one by name in
+    /// `writes` (`BoxPlan::writes_by_name`), the rules its programs'
     /// boxes are built from, with the handles they name: those some program
     /// of the run's box takes (`program_rights` for any of `programs`) and
     /// the private directory's, never a rule on the private directory or a
@@ -262,7 +267,7 @@ impl ProgramRules {
     pub(super) fn hold(
         rules: Vec<(InstalledRule, OwnedFd)>,
         programs: &[ProgramWrites],
-        named: BTreeMap<String, ProgramWrites>,
+        writes: BTreeMap<String, ProgramWrites>,
     ) -> (Vec<InstalledRule>, Option<Self>) {
         // the private directory's rule is planned after the rules that
         // could hold it, so it's found first
@@ -296,21 +301,18 @@ impl ProgramRules {
         let programs = private.map(|private| Self {
             rules: held,
             private,
-            named,
+            writes,
         });
         (installed, programs)
     }
 
-    /// What the program the run grants as `name` writes: its write set when
-    /// `--allow-run-write=` names it, else the table's for a program of the
-    /// grants table, `table`, and nothing of the project for one a flag
-    /// grants.
-    pub fn writes(&self, name: &str, table: bool) -> ProgramWrites {
-        self.named.get(name).copied().unwrap_or(if table {
-            ProgramWrites::TABLE
-        } else {
-            ProgramWrites::FLAG
-        })
+    /// What the program the run grants as `name` writes: its write set,
+    /// or none for a program that has none.
+    pub fn writes(&self, name: &str) -> ProgramWrites {
+        self.writes
+            .get(name)
+            .copied()
+            .unwrap_or(ProgramWrites::NONE)
     }
 
     /// The rules a box for a program writing `writes` grants beneath the

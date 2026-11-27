@@ -6,8 +6,8 @@ import { has_forwarded_flag, to_forwarded_argv } from './task_args.ts';
 import { assert_no_forwarded_info_flag } from './internal/forwarded_info_flags.ts';
 import { spawn_cli, spawn_result_is_ok, to_spawn_result_message } from './cli.ts';
 import { TaskError } from './task_error.ts';
-import { ESLINT_CLI, SVELTEKIT_CLI } from './constants.ts';
-import { sveltekit_sync_if_obviously_needed } from './sveltekit_helpers.ts';
+import { ESLINT_CLI } from './constants.ts';
+import { SVELTEKIT_CLI_GRANT, sveltekit_sync_if_obviously_needed } from './sveltekit_helpers.ts';
 import type { FsPaths } from './fs_paths.ts';
 import { project_has_dependency } from './package_json.ts';
 import type { BuiltinPrograms, BuiltinTask, BuiltinTaskGrants } from './builtin_host.ts';
@@ -26,7 +26,7 @@ const grants = {
 		eslint_cli: { name: ESLINT_CLI, local: true, pass_env: 'all' },
 		// syncs SvelteKit's files when they're missing, as typed lint reads `tsconfig.json`,
 		// which extends `$app/tsconfig`; `svelte-kit sync` loads the project's Vite config
-		sveltekit_cli: { name: SVELTEKIT_CLI, local: true, pass_env: 'all' }
+		sveltekit_cli: SVELTEKIT_CLI_GRANT
 	}
 } as const satisfies BuiltinTaskGrants;
 

@@ -77,6 +77,7 @@
 
 mod support;
 
+use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::io::{BufRead as _, ErrorKind, Write as _};
 use std::os::fd::AsFd as _;
@@ -87,6 +88,7 @@ use std::time::Duration;
 use gro_runtime::confine::Threads;
 use gro_runtime::confine::plan::{
     BoxFacts, BoxInputs, BoxPlan, DirFlag, GrantedFlagDir, ProgramFile, RunWriteDir, RunWriteGrant,
+    ToolWrites,
 };
 use gro_runtime::confine::program::{ProgramBox, ProgramBoxError, ProgramWrites};
 use gro_runtime::confine::rules::InstalledRule;
@@ -94,6 +96,7 @@ use gro_runtime::confine::run::{
     RunClosed, RunHardened, RunNetwork, RunPrepared, check_stdio, probe_floor,
 };
 use gro_runtime::confine::tool_dirs::ToolDirError;
+use gro_runtime::verb::table::BuiltinGrantsTable;
 
 use support::{DEADLINE, KillOnDrop, Scratch};
 
@@ -434,9 +437,12 @@ fn expected(case: &str) -> String {
             line(&format!("network: {network}"));
             line("made: ok");
             line(
-                "tool directories: .fuz/cache, .svelte-kit, node_modules/$app, node_modules/.vite, node_modules/.vite-temp",
+                "tool directories: .svelte-kit/generated/dev, .svelte-kit/types, node_modules/.vite-temp, node_modules/.vite/vitest",
             );
             line("the one made before: kept");
+            line(
+                "tool directory rules: .svelte-kit/generated/dev, .svelte-kit/types, node_modules/.vite-temp, node_modules/.vite/vitest",
+            );
             line("a file at .svelte-kit: NotADirectory");
             line("prepared with no private directory: NoPrivateDir");
         }
@@ -448,7 +454,7 @@ fn expected(case: &str) -> String {
             line("made where it leads: false");
             line("node_modules swapped for a link to .git: Symlink");
             line("made in .git: false");
-            line(".fuz a file: NotADirectory");
+            line("node_modules/.vite a file: NotADirectory");
             line("node_modules a file: NotADirectory");
         }
         "private_dir_reused" => {
@@ -526,7 +532,8 @@ fn expected(case: &str) -> String {
             line("write node_modules/x: denied");
             line("write a new top-level file: denied");
             line(&format!("write src: {writes}"));
-            line("write node_modules/.vite: ok");
+            line("write node_modules/.vite-temp: ok");
+            line("write node_modules/.vite: denied");
             line(&format!("write a nested node_modules: {writes}"));
             line("write the private directory: ok");
             line("the private directory held by the box: true");
@@ -1091,12 +1098,38 @@ fn tools_project(scratch: &Path, name: &str) -> PathBuf {
     std::fs::canonicalize(project).unwrap()
 }
 
-/// The plan of a run of `project` granting the local `tools`, the project
-/// declaring `declared`.
+/// The programs of the grants table named `names`, each that writes tool
+/// directories by its name in the run, with the `write` the carried table
+/// names for it.
+fn table_tools(names: &[&str]) -> BTreeMap<String, ToolWrites> {
+    let table = BuiltinGrantsTable::carried().unwrap();
+    names
+        .iter()
+        .filter_map(|&name| {
+            let grant = table
+                .builtins
+                .values()
+                .flatten()
+                .flat_map(|grants| grants.programs.values())
+                .find(|grant| grant.name == name)
+                .unwrap();
+            (!grant.write.is_empty()).then(|| {
+                let tool = ToolWrites {
+                    name: name.to_owned(),
+                    tool_dirs: grant.write.iter().copied().collect(),
+                };
+                (format!("node_modules/.bin/{name}"), tool)
+            })
+        })
+        .collect()
+}
+
+/// The plan of a run of `project` granting the grants table's `tools`, the
+/// project declaring `declared`.
 fn tools_plan(project: &Path, tools: &[&str], declared: &[&str]) -> BoxPlan {
     let inputs = BoxInputs {
         root: project.to_owned(),
-        tools: tools.iter().map(|&tool| tool.to_owned()).collect(),
+        tools: table_tools(tools),
         declared: declared.iter().map(|&name| name.to_owned()).collect(),
         ..BoxInputs::default()
     };
@@ -1124,17 +1157,14 @@ fn tool_dir_refusal(made: Result<(), ToolDirError>) -> String {
 }
 
 /// The tool directories a plan names, made once the run is hardened,
-/// `.fuz` with `.fuz/cache` and `.svelte-kit` passing as the directory made
-/// before; a file at one refused.
+/// `.svelte-kit` passing as the directory made before on the way to
+/// vitest's own and `node_modules/.vite` made on the way to its cache, which
+/// is no tool directory itself; a file on the way to one refused.
 fn tool_dirs(scratch: &Path) {
     let project = tools_project(scratch, "tools_made");
     std::fs::create_dir(project.join(".svelte-kit")).unwrap();
     std::fs::write(project.join(".svelte-kit/kept.txt"), "").unwrap();
-    let plan = tools_plan(
-        &project,
-        &["vitest"],
-        &["@sveltejs/kit", "vite", "@fuzdev/fuz_css"],
-    );
+    let plan = tools_plan(&project, &["vitest"], &["@sveltejs/kit", "vitest"]);
     let filed = tools_project(scratch, "tools_file");
     std::fs::write(filed.join(".svelte-kit"), "").unwrap();
     let file_plan = tools_plan(&filed, &["vitest"], &["@sveltejs/kit"]);
@@ -1149,11 +1179,11 @@ fn tool_dirs(scratch: &Path) {
     hardened.make_tool_dirs(&plan).unwrap();
     say("made: ok");
     let mut made: Vec<String> = [
-        ".fuz/cache",
-        ".svelte-kit",
+        ".svelte-kit/generated/dev",
+        ".svelte-kit/types",
         "node_modules/$app",
-        "node_modules/.vite",
         "node_modules/.vite-temp",
+        "node_modules/.vite/vitest",
     ]
     .into_iter()
     .filter(|dir| project.join(dir).is_dir() && !project.join(dir).is_symlink())
@@ -1168,6 +1198,13 @@ fn tool_dirs(scratch: &Path) {
         } else {
             "emptied"
         }
+    ));
+    say(&format!(
+        "tool directory rules: {}",
+        plan.tool_dirs()
+            .map(|(dir, _)| dir.path())
+            .collect::<Vec<_>>()
+            .join(", ")
     ));
     say(&format!(
         "a file at .svelte-kit: {}",
@@ -1199,11 +1236,11 @@ fn tool_dirs_planted(scratch: &Path) {
     let swapped_plan = tools_plan(&swapped, &["vitest"], &["vitest"]);
     std::fs::rename(swapped.join("node_modules"), swapped.join("moved")).unwrap();
     std::os::unix::fs::symlink(".git", swapped.join("node_modules")).unwrap();
-    // a file on the way to a tool directory: `.fuz` for `.fuz/cache`, and a
-    // `node_modules` swapped for one after the plan, for `node_modules/.vite`
+    // a file on the way to a tool directory: `node_modules/.vite` for
+    // vitest's cache, and a `node_modules` swapped for one after the plan
     let filed = tools_project(scratch, "tools_filed");
-    std::fs::write(filed.join(".fuz"), "").unwrap();
-    let fuz_plan = tools_plan(&filed, &["vitest"], &["@fuzdev/fuz_css"]);
+    std::fs::write(filed.join("node_modules/.vite"), "").unwrap();
+    let vite_plan = tools_plan(&filed, &["vitest"], &["vitest"]);
     let filed_modules = tools_project(scratch, "tools_filed_modules");
     let filed_plan = tools_plan(&filed_modules, &["vitest"], &["vitest"]);
     std::fs::remove_dir(filed_modules.join("node_modules")).unwrap();
@@ -1225,11 +1262,13 @@ fn tool_dirs_planted(scratch: &Path) {
     ));
     say(&format!(
         "made in .git: {}",
-        swapped.join(".git/.vite").exists() || swapped.join(".git/.vite-temp").exists()
+        [".vite", ".vite-temp", "$app"]
+            .iter()
+            .any(|dir| swapped.join(".git").join(dir).exists())
     ));
     say(&format!(
-        ".fuz a file: {}",
-        tool_dir_refusal(hardened.make_tool_dirs(&fuz_plan))
+        "node_modules/.vite a file: {}",
+        tool_dir_refusal(hardened.make_tool_dirs(&vite_plan))
     ));
     say(&format!(
         "node_modules a file: {}",
@@ -1278,6 +1317,8 @@ fn planned(scratch: &Path, writing: bool) {
     }
     std::os::unix::fs::symlink("CLAUDE.md", project.join("AGENTS.md")).unwrap();
     std::os::unix::fs::symlink(at("linked"), project.join("node_modules/linked")).unwrap();
+    // no tool directory, beside the tools' own
+    std::fs::create_dir(project.join("node_modules/.vite")).unwrap();
     let path = std::env::var("PATH").unwrap();
     let found = PathBuf::from(
         gro_runtime::find_on_path("node", Some(&path))
@@ -1288,7 +1329,7 @@ fn planned(scratch: &Path, writing: bool) {
     let inputs = BoxInputs {
         root: project.clone(),
         writes_root: writing,
-        tools: ["svelte-kit".to_owned()].into(),
+        tools: table_tools(&["svelte-kit"]),
         spawns: true,
         declared: ["@sveltejs/kit".to_owned(), "vite".to_owned()].into(),
         programs: vec![ProgramFile::Node {
@@ -1336,6 +1377,10 @@ fn planned(scratch: &Path, writing: bool) {
         write(project.join("new.txt"))
     ));
     say(&format!("write src: {}", write(project.join("src/a.txt"))));
+    say(&format!(
+        "write node_modules/.vite-temp: {}",
+        write(project.join("node_modules/.vite-temp/x"))
+    ));
     say(&format!(
         "write node_modules/.vite: {}",
         write(project.join("node_modules/.vite/x"))
@@ -1550,7 +1595,7 @@ fn program_box(scratch: &Path, case: &str) {
     let inputs = BoxInputs {
         root: project.clone(),
         writes_root: true,
-        tools: ["svelte-kit".to_owned()].into(),
+        tools: table_tools(&["svelte-kit"]),
         spawns: true,
         declared: ["@sveltejs/kit".to_owned()].into(),
         flags: vec![GrantedFlagDir {
@@ -1559,12 +1604,11 @@ fn program_box(scratch: &Path, case: &str) {
             real: at("flagged"),
         }],
         run_writes: [
-            ("svelte-kit", true, "table_writes"),
-            ("x", false, "flag_writes"),
+            ("node_modules/.bin/svelte-kit", "table_writes"),
+            ("x", "flag_writes"),
         ]
-        .map(|(program, table, dir)| RunWriteGrant {
+        .map(|(program, dir)| RunWriteGrant {
             program: program.to_owned(),
-            table,
             dirs: vec![RunWriteDir {
                 named: program.to_owned(),
                 dir: format!("../{dir}"),
@@ -1580,16 +1624,15 @@ fn program_box(scratch: &Path, case: &str) {
     assert_eq!(
         writes,
         [
-            ProgramWrites::TABLE,
+            ProgramWrites::NONE,
             ProgramWrites {
-                tool_dirs: true,
+                tool_dirs: table_tools(&["svelte-kit"])["node_modules/.bin/svelte-kit"].tool_dirs,
                 root: false,
                 run_write: Some(0),
             },
             ProgramWrites {
-                tool_dirs: false,
-                root: false,
                 run_write: Some(1),
+                ..ProgramWrites::NONE
             },
         ]
     );
@@ -1636,7 +1679,7 @@ fn program_box(scratch: &Path, case: &str) {
     ));
     say(&format!(
         "a second box for pin 0: {}",
-        match programs.program_box(ProgramWrites::TABLE, 0) {
+        match programs.program_box(writes[1], 0) {
             Err(ProgramBoxError::TempDir { source, .. })
                 if source.raw_os_error() == Some(EEXIST) =>
             {
@@ -1844,7 +1887,7 @@ fn program_box_umask(scratch: &Path) {
         .confine()
         .unwrap();
     let programs = confined.take_program_rules().unwrap();
-    let program_box = programs.program_box(ProgramWrites::FLAG, 0).unwrap();
+    let program_box = programs.program_box(ProgramWrites::NONE, 0).unwrap();
     let mode = std::fs::metadata(program_box.temp_dir())
         .unwrap()
         .permissions()

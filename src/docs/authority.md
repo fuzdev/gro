@@ -268,7 +268,7 @@ On Node that's what Gro's own code does, not a protection, since the config, a g
 On the binary the `check` marks are data the box takes its write roots from.
 The [command's closure](glossary.md#commands-closure), read natively before any JS runs,
 drops the writes on the project of `check`'s `gen` and `format`, and of a `gen --check` or `format --check` run on its own,
-so in the project a boxed `check` writes only its [tool directories](glossary.md#tool-directory), like `.svelte-kit`, fuz_css's `.fuz/cache`, and the ones tools write in `node_modules`,
+so in the project a boxed `check` writes only its tools' own [tool directories](glossary.md#tool-directory), like `.svelte-kit` and the ones tools write in `node_modules`,
 a boxed `gen --check` no more than that, and a boxed `format --check` nothing,
 and a test or genfile any of them runs can't rewrite a source, a workflow, or `package.json`.
 A command granted a write on the project, like `gen`, `format`, or `sync`, writes each top-level entry but `.git`, `node_modules`, and the other dot-entries,
@@ -298,9 +298,8 @@ The `note:` line a fallback prints is a [review signal](glossary.md#review-signa
 What the release claims, on Linux with Landlock's sixth ABI:
 every command of Gro's that the binary runs runs in a kernel [box](glossary.md#box) (built),
 covering Gro's code, the project's config and genfiles, and the tools it spawns, which inherit it,
-and each tool it spawns runs in a narrower box of its own inside it, writing only its own directories
-(both boxes built and installed; each tool of the grants table writes the command's tool directories, and each tool what `--allow-run-write=` names for it,
-and its writing only its own directories is designed, which the release waits for, [box](box.md#a-box-for-each-tool)).
+and each tool it spawns runs in a narrower box of its own inside it, writing only its own directories and what `--allow-run-write=` names for it
+(both boxes built and installed: each tool of the grants table writes the tool directories its grant names, making no symlink or FIFO there and moving no entry in, [box](box.md#a-box-for-each-tool)).
 Nothing in the home directory is readable but the project's own trees wherever they sit, what git reads there, and the programs the run pins, like `node`'s own file where a version manager installed it there:
 git's global config, its ignore and attributes files, and the files its config includes or names as `core.excludesFile` and `core.attributesFile`,
 never git's credential store unless your own git config names it as one of those.
@@ -310,8 +309,8 @@ the run's private temp directory, and what a grant flag names.
 The network is a private one with only loopback, so a test that binds `127.0.0.1` still passes.
 Where the system restricts unprivileged user namespaces, the box refuses internet sockets instead, loopback's included, so such a test fails there, and a `note:` line says so.
 The project is read-only but for the command's write roots: under `gen`, `format`, and `sync` each top-level entry but `.git`, `node_modules`, and the other dot-entries,
-and under every command that starts a tool from the project the [tool directories](glossary.md#tool-directory) its dependencies call for, like `.svelte-kit` and fuz_css's `.fuz/cache`.
-The project's own `.git` and `node_modules` are never writable but for the tool directories in `node_modules` (`$app`, `.vite`, and `.vite-temp`), unless a grant flag names them.
+and under every command that starts a tool from the project the [tool directories](glossary.md#tool-directory) of the tools it may start that its dependencies call for, like `.svelte-kit`, each written only by its own tools.
+The project's own `.git` and `node_modules` are never writable but for the tool directories in `node_modules` (`$app`, `.vite-temp`, and `.vite/vitest`), unless a grant flag names them.
 A tool and its children may execute the system's programs, the programs the run pins, `node` among them, the project's `node_modules` and the packages linked into it,
 a `node_modules` linked from another checkout, its own temporary directory inside the run's, and what `--allow-run-in=` names.
 Inside the box the per-builtin grants are guardrails.
@@ -338,10 +337,12 @@ What the release leaves is stated with it:
 - the tools see the run's whole environment, as on Node, and what they print can carry it
 - git's global config stays readable to every tool, with any credential or token kept in it
 - a write root is code the next unconfined command may run, as above:
-  a tool directory's contents run later, like the optimized dependencies in `node_modules/.vite` that `dev` loads,
+  a tool directory's contents run later, like the modules in `.svelte-kit/generated/dev` that a dev server loads,
   and under a write command a `.git` or `node_modules` nested in an included directory stays writable, which Landlock can't carve out
-- every tool of the grants table writes every tool directory of the command, so its code can plant in another's;
-  even once each writes only its own, a test can write Vitest's own directories, which a dev server already running picks up,
+- a tool directory two tools write is each one's, so one can plant there what the other reads
+  (svelte-check's and Vitest's `.svelte-kit/generated/dev`, the `node_modules/.vite-temp` of `svelte-kit`, svelte-check, and Vitest),
+  and `svelte-kit` writes all of `.svelte-kit` and `node_modules/$app`, which `gro test` syncs first so that Vitest needn't write `$app`;
+  a test can write Vitest's own directories, which a dev server already running picks up;
   and the project's config and genfiles run in every tool
 - a directory `--allow-run-write=` names for a tool is written by everything that tool runs, its config, its plugins, and for a test runner the tests;
   code in the run can start that tool with arguments of its own;

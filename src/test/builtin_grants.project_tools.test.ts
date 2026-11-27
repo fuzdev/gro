@@ -20,6 +20,7 @@ test('every program a project declares is `local`, and only those, so none runs 
 			['lint', 'sveltekit_cli', 'svelte-kit', true],
 			['sync', 'npm_cli', 'npm', false],
 			['sync', 'sveltekit_cli', 'svelte-kit', true],
+			['test', 'sveltekit_cli', 'svelte-kit', true],
 			['test', 'vitest_cli', 'vitest', true],
 			['typecheck', 'svelte_check_cli', 'svelte-check', true],
 			['typecheck', 'sveltekit_cli', 'svelte-kit', true],

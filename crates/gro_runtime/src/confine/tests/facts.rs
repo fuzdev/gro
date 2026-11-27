@@ -148,7 +148,7 @@ fn a_nested_node_modules_gets_no_rule_of_its_own() {
     scratch.file("w/project/examples/app/vite.config.ts");
     scratch.file("w/project/package.json");
     let mut checking = inputs(&project, &home, false);
-    checking.tools = ["vitest".to_owned()].into();
+    checking.tools = super::plan::table_tools(&["vitest"]);
     checking.declared = ["vitest".to_owned()].into();
     let facts = BoxFacts::read(&checking).unwrap();
     let plan = BoxPlan::for_run(&checking, &facts).unwrap();

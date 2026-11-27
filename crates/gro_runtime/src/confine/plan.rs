@@ -37,10 +37,13 @@
 //! directory private to the run, read, written, and executed, which
 //! `--allow-temp` alone grants too.
 //!
-//! A run whose closure grants a local tool gets the tool directories the
-//! project's declared dependencies call for ([`ToolDir`]), each written,
-//! made before the box, those in `node_modules` only where it's the
-//! project's own directory, never a linked one. A run that writes the
+//! A run whose closure grants a program of the grants table that writes
+//! tool directories gets each its `write` names that the project's declared
+//! dependencies call for ([`ToolDir`]), each written plain
+//! ([`Rights::WRITE_PLAIN`]: no symlink, no FIFO, no entry moved in from
+//! another directory), made before the box, those in `node_modules` only
+//! where it's the project's own directory, never a linked one; each
+//! program's own box takes only its own (`program.rs`). A run that writes the
 //! project's root (`gen`, `format`, `sync`, or a write flag naming the
 //! root) gets one write rule per top-level directory or regular file, but
 //! `.git`, `node_modules`, every dot-entry, every symlink, every regular
@@ -56,7 +59,10 @@
 //! realm gaining nothing ([`BoxInputs::run_writes`]): each directory it
 //! names for a program is read and written beneath `/`, a rule of its own
 //! ([`RuleSource::RunWrite`]) never merged with another source's on the
-//! same path, and one naming the root is the per-entry set. Each program's
+//! same path, and one naming the root is the per-entry set. A directory
+//! either write flag names is written plain where it is a tool directory
+//! (any, made or not) or where a linked `node_modules` leads, lies in one,
+//! or holds one (`BoxPlan::flag_write_rights`). Each program's
 //! own box takes it for that program alone (`program.rs`). A flag naming an
 //! excluded entry (`--allow-write=.git`, `--allow-run-write=git:.git`) is
 //! honored, but below.
@@ -120,9 +126,10 @@ pub struct BoxInputs {
     /// Whether the command's closure writes the project's root, its check
     /// mode's writes dropped.
     pub writes_root: bool,
-    /// The project's local programs the closure grants, each by its bare
-    /// name (`vitest`, `svelte-kit`).
-    pub tools: BTreeSet<String>,
+    /// The programs of the grants table the closure grants that write tool
+    /// directories, by the name the run grants each as
+    /// (`node_modules/.bin/vitest`).
+    pub tools: BTreeMap<String, ToolWrites>,
     /// Whether the run may start a program: the closure grants one, or a
     /// flag does.
     pub spawns: bool,
@@ -217,9 +224,6 @@ pub struct RunWriteGrant {
     /// `node_modules/.bin/vitest` for a local tool of the grants table, the
     /// name `--allow-run=` lists for one a flag grants).
     pub program: String,
-    /// Whether it's a program of the grants table, which writes the
-    /// command's tool directories too.
-    pub table: bool,
     /// Its directories, each with the flag's spelling.
     pub dirs: Vec<RunWriteDir>,
 }
@@ -321,6 +325,9 @@ pub struct BoxPlan {
     /// The directories `--allow-run-write=` lists, by program, as the
     /// inputs held them: what a [`RuleSource::RunWrite`] indexes.
     run_writes: Vec<RunWriteGrant>,
+    /// The programs of the grants table that write tool directories, as the
+    /// inputs held them.
+    tools: BTreeMap<String, ToolWrites>,
 }
 
 /// A rule the plan opens.
@@ -422,43 +429,134 @@ pub enum RuleSource {
     RunWrite(usize),
 }
 
-/// A directory a tool writes, made before the box when the command's
-/// closure grants a local tool and the project declares what writes it.
+/// A directory a tool writes on its own.
 ///
-/// One in `node_modules` is made only where that's the project's own
-/// directory, never where a linked one leads.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+/// It's a write root of each program of the grants table that names it in
+/// its `write`, made before the box when the command's closure grants such
+/// a program and the project declares the dependency that writes it. One in `node_modules` is made only where that's the project's own
+/// directory, never where a linked one leads. Deserialized from its path, as
+/// the TS table's `BuiltinToolDir` spells it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Deserialize)]
 pub enum ToolDir {
-    /// `.svelte-kit`, for `@sveltejs/kit`.
+    /// `.svelte-kit`, all of what `svelte-kit sync` writes, which `vite
+    /// build` reads.
+    #[serde(rename = ".svelte-kit")]
     SvelteKit,
-    /// `node_modules/$app`, for `@sveltejs/kit`.
+    /// `.svelte-kit/generated/dev`, the modules `@sveltejs/kit` generates
+    /// for a dev server, which its plugin writes in any Vite server it's
+    /// in.
+    #[serde(rename = ".svelte-kit/generated/dev")]
+    SvelteKitDev,
+    /// `.svelte-kit/types`, the route types `@sveltejs/kit` generates.
+    #[serde(rename = ".svelte-kit/types")]
+    SvelteKitTypes,
+    /// `node_modules/$app`, the tsconfig and types `@sveltejs/kit`
+    /// generates.
+    #[serde(rename = "node_modules/$app")]
     App,
-    /// `node_modules/.vite`, for `vite` or `vitest`.
-    Vite,
-    /// `node_modules/.vite-temp`, for `vite` or `vitest`.
+    /// `node_modules/.vite-temp`, where Vite's config loader writes the
+    /// bundled config it imports and removes.
+    #[serde(rename = "node_modules/.vite-temp")]
     ViteTemp,
-    /// `.fuz/cache`, for `@fuzdev/fuz_css` under `vitest`, whose plugin
-    /// writes it as vitest transforms.
-    FuzCache,
+    /// `node_modules/.vite/vitest`, Vitest's own cache, beside the
+    /// optimized dependencies a later `dev` loads, which are no tool's.
+    #[serde(rename = "node_modules/.vite/vitest")]
+    Vitest,
 }
 
 impl ToolDir {
-    /// Its path beneath the project's root, or beneath `node_modules` for
-    /// those [`ToolDir::in_node_modules`] names.
-    pub const fn name(self) -> &'static str {
+    /// Every tool directory, in the order their rules open: one holding
+    /// another first.
+    pub const ALL: [Self; 6] = [
+        Self::SvelteKit,
+        Self::SvelteKitDev,
+        Self::SvelteKitTypes,
+        Self::App,
+        Self::ViteTemp,
+        Self::Vitest,
+    ];
+
+    /// Its path beneath the project's root.
+    pub const fn path(self) -> &'static str {
         match self {
             Self::SvelteKit => ".svelte-kit",
-            Self::App => "$app",
-            Self::Vite => ".vite",
-            Self::ViteTemp => ".vite-temp",
-            Self::FuzCache => ".fuz/cache",
+            Self::SvelteKitDev => ".svelte-kit/generated/dev",
+            Self::SvelteKitTypes => ".svelte-kit/types",
+            Self::App => "node_modules/$app",
+            Self::ViteTemp => "node_modules/.vite-temp",
+            Self::Vitest => "node_modules/.vite/vitest",
         }
     }
 
     /// Whether it sits in `node_modules`.
     pub const fn in_node_modules(self) -> bool {
-        matches!(self, Self::App | Self::Vite | Self::ViteTemp)
+        matches!(self, Self::App | Self::ViteTemp | Self::Vitest)
     }
+
+    /// The packages any of which, declared, calls for it.
+    pub const fn declared_by(self) -> &'static [&'static str] {
+        match self {
+            Self::SvelteKit | Self::SvelteKitDev | Self::SvelteKitTypes | Self::App => {
+                &[SVELTEKIT_PACKAGE]
+            }
+            Self::ViteTemp => &VITE_PACKAGES,
+            Self::Vitest => &[VITEST_PACKAGE],
+        }
+    }
+
+    /// Its bit in a [`ToolDirs`].
+    const fn bit(self) -> u8 {
+        1 << self as u8
+    }
+}
+
+/// A set of [`ToolDir`]s: the tool directories a program writes.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ToolDirs(u8);
+
+impl ToolDirs {
+    /// None.
+    pub const EMPTY: Self = Self(0);
+
+    /// Whether it holds `dir`.
+    pub const fn contains(self, dir: ToolDir) -> bool {
+        self.0 & dir.bit() != 0
+    }
+
+    /// Whether it holds none.
+    pub const fn is_empty(self) -> bool {
+        self.0 == 0
+    }
+
+    /// It and `other`, joined.
+    #[must_use]
+    pub const fn union(self, other: Self) -> Self {
+        Self(self.0 | other.0)
+    }
+
+    /// Each it holds, in [`ToolDir::ALL`]'s order.
+    pub fn iter(self) -> impl Iterator<Item = ToolDir> {
+        ToolDir::ALL
+            .into_iter()
+            .filter(move |dir| self.contains(*dir))
+    }
+}
+
+impl FromIterator<ToolDir> for ToolDirs {
+    fn from_iter<I: IntoIterator<Item = ToolDir>>(dirs: I) -> Self {
+        Self(dirs.into_iter().fold(0, |bits, dir| bits | dir.bit()))
+    }
+}
+
+/// A program of the grants table that writes tool directories, as the run
+/// grants it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ToolWrites {
+    /// Its name in the table, as the tool is called (`vitest`), which the
+    /// run's messages name it by.
+    pub name: String,
+    /// The tool directories its `write` names.
+    pub tool_dirs: ToolDirs,
 }
 
 /// What got no rule, and why.
@@ -628,17 +726,14 @@ fn realm_writes_message(
 /// The devices every boxed run reads.
 const READ_DEVICES: [&str; 3] = ["/dev/zero", "/dev/urandom", "/dev/random"];
 
-/// The package that declares `.svelte-kit` and `node_modules/$app`.
+/// The package that declares the tool directories of `@sveltejs/kit`.
 const SVELTEKIT_PACKAGE: &str = "@sveltejs/kit";
 
-/// The packages that declare `node_modules/.vite` and `.vite-temp`.
+/// The packages that declare `node_modules/.vite-temp`.
 const VITE_PACKAGES: [&str; 2] = ["vite", "vitest"];
 
-/// The package whose plugin writes `.fuz/cache` under `vitest`.
-const FUZ_CSS_PACKAGE: &str = "@fuzdev/fuz_css";
-
-/// The local program whose transforms run `@fuzdev/fuz_css`'s plugin.
-const VITEST: &str = "vitest";
+/// The package that declares `node_modules/.vite/vitest`.
+const VITEST_PACKAGE: &str = "vitest";
 
 impl BoxPlan {
     /// The box for the run `inputs` describes, from the disk as `facts`
@@ -662,6 +757,7 @@ impl BoxPlan {
                 NodeModules::Absent | NodeModules::Directory => None,
             },
             run_writes: inputs.run_writes.clone(),
+            tools: inputs.tools.clone(),
         };
         let read_maybe_execute = if inputs.spawns {
             RealRights::ReadExecute
@@ -743,49 +839,57 @@ impl BoxPlan {
         self.private_temp
     }
 
+    /// The programs of the grants table that write tool directories, by the
+    /// name the run grants each as.
+    pub const fn tools(&self) -> &BTreeMap<String, ToolWrites> {
+        &self.tools
+    }
+
     /// What each program of the run may write, every write set a program's
-    /// box is built for ([`ProgramWrites`]): a program of the grants table,
-    /// and each `--allow-run-write=` names, with the tool directories when
-    /// it's the table's and the root's per-entry rules when one of its
-    /// directories is the root; none for a run that starts no program. A
-    /// program a flag grants that no `--allow-run-write=` names writes a
-    /// subset of the table's, so a rule any of these takes is one some
-    /// program's box may.
+    /// box is built for ([`ProgramWrites`]): none, for a program with no
+    /// write set of its own, and each of [`BoxPlan::writes_by_name`]; none
+    /// at all for a run that starts no program. Every other program writes
+    /// none, so a rule any of these takes is one some program's box may.
     pub fn program_writes(&self) -> Vec<ProgramWrites> {
         if !self.spawns {
             return Vec::new();
         }
-        std::iter::once(ProgramWrites::TABLE)
-            .chain(
-                self.run_writes
-                    .iter()
-                    .enumerate()
-                    .map(|(index, grant)| self.named_write(index, grant)),
-            )
+        std::iter::once(ProgramWrites::NONE)
+            .chain(self.writes_by_name().into_values())
             .collect()
     }
 
-    /// The write set of each program `--allow-run-write=` names, by the
-    /// name the run grants it as, as [`BoxPlan::program_writes`] holds it:
-    /// none for a run that starts no program.
-    pub fn named_writes(&self) -> BTreeMap<String, ProgramWrites> {
+    /// The write set of each program that writes more than its temporary
+    /// directory, by the name the run grants it as: each program of the
+    /// grants table with the tool directories its `write` names, and each
+    /// `--allow-run-write=` names, with the root's per-entry rules when one
+    /// of its directories is the root; none for a run that starts no
+    /// program.
+    pub fn writes_by_name(&self) -> BTreeMap<String, ProgramWrites> {
         if !self.spawns {
             return BTreeMap::new();
         }
-        self.run_writes
+        let mut writes: BTreeMap<String, ProgramWrites> = self
+            .tools
             .iter()
-            .enumerate()
-            .map(|(index, grant)| (grant.program.clone(), self.named_write(index, grant)))
-            .collect()
-    }
-
-    /// The write set of the program `--allow-run-write=` names at `index`.
-    fn named_write(&self, index: usize, grant: &RunWriteGrant) -> ProgramWrites {
-        ProgramWrites {
-            tool_dirs: grant.table,
-            root: grant.dirs.iter().any(|dir| dir.real == self.root),
-            run_write: Some(index),
+            .map(|(program, tool)| {
+                (
+                    program.clone(),
+                    ProgramWrites {
+                        tool_dirs: tool.tool_dirs,
+                        ..ProgramWrites::NONE
+                    },
+                )
+            })
+            .collect();
+        for (index, grant) in self.run_writes.iter().enumerate() {
+            let named = writes
+                .entry(grant.program.clone())
+                .or_insert(ProgramWrites::NONE);
+            named.root = grant.dirs.iter().any(|dir| dir.real == self.root);
+            named.run_write = Some(index);
         }
+        writes
     }
 
     /// The first rule some program's box of the run would take
@@ -1035,33 +1139,32 @@ impl BoxPlan {
         }
     }
 
-    /// The tool directories the declared dependencies call for.
+    /// The tool directories the closure's programs write that the declared
+    /// dependencies call for.
     fn add_tool_dirs(&mut self, inputs: &BoxInputs, facts: &BoxFacts) {
-        let declares = |name: &str| inputs.declared.contains(name);
-        let mut dirs = Vec::new();
-        if declares(SVELTEKIT_PACKAGE) {
-            dirs.extend([ToolDir::SvelteKit, ToolDir::App]);
-        }
-        if VITE_PACKAGES.iter().any(|name| declares(name)) {
-            dirs.extend([ToolDir::Vite, ToolDir::ViteTemp]);
-        }
-        if inputs.tools.contains(VITEST) && declares(FUZ_CSS_PACKAGE) {
-            dirs.push(ToolDir::FuzCache);
-        }
-        for dir in dirs {
-            let (anchor, path) = if dir.in_node_modules() {
-                match &facts.node_modules {
-                    NodeModules::Directory => {
-                        (Anchor::Project, Path::new("node_modules").join(dir.name()))
-                    }
-                    // another checkout's, which a program writes only as
-                    // `--allow-run-write=` names it
-                    NodeModules::Absent | NodeModules::Link { .. } => continue,
-                }
-            } else {
-                (Anchor::Project, PathBuf::from(dir.name()))
-            };
-            self.beneath(anchor, path, Rights::WRITE, RuleSource::ToolDir(dir));
+        let written = inputs
+            .tools
+            .values()
+            .fold(ToolDirs::EMPTY, |dirs, tool| dirs.union(tool.tool_dirs));
+        for dir in written.iter() {
+            if !dir
+                .declared_by()
+                .iter()
+                .any(|name| inputs.declared.contains(*name))
+            {
+                continue;
+            }
+            // another checkout's, which a program writes only as
+            // `--allow-run-write=` names it
+            if dir.in_node_modules() && facts.node_modules != NodeModules::Directory {
+                continue;
+            }
+            self.beneath(
+                Anchor::Project,
+                dir.path(),
+                Rights::WRITE_PLAIN,
+                RuleSource::ToolDir(dir),
+            );
         }
     }
 
@@ -1079,12 +1182,8 @@ impl BoxPlan {
                 }
                 DirFlag::Write if flag.real == inputs.root => {}
                 DirFlag::Write => {
-                    self.beneath(
-                        Anchor::Slash,
-                        beneath_root(&flag.real),
-                        Rights::READ | Rights::WRITE,
-                        source,
-                    );
+                    let rights = self.flag_write_rights(&flag.real);
+                    self.beneath(Anchor::Slash, beneath_root(&flag.real), rights, source);
                 }
             }
         }
@@ -1093,21 +1192,54 @@ impl BoxPlan {
 
 impl BoxPlan {
     /// The directories `--allow-run-write=` lists, read and written
-    /// beneath `/`, each its own rule for its program, but one naming the
-    /// root, which is the per-entry set.
+    /// beneath `/` as [`BoxPlan::flag_write_rights`] says, each its own
+    /// rule for its program, but one naming the root, which is the
+    /// per-entry set.
     fn run_write_rules(&mut self, inputs: &BoxInputs) {
         for (index, grant) in inputs.run_writes.iter().enumerate() {
             for dir in &grant.dirs {
                 if dir.real != inputs.root {
+                    let rights = self.flag_write_rights(&dir.real);
                     self.beneath(
                         Anchor::Slash,
                         beneath_root(&dir.real),
-                        Rights::READ | Rights::WRITE,
+                        rights,
                         RuleSource::RunWrite(index),
                     );
                 }
             }
         }
+    }
+
+    /// What a write flag's directory `real`, a real path, grants, for
+    /// `--allow-write=` and `--allow-run-write=` alike: read and written,
+    /// plain ([`Rights::WRITE_PLAIN`]) where it touches a tool directory
+    /// ([`BoxPlan::touches_tool_dirs`]), as the tool directories are, so
+    /// neither flag gives gro's own code or a tool a symlink, a FIFO, or an
+    /// entry moved in there, and whole elsewhere.
+    fn flag_write_rights(&self, real: &Path) -> Rights {
+        if self.touches_tool_dirs(real) {
+            Rights::READ | Rights::WRITE_PLAIN
+        } else {
+            Rights::READ | Rights::WRITE
+        }
+    }
+
+    /// Whether `real`, a real path, is a tool directory or where a linked
+    /// `node_modules` leads, or lies in or holds one, by whole components
+    /// (`holds`), so `.svelte-kit2` neither lies in nor holds
+    /// `.svelte-kit`. Every tool directory's path counts, made by the plan
+    /// or not, whatever the project declares, since a later command that
+    /// declares it, or a tool that writes it anyway, writes there by name.
+    fn touches_tool_dirs(&self, real: &Path) -> bool {
+        ToolDir::ALL
+            .iter()
+            .map(|dir| self.root.join(dir.path()))
+            .any(|dir| holds(&dir, real) || holds(real, &dir))
+            || self
+                .node_modules_link
+                .as_deref()
+                .is_some_and(|dir| holds(dir, real) || holds(real, dir))
     }
 }
 

@@ -1,20 +1,47 @@
 //! Tests for the box's plan: each command's rules, whole, and each flag's,
 //! from inputs and facts written here, every rule rendered as one line.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 use crate::confine::plan::{
     Anchor, BoxFacts, BoxInputs, BoxPlan, DirFlag, EntryKind, GrantedFlagDir, NodeModules, Opening,
     PlanRefusal, PlannedRule, ProgramFile, RootWriter, RuleSource, RunWriteDir, RunWriteGrant,
-    Skip, TopEntry,
+    Skip, ToolDir, ToolDirs, ToolWrites, TopEntry,
 };
 use crate::confine::program::ProgramWrites;
 use crate::confine::rules::{Need, RealRights, Rights};
+use crate::verb::table::BuiltinGrantsTable;
 
 /// `names` as a set.
 fn set(names: &[&str]) -> BTreeSet<String> {
     names.iter().map(|&name| name.to_owned()).collect()
+}
+
+/// The programs of the grants table named `names`, as the closure grants
+/// each that writes tool directories, by its name in the run, with the
+/// `write` the carried table names for it.
+pub(super) fn table_tools(names: &[&str]) -> BTreeMap<String, ToolWrites> {
+    let table = BuiltinGrantsTable::carried().unwrap();
+    names
+        .iter()
+        .filter_map(|&name| {
+            let grant = table
+                .builtins
+                .values()
+                .flatten()
+                .flat_map(|grants| grants.programs.values())
+                .find(|grant| grant.name == name)
+                .unwrap();
+            (!grant.write.is_empty()).then(|| {
+                let tool = ToolWrites {
+                    name: name.to_owned(),
+                    tool_dirs: grant.write.iter().copied().collect(),
+                };
+                (format!("node_modules/.bin/{name}"), tool)
+            })
+        })
+        .collect()
 }
 
 /// A project at `/p` with a top-level entry of each kind the plan tells
@@ -62,7 +89,7 @@ fn node() -> ProgramFile {
 }
 
 /// A run at `/p` of a command whose closure writes the root when `writes`,
-/// grants the local `tools`, and pins `programs`, in a project declaring
+/// grants the grants table's `tools`, and pins `programs`, in a project declaring
 /// `declared`.
 fn inputs(
     writes: bool,
@@ -73,7 +100,7 @@ fn inputs(
     BoxInputs {
         root: "/p".into(),
         writes_root: writes,
-        tools: set(tools),
+        tools: table_tools(tools),
         spawns: !programs.is_empty(),
         declared: set(declared),
         programs,
@@ -82,14 +109,22 @@ fn inputs(
     }
 }
 
-/// `rights` as `r`, `w`, and `x`.
+/// `rights` as `r`, `w`, and `x`, a plain write (`Rights::WRITE_PLAIN`)
+/// as `p`.
 fn rights(rights: Rights) -> &'static str {
-    let (r, w, x) = (Rights::READ, Rights::WRITE, Rights::EXECUTE);
+    let (r, w, p, x) = (
+        Rights::READ,
+        Rights::WRITE,
+        Rights::WRITE_PLAIN,
+        Rights::EXECUTE,
+    );
     [
         (r, "r"),
         (w, "w"),
+        (p, "p"),
         (x, "x"),
         (r | w, "rw"),
+        (r | p, "rp"),
         (r | x, "rx"),
         (w | x, "wx"),
         (r | w | x, "rwx"),
@@ -209,7 +244,7 @@ fn expected(spawns: bool, parts: &[&[&str]]) -> Vec<String> {
 #[test]
 fn each_command_plans_its_box() {
     let kit_vite = ["@sveltejs/kit", "vite"];
-    let every = ["@sveltejs/kit", "vite", "vitest", "@fuzdev/fuz_css"];
+    let every = ["@sveltejs/kit", "vite", "vitest"];
     let git = ProgramFile::Direct {
         real: "/usr/bin/git".into(),
     };
@@ -239,10 +274,9 @@ fn each_command_plans_its_box() {
                     &["real /h/node/bin/node rx req Node"],
                     SPAWNING,
                     &[
-                        "project .svelte-kit w req ToolDir(SvelteKit)",
-                        "project node_modules/$app w req ToolDir(App)",
-                        "project node_modules/.vite w req ToolDir(Vite)",
-                        "project node_modules/.vite-temp w req ToolDir(ViteTemp)",
+                        "project .svelte-kit p req ToolDir(SvelteKit)",
+                        "project node_modules/$app p req ToolDir(App)",
+                        "project node_modules/.vite-temp p req ToolDir(ViteTemp)",
                     ],
                 ],
             ),
@@ -256,10 +290,9 @@ fn each_command_plans_its_box() {
                     &["real /h/node/bin/node rx req Node"],
                     SPAWNING,
                     &[
-                        "project .svelte-kit w req ToolDir(SvelteKit)",
-                        "project node_modules/$app w req ToolDir(App)",
-                        "project node_modules/.vite w req ToolDir(Vite)",
-                        "project node_modules/.vite-temp w req ToolDir(ViteTemp)",
+                        "project .svelte-kit p req ToolDir(SvelteKit)",
+                        "project node_modules/$app p req ToolDir(App)",
+                        "project node_modules/.vite-temp p req ToolDir(ViteTemp)",
                     ],
                 ],
             ),
@@ -268,7 +301,7 @@ fn each_command_plans_its_box() {
             "check",
             inputs(
                 false,
-                &["eslint", "svelte-check", "svelte-kit", "vitest"],
+                &["eslint", "svelte-check", "svelte-kit", "tsc", "vitest"],
                 &every,
                 vec![node(), git],
             ),
@@ -281,17 +314,59 @@ fn each_command_plans_its_box() {
                     ],
                     SPAWNING,
                     &[
-                        "project .svelte-kit w req ToolDir(SvelteKit)",
-                        "project node_modules/$app w req ToolDir(App)",
-                        "project node_modules/.vite w req ToolDir(Vite)",
-                        "project node_modules/.vite-temp w req ToolDir(ViteTemp)",
-                        "project .fuz/cache w req ToolDir(FuzCache)",
+                        "project .svelte-kit p req ToolDir(SvelteKit)",
+                        "project .svelte-kit/generated/dev p req ToolDir(SvelteKitDev)",
+                        "project .svelte-kit/types p req ToolDir(SvelteKitTypes)",
+                        "project node_modules/$app p req ToolDir(App)",
+                        "project node_modules/.vite-temp p req ToolDir(ViteTemp)",
+                        "project node_modules/.vite/vitest p req ToolDir(Vitest)",
                     ],
                 ],
             ),
         ),
-        // eslint's plugins run no fuz_css transform, and vitest alone
-        // declares `.vite`
+        // svelte-check's and svelte-kit's own, never vitest's
+        (
+            "typecheck",
+            inputs(
+                false,
+                &["svelte-check", "svelte-kit", "tsc"],
+                &every,
+                vec![node()],
+            ),
+            expected(
+                true,
+                &[
+                    &["real /h/node/bin/node rx req Node"],
+                    SPAWNING,
+                    &[
+                        "project .svelte-kit p req ToolDir(SvelteKit)",
+                        "project .svelte-kit/generated/dev p req ToolDir(SvelteKitDev)",
+                        "project node_modules/$app p req ToolDir(App)",
+                        "project node_modules/.vite-temp p req ToolDir(ViteTemp)",
+                    ],
+                ],
+            ),
+        ),
+        // vitest's own alone: none of `.svelte-kit` whole, nor `$app`
+        (
+            "test",
+            inputs(false, &["vitest"], &every, vec![node()]),
+            expected(
+                true,
+                &[
+                    &["real /h/node/bin/node rx req Node"],
+                    SPAWNING,
+                    &[
+                        "project .svelte-kit/generated/dev p req ToolDir(SvelteKitDev)",
+                        "project .svelte-kit/types p req ToolDir(SvelteKitTypes)",
+                        "project node_modules/.vite-temp p req ToolDir(ViteTemp)",
+                        "project node_modules/.vite/vitest p req ToolDir(Vitest)",
+                    ],
+                ],
+            ),
+        ),
+        // eslint writes none, and of svelte-kit's own the project declares
+        // only what `.vite-temp` takes
         (
             "lint",
             inputs(
@@ -305,10 +380,7 @@ fn each_command_plans_its_box() {
                 &[
                     &["real /h/node/bin/node rx req Node"],
                     SPAWNING,
-                    &[
-                        "project node_modules/.vite w req ToolDir(Vite)",
-                        "project node_modules/.vite-temp w req ToolDir(ViteTemp)",
-                    ],
+                    &["project node_modules/.vite-temp p req ToolDir(ViteTemp)"],
                 ],
             ),
         ),
@@ -329,6 +401,234 @@ fn each_command_plans_its_box() {
             "{command}"
         );
     }
+}
+
+/// Each program of the grants table writes the tool directories its
+/// `write` names and no other's, beside what `--allow-run-write=` names for
+/// it; a program of the table that names none writes nothing of its own;
+/// and a run that starts no program has no write set at all.
+#[test]
+fn each_program_writes_its_own_tool_directories() {
+    let mut check = inputs(
+        false,
+        &["eslint", "svelte-check", "svelte-kit", "tsc", "vitest"],
+        &["@sveltejs/kit", "vite", "vitest"],
+        vec![node()],
+    );
+    check.run_writes = vec![vitest_writes(&[("src", "/p/src")])];
+    let plan = BoxPlan::for_run(&check, &facts()).unwrap();
+    let dirs = |dirs: &[ToolDir]| dirs.iter().copied().collect::<ToolDirs>();
+    let own = |dirs: ToolDirs| ProgramWrites {
+        tool_dirs: dirs,
+        ..ProgramWrites::NONE
+    };
+    let kit = dirs(&[ToolDir::SvelteKit, ToolDir::App, ToolDir::ViteTemp]);
+    let svelte_check = dirs(&[ToolDir::SvelteKitDev, ToolDir::ViteTemp]);
+    let vitest = dirs(&[
+        ToolDir::SvelteKitDev,
+        ToolDir::SvelteKitTypes,
+        ToolDir::ViteTemp,
+        ToolDir::Vitest,
+    ]);
+    assert_eq!(
+        plan.writes_by_name(),
+        BTreeMap::from([
+            (
+                "node_modules/.bin/svelte-check".to_owned(),
+                own(svelte_check)
+            ),
+            ("node_modules/.bin/svelte-kit".to_owned(), own(kit)),
+            (
+                "node_modules/.bin/vitest".to_owned(),
+                ProgramWrites {
+                    tool_dirs: vitest,
+                    root: false,
+                    run_write: Some(0),
+                }
+            ),
+        ])
+    );
+    assert_eq!(
+        plan.program_writes(),
+        [
+            ProgramWrites::NONE,
+            own(svelte_check),
+            own(kit),
+            ProgramWrites {
+                tool_dirs: vitest,
+                root: false,
+                run_write: Some(0),
+            },
+        ]
+    );
+    // no program but vitest writes its cache, and none writes what `dev`
+    // optimizes beside it
+    let writers = |dir: ToolDir| -> Vec<String> {
+        plan.writes_by_name()
+            .into_iter()
+            .filter(|(_, writes)| writes.tool_dirs.contains(dir))
+            .map(|(program, _)| program)
+            .collect()
+    };
+    assert_eq!(writers(ToolDir::Vitest), ["node_modules/.bin/vitest"]);
+    assert_eq!(
+        writers(ToolDir::SvelteKit),
+        ["node_modules/.bin/svelte-kit"]
+    );
+    assert_eq!(
+        writers(ToolDir::SvelteKitTypes),
+        ["node_modules/.bin/vitest"]
+    );
+    assert_eq!(writers(ToolDir::App), ["node_modules/.bin/svelte-kit"]);
+    check.spawns = false;
+    let still = BoxPlan::for_run(&check, &facts()).unwrap();
+    assert!(still.writes_by_name().is_empty() && still.program_writes().is_empty());
+}
+
+/// A directory `--allow-run-write=` names is written plain, as the tool
+/// directories are, where it is one, lies in one or in where a linked
+/// `node_modules` leads, or holds one, by whole components; every other
+/// keeps the whole write.
+#[test]
+fn a_run_write_flag_in_a_tool_directory_writes_plain() {
+    let run_write = |dirs: &[(&str, &str)], facts: &BoxFacts| -> Vec<String> {
+        let mut named = inputs(
+            false,
+            &["svelte-kit", "vitest"],
+            &["@sveltejs/kit", "vite", "vitest"],
+            vec![node()],
+        );
+        named.run_writes = vec![vitest_writes(dirs)];
+        render(&BoxPlan::for_run(&named, facts).unwrap())
+            .into_iter()
+            .filter(|line| line.contains("RunWrite"))
+            .collect()
+    };
+    assert_eq!(
+        run_write(
+            &[
+                (".svelte-kit/generated/dev", "/p/.svelte-kit/generated/dev"),
+                (
+                    ".svelte-kit/generated/dev/x",
+                    "/p/.svelte-kit/generated/dev/x"
+                ),
+                (".svelte-kit/generated", "/p/.svelte-kit/generated"),
+                ("node_modules", "/p/node_modules"),
+                (".svelte-kit2", "/p/.svelte-kit2"),
+                ("src", "/p/src"),
+                ("/elsewhere", "/elsewhere"),
+            ],
+            &facts()
+        ),
+        [
+            "/ p/.svelte-kit/generated/dev rp req RunWrite(0)",
+            "/ p/.svelte-kit/generated/dev/x rp req RunWrite(0)",
+            "/ p/.svelte-kit/generated rp req RunWrite(0)",
+            "/ p/node_modules rp req RunWrite(0)",
+            "/ p/.svelte-kit2 rw req RunWrite(0)",
+            "/ p/src rw req RunWrite(0)",
+            "/ elsewhere rw req RunWrite(0)",
+        ]
+    );
+    // where a linked `node_modules` leads, in it or holding it, and not a
+    // sibling of it
+    let mut linked = facts();
+    linked.node_modules = NodeModules::Link {
+        real: "/shared/node_modules".into(),
+    };
+    assert_eq!(
+        run_write(
+            &[
+                ("/shared/node_modules/$app", "/shared/node_modules/$app"),
+                ("/shared", "/shared"),
+                ("/shared/out", "/shared/out"),
+            ],
+            &linked
+        ),
+        [
+            "/ shared/node_modules/$app rp req RunWrite(0)",
+            "/ shared rp req RunWrite(0)",
+            "/ shared/out rw req RunWrite(0)",
+        ]
+    );
+}
+
+/// Both write flags take one rule: `--allow-write=` on, in, or holding a
+/// tool directory is written plain as `--allow-run-write=` is, and every
+/// tool directory's path counts, made or not, so a closure with no tool
+/// that writes, in a project declaring none, still writes a flag on
+/// `.svelte-kit` plain; every other flag directory keeps the whole write.
+#[test]
+fn both_write_flags_write_a_tool_directory_plain() {
+    let mut none_writes = flagged(&[
+        (
+            DirFlag::Write,
+            ".svelte-kit/generated/dev",
+            "/p/.svelte-kit/generated/dev",
+        ),
+        (DirFlag::Write, "node_modules", "/p/node_modules"),
+        (
+            DirFlag::Write,
+            ".svelte-kit/output",
+            "/p/.svelte-kit/output",
+        ),
+        (DirFlag::Write, "node_modules/$app", "/p/node_modules/$app"),
+        (
+            DirFlag::Write,
+            "node_modules/.vite-temp",
+            "/p/node_modules/.vite-temp",
+        ),
+        (
+            DirFlag::Write,
+            "node_modules/.vite",
+            "/p/node_modules/.vite",
+        ),
+        (DirFlag::Write, ".svelte-kit2", "/p/.svelte-kit2"),
+        (DirFlag::Write, "src", "/p/src"),
+    ]);
+    none_writes.programs = vec![ProgramFile::Direct {
+        real: "/usr/bin/git".into(),
+    }];
+    none_writes.spawns = true;
+    none_writes.run_writes = vec![named_writes(
+        "git",
+        "git",
+        &[(".svelte-kit", "/p/.svelte-kit"), ("out", "/p/out")],
+    )];
+    let plan = BoxPlan::for_run(&none_writes, &facts()).unwrap();
+    assert_eq!(plan.tool_dirs().count(), 0);
+    let flagged: Vec<String> = render(&plan)
+        .into_iter()
+        .filter(|line| line.contains("Flag(Write)") || line.contains("RunWrite"))
+        .collect();
+    assert_eq!(
+        flagged,
+        [
+            "/ p/.svelte-kit/generated/dev rp req Flag(Write)",
+            "/ p/node_modules rp req Flag(Write)",
+            "/ p/.svelte-kit/output rp req Flag(Write)",
+            "/ p/node_modules/$app rp req Flag(Write)",
+            "/ p/node_modules/.vite-temp rp req Flag(Write)",
+            "/ p/node_modules/.vite rp req Flag(Write)",
+            "/ p/.svelte-kit2 rw req Flag(Write)",
+            "/ p/src rw req Flag(Write)",
+            "/ p/.svelte-kit rp req RunWrite(0)",
+            "/ p/out rw req RunWrite(0)",
+        ]
+    );
+}
+
+/// vitest's own cache is made only where the project declares vitest, not
+/// `vite` alone, though `.vite-temp` is.
+#[test]
+fn vitest_s_cache_is_made_only_for_a_declared_vitest() {
+    let plan = BoxPlan::for_run(
+        &inputs(false, &["vitest"], &["vite"], vec![node()]),
+        &facts(),
+    )
+    .unwrap();
+    let dirs: Vec<ToolDir> = plan.tool_dirs().map(|(dir, _)| dir).collect();
+    assert_eq!(dirs, [ToolDir::ViteTemp]);
 }
 
 /// `check` with the grant flags `flags`, each resolved to its real path.
@@ -557,7 +857,8 @@ fn a_symlinked_node_modules_is_followed() {
                        --allow-run-write=<program>:<dirs> naming where it leads lets that tool \
                        write there";
     // no flag: read and execute alone, the project's own tool directories
-    // made, none in the link's target
+    // made, SvelteKit's and vitest's own beneath `.svelte-kit`, none in the
+    // link's target
     let plan = BoxPlan::for_run(&kit(), &linked).unwrap();
     let rendered = render(&plan);
     assert_eq!(rendered[1], "real /shared/node_modules rx req NodeModules");
@@ -572,7 +873,7 @@ fn a_symlinked_node_modules_is_followed() {
     );
     assert_eq!(plan.note().as_deref(), Some(none_writes));
     // a write flag naming it, or a directory holding it: its rule, gro's
-    // own code's, and no tool directory there
+    // own code's, written plain, and no tool directory there
     for (dir, real) in [
         ("../shared/node_modules", "/shared/node_modules"),
         ("/shared", "/shared"),
@@ -588,7 +889,7 @@ fn a_symlinked_node_modules_is_followed() {
         assert!(
             rendered
                 .iter()
-                .any(|line| *line == format!("/ {} rw req Flag(Write)", &real[1..])),
+                .any(|line| *line == format!("/ {} rp req Flag(Write)", &real[1..])),
             "{dir}: {rendered:#?}"
         );
         assert!(
@@ -597,7 +898,7 @@ fn a_symlinked_node_modules_is_followed() {
                 .any(|line| line.contains("ToolDir(App)") || line.contains("ToolDir(Vite")),
             "{dir}: {rendered:#?}"
         );
-        assert_eq!(plan.tool_dirs().count(), 1, "{dir}: {rendered:#?}");
+        assert_eq!(plan.tool_dirs().count(), 3, "{dir}: {rendered:#?}");
         assert_eq!(plan.note().as_deref(), Some(none_writes), "{dir}");
     }
     // `--allow-run-write=` naming it, a directory in it, or one holding it,
@@ -681,7 +982,7 @@ fn a_symlinked_node_modules_is_followed() {
             rendered.iter().any(|line| line.contains("RunWrite(")),
             "{case}: {rendered:#?}"
         );
-        assert_eq!(plan.tool_dirs().count(), 1, "{case}: {rendered:#?}");
+        assert_eq!(plan.tool_dirs().count(), 3, "{case}: {rendered:#?}");
         let expected = writers.map_or_else(
             || none_writes.to_owned(),
             |writers| {
@@ -705,7 +1006,7 @@ fn a_symlinked_node_modules_is_followed() {
     let named_plan = BoxPlan::for_run(&gen_named, &linked).unwrap();
     let rendered = render(&named_plan);
     assert!(
-        rendered.contains(&"/ shared/node_modules rw req RunWrite(0)".to_owned()),
+        rendered.contains(&"/ shared/node_modules rp req RunWrite(0)".to_owned()),
         "{rendered:#?}"
     );
     assert!(
@@ -749,7 +1050,6 @@ fn a_symlinked_node_modules_is_followed() {
 fn named_writes(program: &str, named: &str, dirs: &[(&str, &str)]) -> RunWriteGrant {
     RunWriteGrant {
         program: program.to_owned(),
-        table: true,
         dirs: dirs
             .iter()
             .map(|&(dir, real)| RunWriteDir {
@@ -873,7 +1173,6 @@ fn a_rule_holding_the_temporary_directory_is_found() {
 fn vitest_writes(dirs: &[(&str, &str)]) -> RunWriteGrant {
     RunWriteGrant {
         program: "node_modules/.bin/vitest".to_owned(),
-        table: true,
         dirs: dirs
             .iter()
             .map(|&(dir, real)| RunWriteDir {
@@ -898,8 +1197,14 @@ fn run_writing(
         spawns: true,
         programs: vec![node()],
         run_writes,
+        tools: table_tools(&["vitest"]),
         ..flagged(flags)
     }
+}
+
+/// The tool directories the carried table's vitest writes.
+fn vitest_dirs() -> ToolDirs {
+    table_tools(&["vitest"])["node_modules/.bin/vitest"].tool_dirs
 }
 
 /// `--allow-run-write=` widens the run's box alone: each directory read
@@ -952,7 +1257,6 @@ fn a_run_write_flag_widens_the_box() {
     // an excluded entry, under a command that doesn't write the root
     let git = RunWriteGrant {
         program: "git".to_owned(),
-        table: true,
         dirs: vec![RunWriteDir {
             named: "git".to_owned(),
             dir: ".git".to_owned(),
@@ -1117,7 +1421,7 @@ fn the_plan_refuses_a_run_write_flag_gro_s_code_would_write_through() {
 
 /// A rule `--allow-run-write=` makes on the OS's temporary directory, or
 /// one holding it, is found holding it, since its program takes it; the
-/// program boxes of the run are the table's and each one named.
+/// program boxes of the run are one writing nothing and each program's own.
 #[test]
 fn a_run_write_flag_holding_the_temporary_directory_is_found() {
     let plan = BoxPlan::for_run(
@@ -1132,9 +1436,9 @@ fn a_run_write_flag_holding_the_temporary_directory_is_found() {
     assert_eq!(
         plan.program_writes(),
         [
-            ProgramWrites::TABLE,
+            ProgramWrites::NONE,
             ProgramWrites {
-                tool_dirs: true,
+                tool_dirs: vitest_dirs(),
                 root: false,
                 run_write: Some(0),
             }
@@ -1150,7 +1454,7 @@ fn a_run_write_flag_holding_the_temporary_directory_is_found() {
     assert_eq!(
         rooted.program_writes()[1],
         ProgramWrites {
-            tool_dirs: true,
+            tool_dirs: vitest_dirs(),
             root: true,
             run_write: Some(0),
         }

@@ -365,7 +365,7 @@ As designed, except where marked built:
   It runs in the run's kernel box, which its pre-pass and the steps before V8 put up ([box](box.md#how-it-goes-up)),
   so the tools those grants pass the whole environment (svelte-kit, vitest, eslint, svelte-check, tsc, and npm under `sync`)
   run the project's code bounded by the box's rules rather than by the grants ([box](box.md#what-a-commands-box-admits)):
-  under `check`, `test`, `typecheck`, `lint`, and `gen --check` the project is read-only to every process in the run but for the tool directories,
+  under `check`, `test`, `typecheck`, `lint`, and `gen --check` the project is read-only to every process in the run but for each tool's own tool directories,
   `format --check`, which starts no tool, writes nothing at all,
   and `gen`, `format`, and `sync` write the project's top-level entries but `.git`, `node_modules`, and the other dot-entries.
   The declared differences from the Node Gro follow, first those of the binary, then those of the box;
@@ -498,9 +498,9 @@ where the host modules and grants land with their first consumer.
       and the policy file, enforced, with the box under every run and its children
       (built for every command of Gro's on the binary, each tool in a box of its own inside it, and designed for `fgro run`,
       [box](box.md#the-box-for-runs-and-children)), landing with Gro on Gro
-- [ ] each tool in a box of its own inside the run's, writing only the directories the grants table names for it
+- [x] each tool in a box of its own inside the run's, writing only the directories the grants table names for it
       ([box](box.md#a-box-for-each-tool))
-- [ ] the first release, Gro running on this runtime, for Linux x86_64, once each tool writes only its own directories;
+- [ ] the first release, Gro running on this runtime, for Linux x86_64;
       the tool that installs it records the binary's hash as a pin,
       which the caller of `gro eval` verifies before every spawn
       (no binary release is attached yet, and `fgro` isn't released on its own)

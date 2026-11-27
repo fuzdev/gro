@@ -20,13 +20,13 @@ import {
 	type AnalyzedGenResult,
 	type GenResults
 } from './gen.ts';
-import { SOURCE_DIRNAME, SVELTEKIT_CLI } from './constants.ts';
+import { SOURCE_DIRNAME } from './constants.ts';
 import type { FsPaths } from './fs_paths.ts';
 import type { GroConfig } from './gro_config.ts';
 import type { ImportModule } from './modules.ts';
 import type { ParsedSvelteConfig } from './svelte_config.ts';
 import { cwd } from './cwd.ts';
-import { sveltekit_sync_if_obviously_needed } from './sveltekit_helpers.ts';
+import { SVELTEKIT_CLI_GRANT, sveltekit_sync_if_obviously_needed } from './sveltekit_helpers.ts';
 import type { BuiltinPrograms, BuiltinTask, BuiltinTaskGrants } from './builtin_host.ts';
 
 /** @nodocs */
@@ -55,7 +55,7 @@ const grants = {
 		// syncs SvelteKit's files when they're missing, as a genfile reading the library's types
 		// needs `$app/tsconfig`; `svelte-kit sync` loads the project's Vite config,
 		// code whose environment Gro can't know
-		sveltekit_cli: { name: SVELTEKIT_CLI, local: true, pass_env: 'all' }
+		sveltekit_cli: SVELTEKIT_CLI_GRANT
 	}
 } as const satisfies BuiltinTaskGrants;
 

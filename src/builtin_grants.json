@@ -32,7 +32,12 @@
 				"sveltekit_cli": {
 					"name": "svelte-kit",
 					"local": true,
-					"pass_env": "all"
+					"pass_env": "all",
+					"write": [
+						".svelte-kit",
+						"node_modules/$app",
+						"node_modules/.vite-temp"
+					]
 				}
 			},
 			"invokes": {
@@ -104,7 +109,12 @@
 				"sveltekit_cli": {
 					"name": "svelte-kit",
 					"local": true,
-					"pass_env": "all"
+					"pass_env": "all",
+					"write": [
+						".svelte-kit",
+						"node_modules/$app",
+						"node_modules/.vite-temp"
+					]
 				}
 			}
 		},
@@ -123,7 +133,12 @@
 				"sveltekit_cli": {
 					"name": "svelte-kit",
 					"local": true,
-					"pass_env": "all"
+					"pass_env": "all",
+					"write": [
+						".svelte-kit",
+						"node_modules/$app",
+						"node_modules/.vite-temp"
+					]
 				}
 			}
 		},
@@ -163,7 +178,12 @@
 				"sveltekit_cli": {
 					"name": "svelte-kit",
 					"local": true,
-					"pass_env": "all"
+					"pass_env": "all",
+					"write": [
+						".svelte-kit",
+						"node_modules/$app",
+						"node_modules/.vite-temp"
+					]
 				}
 			},
 			"stderr": true,
@@ -178,10 +198,26 @@
 				]
 			},
 			"programs": {
+				"sveltekit_cli": {
+					"name": "svelte-kit",
+					"local": true,
+					"pass_env": "all",
+					"write": [
+						".svelte-kit",
+						"node_modules/$app",
+						"node_modules/.vite-temp"
+					]
+				},
 				"vitest_cli": {
 					"name": "vitest",
 					"local": true,
-					"pass_env": "all"
+					"pass_env": "all",
+					"write": [
+						".svelte-kit/generated/dev",
+						".svelte-kit/types",
+						"node_modules/.vite-temp",
+						"node_modules/.vite/vitest"
+					]
 				}
 			}
 		},
@@ -195,7 +231,12 @@
 				"sveltekit_cli": {
 					"name": "svelte-kit",
 					"local": true,
-					"pass_env": "all"
+					"pass_env": "all",
+					"write": [
+						".svelte-kit",
+						"node_modules/$app",
+						"node_modules/.vite-temp"
+					]
 				},
 				"svelte_check_cli": {
 					"name": "svelte-check",
@@ -203,7 +244,11 @@
 					"pass_env": "all",
 					"env": {
 						"FORCE_COLOR": "1"
-					}
+					},
+					"write": [
+						".svelte-kit/generated/dev",
+						"node_modules/.vite-temp"
+					]
 				},
 				"typescript_cli": {
 					"name": "tsc",
@@ -362,7 +407,9 @@
 			"_": null,
 			"dir": null,
 			"fail_without_tests": false,
-			"t": null
+			"t": null,
+			"sync": true,
+			"no-sync": false
 		},
 		"typecheck": {
 			"path_replacement": null,

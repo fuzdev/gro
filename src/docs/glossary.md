@@ -393,9 +393,9 @@ but for Gro's own package, whose specifiers resolve in [Gro's library](#gros-lib
 
 ## tool directory
 
-A directory in the project a tool writes on its own, like `.svelte-kit` or Vite's `node_modules/.vite`,
-which the run's [box](#box) makes a [write root](#write-root) when the command's closure grants a tool from the project's `node_modules/.bin`
-and the project declares the dependency that writes it.
+A directory in the project a tool writes on its own, like `.svelte-kit` or Vitest's `node_modules/.vite/vitest`,
+which the run's [box](#box) makes a [write root](#write-root) of each tool whose grant in the grants table names it,
+when the command's closure grants such a tool and the project declares the dependency that writes it; no other tool writes it, and neither a tool nor Gro's own code makes a symlink or a FIFO there or moves an entry in, not even under a write flag.
 Each is made empty where it's absent before the box goes up, never through a symlink, and never in a `node_modules` linked from another checkout, where a tool writes only what `--allow-run-write=` names for it,
 and what a tool leaves there is code a later command may run ([box](box.md#what-a-commands-box-admits)).
 

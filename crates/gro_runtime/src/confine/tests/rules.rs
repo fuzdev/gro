@@ -33,6 +33,16 @@ fn rights_expand_to_landlock_s() {
             AccessFs::WriteFile | AccessFs::Truncate,
         ),
         (
+            Rights::WRITE_PLAIN,
+            write & !make_bitflags!(AccessFs::{MakeSym | MakeFifo | Refer}),
+            AccessFs::WriteFile | AccessFs::Truncate,
+        ),
+        (
+            Rights::READ | Rights::WRITE_PLAIN | Rights::WRITE,
+            read | write,
+            AccessFs::ReadFile | AccessFs::WriteFile | AccessFs::Truncate,
+        ),
+        (
             Rights::EXECUTE,
             BitFlags::from(AccessFs::Execute),
             BitFlags::from(AccessFs::Execute),

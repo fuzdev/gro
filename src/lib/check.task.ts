@@ -7,8 +7,8 @@ import type { Logger } from '@fuzdev/fuz_util/log.ts';
 import { to_task_command } from './task.ts';
 import { TaskError } from './task_error.ts';
 import { to_forwarded_args_by_command, to_forwarded_argv } from './task_args.ts';
-import { ESLINT_CLI, LOCKFILE_FILENAME, SVELTEKIT_CLI, VITEST_CLI } from './constants.ts';
-import { sveltekit_sync_if_obviously_needed } from './sveltekit_helpers.ts';
+import { ESLINT_CLI, LOCKFILE_FILENAME, VITEST_CLI } from './constants.ts';
+import { SVELTEKIT_CLI_GRANT, sveltekit_sync_if_obviously_needed } from './sveltekit_helpers.ts';
 import { npm_install_check, type NpmInstallMismatch } from './npm_install_check.ts';
 import { find_eslint_config } from './eslint_helpers.ts';
 import { is_fs_error } from './fs_error.ts';
@@ -89,7 +89,7 @@ const grants = {
 		git_cli: { name: 'git', pass_env: GIT_LOCAL_PASS_ENV },
 		// syncs SvelteKit's files when they're missing, before `build`, whose `svelte-package` reads them;
 		// `svelte-kit sync` loads the project's Vite config, code whose environment Gro can't know
-		sveltekit_cli: { name: SVELTEKIT_CLI, local: true, pass_env: 'all' }
+		sveltekit_cli: SVELTEKIT_CLI_GRANT
 	},
 	invokes: {
 		// `--install` installs, which nothing else in `check` does
@@ -228,7 +228,8 @@ export const run_check = async (
 			(await has_forwarded_test_args(raw_rest_args, fs_paths)) ||
 			(await project_has_dependency(fs_paths, VITEST_CLI, log))
 		) {
-			await invoke_task('test');
+			// the typecheck synced SvelteKit already
+			await invoke_task('test', typecheck ? { sync: false } : {});
 		} else {
 			const test_files = await find_test_files_or_throw(fs_paths, paths);
 			if (test_files.length > 0)

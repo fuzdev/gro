@@ -3,12 +3,15 @@ import { meta } from '@fuzdev/fuz_schema/meta.ts';
 import type { Logger } from '@fuzdev/fuz_util/log.ts';
 
 import { package_json_sync } from './package_json.ts';
-import { project_has_sveltekit_app, sveltekit_sync } from './sveltekit_helpers.ts';
+import {
+	project_has_sveltekit_app,
+	SVELTEKIT_CLI_GRANT,
+	sveltekit_sync
+} from './sveltekit_helpers.ts';
 import {
 	install_with_cache_healing_or_throw,
 	NPM_CLI_PROGRAM_GRANT
 } from './npm_install_helpers.ts';
-import { SVELTEKIT_CLI } from './constants.ts';
 import type { FsPaths } from './fs_paths.ts';
 import type { GroConfig } from './gro_config.ts';
 import type { ProcessOutput } from './stdout.ts';
@@ -45,7 +48,7 @@ const grants = {
 		// `--install`
 		npm_cli: NPM_CLI_PROGRAM_GRANT,
 		// `svelte-kit sync` loads the project's Vite config, code whose environment Gro can't know
-		sveltekit_cli: { name: SVELTEKIT_CLI, local: true, pass_env: 'all' }
+		sveltekit_cli: SVELTEKIT_CLI_GRANT
 	},
 	// the install's output
 	stderr: true,

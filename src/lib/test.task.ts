@@ -12,6 +12,11 @@ import type { FsPaths } from './fs_paths.ts';
 import { TaskError } from './task_error.ts';
 import { TEST_FILE_PATTERN } from './vitest_helpers.ts';
 import { project_has_dependency } from './package_json.ts';
+import {
+	project_has_sveltekit_app,
+	SVELTEKIT_CLI_GRANT,
+	sveltekit_sync
+} from './sveltekit_helpers.ts';
 import type { BuiltinPrograms, BuiltinTask, BuiltinTaskGrants } from './builtin_host.ts';
 
 /** @nodocs */
@@ -32,6 +37,11 @@ export const Args = s.object({
 		meta(s.string, {
 			description: 'search pattern for test names, same as vitest -t and --testNamePattern'
 		})
+	),
+	sync: s.with_default(meta(s.boolean, { description: 'dual of no-sync' }), true),
+	'no-sync': s.with_default(
+		meta(s.boolean, { description: 'opt out of syncing SvelteKit before the tests' }),
+		false
 	)
 });
 export type Args = s.Infer<typeof Args>;
@@ -39,8 +49,25 @@ export type Args = s.Infer<typeof Args>;
 const grants = {
 	// reads `package.json` for the vitest dependency
 	fs: { read: ['.'] },
-	// vitest loads the project's config and tests, code whose environment Gro can't know
-	programs: { vitest_cli: { name: VITEST_CLI, local: true, pass_env: 'all' } }
+	programs: {
+		// syncs SvelteKit's files before vitest, which then finds them current
+		// and writes nothing of `node_modules/$app`, which only `svelte-kit` writes
+		sveltekit_cli: SVELTEKIT_CLI_GRANT,
+		vitest_cli: {
+			name: VITEST_CLI,
+			local: true,
+			// vitest loads the project's config and tests, code whose environment Gro can't know
+			pass_env: 'all',
+			// SvelteKit's plugin writes the modules a dev server loads and the route types,
+			// Vite bundles the config, and Vitest keeps its own cache
+			write: [
+				'.svelte-kit/generated/dev',
+				'.svelte-kit/types',
+				'node_modules/.vite-temp',
+				'node_modules/.vite/vitest'
+			]
+		}
+	}
 } as const satisfies BuiltinTaskGrants;
 
 /** @nodocs */
@@ -76,19 +103,24 @@ export interface TestOptions {
  */
 export interface TestDeps {
 	fs_paths: FsPaths;
-	programs: Pick<BuiltinPrograms<'vitest_cli'>, 'find'>;
+	programs: Pick<BuiltinPrograms<'sveltekit_cli' | 'vitest_cli'>, 'find'>;
 	log: Logger;
 }
 
 /**
  * Runs the project's tests with vitest, `gro test`'s body,
  * Vitest's module cache off unless a forwarded flag names it.
+ * A SvelteKit project is synced first, as `gro typecheck` syncs it, unless `sync` is off,
+ * as `gro check` turns it off after its typecheck has synced:
+ * SvelteKit's plugin in vitest then finds its tsconfig and types in `node_modules/$app` current
+ * and writes nothing there, which only `svelte-kit` writes, since a later typecheck, `dev`, `build`,
+ * and the editor trust what's there.
  * @param args - the task's parsed args
  * @param options - the forwarded args
- * @param deps - the project's boundary, vitest, and the log
+ * @param deps - the project's boundary, `svelte-kit` and vitest, and the log
  */
 export const run_test = async (args: Args, options: TestOptions, deps: TestDeps): Promise<void> => {
-	const { _: patterns, dir, fail_without_tests, t } = args;
+	const { _: patterns, dir, fail_without_tests, t, sync } = args;
 	const { raw_rest_args, implicit_rest_args } = options;
 	const { fs_paths, programs, log } = deps;
 
@@ -99,6 +131,10 @@ export const run_test = async (args: Args, options: TestOptions, deps: TestDeps)
 	const vitest = programs.find('vitest_cli');
 	if (!vitest) {
 		throw new TaskError('vitest is a dependency but not installed; run `npm i`?');
+	}
+
+	if (sync && (await project_has_sveltekit_app(fs_paths, log))) {
+		await sveltekit_sync({ find: () => programs.find('sveltekit_cli') });
 	}
 
 	// `gro test -- --watch` when the CLI invoked `test`, and `-- vitest --watch` at any depth;

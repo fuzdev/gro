@@ -18,6 +18,8 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Deserializer};
 use thiserror::Error;
 
+use crate::confine::plan::ToolDir;
+
 /// `src/builtin_grants.json`, as the binary carries it.
 pub const BUILTIN_GRANTS_JSON: &str = include_str!("../../../../src/builtin_grants.json");
 
@@ -283,6 +285,11 @@ pub struct BuiltinProgramGrant {
     /// The variables set for it, whatever the host's are.
     #[serde(default, deserialize_with = "not_null")]
     pub env: Option<BTreeMap<String, String>>,
+    /// The tool directories it writes on its own, each by the path the TS
+    /// `BuiltinToolDir` spells, a path the binary knows no tool directory
+    /// by refused with the table.
+    #[serde(default)]
+    pub write: Vec<ToolDir>,
 }
 
 /// The host variables a program sees beyond the base set: every one, or
@@ -367,6 +374,7 @@ pub(crate) fn test_args(builtins: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{BuiltinGrantsTable, PassEnv, TableError, test_args};
+    use crate::confine::plan::ToolDir;
 
     /// A table of `builtins`, the JSON of each builtin's row by name, with an
     /// empty CLI row and [`test_args`].
@@ -404,12 +412,52 @@ mod tests {
         assert_eq!(svelte_check.env.as_ref().unwrap()["FORCE_COLOR"], "1");
         let sync = table.builtins["sync"].as_ref().unwrap();
         assert!(sync.programs["npm_cli"].omit_env.as_ref().unwrap().len() > 1);
+        // each program's own tool directories, and none for one that
+        // writes nothing of the project
+        assert_eq!(
+            svelte_check.write,
+            [ToolDir::SvelteKitDev, ToolDir::ViteTemp]
+        );
+        assert_eq!(
+            sync.programs["sveltekit_cli"].write,
+            [ToolDir::SvelteKit, ToolDir::App, ToolDir::ViteTemp]
+        );
+        let test = table.builtins["test"].as_ref().unwrap();
+        assert_eq!(
+            test.programs["vitest_cli"].write,
+            [
+                ToolDir::SvelteKitDev,
+                ToolDir::SvelteKitTypes,
+                ToolDir::ViteTemp,
+                ToolDir::Vitest,
+            ]
+        );
+        // `gro test` syncs first, so `$app` stays `svelte-kit`'s alone
+        assert_eq!(
+            test.programs["sveltekit_cli"],
+            sync.programs["sveltekit_cli"]
+        );
+        for (builtin, role) in [
+            ("typecheck", "typescript_cli"),
+            ("lint", "eslint_cli"),
+            ("check", "git_cli"),
+            ("sync", "npm_cli"),
+        ] {
+            let grants = table.builtins[builtin].as_ref().unwrap();
+            assert!(grants.programs[role].write.is_empty(), "{role}");
+        }
         assert!(sync.stderr && !sync.stdout && sync.fs.write == ["."]);
     }
 
     #[test]
     fn a_table_s_shape_is_the_ts_types() {
         assert!(table(r#"{"a": {}}"#).is_ok());
+        assert!(
+            table(
+                r#"{"a": {"programs": {"x_cli": {"name": "x", "write": [".svelte-kit/types"]}}}}"#
+            )
+            .is_ok()
+        );
         for refused in [
             // an unknown field, at every level
             r#"{"a": {"net": true}}"#,
@@ -429,6 +477,12 @@ mod tests {
             r#"{"a": {"programs": {"x_cli": {"name": "x", "pass_env": null}}}}"#,
             r#"{"a": {"programs": {"x_cli": {"name": "x", "omit_env": null}}}}"#,
             r#"{"a": {"programs": {"x_cli": {"name": "x", "env": null}}}}"#,
+            // a tool directory is one the binary knows, by its path
+            r#"{"a": {"programs": {"x_cli": {"name": "x", "write": null}}}}"#,
+            r#"{"a": {"programs": {"x_cli": {"name": "x", "write": ".svelte-kit"}}}}"#,
+            r#"{"a": {"programs": {"x_cli": {"name": "x", "write": [".fuz/cache"]}}}}"#,
+            r#"{"a": {"programs": {"x_cli": {"name": "x", "write": ["node_modules/.vite"]}}}}"#,
+            r#"{"a": {"programs": {"x_cli": {"name": "x", "write": ["./.svelte-kit"]}}}}"#,
         ] {
             assert!(
                 matches!(table(refused), Err(TableError::Json(_))),

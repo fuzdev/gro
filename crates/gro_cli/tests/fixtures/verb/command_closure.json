@@ -100,7 +100,12 @@
 						"role": "sveltekit_cli",
 						"name": "svelte-kit",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit",
+							"node_modules/$app",
+							"node_modules/.vite-temp"
+						]
 					}
 				],
 				"project_modules": true,
@@ -137,7 +142,12 @@
 						"role": "sveltekit_cli",
 						"name": "svelte-kit",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit",
+							"node_modules/$app",
+							"node_modules/.vite-temp"
+						]
 					}
 				],
 				"project_modules": true,
@@ -237,7 +247,12 @@
 						"role": "sveltekit_cli",
 						"name": "svelte-kit",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit",
+							"node_modules/$app",
+							"node_modules/.vite-temp"
+						]
 					}
 				],
 				"project_modules": true,
@@ -274,7 +289,12 @@
 						"role": "sveltekit_cli",
 						"name": "svelte-kit",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit",
+							"node_modules/$app",
+							"node_modules/.vite-temp"
+						]
 					}
 				],
 				"project_modules": true,
@@ -313,7 +333,12 @@
 						"role": "sveltekit_cli",
 						"name": "svelte-kit",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit",
+							"node_modules/$app",
+							"node_modules/.vite-temp"
+						]
 					}
 				],
 				"project_modules": true,
@@ -355,7 +380,12 @@
 						"role": "sveltekit_cli",
 						"name": "svelte-kit",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit",
+							"node_modules/$app",
+							"node_modules/.vite-temp"
+						]
 					}
 				],
 				"project_modules": true,
@@ -438,13 +468,22 @@
 						"pass_env": "all",
 						"env": {
 							"FORCE_COLOR": "1"
-						}
+						},
+						"write": [
+							".svelte-kit/generated/dev",
+							"node_modules/.vite-temp"
+						]
 					},
 					{
 						"role": "sveltekit_cli",
 						"name": "svelte-kit",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit",
+							"node_modules/$app",
+							"node_modules/.vite-temp"
+						]
 					},
 					{
 						"role": "typescript_cli",
@@ -456,7 +495,13 @@
 						"role": "vitest_cli",
 						"name": "vitest",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit/generated/dev",
+							".svelte-kit/types",
+							"node_modules/.vite-temp",
+							"node_modules/.vite/vitest"
+						]
 					}
 				],
 				"project_modules": true,
@@ -526,13 +571,22 @@
 						"pass_env": "all",
 						"env": {
 							"FORCE_COLOR": "1"
-						}
+						},
+						"write": [
+							".svelte-kit/generated/dev",
+							"node_modules/.vite-temp"
+						]
 					},
 					{
 						"role": "sveltekit_cli",
 						"name": "svelte-kit",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit",
+							"node_modules/$app",
+							"node_modules/.vite-temp"
+						]
 					},
 					{
 						"role": "typescript_cli",
@@ -544,7 +598,13 @@
 						"role": "vitest_cli",
 						"name": "vitest",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit/generated/dev",
+							".svelte-kit/types",
+							"node_modules/.vite-temp",
+							"node_modules/.vite/vitest"
+						]
 					}
 				],
 				"project_modules": true,
@@ -615,13 +675,22 @@
 						"pass_env": "all",
 						"env": {
 							"FORCE_COLOR": "1"
-						}
+						},
+						"write": [
+							".svelte-kit/generated/dev",
+							"node_modules/.vite-temp"
+						]
 					},
 					{
 						"role": "sveltekit_cli",
 						"name": "svelte-kit",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit",
+							"node_modules/$app",
+							"node_modules/.vite-temp"
+						]
 					},
 					{
 						"role": "typescript_cli",
@@ -633,7 +702,13 @@
 						"role": "vitest_cli",
 						"name": "vitest",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit/generated/dev",
+							".svelte-kit/types",
+							"node_modules/.vite-temp",
+							"node_modules/.vite/vitest"
+						]
 					}
 				],
 				"project_modules": true,
@@ -700,13 +775,22 @@
 						"pass_env": "all",
 						"env": {
 							"FORCE_COLOR": "1"
-						}
+						},
+						"write": [
+							".svelte-kit/generated/dev",
+							"node_modules/.vite-temp"
+						]
 					},
 					{
 						"role": "sveltekit_cli",
 						"name": "svelte-kit",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit",
+							"node_modules/$app",
+							"node_modules/.vite-temp"
+						]
 					},
 					{
 						"role": "typescript_cli",
@@ -718,7 +802,13 @@
 						"role": "vitest_cli",
 						"name": "vitest",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit/generated/dev",
+							".svelte-kit/types",
+							"node_modules/.vite-temp",
+							"node_modules/.vite/vitest"
+						]
 					}
 				],
 				"project_modules": true,
@@ -789,13 +879,22 @@
 						"pass_env": "all",
 						"env": {
 							"FORCE_COLOR": "1"
-						}
+						},
+						"write": [
+							".svelte-kit/generated/dev",
+							"node_modules/.vite-temp"
+						]
 					},
 					{
 						"role": "sveltekit_cli",
 						"name": "svelte-kit",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit",
+							"node_modules/$app",
+							"node_modules/.vite-temp"
+						]
 					},
 					{
 						"role": "typescript_cli",
@@ -807,7 +906,13 @@
 						"role": "vitest_cli",
 						"name": "vitest",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit/generated/dev",
+							".svelte-kit/types",
+							"node_modules/.vite-temp",
+							"node_modules/.vite/vitest"
+						]
 					}
 				],
 				"project_modules": true,
@@ -898,13 +1003,22 @@
 						"pass_env": "all",
 						"env": {
 							"FORCE_COLOR": "1"
-						}
+						},
+						"write": [
+							".svelte-kit/generated/dev",
+							"node_modules/.vite-temp"
+						]
 					},
 					{
 						"role": "sveltekit_cli",
 						"name": "svelte-kit",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit",
+							"node_modules/$app",
+							"node_modules/.vite-temp"
+						]
 					},
 					{
 						"role": "typescript_cli",
@@ -916,7 +1030,13 @@
 						"role": "vitest_cli",
 						"name": "vitest",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit/generated/dev",
+							".svelte-kit/types",
+							"node_modules/.vite-temp",
+							"node_modules/.vite/vitest"
+						]
 					}
 				],
 				"project_modules": true,
@@ -1011,13 +1131,22 @@
 						"pass_env": "all",
 						"env": {
 							"FORCE_COLOR": "1"
-						}
+						},
+						"write": [
+							".svelte-kit/generated/dev",
+							"node_modules/.vite-temp"
+						]
 					},
 					{
 						"role": "sveltekit_cli",
 						"name": "svelte-kit",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit",
+							"node_modules/$app",
+							"node_modules/.vite-temp"
+						]
 					},
 					{
 						"role": "typescript_cli",
@@ -1029,7 +1158,13 @@
 						"role": "vitest_cli",
 						"name": "vitest",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit/generated/dev",
+							".svelte-kit/types",
+							"node_modules/.vite-temp",
+							"node_modules/.vite/vitest"
+						]
 					}
 				],
 				"project_modules": true,
@@ -1110,13 +1245,22 @@
 						"pass_env": "all",
 						"env": {
 							"FORCE_COLOR": "1"
-						}
+						},
+						"write": [
+							".svelte-kit/generated/dev",
+							"node_modules/.vite-temp"
+						]
 					},
 					{
 						"role": "sveltekit_cli",
 						"name": "svelte-kit",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit",
+							"node_modules/$app",
+							"node_modules/.vite-temp"
+						]
 					},
 					{
 						"role": "typescript_cli",
@@ -1128,7 +1272,13 @@
 						"role": "vitest_cli",
 						"name": "vitest",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit/generated/dev",
+							".svelte-kit/types",
+							"node_modules/.vite-temp",
+							"node_modules/.vite/vitest"
+						]
 					}
 				],
 				"project_modules": true,
@@ -1203,13 +1353,22 @@
 						"pass_env": "all",
 						"env": {
 							"FORCE_COLOR": "1"
-						}
+						},
+						"write": [
+							".svelte-kit/generated/dev",
+							"node_modules/.vite-temp"
+						]
 					},
 					{
 						"role": "sveltekit_cli",
 						"name": "svelte-kit",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit",
+							"node_modules/$app",
+							"node_modules/.vite-temp"
+						]
 					},
 					{
 						"role": "typescript_cli",
@@ -1221,7 +1380,13 @@
 						"role": "vitest_cli",
 						"name": "vitest",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit/generated/dev",
+							".svelte-kit/types",
+							"node_modules/.vite-temp",
+							"node_modules/.vite/vitest"
+						]
 					}
 				],
 				"project_modules": true,
@@ -1291,13 +1456,22 @@
 						"pass_env": "all",
 						"env": {
 							"FORCE_COLOR": "1"
-						}
+						},
+						"write": [
+							".svelte-kit/generated/dev",
+							"node_modules/.vite-temp"
+						]
 					},
 					{
 						"role": "sveltekit_cli",
 						"name": "svelte-kit",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit",
+							"node_modules/$app",
+							"node_modules/.vite-temp"
+						]
 					},
 					{
 						"role": "typescript_cli",
@@ -1309,7 +1483,13 @@
 						"role": "vitest_cli",
 						"name": "vitest",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit/generated/dev",
+							".svelte-kit/types",
+							"node_modules/.vite-temp",
+							"node_modules/.vite/vitest"
+						]
 					}
 				],
 				"project_modules": true,
@@ -1387,13 +1567,22 @@
 						"pass_env": "all",
 						"env": {
 							"FORCE_COLOR": "1"
-						}
+						},
+						"write": [
+							".svelte-kit/generated/dev",
+							"node_modules/.vite-temp"
+						]
 					},
 					{
 						"role": "sveltekit_cli",
 						"name": "svelte-kit",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit",
+							"node_modules/$app",
+							"node_modules/.vite-temp"
+						]
 					},
 					{
 						"role": "typescript_cli",
@@ -1405,7 +1594,13 @@
 						"role": "vitest_cli",
 						"name": "vitest",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit/generated/dev",
+							".svelte-kit/types",
+							"node_modules/.vite-temp",
+							"node_modules/.vite/vitest"
+						]
 					}
 				],
 				"project_modules": true,
@@ -1482,13 +1677,22 @@
 						"pass_env": "all",
 						"env": {
 							"FORCE_COLOR": "1"
-						}
+						},
+						"write": [
+							".svelte-kit/generated/dev",
+							"node_modules/.vite-temp"
+						]
 					},
 					{
 						"role": "sveltekit_cli",
 						"name": "svelte-kit",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit",
+							"node_modules/$app",
+							"node_modules/.vite-temp"
+						]
 					},
 					{
 						"role": "typescript_cli",
@@ -1500,7 +1704,13 @@
 						"role": "vitest_cli",
 						"name": "vitest",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit/generated/dev",
+							".svelte-kit/types",
+							"node_modules/.vite-temp",
+							"node_modules/.vite/vitest"
+						]
 					}
 				],
 				"project_modules": true,
@@ -1573,13 +1783,22 @@
 						"pass_env": "all",
 						"env": {
 							"FORCE_COLOR": "1"
-						}
+						},
+						"write": [
+							".svelte-kit/generated/dev",
+							"node_modules/.vite-temp"
+						]
 					},
 					{
 						"role": "sveltekit_cli",
 						"name": "svelte-kit",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit",
+							"node_modules/$app",
+							"node_modules/.vite-temp"
+						]
 					},
 					{
 						"role": "typescript_cli",
@@ -1591,7 +1810,13 @@
 						"role": "vitest_cli",
 						"name": "vitest",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit/generated/dev",
+							".svelte-kit/types",
+							"node_modules/.vite-temp",
+							"node_modules/.vite/vitest"
+						]
 					}
 				],
 				"project_modules": true,
@@ -1660,13 +1885,22 @@
 						"pass_env": "all",
 						"env": {
 							"FORCE_COLOR": "1"
-						}
+						},
+						"write": [
+							".svelte-kit/generated/dev",
+							"node_modules/.vite-temp"
+						]
 					},
 					{
 						"role": "sveltekit_cli",
 						"name": "svelte-kit",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit",
+							"node_modules/$app",
+							"node_modules/.vite-temp"
+						]
 					},
 					{
 						"role": "typescript_cli",
@@ -1678,7 +1912,13 @@
 						"role": "vitest_cli",
 						"name": "vitest",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit/generated/dev",
+							".svelte-kit/types",
+							"node_modules/.vite-temp",
+							"node_modules/.vite/vitest"
+						]
 					}
 				],
 				"project_modules": true,
@@ -1749,13 +1989,22 @@
 						"pass_env": "all",
 						"env": {
 							"FORCE_COLOR": "1"
-						}
+						},
+						"write": [
+							".svelte-kit/generated/dev",
+							"node_modules/.vite-temp"
+						]
 					},
 					{
 						"role": "sveltekit_cli",
 						"name": "svelte-kit",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit",
+							"node_modules/$app",
+							"node_modules/.vite-temp"
+						]
 					},
 					{
 						"role": "typescript_cli",
@@ -1767,7 +2016,13 @@
 						"role": "vitest_cli",
 						"name": "vitest",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit/generated/dev",
+							".svelte-kit/types",
+							"node_modules/.vite-temp",
+							"node_modules/.vite/vitest"
+						]
 					}
 				],
 				"project_modules": true,
@@ -1841,13 +2096,22 @@
 						"pass_env": "all",
 						"env": {
 							"FORCE_COLOR": "1"
-						}
+						},
+						"write": [
+							".svelte-kit/generated/dev",
+							"node_modules/.vite-temp"
+						]
 					},
 					{
 						"role": "sveltekit_cli",
 						"name": "svelte-kit",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit",
+							"node_modules/$app",
+							"node_modules/.vite-temp"
+						]
 					},
 					{
 						"role": "typescript_cli",
@@ -1859,7 +2123,13 @@
 						"role": "vitest_cli",
 						"name": "vitest",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit/generated/dev",
+							".svelte-kit/types",
+							"node_modules/.vite-temp",
+							"node_modules/.vite/vitest"
+						]
 					}
 				],
 				"project_modules": true,
@@ -1928,13 +2198,22 @@
 						"pass_env": "all",
 						"env": {
 							"FORCE_COLOR": "1"
-						}
+						},
+						"write": [
+							".svelte-kit/generated/dev",
+							"node_modules/.vite-temp"
+						]
 					},
 					{
 						"role": "sveltekit_cli",
 						"name": "svelte-kit",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit",
+							"node_modules/$app",
+							"node_modules/.vite-temp"
+						]
 					},
 					{
 						"role": "typescript_cli",
@@ -1946,7 +2225,13 @@
 						"role": "vitest_cli",
 						"name": "vitest",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit/generated/dev",
+							".svelte-kit/types",
+							"node_modules/.vite-temp",
+							"node_modules/.vite/vitest"
+						]
 					}
 				],
 				"project_modules": true,
@@ -2016,13 +2301,22 @@
 						"pass_env": "all",
 						"env": {
 							"FORCE_COLOR": "1"
-						}
+						},
+						"write": [
+							".svelte-kit/generated/dev",
+							"node_modules/.vite-temp"
+						]
 					},
 					{
 						"role": "sveltekit_cli",
 						"name": "svelte-kit",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit",
+							"node_modules/$app",
+							"node_modules/.vite-temp"
+						]
 					},
 					{
 						"role": "typescript_cli",
@@ -2034,7 +2328,13 @@
 						"role": "vitest_cli",
 						"name": "vitest",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit/generated/dev",
+							".svelte-kit/types",
+							"node_modules/.vite-temp",
+							"node_modules/.vite/vitest"
+						]
 					}
 				],
 				"project_modules": true,
@@ -2100,13 +2400,22 @@
 						"pass_env": "all",
 						"env": {
 							"FORCE_COLOR": "1"
-						}
+						},
+						"write": [
+							".svelte-kit/generated/dev",
+							"node_modules/.vite-temp"
+						]
 					},
 					{
 						"role": "sveltekit_cli",
 						"name": "svelte-kit",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit",
+							"node_modules/$app",
+							"node_modules/.vite-temp"
+						]
 					},
 					{
 						"role": "typescript_cli",
@@ -2118,7 +2427,13 @@
 						"role": "vitest_cli",
 						"name": "vitest",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit/generated/dev",
+							".svelte-kit/types",
+							"node_modules/.vite-temp",
+							"node_modules/.vite/vitest"
+						]
 					}
 				],
 				"project_modules": true,
@@ -2169,7 +2484,12 @@
 						"role": "sveltekit_cli",
 						"name": "svelte-kit",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit",
+							"node_modules/$app",
+							"node_modules/.vite-temp"
+						]
 					}
 				],
 				"project_modules": true,
@@ -2209,7 +2529,12 @@
 						"role": "sveltekit_cli",
 						"name": "svelte-kit",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit",
+							"node_modules/$app",
+							"node_modules/.vite-temp"
+						]
 					}
 				],
 				"project_modules": true,
@@ -2317,13 +2642,22 @@
 						"pass_env": "all",
 						"env": {
 							"FORCE_COLOR": "1"
-						}
+						},
+						"write": [
+							".svelte-kit/generated/dev",
+							"node_modules/.vite-temp"
+						]
 					},
 					{
 						"role": "sveltekit_cli",
 						"name": "svelte-kit",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit",
+							"node_modules/$app",
+							"node_modules/.vite-temp"
+						]
 					},
 					{
 						"role": "typescript_cli",
@@ -2335,7 +2669,13 @@
 						"role": "vitest_cli",
 						"name": "vitest",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit/generated/dev",
+							".svelte-kit/types",
+							"node_modules/.vite-temp",
+							"node_modules/.vite/vitest"
+						]
 					}
 				],
 				"project_modules": true,
@@ -2399,13 +2739,22 @@
 						"pass_env": "all",
 						"env": {
 							"FORCE_COLOR": "1"
-						}
+						},
+						"write": [
+							".svelte-kit/generated/dev",
+							"node_modules/.vite-temp"
+						]
 					},
 					{
 						"role": "sveltekit_cli",
 						"name": "svelte-kit",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit",
+							"node_modules/$app",
+							"node_modules/.vite-temp"
+						]
 					},
 					{
 						"role": "typescript_cli",
@@ -2478,13 +2827,22 @@
 						"pass_env": "all",
 						"env": {
 							"FORCE_COLOR": "1"
-						}
+						},
+						"write": [
+							".svelte-kit/generated/dev",
+							"node_modules/.vite-temp"
+						]
 					},
 					{
 						"role": "sveltekit_cli",
 						"name": "svelte-kit",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit",
+							"node_modules/$app",
+							"node_modules/.vite-temp"
+						]
 					},
 					{
 						"role": "typescript_cli",
@@ -2496,7 +2854,13 @@
 						"role": "vitest_cli",
 						"name": "vitest",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit/generated/dev",
+							".svelte-kit/types",
+							"node_modules/.vite-temp",
+							"node_modules/.vite/vitest"
+						]
 					}
 				],
 				"project_modules": true,
@@ -2572,13 +2936,22 @@
 						"pass_env": "all",
 						"env": {
 							"FORCE_COLOR": "1"
-						}
+						},
+						"write": [
+							".svelte-kit/generated/dev",
+							"node_modules/.vite-temp"
+						]
 					},
 					{
 						"role": "sveltekit_cli",
 						"name": "svelte-kit",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit",
+							"node_modules/$app",
+							"node_modules/.vite-temp"
+						]
 					},
 					{
 						"role": "typescript_cli",
@@ -2590,7 +2963,13 @@
 						"role": "vitest_cli",
 						"name": "vitest",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit/generated/dev",
+							".svelte-kit/types",
+							"node_modules/.vite-temp",
+							"node_modules/.vite/vitest"
+						]
 					}
 				],
 				"project_modules": true,
@@ -2657,13 +3036,22 @@
 						"pass_env": "all",
 						"env": {
 							"FORCE_COLOR": "1"
-						}
+						},
+						"write": [
+							".svelte-kit/generated/dev",
+							"node_modules/.vite-temp"
+						]
 					},
 					{
 						"role": "sveltekit_cli",
 						"name": "svelte-kit",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit",
+							"node_modules/$app",
+							"node_modules/.vite-temp"
+						]
 					},
 					{
 						"role": "typescript_cli",
@@ -2675,7 +3063,13 @@
 						"role": "vitest_cli",
 						"name": "vitest",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit/generated/dev",
+							".svelte-kit/types",
+							"node_modules/.vite-temp",
+							"node_modules/.vite/vitest"
+						]
 					}
 				],
 				"project_modules": true,
@@ -2738,13 +3132,22 @@
 						"pass_env": "all",
 						"env": {
 							"FORCE_COLOR": "1"
-						}
+						},
+						"write": [
+							".svelte-kit/generated/dev",
+							"node_modules/.vite-temp"
+						]
 					},
 					{
 						"role": "sveltekit_cli",
 						"name": "svelte-kit",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit",
+							"node_modules/$app",
+							"node_modules/.vite-temp"
+						]
 					},
 					{
 						"role": "typescript_cli",
@@ -2817,13 +3220,22 @@
 						"pass_env": "all",
 						"env": {
 							"FORCE_COLOR": "1"
-						}
+						},
+						"write": [
+							".svelte-kit/generated/dev",
+							"node_modules/.vite-temp"
+						]
 					},
 					{
 						"role": "sveltekit_cli",
 						"name": "svelte-kit",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit",
+							"node_modules/$app",
+							"node_modules/.vite-temp"
+						]
 					},
 					{
 						"role": "typescript_cli",
@@ -2905,13 +3317,22 @@
 						"pass_env": "all",
 						"env": {
 							"FORCE_COLOR": "1"
-						}
+						},
+						"write": [
+							".svelte-kit/generated/dev",
+							"node_modules/.vite-temp"
+						]
 					},
 					{
 						"role": "sveltekit_cli",
 						"name": "svelte-kit",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit",
+							"node_modules/$app",
+							"node_modules/.vite-temp"
+						]
 					},
 					{
 						"role": "typescript_cli",
@@ -2923,7 +3344,13 @@
 						"role": "vitest_cli",
 						"name": "vitest",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit/generated/dev",
+							".svelte-kit/types",
+							"node_modules/.vite-temp",
+							"node_modules/.vite/vitest"
+						]
 					}
 				],
 				"project_modules": true,
@@ -3002,13 +3429,22 @@
 						"pass_env": "all",
 						"env": {
 							"FORCE_COLOR": "1"
-						}
+						},
+						"write": [
+							".svelte-kit/generated/dev",
+							"node_modules/.vite-temp"
+						]
 					},
 					{
 						"role": "sveltekit_cli",
 						"name": "svelte-kit",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit",
+							"node_modules/$app",
+							"node_modules/.vite-temp"
+						]
 					},
 					{
 						"role": "typescript_cli",
@@ -3020,7 +3456,13 @@
 						"role": "vitest_cli",
 						"name": "vitest",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit/generated/dev",
+							".svelte-kit/types",
+							"node_modules/.vite-temp",
+							"node_modules/.vite/vitest"
+						]
 					}
 				],
 				"project_modules": true,
@@ -3087,13 +3529,22 @@
 						"pass_env": "all",
 						"env": {
 							"FORCE_COLOR": "1"
-						}
+						},
+						"write": [
+							".svelte-kit/generated/dev",
+							"node_modules/.vite-temp"
+						]
 					},
 					{
 						"role": "sveltekit_cli",
 						"name": "svelte-kit",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit",
+							"node_modules/$app",
+							"node_modules/.vite-temp"
+						]
 					},
 					{
 						"role": "typescript_cli",
@@ -3105,7 +3556,13 @@
 						"role": "vitest_cli",
 						"name": "vitest",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit/generated/dev",
+							".svelte-kit/types",
+							"node_modules/.vite-temp",
+							"node_modules/.vite/vitest"
+						]
 					}
 				],
 				"project_modules": true,
@@ -3155,7 +3612,12 @@
 						"role": "sveltekit_cli",
 						"name": "svelte-kit",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit",
+							"node_modules/$app",
+							"node_modules/.vite-temp"
+						]
 					}
 				],
 				"project_modules": true,
@@ -3224,13 +3686,22 @@
 						"pass_env": "all",
 						"env": {
 							"FORCE_COLOR": "1"
-						}
+						},
+						"write": [
+							".svelte-kit/generated/dev",
+							"node_modules/.vite-temp"
+						]
 					},
 					{
 						"role": "sveltekit_cli",
 						"name": "svelte-kit",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit",
+							"node_modules/$app",
+							"node_modules/.vite-temp"
+						]
 					},
 					{
 						"role": "typescript_cli",
@@ -3242,7 +3713,13 @@
 						"role": "vitest_cli",
 						"name": "vitest",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit/generated/dev",
+							".svelte-kit/types",
+							"node_modules/.vite-temp",
+							"node_modules/.vite/vitest"
+						]
 					}
 				],
 				"project_modules": true,
@@ -3314,13 +3791,22 @@
 						"pass_env": "all",
 						"env": {
 							"FORCE_COLOR": "1"
-						}
+						},
+						"write": [
+							".svelte-kit/generated/dev",
+							"node_modules/.vite-temp"
+						]
 					},
 					{
 						"role": "sveltekit_cli",
 						"name": "svelte-kit",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit",
+							"node_modules/$app",
+							"node_modules/.vite-temp"
+						]
 					},
 					{
 						"role": "typescript_cli",
@@ -3332,7 +3818,13 @@
 						"role": "vitest_cli",
 						"name": "vitest",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit/generated/dev",
+							".svelte-kit/types",
+							"node_modules/.vite-temp",
+							"node_modules/.vite/vitest"
+						]
 					}
 				],
 				"project_modules": true,
@@ -3403,13 +3895,22 @@
 						"pass_env": "all",
 						"env": {
 							"FORCE_COLOR": "1"
-						}
+						},
+						"write": [
+							".svelte-kit/generated/dev",
+							"node_modules/.vite-temp"
+						]
 					},
 					{
 						"role": "sveltekit_cli",
 						"name": "svelte-kit",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit",
+							"node_modules/$app",
+							"node_modules/.vite-temp"
+						]
 					},
 					{
 						"role": "typescript_cli",
@@ -3421,7 +3922,13 @@
 						"role": "vitest_cli",
 						"name": "vitest",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit/generated/dev",
+							".svelte-kit/types",
+							"node_modules/.vite-temp",
+							"node_modules/.vite/vitest"
+						]
 					}
 				],
 				"project_modules": true,
@@ -3472,7 +3979,12 @@
 						"role": "sveltekit_cli",
 						"name": "svelte-kit",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit",
+							"node_modules/$app",
+							"node_modules/.vite-temp"
+						]
 					}
 				],
 				"project_modules": true,
@@ -3524,7 +4036,12 @@
 						"role": "sveltekit_cli",
 						"name": "svelte-kit",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit",
+							"node_modules/$app",
+							"node_modules/.vite-temp"
+						]
 					}
 				],
 				"project_modules": true,
@@ -3583,7 +4100,12 @@
 						"role": "sveltekit_cli",
 						"name": "svelte-kit",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit",
+							"node_modules/$app",
+							"node_modules/.vite-temp"
+						]
 					}
 				],
 				"project_modules": true,
@@ -3619,10 +4141,27 @@
 				"env": [],
 				"programs": [
 					{
+						"role": "sveltekit_cli",
+						"name": "svelte-kit",
+						"local": true,
+						"pass_env": "all",
+						"write": [
+							".svelte-kit",
+							"node_modules/$app",
+							"node_modules/.vite-temp"
+						]
+					},
+					{
 						"role": "vitest_cli",
 						"name": "vitest",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit/generated/dev",
+							".svelte-kit/types",
+							"node_modules/.vite-temp",
+							"node_modules/.vite/vitest"
+						]
 					}
 				],
 				"project_modules": true,
@@ -3660,13 +4199,22 @@
 						"pass_env": "all",
 						"env": {
 							"FORCE_COLOR": "1"
-						}
+						},
+						"write": [
+							".svelte-kit/generated/dev",
+							"node_modules/.vite-temp"
+						]
 					},
 					{
 						"role": "sveltekit_cli",
 						"name": "svelte-kit",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit",
+							"node_modules/$app",
+							"node_modules/.vite-temp"
+						]
 					},
 					{
 						"role": "typescript_cli",
@@ -3713,7 +4261,12 @@
 						"role": "sveltekit_cli",
 						"name": "svelte-kit",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit",
+							"node_modules/$app",
+							"node_modules/.vite-temp"
+						]
 					}
 				],
 				"project_modules": true,
@@ -4060,13 +4613,22 @@
 						"pass_env": "all",
 						"env": {
 							"FORCE_COLOR": "1"
-						}
+						},
+						"write": [
+							".svelte-kit/generated/dev",
+							"node_modules/.vite-temp"
+						]
 					},
 					{
 						"role": "sveltekit_cli",
 						"name": "svelte-kit",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit",
+							"node_modules/$app",
+							"node_modules/.vite-temp"
+						]
 					},
 					{
 						"role": "typescript_cli",
@@ -4078,7 +4640,13 @@
 						"role": "vitest_cli",
 						"name": "vitest",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit/generated/dev",
+							".svelte-kit/types",
+							"node_modules/.vite-temp",
+							"node_modules/.vite/vitest"
+						]
 					}
 				],
 				"project_modules": true,
@@ -4170,13 +4738,22 @@
 						"pass_env": "all",
 						"env": {
 							"FORCE_COLOR": "1"
-						}
+						},
+						"write": [
+							".svelte-kit/generated/dev",
+							"node_modules/.vite-temp"
+						]
 					},
 					{
 						"role": "sveltekit_cli",
 						"name": "svelte-kit",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit",
+							"node_modules/$app",
+							"node_modules/.vite-temp"
+						]
 					},
 					{
 						"role": "typescript_cli",
@@ -4188,7 +4765,13 @@
 						"role": "vitest_cli",
 						"name": "vitest",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit/generated/dev",
+							".svelte-kit/types",
+							"node_modules/.vite-temp",
+							"node_modules/.vite/vitest"
+						]
 					}
 				],
 				"project_modules": true,
@@ -4265,13 +4848,22 @@
 						"pass_env": "all",
 						"env": {
 							"FORCE_COLOR": "1"
-						}
+						},
+						"write": [
+							".svelte-kit/generated/dev",
+							"node_modules/.vite-temp"
+						]
 					},
 					{
 						"role": "sveltekit_cli",
 						"name": "svelte-kit",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit",
+							"node_modules/$app",
+							"node_modules/.vite-temp"
+						]
 					},
 					{
 						"role": "typescript_cli",
@@ -4283,7 +4875,13 @@
 						"role": "vitest_cli",
 						"name": "vitest",
 						"local": true,
-						"pass_env": "all"
+						"pass_env": "all",
+						"write": [
+							".svelte-kit/generated/dev",
+							".svelte-kit/types",
+							"node_modules/.vite-temp",
+							"node_modules/.vite/vitest"
+						]
 					}
 				],
 				"project_modules": true,

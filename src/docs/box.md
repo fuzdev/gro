@@ -8,7 +8,7 @@
 > ([below](#what-a-commands-box-admits) has its exact walls).
 > `fgro run` has no kernel box and no resource limits yet ([run](run.md)): its box is designed, to come after.
 > Each tool the run starts runs in a narrower box of its own inside the run's,
-> and the first release waits for each to write only its own directories ([below](#a-box-for-each-tool)).
+> writing only its own directories ([below](#a-box-for-each-tool)).
 > The read-deny overlay and the rest here not marked built are designed too.
 
 The runtime checks authority twice.
@@ -138,15 +138,32 @@ anything else that keeps a rule from opening, like a symlink on its path, refuse
   A check-mode command, like a plain `check`, `gen --check`, or `format --check`, gets no write on the project from its grants,
   and neither do `test`, `typecheck`, and `lint`.
 - **Tool directories:** the directories the project's tools write on their own,
-  each a write root when the command's closure grants a tool from the project's `node_modules/.bin` and the project declares the dependency that writes it:
-  `.svelte-kit` and `node_modules/$app` (SvelteKit's sync) for `@sveltejs/kit`,
-  `node_modules/.vite` (Vite's optimizer and Vitest's) and `node_modules/.vite-temp` (Vite's config loader) for `vite` or `vitest`,
-  and `.fuz/cache`, which fuz_css's plugin writes as Vitest transforms, when the closure grants Vitest and the project declares `@fuzdev/fuz_css`, with `.fuz` itself read-only.
+  each a write root of the tools whose grant in the grants table names it (their `write`),
+  when the command's closure grants such a tool and the project declares the dependency that writes it:
+  `.svelte-kit` for `svelte-kit`, all of what its sync writes, which `vite build` reads;
+  `.svelte-kit/generated/dev`, the modules SvelteKit generates for a dev server, for svelte-check and Vitest;
+  `.svelte-kit/types`, the route types, for Vitest;
+  and `node_modules/$app`, the tsconfig and types SvelteKit generates, for `svelte-kit` alone, each of these for `@sveltejs/kit`:
+  a later typecheck, `dev`, `build`, and the editor trust what's there, and a file planted beside the generated ones,
+  like a `package.json` whose `exports` redirect `$app/tsconfig`, survives every sync,
+  so `gro test` syncs first ([test](test.md#sveltekits-files-synced-first)) and Vitest finds nothing there to write;
+  `node_modules/.vite-temp`, where Vite's config loader writes a bundled config, for `svelte-kit`, svelte-check, and Vitest, for `vite` or `vitest`;
+  and `node_modules/.vite/vitest`, Vitest's own cache, for Vitest, for `vitest`.
+  No tool writes `node_modules/.vite` beside that cache, where a later `dev` loads its optimized dependencies,
+  nor fuz_css's `.fuz/cache`, whose entries a later `dev` or `build` trusts, though Vitest's dev server writes it as it scans the project:
+  fuz_css skips a refused cache write quietly.
+  No tool makes a symlink or a FIFO in a tool directory, even its own, nor moves or links an entry in from another directory,
+  which could bring a symlink from its own temporary directory or a directory `--allow-run-write=` names,
+  and the same holds for Gro's own code and every tool in a directory `--allow-write=` or `--allow-run-write=` names
+  that is a tool directory (any of them, made or not) or where a linked `node_modules` leads, lies in one, or holds either;
+  every other directory either flag names keeps them, like `src` for `eslint --fix` or a snapshot directory for `test -u`:
+  a later unconfined tool writing one of its files there by name, as SvelteKit's `vite dev` rewrites its generated files, would follow a planted link out of the project,
+  or block reading a FIFO.
   Each is made as a real directory where it's absent before the box, every directory on its path opened with symlinks refused,
   and one already there as a symlink or anything but a directory refuses the run, exit 2, so a link planted by an earlier run can't send it elsewhere;
   one that can't be made fails the run, exit 1.
   So a plain `check` writes the tool directories and nothing else in the project, and `format --check`, which starts no tool, writes nothing at all;
-  a step the command line turns off leaves the closure with its tool, so `check --no-test` grants no Vitest, and with it no `.fuz/cache`.
+  a step the command line turns off leaves the closure with its tool, so `check --no-test` grants no Vitest, and with it none of Vitest's own.
   Vitest's module cache under `node_modules` is never one: it holds transformed code that later Vitest runs load unverified,
   so a test that could write it could plant code for a run outside any box.
   `gro test` turns the cache off on either runtime ([test](test.md#vitests-module-cache)), and in the box a test can't write it either.
@@ -210,10 +227,11 @@ anything else that keeps a rule from opening, like a symlink on its path, refuse
   A package there resolves its imports within that `node_modules`, and nothing of the checkout holding it is read,
   its `package.json` included ([resolver](resolver.md#departures-from-node)).
   No tool directory is made there, since that checkout's own unconfined commands run what a tool writes there:
-  a tool writes there only what `--allow-run-write=` names for it, by the path it leads to, and `--allow-write=` naming it lets only Gro's own code write there.
+  a tool writes there only what `--allow-run-write=` names for it, by the path it leads to, and `--allow-write=` naming it lets only Gro's own code write there,
+  each writing plain there, with no symlink, FIFO, or entry moved in.
   A tool that needs a directory there fails without the flag, and the `note:` line names the tools that write there, if any.
   Under `fgro check` in a worktree linking a SvelteKit project's `node_modules` at `<target>`, that is
-  `'--allow-run-write=svelte-kit:<target>/.vite-temp,<target>/$app' --allow-run-write=svelte-check:<target>/.vite-temp --allow-run-write=vitest:<target>/.vite-temp,<target>/.vite`
+  `'--allow-run-write=svelte-kit:<target>/.vite-temp,<target>/$app' --allow-run-write=svelte-check:<target>/.vite-temp '--allow-run-write=vitest:<target>/.vite-temp,<target>/.vite/vitest'`
   once that checkout has made them, or `<target>` itself for each, which lets each write all of that `node_modules`.
   A link to any other directory, like `~/.ssh` or `.git`, is refused, exit 2.
 - **Network:** the run's own namespace, whose only interface is its loopback,
@@ -261,10 +279,10 @@ and a recursive `mkdir` or copy through a symlink on the way.
 A run that exits nonzero after a tool it started ended other than by exiting 0, not counting one the run signaled itself, ends with a `note:` line naming the box's network and writes, as in
 
 ```
-note: fgro test's tools each ran in a kernel box of their own inside the run's, which lets them reach no network but the run's own loopback and write only to a temporary directory of their own, the grants table's tools also to .svelte-kit, node_modules/.vite, and node_modules/.vite-temp, and vitest also to src: a tool that hits a wall fails with EACCES, EPERM, or ENOSYS; --allow-run-write=<program>:<dirs> lets one of them (vitest) write more, --allow-read= and --allow-run-in= widen every box, and --allow-write= widens only what gro's own code writes
+note: fgro test's tools each ran in a kernel box of their own inside the run's, which lets them reach no network but the run's own loopback and write only to a temporary directory of their own and to their own directories (svelte-kit: .svelte-kit, node_modules/$app, node_modules/.vite-temp; vitest: .svelte-kit/generated/dev, .svelte-kit/types, node_modules/.vite-temp, node_modules/.vite/vitest, src): a tool that hits a wall fails with EACCES, EPERM, or ENOSYS; --allow-run-write=<program>:<dirs> lets one of them (svelte-kit or vitest) write more, --allow-read= and --allow-run-in= widen every box, and --allow-write= widens only what gro's own code writes
 ```
 
-Both are built from the rules the box installed: the cause names tool and flag directories; the note names tool directories and what `--allow-run-write=` gives each program;
+Both are built from the rules the box installed: the cause names tool and flag directories; the note names each tool's own directories, the tool directories the box made for it and what `--allow-run-write=` gives it;
 and in the host's network the note's clause reads "reach no network".
 The note, here for `fgro test --allow-run-write=vitest:src -- -u`, names the directories `--allow-run-write=` gives each program as that program's and the programs the command may start,
 and never what `--allow-write=` names, which no tool writes;
@@ -344,11 +362,13 @@ With the project read-only but for the write roots, those paths are out of reach
 What the project's own files already run, the box bounds as it bounds the tools:
 the config and genfiles, and the commands a repository's own config names, like `core.fsmonitor`, which git runs on `status`, `ls-files`, and `diff`.
 What it leaves: a write into a write root that another tool then executes, the tool directories included
-(`node_modules/.vite` holds the optimized dependencies a later `dev` loads),
+(`.svelte-kit/generated/dev` holds the modules a dev server loads),
 and under `gen`, `format`, or `sync` any included entry the next unconfined command runs, like `src`, `package.json`, or `vite.config.ts`,
 which is why a check-mode command writes none of them.
 An exec root that is also a write root accepts the same case for the run's own programs, so each is declared and reviewed as narrowly.
-Each tool runs in a box of its own, but every tool of the grants table writes every tool directory of the command, so its code can plant in another's.
+Each tool runs in a box of its own and writes only its own tool directories, but a tool directory two tools write is each one's,
+so one can plant there what the other reads: svelte-check's and Vitest's `.svelte-kit/generated/dev`,
+and the `node_modules/.vite-temp` of `svelte-kit`, svelte-check, and Vitest; and `svelte-kit` writes all of `.svelte-kit`, Vitest's own directories in it among them.
 
 ### A box for each tool
 
@@ -356,21 +376,22 @@ Each program the run starts runs in a box of its own, nested in the run's (`gro_
 built at the program's first launch and kept for every launch after, one box for each name the run grants a program by and one for each program found beneath an exec root,
 and installed at every launch of a command of Gro's; `fgro run` launches in none.
 A box that can't be built fails each launch of its program, `launch_failed`, as the first did.
-The first release waits for each tool to write only its own directories.
 Landlock restricts the thread that installs its rules, so a launch given a program's box starts the program from a short-lived thread that first restricts itself with that box
 and then spawns it as today, and the program inherits the narrower box (`host/spawn/launch.rs`); nothing re-executes the binary.
 Each program's box gives it a temporary directory of its own, named by the program's place among the run's programs, never by its name.
-The box lets a program of the grants table write every tool directory of the command, and one a flag grants write nothing but its own temporary directory,
+The box lets a program of the grants table write the tool directories its grant names, its `write`, of those the run made, but make no symlink or FIFO there nor move an entry in,
+and every other program, like one a flag grants or one of the table that names none, nothing but its own temporary directory,
 and each writes too what `--allow-run-write=` names for it, and no program anything another's names;
 a program's box takes nothing of what `--allow-write=` names, not even its read, which is Gro's own code's, so a tool that must read what Gro's code wrote outside the project takes `--allow-read=`.
-Writing only the directories the table names for that program is designed:
-the tools that write on their own, like SvelteKit's sync and Vitest, name their own write roots, and the ones that don't, like tsc, ESLint, and git, name none.
-Vitest is held to SvelteKit's generated modules for its dev server and its own cache in `node_modules/.vite`, with its config loaded by Vite's runner loader,
-which needs no write of its own.
+The tools that write on their own, `svelte-kit`, svelte-check, and Vitest, name their own tool directories ([above](#what-a-commands-box-admits)),
+and the ones that don't, tsc, ESLint, git, and npm, name none.
 The nested boxes also keep a tool from signalling Gro or another tool and from reading another's environment, memory, or working directory through `/proc`.
-Once each tool is held to its own directories, a test or an ESLint plugin won't be able to plant in what `dev` and `build` run.
+So a test or an ESLint plugin can't plant in what `vite build` runs, `.svelte-kit/generated/build`,
+in the optimized dependencies a later `dev` loads from `node_modules/.vite`, in the tsconfig and types `node_modules/$app` hands every later checker,
+or in fuz_css's `.fuz/cache`, and no tool leaves a symlink in a tool directory or a linked `node_modules` for a later one to write through.
 It leaves the project's own config, which runs in every tool and which `dev` runs unconfined,
-and a write into a tool's own directory that a dev server already running picks up.
+a write into a tool's own directory that a dev server already running picks up, like a test's into `.svelte-kit/generated/dev`,
+and the tool directories two tools share.
 A tool still reads what the others write in the project, sees their command line, status, and descriptor numbers in `/proc`,
 gets a handle from `pidfd_open` on another or on the run, one that can't signal, and can take the terminal's foreground.
 A child that sets `PR_SET_PDEATHSIG` while the short-lived thread that started it still runs is killed when that thread ends,
