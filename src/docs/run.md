@@ -65,7 +65,8 @@ A run grants the project's own modules `args`, `exit`, `stdout`, `stderr`, and `
   Write doesn't imply read: a directory only written is read by no read op, though `fs.open_dir`, `dir()`, and a write can still tell whether something is there,
   and a handle's `path`, its real path, where a directory symlink in it leads.
   A directory written inside one read is read too, and a handle reads and writes as the directory it was opened on, never more,
-  so a program writes a granted directory through a handle `fs.open_dir` makes on it, never through `fs.project` or a handle made from it
+  so a program writes a granted directory through a handle `fs.open_dir` makes on it, never through `fs.project` or a handle made from it,
+  unless the granted directory is the project's root or holds it, as with `--allow-write=.` or `--allow-write=..`, when `fs.project` and the handles made from it write the project
   ([host modules](host_modules.md#fs-on-fgro) has how a handle carries its scope).
 - `--allow-temp` grants `@fuzdev/gro/fs.ts`'s `temp_dir` making fresh directories under the OS's temporary directory,
   each a root the run reads and writes, added as the run goes, and nothing else of the temporary directory, which it neither reads nor writes.
