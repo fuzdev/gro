@@ -135,6 +135,7 @@ pub mod embed;
 pub mod engine;
 pub mod eval;
 pub mod file_id;
+mod free_global;
 mod host;
 mod loader;
 pub mod phases;
@@ -158,6 +159,7 @@ use crate::file_id::FileId;
 use crate::resolver::Capability;
 use crate::snapshot::StartupSnapshot;
 
+pub use crate::free_global::FreeGlobal;
 pub use crate::host::exit::{Exit, ExitStep};
 pub use crate::host::spawn::RunPins;
 #[cfg(feature = "testing")]

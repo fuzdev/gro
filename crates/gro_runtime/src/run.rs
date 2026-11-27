@@ -11,6 +11,7 @@ use url::Url;
 
 use crate::confine::program::ProgramRules;
 use crate::engine::{Engine, RunEngine};
+use crate::free_global::FreeGlobal;
 use crate::host::HostData;
 use crate::host::spawn::{RunPins, SpawnRun};
 use crate::loader::Loader;
@@ -135,6 +136,13 @@ pub struct RunOutcome {
     /// Kind: a review signal the run's code controls, which can start a
     /// program that fails on purpose.
     pub child_failed: bool,
+    /// The global the run's uncaught error says was free, when it's one
+    /// of the set a ported script reaches for ([`FreeGlobal`]), so an
+    /// embedder can say what stands for it.
+    ///
+    /// Kind: a review signal the run's code controls, which can throw the
+    /// `ReferenceError` itself.
+    pub free_global: Option<FreeGlobal>,
 }
 
 impl RunOutcome {
@@ -148,6 +156,7 @@ impl RunOutcome {
             runtime: None,
             node_builtin_refused: false,
             child_failed: false,
+            free_global: None,
         }
     }
 }
@@ -373,7 +382,7 @@ fn run_resolved(
     }
     phases::mark(Phase::Teardown);
     let exit_code = runtime.as_mut().and_then(SpentRuntime::exit_code);
-    let (result, refused) = outcome(result, loader.take_refused());
+    let (result, refused, free_global) = outcome(result, loader.take_refused());
     RunOutcome {
         result,
         refused,
@@ -381,6 +390,7 @@ fn run_resolved(
         runtime,
         node_builtin_refused: loader.node_builtin_refused(),
         child_failed,
+        free_global,
     }
 }
 
@@ -426,19 +436,23 @@ fn uncaught_failure(error: &CoreError) -> Box<Failed> {
 /// prints the same; `deno_core` hands the host the error as a copy, so its
 /// identity is out of reach, so when more than one listed refusal has
 /// that class and message, or any refusal was counted, not listed, each
-/// stays listed ([`Refusals::unlist`]).
+/// stays listed ([`Refusals::unlist`]); and the global the uncaught error
+/// says was free, if it's one of [`FreeGlobal`]'s, from the same class and
+/// message.
 fn outcome(
     result: Result<(), Box<Failed>>,
     mut refused: Refusals,
-) -> (Result<(), RunError>, Refusals) {
+) -> (Result<(), RunError>, Refusals, Option<FreeGlobal>) {
+    let mut free_global = None;
     let result = result.map_err(|failed| {
         let Failed { error, uncaught } = *failed;
         if let Some((class, message)) = uncaught {
             refused.unlist(&class, &message);
+            free_global = FreeGlobal::of_uncaught(&class, &message);
         }
         error
     });
-    (result, refused)
+    (result, refused, free_global)
 }
 
 /// Resolves the entry at `entry` from `cwd`, returning its URL and the

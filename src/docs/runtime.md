@@ -436,7 +436,7 @@ where the host modules and grants land with their first consumer.
       with the type strip fuzzed over real packages, since it runs on `node_modules`
 - [ ] startup: Gro's own code embedded in the binary, stripped at build time and loaded when a run first imports it (built for `fgro run` and `fgro <command>`),
       and lazy host init (built for the builtin modules, each run on its first import), with no code cache for confined runs
-- [ ] the seal on the global object, with named exceptions, and a free `fetch`'s error naming the import
+- [ ] the seal on the global object, with named exceptions (a free `fetch`'s uncaught error ending with a hint naming the import is built)
 - [ ] the host modules (fs, spawn, watch, net, and the process modules), the grants
       (built so far: the link-time check, the modules [host modules](host_modules.md#the-modules) marks built, and the flags [run](run.md#usage) lists),
       and the policy file, enforced, with the box under every run and its children

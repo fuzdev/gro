@@ -252,7 +252,8 @@ Absent until a consumer needs them, with no grant involved, are `Headers`, `Requ
 `crypto`, `self`, `navigator`, `location`, `reportError`, `MessageChannel`,
 `MessagePort`, and `FileReader`.
 The global object isn't an `EventTarget`, so there's no `addEventListener('unhandledrejection')`.
-It's still extensible, and a free `fetch` is a plain `ReferenceError` with no hint;
+It's still extensible, so a program can install a global of its own, and a free `fetch` is a plain `ReferenceError`,
+which the run's report follows with a hint naming the import ([below](#errors-and-exit-codes));
 the seal is designed ([authority](authority.md#by-construction-or-by-default)).
 
 `import.meta` has `url`, `main`, `resolve` (one argument), `filename`, and `dirname`.
@@ -285,6 +286,16 @@ TypeScript needs none, since the type strip blanks types to whitespace,
 so every line and UTF-16 column is the source's.
 Bundled JS that carries a map (`//# sourceMappingURL=…`) shows positions in the bundle.
 A web API that fails with a `DOMException` throws one of its name, like `InvalidCharacterError` from `atob('!')`.
+An uncaught `ReferenceError` whose message is V8's for a free name, `<name> is not defined`, exactly,
+for a global a script ported from Node, Deno, or Bun reaches for, ends the report with one line in one shape,
+`hint: fgro has no global '<name>': <what stands for it>`:
+the process modules for `process`, Gro's host modules for `Deno` and `Bun`,
+`import` for `require`, `import.meta.dirname` and `import.meta.filename` for `__dirname` and `__filename`,
+`globalThis` for `global`, `Uint8Array` with `TextEncoder` and `TextDecoder` for `Buffer`,
+and `net.fetch` from `@fuzdev/gro/net.ts` for `fetch`, saying it isn't on `fgro` yet;
+for `crypto` it reads `hint: fgro has no global 'crypto' yet: Web Crypto isn't built on it`.
+It reads only the uncaught error's class and message, so a caught one prints none, nor does a `TypeError` like `globalThis.process.env`'s,
+and a program can print it by throwing that `ReferenceError` itself: a [review signal](glossary.md#review-signal).
 A module that fails to resolve, load, or strip prints its reason without `Uncaught`
 (`error: cannot resolve '…' from …`), and a refused TypeScript construct names itself, a fix, and its position.
 A dynamic `import()` of such a module rejects with an error the code can catch, a `TypeError` with the `code` `'ERR_MODULE_NOT_FOUND'`,

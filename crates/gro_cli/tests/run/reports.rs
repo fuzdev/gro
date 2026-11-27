@@ -337,3 +337,72 @@ fn no_source_map_applies_in_a_dynamic_imports_top_level() {
     // the map would place line 1 at original.ts:10:5
     assert_eq!(run.stdout, "1:141\n");
 }
+
+/// An uncaught `ReferenceError` for a global a ported script reaches for
+/// ends with the hint saying what stands for it, after the report; a
+/// caught one, a `TypeError` with the same message, and a name outside the
+/// set print none.
+#[test]
+fn an_uncaught_free_global_hints_at_what_stands_for_it() {
+    let fixtures = temp_fixtures(
+        "free_global",
+        &[
+            ("process.js", "console.log(process.env.HOME);\n"),
+            (
+                "fetch.js",
+                "const get = async () => fetch('http://127.0.0.1:9');\nawait get();\n",
+            ),
+            ("crypto.js", "crypto.randomUUID();\n"),
+            (
+                "caught.js",
+                "try { process.exit(); } catch (error) { console.log(error.name); }\n",
+            ),
+            (
+                "type.js",
+                "throw new TypeError('process is not defined');\n",
+            ),
+            ("other.js", "navigator.userAgent;\n"),
+        ],
+    );
+    let url = format!("file://{}", fixtures.0.display());
+    let run = run_in(&fixtures, "process.js");
+    assert_eq!(run.code, 1);
+    assert_eq!(
+        run.stderr,
+        format!(
+            "error: Uncaught (in promise) ReferenceError: process is not defined\n    at \
+             {url}/process.js:1:13\nhint: fgro has no global 'process': Gro's process modules \
+             are imports, and fgro has '@fuzdev/gro/env.ts', '@fuzdev/gro/args.ts', \
+             '@fuzdev/gro/exit.ts', '@fuzdev/gro/stdout.ts', '@fuzdev/gro/stderr.ts', \
+             '@fuzdev/gro/cwd.ts', '@fuzdev/gro/pid.ts', and '@fuzdev/gro/runtime_version.ts'\n"
+        )
+    );
+    let run = run_in(&fixtures, "fetch.js");
+    assert_eq!(run.code, 1);
+    assert!(
+        run.stderr.ends_with(
+            ":2:7\nhint: fgro has no global 'fetch': the network is an import, net.fetch from \
+             '@fuzdev/gro/net.ts', which isn't on fgro yet\n"
+        ),
+        "{}",
+        run.stderr
+    );
+    let run = run_in(&fixtures, "crypto.js");
+    assert_eq!(run.code, 1);
+    assert!(
+        run.stderr
+            .ends_with("\nhint: fgro has no global 'crypto' yet: Web Crypto isn't built on it\n"),
+        "{}",
+        run.stderr
+    );
+    let run = run_in(&fixtures, "caught.js");
+    assert_eq!(
+        (run.code, run.stdout.as_str(), run.stderr.as_str()),
+        (0, "ReferenceError\n", "")
+    );
+    for file in ["type.js", "other.js"] {
+        let run = run_in(&fixtures, file);
+        assert_eq!(run.code, 1);
+        assert!(!run.stderr.contains("hint:"), "{file}: {}", run.stderr);
+    }
+}

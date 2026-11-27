@@ -67,14 +67,15 @@ use gro_runtime::file_id::FileId;
 use gro_runtime::phases::{self, Phase};
 use gro_runtime::resolver::{
     BUILTINS, Capability, Conditions, DiskTree, GRO_PACKAGE, InstalledPackage, ProjectPackage,
-    ResolveErrorKind, normalize, read_installed_package, read_project_package,
+    ResolveErrorKind, SPLIT_MODULES, find_builtin, normalize, read_installed_package,
+    read_project_package,
 };
 use gro_runtime::verb::table::BuiltinGrantsTable;
 use gro_runtime::{
     ArgsGrant, Authority, BINARY_NAME, CHILD_BASE_ENV, EnvGrant, EnvPattern, EnvVars,
-    ExecRootGrant, Exit, ExitGrant, FsGrant, FsNeed, GrantedDir, Grants, NameKind, NeededGrant,
-    PassEnvGrant, ProgramGrant, Refusal, Refusals, RefusedBy, RunOutcome, RuntimeOptions,
-    SpawnGrant, StderrGrant, StdoutGrant, env_name_fault,
+    ExecRootGrant, Exit, ExitGrant, FreeGlobal, FsGrant, FsNeed, GrantedDir, Grants, NameKind,
+    NeededGrant, PassEnvGrant, ProgramGrant, Refusal, Refusals, RefusedBy, RunOutcome,
+    RuntimeOptions, SpawnGrant, StderrGrant, StdoutGrant, env_name_fault,
 };
 
 use crate::EXIT_FAILURE;
@@ -89,7 +90,7 @@ use crate::print::{escape_controls, stderr_line};
 use crate::snapshot::STARTUP_SNAPSHOT;
 use crate::verb::fallback::{GRO_FALLBACK, exec_node_gro};
 use crate::verb::prepass::{ProjectReads, VerbInputs, VerbPlan, VerbRun, plan};
-use crate::verb::start::run_boxed;
+use crate::verb::start::{listed, run_boxed};
 use crate::version::RUNTIME_VERSION;
 use crate::version::VERSION;
 
@@ -237,7 +238,8 @@ pub fn run_module(run: &RunInvocation) -> u8 {
 }
 
 /// How a run that `started` ended, printed: its failure, then the refusals,
-/// then `node_hint` when the run failed after the resolver refused a Node
+/// then the hint for the global its uncaught error says was free
+/// ([`free_global_hint`]), then `node_hint` when the run failed after the resolver refused a Node
 /// built-in in it, then `walls` when the run failed after a
 /// program it started ended other than by exiting 0, returning the exit
 /// code ([`exit_code`]).
@@ -259,6 +261,7 @@ pub fn finish(
         runtime,
         node_builtin_refused,
         child_failed,
+        free_global,
     } = match started {
         Ok(outcome) => outcome,
         Err(error) => return error.report(),
@@ -273,6 +276,9 @@ pub fn finish(
         Err(error) => Ended::Failed(CliError::from(error).report()),
     };
     report_refused(&refused);
+    if let Some(global) = free_global {
+        stderr_line(free_global_hint(global));
+    }
     let code = exit_code(ended, !refused.is_empty());
     if code != 0
         && node_builtin_refused
@@ -783,6 +789,59 @@ fn grant_hints(refused: &Refusals) -> Vec<String> {
         ));
     }
     hints
+}
+
+/// The hint for `global`, which the run's uncaught error says was free:
+/// what of Gro's stands for it, from the builtin table, so it follows the
+/// table as host modules land. `src/docs/run.md` §Errors and exit codes
+/// states the set.
+fn free_global_hint(global: FreeGlobal) -> String {
+    let what = match global {
+        FreeGlobal::Process => {
+            let built: Vec<String> = SPLIT_MODULES
+                .iter()
+                .filter(|split| split.stem == "@fuzdev/gro/process")
+                .flat_map(|split| split.modules.iter())
+                .filter(|module| find_builtin(module).is_some())
+                .map(|module| format!("'{module}'"))
+                .collect();
+            format!(
+                "Gro's process modules are imports, and {BINARY_NAME} has {}",
+                listed(&built)
+            )
+        }
+        FreeGlobal::Deno | FreeGlobal::Bun => "a run reaches the system through Gro's host \
+             modules, each an import, like '@fuzdev/gro/fs.ts', '@fuzdev/gro/spawn.ts', and \
+             '@fuzdev/gro/env.ts'"
+            .to_owned(),
+        FreeGlobal::Require => "it loads ES modules only, so use import or import()".to_owned(),
+        FreeGlobal::Dirname => "use import.meta.dirname".to_owned(),
+        FreeGlobal::Filename => "use import.meta.filename".to_owned(),
+        FreeGlobal::Global => "use globalThis".to_owned(),
+        FreeGlobal::Buffer => {
+            "use Uint8Array, with TextEncoder and TextDecoder for text".to_owned()
+        }
+        FreeGlobal::Fetch => {
+            let net = "@fuzdev/gro/net.ts";
+            if find_builtin(net).is_some() {
+                format!("the network is an import, net.fetch from '{net}'")
+            } else {
+                format!(
+                    "the network is an import, net.fetch from '{net}', which isn't on \
+                     {BINARY_NAME} yet"
+                )
+            }
+        }
+        FreeGlobal::Crypto => {
+            return format!(
+                "hint: {BINARY_NAME} has no global 'crypto' yet: Web Crypto isn't built on it"
+            );
+        }
+    };
+    format!(
+        "hint: {BINARY_NAME} has no global '{}': {what}",
+        global.name()
+    )
 }
 
 /// The hint naming the flag that grants a builtin module needing
@@ -1551,6 +1610,43 @@ mod tests {
             hints(&[env("A B")], false),
             Vec::<String>::new(),
             "an env name it can't show makes no line"
+        );
+    }
+
+    /// Each free global's hint says what stands for it, in one shape.
+    #[test]
+    fn each_free_global_s_hint_says_what_stands_for_it() {
+        use gro_runtime::FreeGlobal;
+
+        use super::free_global_hint;
+
+        let hints: Vec<String> = FreeGlobal::ALL.into_iter().map(free_global_hint).collect();
+        let host = "a run reaches the system through Gro's host modules, each an import, like \
+                    '@fuzdev/gro/fs.ts', '@fuzdev/gro/spawn.ts', and '@fuzdev/gro/env.ts'";
+        assert_eq!(
+            hints,
+            [
+                "hint: fgro has no global 'process': Gro's process modules are imports, and fgro \
+                 has '@fuzdev/gro/env.ts', '@fuzdev/gro/args.ts', '@fuzdev/gro/exit.ts', \
+                 '@fuzdev/gro/stdout.ts', '@fuzdev/gro/stderr.ts', '@fuzdev/gro/cwd.ts', \
+                 '@fuzdev/gro/pid.ts', and '@fuzdev/gro/runtime_version.ts'"
+                    .to_owned(),
+                format!("hint: fgro has no global 'Deno': {host}"),
+                format!("hint: fgro has no global 'Bun': {host}"),
+                "hint: fgro has no global 'require': it loads ES modules only, so use import or \
+                 import()"
+                    .to_owned(),
+                "hint: fgro has no global '__dirname': use import.meta.dirname".to_owned(),
+                "hint: fgro has no global '__filename': use import.meta.filename".to_owned(),
+                "hint: fgro has no global 'global': use globalThis".to_owned(),
+                "hint: fgro has no global 'Buffer': use Uint8Array, with TextEncoder and \
+                 TextDecoder for text"
+                    .to_owned(),
+                "hint: fgro has no global 'fetch': the network is an import, net.fetch from \
+                 '@fuzdev/gro/net.ts', which isn't on fgro yet"
+                    .to_owned(),
+                "hint: fgro has no global 'crypto' yet: Web Crypto isn't built on it".to_owned(),
+            ]
         );
     }
 

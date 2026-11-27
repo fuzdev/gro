@@ -792,7 +792,7 @@ fn wall_rules(confined: &RunConfined) -> Vec<WallRule> {
 }
 
 /// `items` joined for prose: `a`, `a and b`, `a, b, and c`.
-fn listed(items: &[String]) -> String {
+pub fn listed(items: &[String]) -> String {
     match items {
         [] => String::new(),
         [one] => one.clone(),

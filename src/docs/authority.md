@@ -383,7 +383,7 @@ against a dependency that does, the [threat model](#threat-model) says where the
 The host's net module exports a `net` handle (`net.fetch`, with `net.WebSocket` and `net.EventSource` when a consumer brings them,
 bound to the accepted hosts) that's narrowed and passed down like any other capability,
 so authority is visible at every use site.
-There's no global `fetch` to fall back to: a free `fetch` is a `ReferenceError` (today a plain one; the hint naming the import is designed).
+There's no global `fetch` to fall back to: a free `fetch` is a `ReferenceError`, which, uncaught, ends the run's report with a hint naming the import (built, [run](run.md#errors-and-exit-codes)).
 The net grant is inferred from the graph like a filesystem one, and the hosts it reaches are declared.
 Pure globals (`URL`, `TextEncoder`, streams, `console`) are always there,
 and the scoped checks inside a grant (a variable outside a handle's names, a path outside a root, a host not accepted) are the host's, at the call.
