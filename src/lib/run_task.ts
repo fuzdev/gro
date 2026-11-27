@@ -50,7 +50,8 @@ export type RunTaskResult =
  * `config`, `graph`, `log`, `timings`, and a frozen copy of `raw_rest_args`
  * become its fields of the same name, and the platform's `gro` its `gro`,
  * and `fs_paths`, `import_module`, `host_root`, and `platform` pass to the tasks it invokes,
- * never onto its context, but for a builtin's `host`, cut from them by its `grants`.
+ * never onto its context, but for a builtin's `host`, cut from them by its `grants`,
+ * and its `vitest_module_cache`, the platform's.
  */
 export interface RunTaskOptions {
 	/**
@@ -217,10 +218,9 @@ export const run_task = async (
 		raw_rest_args: freeze([...raw_rest_args])
 	};
 	if (grants) {
-		(ctx as BuiltinTaskContext<Args>).host = create_builtin_host(host_root, grants, {
-			fs_paths,
-			import_module
-		});
+		const builtin_ctx = ctx as BuiltinTaskContext<Args>;
+		builtin_ctx.host = create_builtin_host(host_root, grants, { fs_paths, import_module });
+		builtin_ctx.vitest_module_cache = platform.vitest_module_cache;
 	}
 
 	// Run the task.

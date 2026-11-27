@@ -633,6 +633,106 @@ fn vitest_s_cache_is_made_only_for_a_declared_vitest() {
     assert_eq!(dirs, [ToolDir::ViteTemp]);
 }
 
+/// Vitest's module cache is in its own tool directory, by absolute path,
+/// only where Vitest's box is the table's alone: the run starts vitest,
+/// made `node_modules/.vite/vitest` in the project's own `node_modules`, and
+/// no `--allow-read=`, `--allow-run-in=`, `--allow-run=` of a program the
+/// table doesn't grant, or `--allow-run-write=vitest:` widens its box; a
+/// write flag, gro's code's alone, and another program's
+/// `--allow-run-write=` leave it.
+#[test]
+fn vitest_s_module_cache_is_given_only_to_the_table_s_box() {
+    let cache = Some(PathBuf::from(
+        "/p/node_modules/.vite/vitest/boxed-module-cache",
+    ));
+    // `test` in a project declaring vitest, with `flags` and `run_writes`
+    let test = |flags: &[(DirFlag, &str, &str)], run_writes: Vec<RunWriteGrant>| BoxInputs {
+        declared: set(&["vitest"]),
+        ..run_writing(false, flags, run_writes)
+    };
+    let mut linked = facts();
+    linked.node_modules = NodeModules::Link {
+        real: "/shared/node_modules".into(),
+        present: vitest_dirs(),
+        checkout: true,
+    };
+    let python = named_writes("/usr/bin/python3", "python3", &[("../out", "/out")]);
+    for (case, inputs, facts, expected) in [
+        ("test", test(&[], Vec::new()), facts(), cache.clone()),
+        (
+            "a write flag",
+            test(&[(DirFlag::Write, "../out", "/out")], Vec::new()),
+            facts(),
+            cache.clone(),
+        ),
+        (
+            "another program's write flag",
+            test(&[], vec![python]),
+            facts(),
+            cache,
+        ),
+        (
+            "vitest's write flag",
+            test(&[], vec![vitest_writes(&[("src", "/p/src")])]),
+            facts(),
+            None,
+        ),
+        (
+            "a read flag",
+            test(&[(DirFlag::Read, "../data", "/data")], Vec::new()),
+            facts(),
+            None,
+        ),
+        (
+            "a run-in flag",
+            test(&[(DirFlag::RunIn, "/opt/x", "/opt/x")], Vec::new()),
+            facts(),
+            None,
+        ),
+        (
+            "a program a flag grants",
+            BoxInputs {
+                flag_programs: true,
+                ..test(&[], Vec::new())
+            },
+            facts(),
+            None,
+        ),
+        ("a linked node_modules", test(&[], Vec::new()), linked, None),
+        (
+            "vitest undeclared",
+            BoxInputs {
+                declared: set(&["vite"]),
+                ..test(&[], Vec::new())
+            },
+            facts(),
+            None,
+        ),
+        (
+            "no vitest",
+            BoxInputs {
+                tools: table_tools(&["svelte-kit"]),
+                ..test(&[], Vec::new())
+            },
+            facts(),
+            None,
+        ),
+        (
+            "no program",
+            BoxInputs {
+                spawns: false,
+                programs: Vec::new(),
+                ..test(&[], Vec::new())
+            },
+            facts(),
+            None,
+        ),
+    ] {
+        let plan = BoxPlan::for_run(&inputs, &facts).unwrap();
+        assert_eq!(plan.vitest_module_cache(), expected, "{case}");
+    }
+}
+
 /// `check` with the grant flags `flags`, each resolved to its real path.
 fn flagged(flags: &[(DirFlag, &str, &str)]) -> BoxInputs {
     BoxInputs {

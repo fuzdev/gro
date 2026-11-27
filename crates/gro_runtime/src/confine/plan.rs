@@ -116,7 +116,7 @@ use super::rules::{Need, RealRights, Rights};
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 #[expect(
     clippy::struct_excessive_bools,
-    reason = "four independent facts of the run's closure and flags, each read on its own"
+    reason = "independent facts of the run's closure and flags, each read on its own"
 )]
 pub struct BoxInputs {
     /// The project's root, a real path.
@@ -138,6 +138,9 @@ pub struct BoxInputs {
     pub declared: BTreeSet<String>,
     /// The file each program the run pinned executes.
     pub programs: Vec<ProgramFile>,
+    /// Whether `--allow-run=` grants a program the closure doesn't, whose
+    /// file every program's box reads and executes.
+    pub flag_programs: bool,
     /// The directories the grant flags list, each resolved.
     pub flags: Vec<GrantedFlagDir>,
     /// The directories `--allow-run-write=` lists, by the program each is
@@ -315,6 +318,10 @@ pub enum NodeModules {
 /// The run's box, planned: each rule as a path, its rights, and its
 /// source, and what the plan left out and why.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "independent facts of the run and its plan, each read on its own"
+)]
 pub struct BoxPlan {
     /// The project's root, a real path.
     root: PathBuf,
@@ -335,6 +342,9 @@ pub struct BoxPlan {
     /// The programs of the grants table that write tool directories, as the
     /// inputs held them.
     tools: BTreeMap<String, ToolWrites>,
+    /// Whether `--allow-run=` grants a program the closure doesn't, as the
+    /// inputs held it.
+    flag_programs: bool,
     /// The tool directories in `node_modules` the declared dependencies
     /// call for, which a tool writing one needs `--allow-run-write=` to
     /// name where a symlinked `node_modules` leads.
@@ -475,8 +485,10 @@ pub enum ToolDir {
     /// bundled config it imports and removes.
     #[serde(rename = "node_modules/.vite-temp")]
     ViteTemp,
-    /// `node_modules/.vite/vitest`, Vitest's own cache, beside the
-    /// optimized dependencies a later `dev` loads, which are no tool's.
+    /// `node_modules/.vite/vitest`, Vitest's own cache, its module cache
+    /// among them where the run gives one ([`VITEST_MODULE_CACHE`]),
+    /// beside the optimized dependencies a later `dev` loads, which are no
+    /// tool's.
     #[serde(rename = "node_modules/.vite/vitest")]
     Vitest,
 }
@@ -533,6 +545,14 @@ impl ToolDir {
         1 << self as u8
     }
 }
+
+/// Where Vitest keeps its module cache, beneath the project's root.
+///
+/// It's given in a run whose Vitest box is the grants table's alone
+/// ([`BoxPlan::vitest_module_cache`]): inside Vitest's own tool directory,
+/// which only Vitest's box writes, and never Vitest's default,
+/// `node_modules/.vitest-cache`, which an unconfined Vitest reads.
+pub const VITEST_MODULE_CACHE: &str = "node_modules/.vite/vitest/boxed-module-cache";
 
 /// A set of [`ToolDir`]s: the tool directories a program writes.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -805,6 +825,7 @@ impl BoxPlan {
             },
             run_writes: inputs.run_writes.clone(),
             tools: inputs.tools.clone(),
+            flag_programs: inputs.flag_programs,
             declared_in_node_modules: declared_in_node_modules(inputs),
             linked_present: match &facts.node_modules {
                 NodeModules::Link { present, .. } => *present,
@@ -896,6 +917,47 @@ impl BoxPlan {
     /// name the run grants each as.
     pub const fn tools(&self) -> &BTreeMap<String, ToolWrites> {
         &self.tools
+    }
+
+    /// Where Vitest keeps its module cache in this run, an absolute path
+    /// ([`VITEST_MODULE_CACHE`]), when Vitest's box is the grants table's
+    /// alone: the run starts the program that writes
+    /// `node_modules/.vite/vitest`, the run made that directory (the
+    /// project's own `node_modules`, never where a linked one leads), and no
+    /// grant flag widens that program's box: neither `--allow-read=` nor
+    /// `--allow-run-in=`, which widen every box by a directory, nor
+    /// `--allow-run=` naming a program the closure doesn't grant, which can
+    /// widen every box by that program's file, nor `--allow-run-write=`
+    /// naming it. `None` otherwise, which leaves the cache off.
+    ///
+    /// Kind: a guardrail in Gro's own code, which passes Vitest the path.
+    /// Its adversary is code a test wrote into the cache, which every later
+    /// run given the path executes in Vitest's box until the lockfile
+    /// changes; it runs only inside Vitest's process, after Vitest's
+    /// arguments are set, so it never reaches a run whose Vitest box a grant
+    /// flag widens. It doesn't bound realm code, which can start Vitest with
+    /// arguments of its own, nor an unconfined Vitest pointed at the
+    /// directory.
+    pub fn vitest_module_cache(&self) -> Option<PathBuf> {
+        if !self.spawns || !self.tool_dirs().any(|(dir, _)| dir == ToolDir::Vitest) {
+            return None;
+        }
+        let (program, _) = self
+            .tools
+            .iter()
+            .find(|(_, tool)| tool.tool_dirs.contains(ToolDir::Vitest))?;
+        let widened = self.flag_programs
+            || self
+                .run_writes
+                .iter()
+                .any(|grant| grant.program == *program)
+            || self.rules.iter().any(|rule| {
+                matches!(
+                    rule.source,
+                    RuleSource::Flag(DirFlag::Read | DirFlag::RunIn)
+                )
+            });
+        (!widened).then(|| self.root.join(VITEST_MODULE_CACHE))
     }
 
     /// What each program of the run may write, every write set a program's

@@ -77,6 +77,14 @@ export interface GroPlatform {
 	 * `gro` for the Node Gro, the binary's own name on it.
 	 */
 	readonly cli_name: string;
+	/**
+	 * Where `gro test` points Vitest's module cache, a directory only Vitest's box writes,
+	 * which no Vitest reads by default, or `null` to turn the cache off:
+	 * always on the Node Gro, whose Vitest runs unconfined,
+	 * and on the binary where Vitest's box is wider than the grants table's
+	 * or the run made no `node_modules/.vite/vitest`.
+	 */
+	readonly vitest_module_cache: string | null;
 }
 
 /**

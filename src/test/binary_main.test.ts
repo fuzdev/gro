@@ -60,7 +60,8 @@ const run = async (
 			},
 			home: undefined,
 			version: '1.2.3-binary',
-			cli_name: 'xgro'
+			cli_name: 'xgro',
+			vitest_module_cache: null
 		});
 	} finally {
 		rmSync(temp, { recursive: true });

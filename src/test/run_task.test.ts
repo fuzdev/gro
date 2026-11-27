@@ -362,6 +362,29 @@ test('run_task gives a builtin with grants a `host` cut by them, and a project t
 	);
 });
 
+test("run_task gives a builtin the platform's `vitest_module_cache`, and a project task none", async () => {
+	const cache = '/p/node_modules/.vite/vitest/boxed-module-cache';
+	const run = (ctx: TaskContext) => ctx;
+	const options = {
+		...(await create_mock_run_task_options()),
+		platform: { ...create_test_platform(), vitest_module_cache: cache }
+	};
+	const project = await run_task(
+		{ name: 'src/lib/check.task.ts', id: '/p/src/lib/check.task.ts', mod: { task: { run } } },
+		{},
+		options
+	);
+	assert(project.ok);
+	assert.ok(!('vitest_module_cache' in (project.output as TaskContext)));
+	const builtin = await run_task(
+		{ name: 'greet', id: '/p/src/lib/greet.task.ts', mod: { task: { run } } },
+		{},
+		{ ...options, grants: { fs: { read: ['.'] } } }
+	);
+	assert(builtin.ok);
+	assert.strictEqual((builtin.output as BuiltinTaskContext).vitest_module_cache, cache);
+});
+
 test('run_task gives every task its own frozen copy of `implicit_rest_args`', async () => {
 	const implicit_rest_args = ['--watch'];
 	const options = { ...(await create_mock_run_task_options()), implicit_rest_args };

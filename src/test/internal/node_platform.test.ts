@@ -39,6 +39,11 @@ test("the Node platform names this repo as the running Gro, with its package.jso
 	);
 });
 
+test("the Node platform keeps Vitest's module cache off, since its Vitest runs unconfined", async () => {
+	const platform = await create_node_platform(await create_project_fs_paths(paths.root));
+	assert.strictEqual(platform.vitest_module_cache, null);
+});
+
 test("load_gro_package reads the version, '' when the package.json has none", async () => {
 	const dir = mkdtempSync(join(tmpdir(), 'gro_package_')) + '/';
 	try {

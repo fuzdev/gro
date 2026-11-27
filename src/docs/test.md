@@ -65,24 +65,37 @@ In a SvelteKit project `gro test` runs `svelte-kit sync` before Vitest, as `gro 
 and `gro check` turns that off with `--no-sync` once its typecheck has synced.
 SvelteKit's plugin in Vitest then finds the tsconfig and types it generates in `node_modules/$app` current,
 so Vitest writes nothing in `node_modules/$app`, which on the binary only `svelte-kit` writes ([box](box.md#what-a-commands-box-admits)).
-`gro test --no-sync` skips the sync, so on the binary it fails on an unsynced tree, where Vitest would have to write `$app`.
+`gro test --no-sync` skips the sync, so on the binary Vitest is refused where it would have to write `$app`:
+on a tree never synced, or whose tsconfig there is stale, the tests fail to start,
+and where only the route types there are stale, Vitest prints one EACCES line and the tests run.
 
 ## Vitest's module cache
 
-`gro test` passes Vitest `--fsModuleCache=false`, turning off its `fsModuleCache`,
-on in later Vitest 5 releases by default, which keeps transformed modules in `node_modules/.vitest-cache` between runs.
-Vitest runs a cached module's code as read in every later run,
+Vitest 5 keeps transformed modules between runs in its module cache, `fsModuleCache`, on by default,
+in the workspace root's `node_modules/.vitest-cache` unless told otherwise,
+and runs a cached module's code as read in every later run that reads the cache,
 until the module's source, the config, or the lockfile changes,
-so code a test wrote into the cache would run in the next Vitest run, an unconfined one included.
-On the Fuz stack's suites, a warm cache measured no faster than a cold one, within the runs' noise.
-The flag is not a protection: it keeps `gro test` from reading or making the cache,
-and on the Node Gro test code can still write one, which a plain `vitest` run, like an editor's, would read.
-On the binary the run's [box](box.md#what-a-commands-box-admits) keeps `node_modules` read-only but for its tool directories, so a test there can't.
+so code a test wrote into the cache runs in the next Vitest run that reads it.
 
-A forwarded `fsModuleCache` flag decides instead, in camel or kebab case,
-like `gro test -- --fsModuleCache` or `--no-fs-module-cache`.
+On the binary, `gro test` and `gro check`'s test step give Vitest `--fsModuleCachePath=` naming `node_modules/.vite/vitest/boxed-module-cache`, by absolute path,
+inside Vitest's own tool directory, which only Vitest's box writes ([box](box.md#what-a-commands-box-admits)),
+when Vitest's box is the grants table's alone:
+the project's own `node_modules`, not a linked one, no `--allow-read=`, `--allow-run-in=`, or `--allow-run-write=vitest:` widening it, and no `--allow-run=` naming a program other than the command's own from the grants table, by its name in the run, like `node_modules/.bin/vitest`.
+Otherwise, and always on the Node Gro, they pass `--fsModuleCache=false`, turning the cache off.
+Code a test writes into the cache runs in every later `test` or `check` on the binary that keeps it, in Vitest's box with its own directories to write,
+until the lockfile changes, even after the test is gone; `rm -r node_modules/.vite/vitest/boxed-module-cache` clears it.
+A run given one of those flags never reads it, so code planted there never gains that run's flags.
+No Vitest reads it unless told to, but nothing stops an unconfined Vitest pointed at it, by a flag or a config, from running what's there.
+`--fsModuleCache=false` is not a protection: it keeps `gro test` from reading or making the cache,
+and on the Node Gro test code can still write Vitest's default one, which a plain `vitest` run, like an editor's, would read.
+
+A forwarded `fsModuleCache` flag decides whether the cache is on, in camel or kebab case,
+like `gro test -- --fsModuleCache` or `--no-fs-module-cache`,
+and where Gro names the cache's path, a forwarded `fsModuleCachePath` flag replaces it;
+one naming a directory Vitest's box can't write fails with `EACCES`.
 In Vitest 5, `--fs-module-cache=false` turns the cache on, and `--no-fs-module-cache` turns it off.
-The deprecated `--experimental.fsModuleCache` isn't one, and Gro's flag overrides it.
+The deprecated `--experimental.fsModuleCache` isn't one: Gro's `--fsModuleCache=false` overrides it,
+and where Gro passes only the path, `--experimental.fsModuleCache=false` turns the cache off.
 
 ## When Vitest isn't declared
 

@@ -29,13 +29,20 @@ afterEach(async () => {
 // the flag turning off Vitest's module cache, passed unless a forwarded flag names it
 const CACHE_OFF = '--fsModuleCache=false';
 
+// the directory a platform names for Vitest's module cache, as the binary's box gives one
+const CACHE = '/p/node_modules/.vite/vitest/boxed-module-cache';
+const CACHE_AT = `--fsModuleCachePath=${CACHE}`;
+
 // the vitest args after the ones the test task always passes
-const run_test = async (cli: Array<string>): Promise<Array<string>> => {
+const run_test = async (
+	cli: Array<string>,
+	vitest_module_cache: string | null = null
+): Promise<Array<string>> => {
 	await task.run(
 		await create_mock_builtin_context(
 			task,
 			{ _: ['.test.'], dir: 'src', fail_without_tests: true },
-			{ name: 'test', cli_args: cli }
+			{ name: 'test', cli_args: cli, vitest_module_cache }
 		)
 	);
 	const { calls } = await get_mock_spawn();
@@ -171,6 +178,40 @@ describe("test task and vitest's module cache", () => {
 		]) {
 			(await get_mock_spawn()).reset();
 			expect(await run_test(['test', '--', flag]), flag).toEqual([CACHE_OFF, flag]);
+		}
+	});
+});
+
+describe('test task with a module cache directory', () => {
+	test('names it as the cache path, the cache left on', async () => {
+		expect(await run_test(['test'], CACHE)).toEqual([CACHE_AT]);
+		(await get_mock_spawn()).reset();
+		expect(await run_test(['test', '--', '--watch', '--', 'vitest', '--bail', '1'], CACHE)).toEqual(
+			[CACHE_AT, '--watch', '--bail', '1']
+		);
+	});
+
+	test('a forwarded path in camel or kebab case replaces it, in either section', async () => {
+		for (const flag of [
+			'--fsModuleCachePath=x',
+			'--fs-module-cache-path=x',
+			'--no-fsModuleCachePath'
+		]) {
+			for (const cli of [
+				['test', '--', flag],
+				['test', '--', 'vitest', flag],
+				['check', '--', 'vitest', flag]
+			]) {
+				(await get_mock_spawn()).reset();
+				expect(await run_test(cli, CACHE), cli.join(' ')).toEqual([flag]);
+			}
+		}
+	});
+
+	test('a forwarded `fsModuleCache` flag decides beside it', async () => {
+		for (const flag of ['--no-fs-module-cache', '--fsModuleCache=false', '--fsModuleCache']) {
+			(await get_mock_spawn()).reset();
+			expect(await run_test(['test', '--', flag], CACHE), flag).toEqual([CACHE_AT, flag]);
 		}
 	});
 });

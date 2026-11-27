@@ -2160,7 +2160,8 @@ mod tests {
             run_writes: BTreeMap::new(),
             may_start: BTreeSet::new(),
             development,
-            entry: String::new(),
+            home: None,
+            version: String::new(),
         };
         let options = |run: &VerbRun, environment: &TestEnvironment| {
             runtime_options(

@@ -66,7 +66,8 @@ export const create_test_platform = (): GroPlatform => ({
 	create_module_graph: create_node_module_graph,
 	load_svelte_config: load_default_svelte_config,
 	gro: TEST_GRO_PACKAGE,
-	cli_name: 'gro'
+	cli_name: 'gro',
+	vitest_module_cache: null
 });
 
 /**
@@ -91,6 +92,10 @@ export interface MockBuiltinContextOptions {
 	stdout?: ProcessOutput;
 	stderr?: ProcessOutput;
 	fs_paths?: FsPaths;
+	/**
+	 * The platform's `vitest_module_cache`, by default `null`, as on the Node Gro.
+	 */
+	vitest_module_cache?: string | null;
 }
 
 /**
@@ -130,7 +135,8 @@ export const create_mock_builtin_context = async <
 				: []
 		),
 		raw_rest_args: Object.freeze(raw_rest_args),
-		host
+		host,
+		vitest_module_cache: options.vitest_module_cache ?? null
 	};
 };
 

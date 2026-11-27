@@ -59,7 +59,8 @@
 //! 14. The run's own thread, sized, started once the box is up, so every
 //!     thread V8 and tokio start inherits it, which runs the generated
 //!     entry on a [`RunEngine`](gro_runtime::engine::RunEngine), the engine
-//!     only a box makes.
+//!     only a box makes: the entry names where the plan gives Vitest its
+//!     module cache (`BoxPlan::vitest_module_cache`).
 //!
 //! A priced build (`gro_runtime::prices`) can leave out step 6's namespace,
 //! step 7's sweep, and step 13's Landlock or denylist, each to be timed
@@ -124,6 +125,7 @@ use gro_runtime::{BINARY_NAME, DeniedWriteCause, GeneratedEntry, GrantedDir, Run
 use gro_sys::private_dir::PrivateDirError;
 use thiserror::Error;
 
+use super::entry::main_entry;
 use super::fallback::{FallbackReason, KernelLandlock, exec_node_gro};
 use super::prepass::{
     VerbRun, binary_command_with, command_line, command_of, floor_fallback, node_gro_command,
@@ -491,6 +493,9 @@ struct Boxed {
     programs: Option<ProgramRules>,
     /// The note it prints when it fails after a tool did ([`walls_note`]).
     walls: String,
+    /// The entry's text, with where the box gives Vitest its module cache
+    /// (`BoxPlan::vitest_module_cache`).
+    entry: String,
 }
 
 /// Steps 4 to 13 of the [module doc](self), from the probed `floor`.
@@ -638,12 +643,18 @@ fn boxed(
         ));
     }
     let walls = walls_note(run, &wall_rules(&confined), &plan, confined.network());
+    let entry = main_entry(
+        run.home.as_deref(),
+        &run.version,
+        plan.vitest_module_cache().as_deref(),
+    );
     Ok(Boxed {
         confined,
         options,
         pins,
         programs,
         walls,
+        entry,
     })
 }
 
@@ -713,7 +724,9 @@ fn set_environment(private: Option<&RunPrivateDir>) -> Result<(), BoxStartError>
 /// widen the box, `run_writes`, those `--allow-run-write=` lists, each
 /// joined to the program the pre-pass resolved its name to, `pins`, the
 /// programs the run pinned, and the variables git's home config is found
-/// by, read from `environment`. `programs` names each file once.
+/// by, read from `environment`. `programs` names each file once, and
+/// `flag_programs` says whether `--allow-run=` grants a program the closure
+/// holds no policy for.
 pub fn box_inputs(
     run: &VerbRun,
     resolved: &[GrantedFlagDir],
@@ -731,6 +744,12 @@ pub fn box_inputs(
         spawns: grants_programs(&run.grant, &run.dirs),
         declared: run.declared.clone(),
         programs: pins.files(),
+        flag_programs: match &run.grant {
+            RunGrant::Named { run: names, .. } => {
+                names.iter().any(|name| !run.programs.contains_key(name))
+            }
+            RunGrant::All => false,
+        },
         flags: resolved.iter().filter(|dir| listed(dir)).cloned().collect(),
         run_writes: run_write_grants(run, run_writes),
         temp: matches!(run.grant, RunGrant::Named { temp: true, .. }),
@@ -1040,9 +1059,10 @@ fn run_on_thread(run: &VerbRun, boxed: Boxed) -> u8 {
         pins,
         programs,
         walls,
+        entry,
     } = boxed;
     let entry = GeneratedEntry {
-        source: run.entry.clone(),
+        source: entry,
         root: run.root.clone(),
     };
     let cwd = run.root.clone();

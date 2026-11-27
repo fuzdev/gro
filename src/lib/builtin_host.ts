@@ -247,7 +247,7 @@ export type BuiltinInvokeTask<TName extends keyof GroBuiltinTasks> = <TInvoked e
 
 /**
  * A builtin task's context: a project task's, its `invoke_task` typed by its grants' `invokes`,
- * and the `host` cut by its grants.
+ * the `host` cut by its grants, and the platform's `vitest_module_cache`.
  */
 export interface BuiltinTaskContext<
 	TArgs = object,
@@ -255,6 +255,11 @@ export interface BuiltinTaskContext<
 > extends Omit<TaskContext<TArgs>, 'invoke_task'> {
 	invoke_task: BuiltinInvokeTask<BuiltinInvokes<TGrants>>;
 	host: BuiltinHost<TGrants>;
+	/**
+	 * Where `gro test` points Vitest's module cache, `null` to turn it off,
+	 * the platform's `vitest_module_cache`.
+	 */
+	vitest_module_cache: string | null;
 }
 
 /**

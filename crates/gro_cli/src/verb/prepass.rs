@@ -24,8 +24,8 @@
 //!    each closure program granted by the table's policy under the name
 //!    Gro's TS asks for it by ([`table_programs`]), each program
 //!    `--allow-run-write=` names resolved to one the run grants
-//!    ([`resolve_run_writes`]), and the entry's text ([`main_entry`]):
-//!    [`VerbPlan::Run`].
+//!    ([`resolve_run_writes`]), and what the entry names beside the box's
+//!    plan (`HOME` and the binary's version): [`VerbPlan::Run`].
 //!
 //! A flag's list is checked only for a run: a fallback passes the command
 //! line to the Node Gro as written, which takes the flags and warns.
@@ -54,7 +54,6 @@ use gro_runtime::verb::table::{BuiltinGrantsTable, BuiltinProgramGrant, PassEnv}
 use gro_runtime::{BINARY_NAME, EnvPattern, PassEnvGrant, ProgramGrant};
 use thiserror::Error;
 
-use super::entry::main_entry;
 use super::fallback::{FallbackPolicy, FallbackPolicyError, FallbackReason, fallback_reasons};
 use super::grant_flags::{GrantFlagsError, split_grant_flags, to_run_grant};
 use crate::cli::{FlagDirs, RunGrant};
@@ -166,8 +165,11 @@ pub struct VerbRun {
     pub may_start: BTreeSet<String>,
     /// Whether the run's packages match the `development` condition.
     pub development: bool,
-    /// The entry's text ([`main_entry`]).
-    pub entry: String,
+    /// `HOME`, if it's set, which the entry names
+    /// (`super::entry::main_entry`).
+    pub home: Option<String>,
+    /// The binary's version, which the entry names.
+    pub version: String,
 }
 
 /// A command's run on the Node Gro the project installed.
@@ -569,7 +571,7 @@ pub fn plan(
     };
     dirs.read.extend(closure.grants.read.iter().cloned());
     dirs.write.extend(closure.grants.write.iter().cloned());
-    let home = inputs.home.map(|home| home.to_string_lossy());
+    let home = inputs.home.map(|home| home.to_string_lossy().into_owned());
     Ok(VerbPlan::Run(Box::new(VerbRun {
         cli_args: split.cli_args,
         grant_flags: split.grant_flags,
@@ -586,7 +588,8 @@ pub fn plan(
         run_writes,
         may_start,
         development: inputs.node_env != Some(OsStr::new(NODE_ENV_PRODUCTION)),
-        entry: main_entry(home.as_deref(), inputs.binary_version),
+        home,
+        version: inputs.binary_version.to_owned(),
     })))
 }
 

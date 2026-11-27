@@ -330,7 +330,8 @@ What the release leaves is stated with it:
 - a tool directory two tools write is each one's, so one can plant there what the other reads
   (svelte-check's and Vitest's `.svelte-kit/generated/dev`, the `node_modules/.vite-temp` of `svelte-kit`, svelte-check, and Vitest),
   and `svelte-kit` writes all of `.svelte-kit` and `node_modules/$app`;
-  a test can write Vitest's own directories, which a dev server already running picks up;
+  a test can write Vitest's own directories, which a dev server already running picks up,
+  and its module cache there, whose code later `test` and `check` runs on the binary execute in Vitest's box until the lockfile changes;
   and the project's config and genfiles run in every tool
 - a directory `--allow-run-write=` names for a tool is written by everything that tool runs, its config, its plugins, and for a test runner the tests;
   code in the run can start that tool with arguments of its own;

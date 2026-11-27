@@ -75,10 +75,10 @@ export const task: BuiltinTask<Args, typeof grants> = {
 	summary: 'run tests with vitest',
 	Args,
 	grants,
-	run: ({ task_args, raw_rest_args, implicit_rest_args, log, host }) =>
+	run: ({ task_args, raw_rest_args, implicit_rest_args, vitest_module_cache, log, host }) =>
 		run_test(
 			task_args,
-			{ raw_rest_args, implicit_rest_args },
+			{ raw_rest_args, implicit_rest_args, vitest_module_cache },
 			{ fs_paths: host.fs_paths, programs: host.programs, log }
 		)
 };
@@ -96,6 +96,11 @@ export interface TestOptions {
 	 * dropped when it starts with `vitest`, as that's the explicit section.
 	 */
 	implicit_rest_args: ReadonlyArray<string>;
+	/**
+	 * Where Vitest keeps its module cache, `null` to turn the cache off,
+	 * the platform's `vitest_module_cache`.
+	 */
+	vitest_module_cache: string | null;
 }
 
 /**
@@ -109,19 +114,20 @@ export interface TestDeps {
 
 /**
  * Runs the project's tests with vitest, `gro test`'s body,
- * Vitest's module cache off unless a forwarded flag names it.
+ * Vitest's module cache in `options.vitest_module_cache` unless a forwarded flag names its path,
+ * or, where that's `null`, off unless a forwarded flag decides.
  * A SvelteKit project is synced first, as `gro typecheck` syncs it, unless `sync` is off,
  * as `gro check` turns it off after its typecheck has synced:
  * SvelteKit's plugin in vitest then finds its tsconfig and types in `node_modules/$app` current
  * and writes nothing there, which only `svelte-kit` writes, since a later typecheck, `dev`, `build`,
  * and the editor trust what's there.
  * @param args - the task's parsed args
- * @param options - the forwarded args
+ * @param options - the forwarded args and where Vitest's module cache is
  * @param deps - the project's boundary, `svelte-kit` and vitest, and the log
  */
 export const run_test = async (args: Args, options: TestOptions, deps: TestDeps): Promise<void> => {
 	const { _: patterns, dir, fail_without_tests, t, sync } = args;
-	const { raw_rest_args, implicit_rest_args } = options;
+	const { raw_rest_args, implicit_rest_args, vitest_module_cache } = options;
 	const { fs_paths, programs, log } = deps;
 
 	if (!(await project_has_dependency(fs_paths, VITEST_CLI, log))) {
@@ -155,9 +161,17 @@ export const run_test = async (args: Args, options: TestOptions, deps: TestDeps)
 		vitest_args.push('-t', t);
 	}
 	const user_argv = [...implicit_argv, ...forwarded_argv];
-	// Vitest runs a cached module's code as read in later runs, so a test could plant code there;
-	// a forwarded flag decides instead, in camel or kebab case, as Vitest reads both
-	if (
+	// Vitest runs a cached module's code as read in later runs, so a test could plant code there:
+	// the cache is kept only where the platform names a directory no Vitest reads by default,
+	// and a forwarded flag decides instead, in camel or kebab case, as Vitest reads both
+	if (vitest_module_cache !== null) {
+		if (
+			!has_forwarded_flag(user_argv, 'fsModuleCachePath') &&
+			!has_forwarded_flag(user_argv, 'fs-module-cache-path')
+		) {
+			vitest_args.push(`--fsModuleCachePath=${vitest_module_cache}`);
+		}
+	} else if (
 		!has_forwarded_flag(user_argv, 'fsModuleCache') &&
 		!has_forwarded_flag(user_argv, 'fs-module-cache')
 	) {

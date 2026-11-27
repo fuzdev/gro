@@ -20,5 +20,6 @@ await binary_main({
 	import_url: (url) => import(url),
 	home: '/home/fixture',
 	version: '0.0.0-fixture',
-	cli_name: 'fgro'
+	cli_name: 'fgro',
+	vitest_module_cache: '/home/fixture/p/node_modules/.vite/vitest/boxed-module-cache'
 });

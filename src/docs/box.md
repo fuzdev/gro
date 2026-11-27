@@ -155,7 +155,7 @@ anything else that keeps a rule from opening, like a symlink on its path, refuse
   | `.svelte-kit/types`         | the route types                                                | Vitest                             | `@sveltejs/kit`    |
   | `node_modules/$app`         | the tsconfig and types SvelteKit generates                     | `svelte-kit` alone                 | `@sveltejs/kit`    |
   | `node_modules/.vite-temp`   | the bundled config Vite's config loader writes                 | `svelte-kit`, svelte-check, Vitest | `vite` or `vitest` |
-  | `node_modules/.vite/vitest` | Vitest's own cache                                             | Vitest                             | `vitest`           |
+  | `node_modules/.vite/vitest` | Vitest's own cache, and its module cache                       | Vitest                             | `vitest`           |
 
   `node_modules/$app` is `svelte-kit`'s alone because a later typecheck, `dev`, `build`, and the editor trust what's there,
   and a file planted beside the generated ones, like a `package.json` whose `exports` redirect `$app/tsconfig`, survives every sync;
@@ -163,7 +163,9 @@ anything else that keeps a rule from opening, like a symlink on its path, refuse
   No tool writes `node_modules/.vite` beside Vitest's cache, where a later `dev` loads its optimized dependencies,
   nor fuz_css's `.fuz/cache`, whose entries a later `dev` or `build` trusts, though Vitest's dev server writes it as it scans the project:
   fuz_css skips a refused cache write quietly.
-  Vitest's module cache, `node_modules/.vitest-cache`, is never a tool directory ([test](test.md#vitests-module-cache)).
+  Vitest's default module cache, `node_modules/.vitest-cache`, is no tool's:
+  on the binary, where Vitest's box is the grants table's alone, Vitest keeps its module cache in its own directory, where no Vitest reads it by default ([test](test.md#vitests-module-cache)),
+  and code a test writes there runs in later `test` and `check` runs, in Vitest's box.
 
   No tool makes a symlink or FIFO in a tool directory, even its own, or moves or links an entry in from another directory,
   which could bring a symlink from its own temporary directory or a directory `--allow-run-write=` names.
@@ -435,7 +437,8 @@ So a test or an ESLint plugin can't plant in what `vite build` runs, `.svelte-ki
 in the optimized dependencies a later `dev` loads from `node_modules/.vite`, in the tsconfig and types `node_modules/$app` hands every later checker,
 or in fuz_css's `.fuz/cache`, and no tool leaves a symlink in a tool directory or a linked `node_modules` for a later one to write through.
 It leaves the project's own config, which runs in every tool and which `dev` runs unconfined,
-and a write into a tool's own directory that a dev server already running picks up, like a test's into `.svelte-kit/generated/dev`.
+and a write into a tool's own directory that a dev server already running picks up, like a test's into `.svelte-kit/generated/dev`,
+or that a later run of the same tool executes, like a test's into Vitest's module cache.
 A tool still reads what the others write in the project, sees their command line, status, and descriptor numbers in `/proc`,
 gets a handle from `pidfd_open` on another or on the run, one that can't signal, and can take the terminal's foreground.
 A child that sets `PR_SET_PDEATHSIG` while the short-lived thread that started it still runs is killed when that thread ends,

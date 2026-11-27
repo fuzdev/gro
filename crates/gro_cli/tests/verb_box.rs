@@ -1785,6 +1785,12 @@ fn a_linked_node_modules_is_written_only_by_a_program_s_flag() {
     for dir in [".vite", ".vite-temp"] {
         assert!(!other.join(dir).exists(), "{dir}: {output}");
     }
+    // no tool directory made, so no module cache for vitest
+    assert_eq!(
+        probed.get("vitest_module_cache").map(String::as_str),
+        Some("--fsModuleCache=false"),
+        "{output}"
+    );
     // the checkout's own `$app`, which no tool wrote
     assert_eq!(
         std::fs::read_dir(other.join("$app")).unwrap().count(),
@@ -1857,6 +1863,93 @@ fn a_linked_node_modules_is_written_only_by_a_program_s_flag() {
             probed.get(name).map(String::as_str),
             Some(what),
             "{name}: {output}"
+        );
+    }
+}
+
+/// `fgro test` gives vitest its module cache in its own tool directory, by
+/// absolute path, which vitest's box lets it make; a grant flag widening
+/// vitest's box, `--allow-read=`, `--allow-run=` of a program the table
+/// doesn't grant, or `--allow-run-write=vitest:`, turns the cache off
+/// instead, so what a test left there never runs with the flag.
+#[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "a command of Gro's runs in its box only from a snapshot build"
+)]
+fn vitest_keeps_its_module_cache_only_where_its_box_is_the_table_s() {
+    let package_json = r#"{"name": "p", "type": "module", "devDependencies": {"vitest": "*"}}"#;
+    let scratch = Scratch::new(
+        "verb_box_module_cache",
+        &[
+            ("tmp/.keep", ""),
+            ("data/.keep", ""),
+            ("project/package.json", package_json),
+            ("project/src/probe.ts", "// probed\n"),
+            ("project/out/.keep", ""),
+            ("project/node_modules/.bin/vitest", FAKE_TOOL),
+            (
+                "project/node_modules/vitest/package.json",
+                r#"{"name": "vitest", "version": "1.0.0"}"#,
+            ),
+        ],
+    );
+    scratch.set_mode("project/node_modules/.bin/vitest", 0o755);
+    let project = scratch.0.join("project");
+    for package in ["@fuzdev/fuz_util", "@fuzdev/fuz_schema", "esm-env"] {
+        copy_tree(
+            &checkout_node_modules().join(package),
+            &project.join("node_modules").join(package),
+        );
+    }
+    let cache = project
+        .canonicalize()
+        .unwrap()
+        .join("node_modules/.vite/vitest/boxed-module-cache");
+    std::fs::create_dir(scratch.0.join("bin")).unwrap();
+    std::fs::copy("/bin/true", scratch.0.join("bin/probe_true")).unwrap();
+    let path = std::env::var_os("PATH").unwrap();
+    let path = std::env::join_paths(
+        std::iter::once(scratch.0.join("bin")).chain(std::env::split_paths(&path)),
+    )
+    .unwrap();
+    let run_test = |flags: &[&str]| {
+        let mut command = fgro_command(&[&["test"], flags].concat());
+        for name in CLEARED {
+            command.env_remove(name);
+        }
+        command
+            .current_dir(&project)
+            .env("PATH", &path)
+            .env("TMPDIR", scratch.0.join("tmp"));
+        let (code, stdout, stderr) = run(command);
+        let output = format!("{stdout}{stderr}");
+        assert_eq!(code, Some(0), "{flags:?}: {output}");
+        (output, probed(&stdout, &stderr))
+    };
+    let (output, probed) = run_test(&[]);
+    assert_eq!(
+        probed.get("vitest_module_cache"),
+        Some(&format!("--fsModuleCachePath={}", cache.display())),
+        "{output}"
+    );
+    assert_eq!(
+        probed.get("vitest_module_cache_dir").map(String::as_str),
+        Some("ok"),
+        "{output}"
+    );
+    assert!(cache.is_dir(), "{output}");
+    let read = format!("--allow-read={}", scratch.0.join("data").display());
+    for flags in [
+        &[read.as_str()][..],
+        &["--allow-run=probe_true"],
+        &["--allow-run-write=vitest:out"],
+    ] {
+        let (output, probed) = run_test(flags);
+        assert_eq!(
+            probed.get("vitest_module_cache").map(String::as_str),
+            Some("--fsModuleCache=false"),
+            "{flags:?}: {output}"
         );
     }
 }
@@ -1943,7 +2036,8 @@ fn a_temporary_directory_in_the_project_s_bind_mount_is_refused() {
 
 /// A fake tool of the grants table, a `node` script at every table tool's
 /// `.bin` name: it writes the paths a program's box might, its own
-/// temporary directory among them, and prints what it could.
+/// temporary directory among them, and prints what it could, and the
+/// module cache flag it was given, making the directory one names.
 const FAKE_TOOL: &str = "#!/usr/bin/env node
 import fs from 'node:fs';
 import path from 'node:path';
@@ -1996,6 +2090,12 @@ attempt('fifo_dev', () => {
 \t}
 });
 console.log(`probe: ${me}_tmpdir ${process.env.TMPDIR}`);
+const cache_flag = process.argv.find((arg) => arg.startsWith('--fsModuleCache'));
+console.log(`probe: ${me}_module_cache ${cache_flag ?? 'none'}`);
+const cache_path = '--fsModuleCachePath=';
+if (cache_flag?.startsWith(cache_path)) {
+\tattempt('module_cache_dir', () => fs.mkdirSync(cache_flag.slice(cache_path.length), { recursive: true }));
+}
 ";
 
 /// The genfile of [`each_program_writes_by_its_grant_beside_the_table_s`],

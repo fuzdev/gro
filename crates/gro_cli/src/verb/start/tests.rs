@@ -101,7 +101,8 @@ fn run(
         run_writes: BTreeMap::new(),
         may_start: BTreeSet::new(),
         development: true,
-        entry: String::new(),
+        home: None,
+        version: String::new(),
     }
 }
 

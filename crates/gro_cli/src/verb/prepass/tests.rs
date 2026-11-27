@@ -595,7 +595,8 @@ fn the_root_holds_a_project_s_package_json() {
 }
 
 /// The `development` condition is matched unless `NODE_ENV` is
-/// `production`, and the entry names the binary's version and `HOME`.
+/// `production`, and the run holds the binary's version and `HOME` the
+/// entry names.
 #[test]
 fn the_run_s_condition_and_entry() {
     let table = BuiltinGrantsTable::carried().unwrap();
@@ -614,9 +615,9 @@ fn the_run_s_condition_and_entry() {
     assert!(development(Some("development")));
     assert!(development(Some("Production")));
     assert!(!development(Some("production")));
-    let entry = run(&["check"]).entry;
-    assert!(entry.contains("\thome: '/home/u',\n"), "{entry}");
-    assert!(entry.contains("\tversion: '1.2.3',\n"), "{entry}");
+    let run = run(&["check"]);
+    assert_eq!(run.home.as_deref(), Some("/home/u"));
+    assert_eq!(run.version, "1.2.3");
 }
 
 /// A table the TS would refuse, or that grants one program two ways in a
