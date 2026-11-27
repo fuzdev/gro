@@ -2134,6 +2134,7 @@ mod tests {
         };
         let run = |programs: &[(&str, &ProgramGrant)], development| VerbRun {
             cli_args: vec!["check".to_owned()],
+            grant_flags: Vec::new(),
             root: PathBuf::from("/w"),
             grant: RunGrant::Named {
                 env: BTreeSet::new(),

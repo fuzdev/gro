@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 
 use super::closure::link_closure;
 use super::git::{self, GitDirs, GitFault, GitHomeInputs};
-use super::plan::{BoxFacts, BoxInputs, EntryKind, NodeModules, TopEntry};
+use super::plan::{BoxFacts, BoxInputs, EntryKind, NodeModules, ToolDir, ToolDirs, TopEntry};
 use super::rules::open_real_dir;
 
 /// The system directories the box reads and executes only where each is a
@@ -51,7 +51,11 @@ impl BoxFacts {
             }) => std::fs::canonicalize(root.join("node_modules"))
                 .ok()
                 .filter(|real| real.is_dir())
-                .map_or(NodeModules::Absent, |real| NodeModules::Link { real }),
+                .map_or(NodeModules::Absent, |real| NodeModules::Link {
+                    present: present_tool_dirs(&real),
+                    checkout: beside_package_json(&real),
+                    real,
+                }),
             _ => NodeModules::Absent,
         };
         let system = MERGED_DIRS
@@ -64,7 +68,7 @@ impl BoxFacts {
             })
             .collect();
         let mut seeds = vec![(root.clone(), open_real_dir(root)?)];
-        if let NodeModules::Link { real } = &node_modules
+        if let NodeModules::Link { real, .. } = &node_modules
             && !real.starts_with(root)
             && let Ok(pinned) = open_real_dir(real)
         {
@@ -150,4 +154,30 @@ fn read_git(inputs: &BoxInputs) -> (Vec<PathBuf>, Vec<PathBuf>, Option<GitFault>
     });
     let fault = dirs_fault.or_else(|| files.as_ref().err().cloned());
     (files.unwrap_or_default(), dirs.dirs, fault)
+}
+
+/// The tool directories in `node_modules` that are directories in `real`,
+/// where a symlinked one leads, with no symlink on the path beneath it
+/// (`.vite` of `.vite/vitest` included): read only so a note can name each
+/// to a flag, which needs it to exist and must grant nothing outside
+/// `real`.
+fn present_tool_dirs(real: &Path) -> ToolDirs {
+    ToolDir::ALL
+        .into_iter()
+        .filter(|dir| {
+            let path = real.join(dir.path_in_node_modules());
+            dir.in_node_modules()
+                && std::fs::canonicalize(&path)
+                    .is_ok_and(|resolved| resolved == path && resolved.is_dir())
+        })
+        .collect()
+}
+
+/// Whether a `package.json` sits beside `real`, where a symlinked
+/// `node_modules` leads, so it's a checkout's: read only so a note prints
+/// flags to paste for a checkout's and not for one like a global npm
+/// prefix's `lib/node_modules`.
+fn beside_package_json(real: &Path) -> bool {
+    real.parent()
+        .is_some_and(|parent| parent.join("package.json").is_file())
 }

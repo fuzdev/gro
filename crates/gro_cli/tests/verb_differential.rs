@@ -271,23 +271,24 @@ fn apply(
             Difference::LinkedNodeModules => {
                 // read for a run that starts no program, and executed too
                 // for one whose closure grants one, `check`'s and `gen`'s
-                // (svelte-kit), whose tools write nothing there
+                // (svelte-kit), whose tools write nothing there; the line's
+                // flags for those tools are the plan's to pin
                 let link = format!(
                     "note: node_modules is a symlink to {}, which the box follows to read",
                     checkout_node_modules().display()
                 );
                 let spawns = matches!(case["args"][0].as_str(), Some("check" | "gen"));
                 let note = if spawns {
-                    format!(
-                        "{link} and execute, and no tool writes in it: \
-                         --allow-run-write=<program>:<dirs> naming where it leads lets that tool \
-                         write there\n"
-                    )
+                    format!("{link} and execute, and no tool writes in it")
                 } else {
                     format!("{link}\n")
                 };
-                if let Some(rest) = actual.stderr.strip_prefix(note.as_str()) {
-                    actual.stderr = rest.to_owned();
+                if actual.stderr.starts_with(note.as_str()) {
+                    let line = actual
+                        .stderr
+                        .find('\n')
+                        .map_or(actual.stderr.len(), |at| at + 1);
+                    actual.stderr = actual.stderr[line..].to_owned();
                 }
             }
             Difference::LoggerColors => actual = actual.map(strip_sgr),

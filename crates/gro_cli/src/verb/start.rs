@@ -125,7 +125,9 @@ use gro_sys::private_dir::PrivateDirError;
 use thiserror::Error;
 
 use super::fallback::{FallbackReason, KernelLandlock, exec_node_gro};
-use super::prepass::{VerbRun, command_line, command_of, floor_fallback, node_gro_command};
+use super::prepass::{
+    VerbRun, binary_command_with, command_line, command_of, floor_fallback, node_gro_command,
+};
 use crate::cli::{FlagDirs, RunGrant};
 use crate::error::CliError;
 use crate::print::{escape_controls, stderr_line};
@@ -558,7 +560,9 @@ fn boxed(
         command: command_of(&run.cli_args),
     })?;
     phases::mark(Phase::Plan);
-    if let Some(note) = plan.note() {
+    if let Some(note) =
+        plan.note(|flags| binary_command_with(&run.cli_args, &run.grant_flags, flags))
+    {
         stderr_line(escape_controls(&note));
     }
     if let Some(linked) = plan.node_modules_link() {

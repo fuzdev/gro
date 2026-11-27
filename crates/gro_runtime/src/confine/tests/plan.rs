@@ -394,7 +394,7 @@ fn each_command_plans_its_box() {
         let plan = BoxPlan::for_run(&inputs, &facts()).unwrap();
         assert_eq!(render(&plan), lines, "{command}");
         assert_eq!(plan.private_temp(), inputs.spawns, "{command}");
-        assert_eq!(plan.note(), None, "{command}");
+        assert_eq!(plan.note(check_command), None, "{command}");
         assert_eq!(
             plan.tool_dirs().count(),
             lines.iter().filter(|line| line.contains("ToolDir")).count(),
@@ -535,6 +535,8 @@ fn a_run_write_flag_in_a_tool_directory_writes_plain() {
     let mut linked = facts();
     linked.node_modules = NodeModules::Link {
         real: "/shared/node_modules".into(),
+        present: ToolDirs::EMPTY,
+        checkout: true,
     };
     assert_eq!(
         run_write(
@@ -723,7 +725,11 @@ fn the_plan_refuses_what_no_box_holds() {
     nested.root = "/w/node_modules/p".into();
     let linked = |real: &str| {
         let mut linked = facts();
-        linked.node_modules = NodeModules::Link { real: real.into() };
+        linked.node_modules = NodeModules::Link {
+            real: real.into(),
+            present: ToolDirs::EMPTY,
+            checkout: true,
+        };
         linked
     };
     for (case, inputs, facts, refusal) in [
@@ -843,6 +849,8 @@ fn a_symlinked_node_modules_is_followed() {
     let mut linked = facts();
     linked.node_modules = NodeModules::Link {
         real: "/shared/node_modules".into(),
+        present: ToolDirs::EMPTY,
+        checkout: true,
     };
     let kit = || {
         inputs(
@@ -852,10 +860,14 @@ fn a_symlinked_node_modules_is_followed() {
             vec![node()],
         )
     };
+    // neither tool's directories are there yet, so each flag names the
+    // target itself
     let none_writes = "note: node_modules is a symlink to /shared/node_modules, which the box \
-                       follows to read and execute, and no tool writes in it: \
-                       --allow-run-write=<program>:<dirs> naming where it leads lets that tool \
-                       write there";
+                       follows to read and execute, and no tool writes in it; that checkout's \
+                       own commands run what a tool writes there, and this command's tools \
+                       write there with: fgro check \
+                       '--allow-run-write=svelte-kit:/shared/node_modules' \
+                       '--allow-run-write=vitest:/shared/node_modules' --no-lint";
     // no flag: read and execute alone, the project's own tool directories
     // made, SvelteKit's and vitest's own beneath `.svelte-kit`, none in the
     // link's target
@@ -871,7 +883,7 @@ fn a_symlinked_node_modules_is_followed() {
             .iter()
             .any(|line| line.contains("ToolDir(SvelteKit)"))
     );
-    assert_eq!(plan.note().as_deref(), Some(none_writes));
+    assert_eq!(plan.note(check_command).as_deref(), Some(none_writes));
     // a write flag naming it, or a directory holding it: its rule, gro's
     // own code's, written plain, and no tool directory there
     for (dir, real) in [
@@ -899,11 +911,19 @@ fn a_symlinked_node_modules_is_followed() {
             "{dir}: {rendered:#?}"
         );
         assert_eq!(plan.tool_dirs().count(), 3, "{dir}: {rendered:#?}");
-        assert_eq!(plan.note().as_deref(), Some(none_writes), "{dir}");
+        assert_eq!(
+            plan.note(check_command).as_deref(),
+            Some(none_writes),
+            "{dir}"
+        );
     }
     // `--allow-run-write=` naming it, a directory in it, or one holding it,
     // for one program: that program's rule, no tool directory, and the note
-    // names each program writing there, once and sorted
+    // names each program writing there, once and sorted, then the flags for
+    // the rest, by the program's identity, whatever name the flag gave it
+    let rest = "; that checkout's own commands run what a tool writes there, and the rest of \
+                this command's tools write there with: fgro check \
+                '--allow-run-write=svelte-kit:/shared/node_modules' --no-lint";
     for (case, run_writes, writers) in [
         (
             "its target",
@@ -911,12 +931,12 @@ fn a_symlinked_node_modules_is_followed() {
                 "/shared/node_modules",
                 "/shared/node_modules",
             )])],
-            Some("vitest writes"),
+            Some(("vitest writes", rest)),
         ),
         (
             "a directory holding it",
             vec![vitest_writes(&[("/shared", "/shared")])],
-            Some("vitest writes"),
+            Some(("vitest writes", rest)),
         ),
         (
             "directories in it, two programs",
@@ -934,7 +954,7 @@ fn a_symlinked_node_modules_is_followed() {
                     &[("/shared/node_modules/$app", "/shared/node_modules/$app")],
                 ),
             ],
-            Some("svelte-kit and vitest write"),
+            Some(("svelte-kit and vitest write", "")),
         ),
         (
             "its target as typed through a path that isn't its real one",
@@ -942,7 +962,7 @@ fn a_symlinked_node_modules_is_followed() {
                 "../shared/node_modules",
                 "/shared/node_modules",
             )])],
-            Some("vitest writes"),
+            Some(("vitest writes", rest)),
         ),
         (
             "one program by two names, by the first",
@@ -961,7 +981,7 @@ fn a_symlinked_node_modules_is_followed() {
                 ],
                 ..vitest_writes(&[])
             }],
-            Some("node_modules/.bin/vitest writes"),
+            Some(("node_modules/.bin/vitest writes", rest)),
         ),
         (
             "a directory elsewhere",
@@ -985,15 +1005,15 @@ fn a_symlinked_node_modules_is_followed() {
         assert_eq!(plan.tool_dirs().count(), 3, "{case}: {rendered:#?}");
         let expected = writers.map_or_else(
             || none_writes.to_owned(),
-            |writers| {
+            |(writers, rest)| {
                 format!(
                     "note: node_modules is a symlink to /shared/node_modules, which the box \
                      follows to read and execute, and of the tools only {writers} in it, where \
-                     --allow-run-write= names"
+                     --allow-run-write= names{rest}"
                 )
             },
         );
-        assert_eq!(plan.note(), Some(expected), "{case}");
+        assert_eq!(plan.note(check_command), Some(expected), "{case}");
     }
     // under a command whose closure writes the root, a program's directory
     // where the link leads is outside the project, never the corner's
@@ -1026,7 +1046,7 @@ fn a_symlinked_node_modules_is_followed() {
         "real /shared/node_modules r req NodeModules"
     );
     assert_eq!(
-        plan.note().as_deref(),
+        plan.note(check_command).as_deref(),
         Some(
             "note: node_modules is a symlink to /shared/node_modules, which the box follows to \
              read"
@@ -1037,12 +1057,120 @@ fn a_symlinked_node_modules_is_followed() {
     temp_only.temp = true;
     let plan = BoxPlan::for_run(&temp_only, &linked).unwrap();
     assert_eq!(
-        plan.note().as_deref(),
+        plan.note(check_command).as_deref(),
         Some(
             "note: node_modules is a symlink to /shared/node_modules, which the box follows to \
              read"
         )
     );
+}
+
+/// Where a linked `node_modules` leads into a checkout, the note names the
+/// command again with a flag for each of the command's tools that writes a
+/// tool directory there the declared dependencies call for, quoted for a
+/// shell: its directories where all of them are there, else the target
+/// itself; a target that's no checkout's, one a shell or the flag would
+/// read otherwise, a command with no such tool, and a command line with no
+/// command word get the flag's shape alone.
+#[test]
+fn a_linked_node_modules_note_names_each_tool_s_flag() {
+    let note_in = |target: &str,
+                   present: ToolDirs,
+                   checkout: bool,
+                   declared: &[&str],
+                   tools: &[&str],
+                   command: &dyn Fn(&[String]) -> Option<String>| {
+        let mut linked = facts();
+        linked.node_modules = NodeModules::Link {
+            real: target.into(),
+            present,
+            checkout,
+        };
+        let inputs = inputs(false, tools, declared, vec![node()]);
+        BoxPlan::for_run(&inputs, &linked)
+            .unwrap()
+            .note(command)
+            .unwrap()
+    };
+    let note = |target: &str, present: ToolDirs, declared: &[&str], tools: &[&str]| {
+        note_in(target, present, true, declared, tools, &check_command)
+    };
+    let all = [ToolDir::App, ToolDir::ViteTemp, ToolDir::Vitest]
+        .into_iter()
+        .collect::<ToolDirs>();
+    let declared = ["@sveltejs/kit", "vite", "vitest"];
+    let tools = ["svelte-check", "svelte-kit", "vitest"];
+    let head = |target: &str| {
+        format!(
+            "note: node_modules is a symlink to {target}, which the box follows to read and \
+             execute, and no tool writes in it"
+        )
+    };
+    let with = "; that checkout's own commands run what a tool writes there, and this command's \
+                tools write there with: fgro check ";
+    let t = "/w/main/node_modules";
+    assert_eq!(
+        note(t, all, &declared, &tools),
+        format!(
+            "{}{with}'--allow-run-write=svelte-check:{t}/.vite-temp' \
+             '--allow-run-write=svelte-kit:{t}/$app,{t}/.vite-temp' \
+             '--allow-run-write=vitest:{t}/.vite-temp,{t}/.vite/vitest' --no-lint",
+            head(t)
+        )
+    );
+    // one of a tool's directories missing: the target, which exists
+    let app = std::iter::once(ToolDir::App).collect::<ToolDirs>();
+    assert_eq!(
+        note(t, app, &declared, &tools),
+        format!(
+            "{}{with}'--allow-run-write=svelte-check:{t}' '--allow-run-write=svelte-kit:{t}' \
+             '--allow-run-write=vitest:{t}' --no-lint",
+            head(t)
+        )
+    );
+    // only what the declared dependencies call for
+    assert_eq!(
+        note(t, all, &["@sveltejs/kit"], &tools),
+        format!(
+            "{}{with}'--allow-run-write=svelte-kit:{t}/$app' --no-lint",
+            head(t)
+        )
+    );
+    let shape = ": --allow-run-write=<program>:<dirs> naming where it leads lets that tool write \
+                 there";
+    for target in [
+        "/w/it's/node_modules",
+        "/w/a,b/node_modules",
+        "/w/a\\b/node_modules",
+        "/w/caf\u{e9}/node_modules",
+        "/w/a\u{200b}b/node_modules",
+        "/w/a\tb/node_modules",
+    ] {
+        assert_eq!(
+            note(target, all, &declared, &tools),
+            format!("{}{shape}", head(target)),
+            "{target:?}"
+        );
+    }
+    assert_eq!(note(t, all, &declared, &[]), format!("{}{shape}", head(t)));
+    // no `package.json` beside it, like a global npm prefix's
+    // `lib/node_modules`: no checkout, so no flags to paste
+    assert_eq!(
+        note_in(t, all, false, &declared, &tools, &check_command),
+        format!("{}{shape}", head(t))
+    );
+    // no command word to put the flags after
+    assert_eq!(
+        note_in(t, all, true, &declared, &tools, &|_| None),
+        format!("{}{shape}", head(t))
+    );
+}
+
+/// A command line `check --no-lint` rendered with `flags`, the grant flags
+/// after its command word, as the CLI renders the whole command.
+#[expect(clippy::unnecessary_wraps, reason = "the shape `BoxPlan::note` takes")]
+fn check_command(flags: &[String]) -> Option<String> {
+    Some(format!("fgro check {} --no-lint", flags.join(" ")))
 }
 
 /// The program `program`, named `named` on the command line, with the

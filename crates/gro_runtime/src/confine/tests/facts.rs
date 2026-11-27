@@ -7,7 +7,7 @@ use super::Scratch;
 use crate::confine::facts::MERGED_DIRS;
 use crate::confine::plan::{
     BoxFacts, BoxInputs, BoxPlan, EntryKind, NodeModules, PlanRefusal, PlannedRule, RuleSource,
-    TopEntry,
+    ToolDir, TopEntry,
 };
 
 /// A run of the project at `root` with `HOME` at `home`, writing the root
@@ -182,9 +182,40 @@ fn a_symlinked_node_modules_is_read_where_it_leads() {
     scratch.link(&outside, "w/shared/node_modules/linked");
     scratch.link(&shared, "w/shared/node_modules/node_modules");
     scratch.link(&shared, "w/project/node_modules");
+    // the tool directories there, a directory each with no symlink on the
+    // way: `$app` a symlink is none
+    scratch.dir("w/shared/node_modules/.vite-temp");
+    scratch.dir("w/shared/node_modules/.vite/vitest");
+    scratch.link(&outside, "w/shared/node_modules/$app");
     let facts = BoxFacts::read(&inputs(&project, &home, false)).unwrap();
-    assert_eq!(facts.node_modules, NodeModules::Link { real: shared });
+    assert_eq!(
+        facts.node_modules,
+        NodeModules::Link {
+            real: shared.clone(),
+            present: [ToolDir::ViteTemp, ToolDir::Vitest].into_iter().collect(),
+            checkout: false,
+        }
+    );
     assert_eq!(facts.linked, [outside]);
+    // `.vite` a symlink is none for `.vite/vitest`, whose flag would grant
+    // where it leads; a `package.json` beside the target makes it a
+    // checkout's
+    std::fs::remove_dir_all(shared.join(".vite")).unwrap();
+    scratch.dir("w/elsewhere/vite/vitest");
+    scratch.link(
+        &scratch.path().join("w/elsewhere/vite"),
+        "w/shared/node_modules/.vite",
+    );
+    scratch.file("w/shared/package.json");
+    let facts = BoxFacts::read(&inputs(&project, &home, false)).unwrap();
+    assert_eq!(
+        facts.node_modules,
+        NodeModules::Link {
+            real: shared,
+            present: std::iter::once(ToolDir::ViteTemp).collect(),
+            checkout: true,
+        }
+    );
     // one leading nowhere is none
     std::fs::remove_file(project.join("node_modules")).unwrap();
     scratch.link(&scratch.path().join("w/gone"), "w/project/node_modules");

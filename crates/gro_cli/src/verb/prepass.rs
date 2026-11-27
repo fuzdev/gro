@@ -121,6 +121,9 @@ pub struct VerbRun {
     /// The command line without its grant flags, the args the run's args
     /// host module hands Gro.
     pub cli_args: Vec<String>,
+    /// The grant flags, as written, in order, for a message that names
+    /// the whole command again.
+    pub grant_flags: Vec<String>,
     /// The project's root, the working directory, a real path: the
     /// entry's root.
     pub root: PathBuf,
@@ -380,6 +383,31 @@ pub fn node_gro_command(cli_args: &[String]) -> String {
         .join(" ")
 }
 
+/// The command line `cli_args` on the binary with its grant flags
+/// `grant_flags` and then `added`, flags already quoted for a shell, right
+/// after its command word, every other argument as a shell reads it back
+/// ([`shell_quote`]): the whole command a message tells someone to run
+/// with flags added, so a paste can't put one where the command reads it
+/// as an arg. None with no command word for grant flags to follow.
+pub fn binary_command_with(
+    cli_args: &[String],
+    grant_flags: &[String],
+    added: &[String],
+) -> Option<String> {
+    let (word, rest) = cli_args
+        .split_first()
+        .filter(|(word, _)| !word.starts_with('-') && !is_task_path_input(word))?;
+    Some(
+        std::iter::once(BINARY_NAME.to_owned())
+            .chain(std::iter::once(shell_quote(word)))
+            .chain(grant_flags.iter().map(|flag| shell_quote(flag)))
+            .chain(added.iter().cloned())
+            .chain(rest.iter().map(|arg| shell_quote(arg)))
+            .collect::<Vec<_>>()
+            .join(" "),
+    )
+}
+
 /// The project's own Node Gro, as a command names it.
 const NODE_GRO: &str = "node_modules/.bin/gro";
 
@@ -544,6 +572,7 @@ pub fn plan(
     let home = inputs.home.map(|home| home.to_string_lossy());
     Ok(VerbPlan::Run(Box::new(VerbRun {
         cli_args: split.cli_args,
+        grant_flags: split.grant_flags,
         root: inputs.root.to_owned(),
         grant,
         dirs,

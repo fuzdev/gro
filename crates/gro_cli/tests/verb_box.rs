@@ -1699,9 +1699,11 @@ fn a_write_flag_on_a_linked_node_modules_writes_through_the_link() {
 /// and a tool writes there only what `--allow-run-write=` names for it:
 /// `--allow-write=` naming where it leads makes nothing there and lets no
 /// tool write it, and `--allow-run-write=vitest:` naming it lets vitest
-/// write there and no other tool, the run's note saying which. The other
-/// directory holds the fake table tools and a copy of the packages Gro's
-/// library reads, never the checkout's.
+/// write there and no other tool, the run's note saying which and, where a
+/// `package.json` beside the target makes it a checkout's, giving the
+/// command again with the flags for the rest. The other directory holds
+/// the fake table tools and a copy of the packages Gro's library reads,
+/// never the checkout's.
 #[test]
 #[cfg_attr(
     not(feature = "snapshot"),
@@ -1715,6 +1717,7 @@ fn a_linked_node_modules_is_written_only_by_a_program_s_flag() {
             ("tmp/.keep", ""),
             ("project/package.json", package_json),
             ("project/src/probe.ts", "// probed\n"),
+            ("other/package.json", r#"{"name": "other"}"#),
             ("other/node_modules/.bin/vitest", FAKE_TOOL),
             ("other/node_modules/.bin/svelte-kit", FAKE_TOOL),
             ("other/node_modules/$app/.keep", ""),
@@ -1789,11 +1792,18 @@ fn a_linked_node_modules_is_written_only_by_a_program_s_flag() {
         "{output}"
     );
     assert!(!other.join("vitest_w").exists(), "{output}");
+    // no tool's directories but `$app` are there, so each flag names the
+    // target itself, in the whole command, after the command's own grant
+    // flag and before its args
+    let other_text = other.display();
+    let args = "--no-typecheck --no-lint --no-format --no-package_json";
     assert_eq!(
         note,
         format!(
-            "{link}no tool writes in it: --allow-run-write=<program>:<dirs> naming where it leads \
-             lets that tool write there"
+            "{link}no tool writes in it; that checkout's own commands run what a tool writes \
+             there, and this command's tools write there with: fgro check \
+             --allow-write={other_text} '--allow-run-write=svelte-kit:{other_text}' \
+             '--allow-run-write=vitest:{other_text}' {args}"
         ),
         "{output}"
     );
@@ -1815,7 +1825,25 @@ fn a_linked_node_modules_is_written_only_by_a_program_s_flag() {
     assert!(!other.join("svelte-kit_w").exists(), "{output}");
     assert_eq!(
         note,
-        format!("{link}of the tools only vitest writes in it, where --allow-run-write= names"),
+        format!(
+            "{link}of the tools only vitest writes in it, where --allow-run-write= names; that \
+             checkout's own commands run what a tool writes there, and the rest of this \
+             command's tools write there with: fgro check \
+             --allow-run-write=vitest:{other_text} '--allow-run-write=svelte-kit:{other_text}' \
+             {args}"
+        ),
+        "{output}"
+    );
+    // no `package.json` beside the target: no checkout's, so the shape
+    // alone, no flags to paste
+    std::fs::remove_file(scratch.0.join("other/package.json")).unwrap();
+    let (output, _, note) = run_check(&format!("--allow-write={}", other.display()));
+    assert_eq!(
+        note,
+        format!(
+            "{link}no tool writes in it: --allow-run-write=<program>:<dirs> naming where it \
+             leads lets that tool write there"
+        ),
         "{output}"
     );
     // svelte-kit's flag on `$app` there, as the linked-worktree spelling

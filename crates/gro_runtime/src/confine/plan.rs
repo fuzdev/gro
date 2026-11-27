@@ -302,6 +302,13 @@ pub enum NodeModules {
     Link {
         /// Its real path.
         real: PathBuf,
+        /// The tool directories in `node_modules` that are directories
+        /// there, with no symlink on the path beneath it, so a flag can
+        /// name each.
+        present: ToolDirs,
+        /// Whether a `package.json` sits beside it, so it's a checkout's,
+        /// whose flags a note can print.
+        checkout: bool,
     },
 }
 
@@ -328,6 +335,16 @@ pub struct BoxPlan {
     /// The programs of the grants table that write tool directories, as the
     /// inputs held them.
     tools: BTreeMap<String, ToolWrites>,
+    /// The tool directories in `node_modules` the declared dependencies
+    /// call for, which a tool writing one needs `--allow-run-write=` to
+    /// name where a symlinked `node_modules` leads.
+    declared_in_node_modules: ToolDirs,
+    /// The tool directories in `node_modules` that are directories where a
+    /// symlinked one leads.
+    linked_present: ToolDirs,
+    /// Whether a symlinked `node_modules` leads into a checkout, a
+    /// `package.json` beside it.
+    linked_checkout: bool,
 }
 
 /// A rule the plan opens.
@@ -491,6 +508,13 @@ impl ToolDir {
     /// Whether it sits in `node_modules`.
     pub const fn in_node_modules(self) -> bool {
         matches!(self, Self::App | Self::ViteTemp | Self::Vitest)
+    }
+
+    /// Its path beneath `node_modules`, for one that sits there, else
+    /// beneath the project's root.
+    pub fn path_in_node_modules(self) -> &'static str {
+        let path = self.path();
+        path.strip_prefix("node_modules/").unwrap_or(path)
     }
 
     /// The packages any of which, declared, calls for it.
@@ -735,6 +759,29 @@ const VITE_PACKAGES: [&str; 2] = ["vite", "vitest"];
 /// The package that declares `node_modules/.vite/vitest`.
 const VITEST_PACKAGE: &str = "vitest";
 
+/// The tool directories in `node_modules` the project's declared
+/// dependencies call for.
+fn declared_in_node_modules(inputs: &BoxInputs) -> ToolDirs {
+    ToolDir::ALL
+        .into_iter()
+        .filter(|dir| {
+            dir.in_node_modules()
+                && dir
+                    .declared_by()
+                    .iter()
+                    .any(|name| inputs.declared.contains(*name))
+        })
+        .collect()
+}
+
+/// Whether `path` prints inside single quotes as a shell passes it and a
+/// write flag lists it as one directory: printable ASCII only, so no
+/// control or lookalike character, and no `'`, `\\`, or `,`.
+fn is_quotable(path: &str) -> bool {
+    path.bytes()
+        .all(|b| (b' '..=b'~').contains(&b) && !matches!(b, b'\'' | b'\\' | b','))
+}
+
 impl BoxPlan {
     /// The box for the run `inputs` describes, from the disk as `facts`
     /// read it, as the [module doc](self) says.
@@ -753,11 +800,17 @@ impl BoxPlan {
             spawns: inputs.spawns,
             skipped: Vec::new(),
             node_modules_link: match &facts.node_modules {
-                NodeModules::Link { real } => Some(real.clone()),
+                NodeModules::Link { real, .. } => Some(real.clone()),
                 NodeModules::Absent | NodeModules::Directory => None,
             },
             run_writes: inputs.run_writes.clone(),
             tools: inputs.tools.clone(),
+            declared_in_node_modules: declared_in_node_modules(inputs),
+            linked_present: match &facts.node_modules {
+                NodeModules::Link { present, .. } => *present,
+                NodeModules::Absent | NodeModules::Directory => ToolDirs::EMPTY,
+            },
+            linked_checkout: matches!(facts.node_modules, NodeModules::Link { checkout: true, .. }),
         };
         let read_maybe_execute = if inputs.spawns {
             RealRights::ReadExecute
@@ -948,51 +1001,130 @@ impl BoxPlan {
     /// The note a run prints for what the plan followed: a `node_modules`
     /// that is a symlink, read where it leads, and executed and written by
     /// the tools of a run that may start a program, which write there only
-    /// what `--allow-run-write=` names for each: those it names there, or
-    /// how one writes there when it names none.
-    pub fn note(&self) -> Option<String> {
+    /// what `--allow-run-write=` names for each: those it names there, then
+    /// the command again with the flags that let the rest of the command's
+    /// tools write their directories there, each quoted for a shell, or how
+    /// one writes there when it can name none. `command` renders the command
+    /// line, `fgro` and its command word first, with the flags it's given,
+    /// already quoted, after its own grant flags, the command's own args
+    /// after them, so a paste can't put a flag where the command reads it
+    /// as an arg; none when the command line has no command word.
+    ///
+    /// Kind: a review signal naming flags to paste, which widen what the
+    /// tools write into another checkout whose own unconfined commands run
+    /// it (adversary: a committed `node_modules` link; asset: that
+    /// checkout), so it says that beside them.
+    pub fn note(&self, command: impl FnOnce(&[String]) -> Option<String>) -> Option<String> {
         self.node_modules_link.as_ref().map(|real| {
             let link = format!("note: node_modules is a symlink to {}", real.display());
             if !self.spawns {
                 return format!("{link}, which the box follows to read");
             }
             let writers = self.run_writers_in(real);
-            let tools = if writers.is_empty() {
-                "no tool writes in it: --allow-run-write=<program>:<dirs> naming where it leads \
-                 lets that tool write there"
-                    .to_owned()
-            } else {
-                let verb = if writers.len() == 1 {
-                    "writes"
-                } else {
-                    "write"
-                };
-                format!(
-                    "of the tools only {} {verb} in it, where --allow-run-write= names",
-                    listed(writers.into_iter().map(str::to_owned))
-                )
+            let flags = self.linked_flags(real).and_then(|flags| command(&flags));
+            let tools = match (writers.is_empty(), flags) {
+                (true, None) => "no tool writes in it: --allow-run-write=<program>:<dirs> naming \
+                                 where it leads lets that tool write there"
+                    .to_owned(),
+                (true, Some(flags)) => format!(
+                    "no tool writes in it; that checkout's own commands run what a tool writes \
+                     there, and this command's tools write there with: {flags}"
+                ),
+                (false, flags) => {
+                    let verb = if writers.len() == 1 {
+                        "writes"
+                    } else {
+                        "write"
+                    };
+                    let only = format!(
+                        "of the tools only {} {verb} in it, where --allow-run-write= names",
+                        listed(writers.iter().map(|writer| (*writer).to_owned()))
+                    );
+                    match flags {
+                        None => only,
+                        Some(flags) => format!(
+                            "{only}; that checkout's own commands run what a tool writes there, \
+                             and the rest of this command's tools write there with: {flags}"
+                        ),
+                    }
+                }
             };
             format!("{link}, which the box follows to read and execute, and {tools}")
         })
+    }
+
+    /// The `--allow-run-write=` flags, each quoted for a shell, that let
+    /// each of the command's tools no flag lets write in `real`, where a
+    /// symlinked `node_modules` leads, write its tool directories there:
+    /// each directory where it's there, else `real` itself, which a flag
+    /// can name only once it exists. None when no such tool is left, when
+    /// `real` isn't a checkout's, a `package.json` beside it, or when
+    /// `real` isn't a path a shell passes as printed in single quotes and
+    /// the flag lists as one directory ([`is_quotable`]).
+    fn linked_flags(&self, real: &Path) -> Option<Vec<String>> {
+        if !self.linked_checkout {
+            return None;
+        }
+        let target = real.to_str().filter(|target| is_quotable(target))?;
+        let writing = self.run_writing_in(real);
+        let mut tools: BTreeMap<&str, ToolDirs> = BTreeMap::new();
+        for (program, tool) in &self.tools {
+            let dirs: ToolDirs = tool
+                .tool_dirs
+                .iter()
+                .filter(|dir| self.declared_in_node_modules.contains(*dir))
+                .collect();
+            if !dirs.is_empty() && !writing.contains(program.as_str()) {
+                let joined = tools.entry(tool.name.as_str()).or_insert(ToolDirs::EMPTY);
+                *joined = joined.union(dirs);
+            }
+        }
+        let flags: Vec<String> = tools
+            .iter()
+            .map(|(name, dirs)| {
+                let dirs: Vec<String> = if dirs.iter().all(|dir| self.linked_present.contains(dir))
+                {
+                    dirs.iter()
+                        .map(|dir| format!("{target}/{}", dir.path_in_node_modules()))
+                        .collect()
+                } else {
+                    vec![target.to_owned()]
+                };
+                format!("'--allow-run-write={name}:{}'", dirs.join(","))
+            })
+            .collect();
+        (!flags.is_empty()).then_some(flags)
     }
 
     /// The programs `--allow-run-write=` lets write in `dir`, a real path,
     /// by a directory it names there or one holding it, each once, by the
     /// first of its names in the flags' sorted order, as the walls note
     /// names it, sorted.
-    fn run_writers_in(&self, dir: &Path) -> Vec<&str> {
-        self.run_writes
-            .iter()
-            .filter(|grant| {
-                grant
-                    .dirs
-                    .iter()
-                    .any(|named| holds(&named.real, dir) || holds(dir, &named.real))
-            })
+    fn run_writers_in<'a>(&'a self, dir: &'a Path) -> Vec<&'a str> {
+        self.run_writes_in(dir)
             .filter_map(|grant| grant.dirs.first().map(|named| named.named.as_str()))
             .collect::<BTreeSet<_>>()
             .into_iter()
             .collect()
+    }
+
+    /// The programs `--allow-run-write=` lets write in `dir`, a real path,
+    /// by the name the run grants each as.
+    fn run_writing_in<'a>(&'a self, dir: &'a Path) -> BTreeSet<&'a str> {
+        self.run_writes_in(dir)
+            .map(|grant| grant.program.as_str())
+            .collect()
+    }
+
+    /// The grants of `--allow-run-write=` naming a directory in `dir`, a
+    /// real path, or one holding it.
+    fn run_writes_in<'a>(&'a self, dir: &'a Path) -> impl Iterator<Item = &'a RunWriteGrant> + 'a {
+        self.run_writes.iter().filter(move |grant| {
+            grant
+                .dirs
+                .iter()
+                .any(|named| holds(&named.real, dir) || holds(dir, &named.real))
+        })
     }
 
     /// Adds a rule opened by `path`, a real path.
@@ -1341,7 +1473,7 @@ fn refuse(inputs: &BoxInputs, facts: &BoxFacts) -> Result<(), PlanRefusal> {
             cause,
         });
     }
-    if let NodeModules::Link { real } = &facts.node_modules
+    if let NodeModules::Link { real, .. } = &facts.node_modules
         && !(real.file_name() == Some(OsStr::new("node_modules"))
             && !real.starts_with(&inputs.root)
             && !inputs.root.starts_with(real))

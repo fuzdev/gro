@@ -82,6 +82,7 @@ fn run(
     dirs.read.insert(".".to_owned());
     VerbRun {
         cli_args: vec!["check".to_owned(), "--watch".to_owned()],
+        grant_flags: Vec::new(),
         root: PathBuf::from("/p"),
         grant: RunGrant::Named {
             env: BTreeSet::new(),

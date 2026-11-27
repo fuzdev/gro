@@ -235,15 +235,18 @@ anything else that keeps a rule from opening, like a symlink on its path, refuse
   It's read there on its real path (and executed, for a command that may start a program), and one `note:` line names where it leads.
   Gro's own code reads through it too, as a read-only root of the run's `fs` on the same resolution the box follows,
   so a read the box allows there isn't refused as a symlink leaving the project.
-  A package there resolves its imports within that `node_modules`, and nothing of the checkout holding it is read,
-  its `package.json` included ([resolver](resolver.md#departures-from-node)).
+  A package there resolves its imports within that `node_modules`, and the resolver reads nothing of the checkout holding it, its `package.json` included ([resolver](resolver.md#departures-from-node)).
   No tool directory is made there, since that checkout's own unconfined commands run what a tool writes there.
   A tool writes there only what `--allow-run-write=` names for it, by the path it leads to; `--allow-write=` naming it lets only Gro's own code write there;
   both write plain (no symlink, FIFO, or moved-in entry).
-  A tool that needs a directory there fails without the flag, and the `note:` line names the tools that write there, if any.
+  A tool that needs a directory there fails without the flag, and the `note:` line names the tools that write there, if any,
+  then, for the rest of the command's tools, says that the checkout's own commands run what they write and gives the whole command again with the flags that let each write its directories there, each quoted for a shell,
+  after the command's own grant flags and before its args, so a paste can't put one where the command reads it as an arg.
   Under `fgro check` in a worktree linking a SvelteKit project's `node_modules` at `<target>`, that is
-  `'--allow-run-write=svelte-kit:<target>/.vite-temp,<target>/$app' --allow-run-write=svelte-check:<target>/.vite-temp '--allow-run-write=vitest:<target>/.vite-temp,<target>/.vite/vitest'`
-  once that checkout has made them, or `<target>` itself for each, which lets each write all of that `node_modules`.
+  `fgro check '--allow-run-write=svelte-check:<target>/.vite-temp' '--allow-run-write=svelte-kit:<target>/$app,<target>/.vite-temp' '--allow-run-write=vitest:<target>/.vite-temp,<target>/.vite/vitest'`,
+  naming only the directories the project's dependencies call for, and `<target>` itself for a tool one of whose directories isn't a directory there yet (a symlink counts as none), which lets that tool write all of that `node_modules`.
+  A `<target>` with no `package.json` beside it, so no checkout's, like a global npm prefix's `lib/node_modules`,
+  and one a shell or the flag would read otherwise (a quote, a backslash, a comma, anything but printable ASCII) get the flag's shape alone.
   A link to any other directory, like `~/.ssh` or `.git`, is refused, exit 2.
 - **Network:** the run's own namespace, whose only interface is its loopback,
   or where user namespaces are restricted the host's network with every internet socket refused ([namespaces](#namespaces)).

@@ -8,7 +8,8 @@ use gro_runtime::verb::table::BuiltinGrantsTable;
 use gro_runtime::{EnvPattern, PassEnvGrant, ProgramGrant};
 
 use super::{
-    ProjectReads, TableFault, VerbError, VerbFallback, VerbInputs, VerbPlan, VerbRun, plan,
+    ProjectReads, TableFault, VerbError, VerbFallback, VerbInputs, VerbPlan, VerbRun,
+    binary_command_with, plan,
 };
 use crate::cli::{FlagDirs, GrantListError, RunGrant};
 use crate::verb::fallback::FallbackReason;
@@ -834,4 +835,26 @@ fn a_run_write_flag_naming_no_one_program_is_refused() {
         planned(&["dev", "--allow-run-write=nothing:src"]),
         Ok(VerbPlan::Fallback(_))
     ));
+}
+
+/// A command line with flags added names the whole command on the binary,
+/// the added flags after its own grant flags and before its args, each
+/// other argument quoted as a shell reads it back; with no command word
+/// there's none.
+#[test]
+fn a_command_with_flags_added_puts_them_after_its_grant_flags() {
+    let run = run(&["test", "--allow-env=A", "a b", "--", "x"]);
+    assert_eq!(run.grant_flags, ["--allow-env=A"]);
+    let added = ["'--allow-run-write=vitest:/t'".to_owned()];
+    assert_eq!(
+        binary_command_with(&run.cli_args, &run.grant_flags, &added).as_deref(),
+        Some("fgro test --allow-env=A '--allow-run-write=vitest:/t' 'a b' -- x")
+    );
+    for cli_args in [&[][..], &["--help".to_owned()][..]] {
+        assert_eq!(
+            binary_command_with(cli_args, &[], &added),
+            None,
+            "{cli_args:?}"
+        );
+    }
 }
