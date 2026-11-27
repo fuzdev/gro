@@ -87,31 +87,17 @@ errors and exit codes. Where it lives:
   `InvokeTaskOptions`, built by the CLI entry (`invoke.ts`), and `run_task`
   passes it to the tasks a task invokes; it's never on `TaskContext`, so a
   project task that reaches fs imports the host module itself
-- Builtin host - a builtin declares its `task.grants` (`BuiltinTaskGrants`
-  in `builtin_host.ts`: fs, env, programs, `stdout`, `stderr`, `project_modules`,
-  the builtins it `invokes`; a program grant, a `BuiltinProgramGrant`, is keyed by
-  role, its tool's name with `_cli` (`eslint_cli`, `npm_cli`, `vitest_cli`, `git_cli`),
-  with the program's `name`, the only one the role runs,
-  `local` for the project's own install in `node_modules/.bin`, never one on `PATH`,
-  its environment as `SpawnProgramOptions` has it, and `write`, the tool directories it writes on its own (`BuiltinToolDir`), which the binary's box holds it to),
-  emitted as `GRO_BUILTIN_TASK_GRANTS` by the summaries genfile, and with the CLI's row as JSON
-  in `src/builtin_grants.json` for the binary to read natively, which `gro_runtime::verb` reads
-  into a command's closure, which `fgro <command>` runs with; the root's
-  `BuiltinHostRoot` (`env`, `spawn`, `stdout`, `stderr`) rides `InvokeTaskOptions` as `host_root`,
-  and `run_task` cuts it by the table (`create_builtin_host`) into the `host`
-  of a `BuiltinTaskContext`, only for a builtin, refusing an invoke its grants
-  don't name, or one marked `when` an arg the task's args leave off (`invokes` is a
-  record of `BuiltinInvokeGrant`s, `check`'s `build` marked `{when: 'build'}`, its `sync`
-  `{when: 'install'}`, and its `lint` `{when: 'lint'}`, so a plain `check`'s closure holds none of them, each step it can skip marked
-  by its own flag, like `test: {when: 'test'}`, so `check --no-test`'s holds no `test`, the table
-  recording each builtin's boolean args with their defaults for the binary, and its `gen` and `format`
-  also `{check: true}`, run writing no source, as `check` verifies the install and `package.json`
-  without writing them (`npm_install_check.ts`); a `project_modules` builtin's loaded modules get no `invoke_task`),
-  and refusing a task with `grants` run by path or re-exported,
-  as a builtin runs only by its name; the body is a function over the task's own `*Deps`
-  ([docs](src/docs/task.md#a-builtins-host-and-grants)). The cut is a
-  guardrail against a builtin's own mistakes, never a boundary, on Node and on the binary alike. A builtin with no `grants` (`null`
-  in the table) imports its host modules and gets no `host`
+- Builtin host - a builtin declares its `task.grants` (`BuiltinTaskGrants` in
+  `builtin_host.ts`: fs, env, programs, `stdout`, `stderr`, `project_modules`, and the
+  builtins it `invokes`, a program grant's `write` naming the tool directories the
+  binary's box holds it to); the summaries genfile emits them as
+  `GRO_BUILTIN_TASK_GRANTS` and, with the CLI's row, as `src/builtin_grants.json`, which
+  `gro_runtime::verb` reads into a command's closure; the root's `BuiltinHostRoot` rides
+  `InvokeTaskOptions` as `host_root`, and `run_task` cuts it by them
+  (`create_builtin_host`) into a `BuiltinTaskContext`'s `host`, a guardrail on Node and
+  the binary alike, never a boundary; `check` verifies the install and `package.json`
+  without writing them in `npm_install_check.ts`
+  ([docs](src/docs/task.md#a-builtins-host-and-grants))
 - Builtin loading - by name: `invoke_task` imports the generated `GRO_BUILTIN_TASK_IMPORTS`
   (`gro_builtin_task_imports.ts`, from the summaries genfile), a literal import per builtin,
   never a path built from `import.meta.url`

@@ -210,13 +210,12 @@ and the contracts no one module doc owns.
   descriptors close. A program's own box (`confine/program.rs`), nested
   in the run's, names only handles the run's box held past it, none on
   the private directory or a directory holding it, taking what its write
-  set (`ProgramWrites`) names (the tool directories its grants table entry
-  names in `write`, which a program's box takes only where its own entry names it, written plain, without Landlock's
-  `MakeSym`, `MakeFifo`, or `Refer`, and what
-  `--allow-run-write=` names for it) and never what `--allow-write=` names,
-  and
-  its own temporary directory, made beneath the held private directory's handle, an entry
-  already there refused, named by its key's place in the run's table of
+  set (`ProgramWrites`) names (the tool directories its own grants-table
+  entry names in `write`, written plain, without Landlock's `MakeSym`,
+  `MakeFifo`, or `Refer`, and what `--allow-run-write=` names for it) and
+  never what `--allow-write=` names, and its own temporary directory,
+  made beneath the held private directory's handle, an entry already
+  there refused, named by its key's place in the run's table of
   programs (`ProgramKey`: a granted name, or a find's pin, so a find
   sharing a granted program's pin never shares its box). Every launch in a
   run started from a `RunEngine` installs its program's box: the verb takes

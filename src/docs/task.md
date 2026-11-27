@@ -308,6 +308,16 @@ and the cut copies `Object.hasOwn` when it loads,
 a guardrail against accidental prototype pollution widening a host,
 not against a module built to defeat it.
 
+The closure keeps an invoke's `check` mark whatever the command line forwards,
+so on the binary a forwarded section that turns off a check its command runs, like `fgro check -- gro gen --no-check`,
+is refused before anything runs, exit 2, where the Node Gro writes.
+A section counts where the command runs that step (not under `--no-gen`),
+the command's args and the section's are each their builtin's keys, none a boolean given a value, with no `--help`,
+and positionals follow the name only for a builtin that takes them (`gro gen src/lib`, never `gro check extra`), as Node runs the section only then.
+The refusal names the command that writes on the binary (`fgro gen`) and the whole command on the Node Gro.
+A section whose values Node refuses by type, like `-- gro gen --no-check --root_dirs x`, is refused the same way, exit 2,
+where the Node Gro fails the step's args, exit 1, writing nothing either way.
+
 A builtin's body is a function over its own `*Deps`, picked from its `host` and context,
 so its `run` is one call and a test passes plain objects:
 

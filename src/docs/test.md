@@ -12,10 +12,10 @@ gro check -- vitest --bail 1 # forward to Vitest from a task that invokes `test`
 The first section after a `--` goes to Vitest, unless it starts with `gro` or `vitest`,
 only when the CLI invoked `gro test` itself or a task invoking it passes it as `implicit_rest_args`, and only up to the next `--`;
 a `-- vitest` section reaches Vitest wherever `test` is invoked.
-See [task args forwarding](/src/docs/task.md#task-args-forwarding).
+See [task args forwarding](./task.md#task-args-forwarding).
 
 > Running `gro test [...args]` calls Vitest
-> inside Gro's normal [task context](/src/docs/task.md).
+> inside Gro's normal [task context](./task.md).
 > Vitest has native TypeScript support and excellent performance.
 
 > Where it's going: Vitest stays until the [runtime](runtime.md) ships its own test runner near the Node exit,
@@ -39,7 +39,7 @@ t                  string | undefined undefined               search pattern for
 no-sync            boolean            false                   opt out of syncing SvelteKit before the tests
 ```
 
-[`gro test`](/src/lib/test.task.ts) runs all `*.test.ts`
+[`gro test`](../lib/test.task.ts) runs all `*.test.ts`
 files in your project by default using the pattern `".test."`.
 So to add a new test, create a new file:
 
@@ -63,10 +63,8 @@ Gro supports Vitest 5, the range `^5` of its `vitest` peer dependency.
 
 In a SvelteKit project `gro test` runs `svelte-kit sync` before Vitest, as `gro typecheck` does,
 and `gro check` turns that off with `--no-sync` once its typecheck has synced.
-SvelteKit's plugin in Vitest then finds the tsconfig and types it generates in `node_modules/$app` current and writes nothing there,
-so on the binary the [box](box.md#what-a-commands-box-admits) lets no tool but `svelte-kit` write `$app`:
-a later typecheck, `dev`, `build`, and the editor trust what's there,
-and a file planted beside the generated ones, like a `package.json` whose `exports` redirect `$app/tsconfig`, survives every sync.
+SvelteKit's plugin in Vitest then finds the tsconfig and types it generates in `node_modules/$app` current,
+so Vitest writes nothing in `node_modules/$app`, which on the binary only `svelte-kit` writes ([box](box.md#what-a-commands-box-admits)).
 `gro test --no-sync` skips the sync, so on the binary it fails on an unsynced tree, where Vitest would have to write `$app`.
 
 ## Vitest's module cache

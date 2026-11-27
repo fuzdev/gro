@@ -376,21 +376,9 @@ Whether a stream is colored is decided once per process, in order:
 | 2              | a usage error (an unknown flag of `eval`, or one after `--version`, `--help`, or `help`, a flag before `run`'s file other than `--help`, `--allow-env=`, `--allow-read=`, `--allow-write=`, `--allow-temp`, `--allow-run=`, `--allow-run-in=`, `--allow-run-env=`, `--allow-run-write=`, or `-A`, a bare one of these or a name it can't grant, `--allow-temp` given a value, `--allow-run-env=` without `--allow-run=` or `--allow-run-in=`, `--allow-run-write=` naming no one program before its `:`, without `--allow-run=`, or naming a program no `--allow-run=` lists, a directory missing, no directory, or one that can't be looked at, no file, an extra argument to `eval`, a non-UTF-8 argument, the script's included, `--version` with a subcommand), or an entry that doesn't resolve (missing, the wrong extension, a `.js` file not under `"type": "module"`) |
 
 Every other first argument, a flag among them, and none run a command of Gro's ([runtime](runtime.md#gros-workflow-on-the-runtime)),
-which runs in the run's kernel box ([box](box.md#how-it-goes-up)) and exits with Gro's code as a run does,
-`2` when it's refused before anything runs
-(its grant flags, `-A` before or after the command word among them, a write flag or a program's write directory naming a directory that holds the project root,
-a directory a grant flag lists inside the project that leads out of it through a symlink, or through one into a dot-entry or `node_modules` it doesn't name, `--allow-run-write=` naming a program the command may start by no name, or by one two programs share,
-a program's write directory under a dot-entry or `node_modules` where gro's own code writes the whole project and no `--allow-write=` names it too, `GRO_FALLBACK`'s value, a working directory with no project's `package.json`,
-a project's `package.json` or installed Gro's that can't be read, a forwarded section turning off a check the command's invoke runs, like `-- gro gen --no-check` after `check`,
-a `node` on `PATH` that's a script,
-a `node_modules` symlink to anything but another checkout's `node_modules`, git's files the box can't read for a command that may start a program,
-a socket on stdin, stdout, or stderr that isn't a connected unix stream, an OS temporary directory inside the project,
-a flag or rule a program's box takes holding the OS temporary directory for a command that may start a program (`--allow-read=/tmp`, `--allow-read=/`, `--allow-run-write=vitest:/tmp`, never `--allow-write=`),
-a path planted where the box opens a rule or makes a tool directory, like a symlink,
-a fallback `GRO_FALLBACK=command` refuses, the one the host decides where Landlock can't hold the box among them, or a fallback with no installed or built Node Gro or no `node` to run it),
-`1` when the grants table or the working directory can't be read, `node` fails to start, the binary was built without its snapshot,
-or a step of the box fails once the first has changed the process (a namespace left unusable, a tool directory that can't be made, where a linked `node_modules` leads that can't be looked at, a process with more than one thread),
-and the Node Gro's code when it falls back, where Landlock can't hold the box too.
+which runs in the run's kernel box and exits with Gro's code as a run does,
+`2` when it's refused before anything runs, `1` when it can't start or a step of its box fails,
+and the Node Gro's code when it falls back ([box](box.md#how-it-goes-up) lists each case).
 
 An entry that fails to resolve on an I/O error or a symlink loop exits 1, not 2.
 A program's code passes as it is, so `1` and `2` are shared between the program and `fgro`'s own failures.

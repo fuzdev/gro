@@ -356,7 +356,7 @@ As designed, except where marked built:
   the grant flags after the command word, and the project at the working directory,
   which must hold a project's `package.json`.
   The command exits as a run does, its code Gro's, `2` when its pre-pass refuses it, and the Node Gro's when it falls back
-  ([run](run.md#errors-and-exit-codes) has every case).
+  ([box](box.md#how-it-goes-up) has every case).
   The project must also install, in their ranges, the peer dependencies of Gro's that its embedded code imports,
   since those resolve from the project's `node_modules` ([resolver](resolver.md#gros-library)),
   so in a project that installed none even bare `fgro` fails, naming the fix.
@@ -372,17 +372,11 @@ As designed, except where marked built:
   a differential test (`crates/gro_cli/tests/verb_differential.rs`) holds the binary's output for a set of commands to what the Node Gro prints,
   normalizing only the differences here that each case names.
   Gro's logger colors its output even under `NO_COLOR` or when piped.
-  `fgro --help` and `fgro help` print the binary's own help, where `gro --help` lists the builtins,
-  and `fgro --version` the binary's own line, where `gro --version` prints Gro's version, which `fgro -v` prints.
+  `fgro --help` and `fgro help` print the binary's own help, where `gro --help` lists the builtins.
   The console prints a string inside an array or object with double quotes, where Node's prints single ones,
   so a list Gro logs, like `gen`'s files, reads differently.
-  A forwarded section that turns off a check its command runs, like `fgro check -- gro gen --no-check`, where the command runs that step (not under `--no-gen`)
-  and the command's args and the section's are each their builtin's keys, none a boolean given a value, no `--help`,
-  and positionals after the name only for a builtin that takes them (`gro gen src/lib`, never `gro check extra`), as Node runs the section only then,
-  is refused before anything runs, exit 2, where the Node Gro writes,
-  since the closure keeps an invoke's `check` mark whatever the command line forwards,
-  and the refusal names the command that writes on the binary (`fgro gen`) and the whole command on the Node Gro.
-  A section whose values Node refuses by type, like `-- gro gen --no-check --root_dirs x`, is refused the same way, exit 2, where the Node Gro fails the step's args, exit 1, writing nothing either way.
+  A forwarded `-- gro <builtin>` section that turns off a `check`-marked step its command runs, like `fgro check -- gro gen --no-check`,
+  is refused before anything runs, exit 2, where the Node Gro writes ([task](task.md#a-builtins-host-and-grants) has when a section counts).
   Gro's `library_load.ts`, which reaches Node's builtins, isn't in the binary's embedded code, so a genfile that imports it, like a library's API docs genfile, fails to load, the error naming the Node Gro;
   and `sveltekit_tsconfig_is_unsynced` fails on the binary, since it reads `tsconfig.json` through TypeScript, whose package has no `"exports"` and is CommonJS, both refused ([resolver](resolver.md#specifiers)).
   A project's typecheck reads the types of the Gro it installed while the command runs the binary's embedded code.
@@ -391,59 +385,11 @@ As designed, except where marked built:
   A run that fails after the resolver refused a `node:` specifier, caught or not, ends with a hint naming the cause
   and the whole command on the Node Gro, which confines nothing (`node_modules/.bin/gro` and the command line, its grant flags stripped),
   a [review signal](glossary.md#review-signal) the run's code controls: project code can print it at will by catching a `node:` import and failing.
-  The box adds these, each a cost of holding the tools where the box holds them:
-  - A tool reaches no network but the run's own loopback, so a test that connects to a service outside the run, like a database on the host, fails, its connection refused or its network unreachable.
-    Where the system restricts unprivileged user namespaces, every internet socket is refused instead, loopback's included,
-    so a test that binds `127.0.0.1` fails too, and a `note:` line after the box goes up says why.
-  - A tool reads nothing under the home directory but what git reads there (its global config, its ignore and attributes files, and the files the config includes or names)
-    and the programs the run pins, like `node`'s file where a version manager installed it there, beside the project's own trees wherever they sit,
-    so one that reads its own config or cache there finds it unreadable, failing with `EACCES` or running as though there's none,
-    and git's credential store stays unreadable unless your own git config names it as a file git reads.
-  - A git config the box can't read as git does, or a `.git` file that isn't a linked worktree's or a submodule's leading back to the project,
-    is refused before the box goes up, exit 2, for a command that may start a program.
-    A project inside a repository whose `.git` is at the home directory or above, like a dotfiles repository, runs, but git run there fails, unable to read it.
-  - In a run that may start a program, or that `--allow-temp` grants, `TMPDIR` names a directory private to the run, which a later start removes once the run has ended,
-    and so do `TMP` and `TEMP` where they were set,
-    and `XDG_DATA_HOME`, `XDG_CACHE_HOME`, and `XDG_STATE_HOME` name directories inside it;
-    each tool gets a directory of its own there, which its `TMPDIR`, its `TMP` and `TEMP` where it has them, and its XDG variables name, and which no other tool reads,
-    so a tool that keeps state there (Vitest's token among it) gets a fresh, private place, nothing under the home directory is touched for it,
-    and a tool that caches in either place starts cold every run.
-    An OS temporary directory inside the project is refused for such a run, exit 2, the refusal naming the variable that set it, or saying it's the default.
-    So is a grant flag or rule a program's box takes holding the OS temporary directory, like `--allow-read=/tmp`, `--allow-read=/`, or `--allow-run-write=vitest:/tmp` (never `--allow-write=`, whose directories no program's box takes), for a command that may start a program, exit 2, the refusal naming the flag or rule and the fix.
-  - A directory a grant flag lists inside the project, by its text or through a link to the project, that leads out of it through a symlink is refused, exit 2, naming the real path to type instead, and so is one leading through a symlink into a dot-entry or `node_modules` it doesn't name ([box](box.md#what-a-commands-box-admits)).
-  - A write outside the command's write roots is refused at the kernel:
-    in Gro's own code a `permission_denied` `FsError` whose cause names where the box lets the command write and what stays read-only,
-    and in a tool `EACCES` or `EPERM`, after which, when the run exits nonzero, a closing `note:` line names each tool's box's network and writes and which flag widens what,
-    a tool's own write taking `--allow-run-write=` and Gro's own `--allow-write=`
-    ([box](box.md#what-a-commands-box-admits) has both texts and when each appears).
-    So a genfile's new top-level output fails, as does any write under `.git`, `node_modules`, or a dot-entry,
-    where the Node Gro writes each.
-  - Nothing in the project executes outside `node_modules`, so a script there run by its path fails with `EACCES`, while its interpreter runs it (`node scripts/x.js`).
-  - A tool reads `/proc` as on Node, but the environment, memory, and working directory of a process outside the run are refused.
-  - The run is not dumpable, so attaching to it (`perf -p`, `gdb -p`) is refused; starting `fgro` under `perf` or `gdb` works.
-  - The `core` limit is 0 for the run and every tool, so a crash writes no core file.
-  - A setuid or setcap program, like `sudo` or `ping`, runs without its privileges, since the box sets `no_new_privs`.
-  - A tool can't make a user namespace, so a browser that sandboxes itself with one, like Chromium under a test, fails to start.
-  - A tool can signal only processes inside the run, never one outside it, like an editor or a dev server it didn't start.
-  - A socket on stdin, stdout, or stderr that isn't a connected unix stream is refused before anything runs, exit 2,
-    so an inetd-style launch fails, while a pipe, a file, a terminal, `/dev/null`, and a connected socket pair, like Node's `spawn` makes, pass.
-  - `DENO_STARTUP_PHASES`, `DENO_LOG_LAZY_LOAD`, and `DENO_SNAPSHOT_IMPORT_GRAPH`, which the vendored `deno_core` reads, are removed for the run and its tools.
-  - `-A` is refused, exit 2, after the command word as
-    `error: -A would run a command of Gro's unconfined, and the binary runs each in a kernel box: the project's Node gro is the unconfined spelling (node_modules/.bin/gro format --check)`,
-    and before it as `-A comes before the command, and the binary runs each command of Gro's in a kernel box, which -A can't lift: …`, with the same command;
-    before `run`, as in `fgro -A run x.ts`, the refusal says grant flags go after the command word, like `fgro run -A`.
-  - A `node` on `PATH` that's a script, like an asdf or nodenv shim, is refused before the box goes up, exit 2, naming the shim and the fix
-    (the real `node` first on `PATH`, or `--allow-run-in=` naming the version manager's directory),
-    since the shim reads its manager's tree under the home directory, which the box refuses.
-    A native shim, like volta's, can't be told apart from `node`, and its tools fail inside the box.
-  - A `node_modules` that's a symlink to another checkout's `node_modules` is followed, read there, and executed for a command that may start a program, with a `note:` line naming where it leads and which tools write in it,
-    and Gro's own code reads through it too;
-    its packages resolve within it, reading nothing of the checkout holding it,
-    and no tool directory is made there: a tool writes there only what `--allow-run-write=` names for it, by the path it leads to,
-    so a tool that needs a directory there fails without that flag, and `--allow-write=` naming it lets only Gro's own code write there.
-    A `node_modules` linked to anything else is refused before the box goes up, exit 2.
-  - A binary built with a plain `cargo build`, which has no snapshot, refuses every command of Gro's it would run in its box, exit 1,
-    since it reads its own sources from its build tree, which no rule of the box admits.
+  The box adds its own differences, each a cost of holding the tools where it holds them.
+  A tool reaches no network but the run's own loopback, reads nothing under the home directory but the project's own trees, what git reads there, the programs the run pins, and what a grant flag names,
+  writes only its own directories, executes nothing in the project outside `node_modules`, and can't attach to, signal, or read the environment of a process outside the run;
+  a write outside the command's write roots fails at the kernel where the Node Gro writes it, and some setups the box can't hold, like a `node` that's a version manager's script, are refused before it goes up, exit 2
+  ([box](box.md#what-a-commands-box-admits) has each rule, and [how it goes up](box.md#how-it-goes-up) each refusal).
 - A command the binary leaves to Node, like `dev`, `build`, `clean`, `check --build`, a project task, or `task`'s listing,
   or one in a project that installed another version of Gro, or any command where Landlock is missing, off, below its sixth ABI (Linux 6.12), or refused by a seccomp filter, which can't put up the box,
   runs on the Node Gro the project installed (built):
@@ -452,9 +398,7 @@ As designed, except where marked built:
   and Gro's loader registered as the Node Gro registers it, `development` condition included unless `NODE_ENV` is `production`.
   The host's fallback names its reason, like
   `note: fgro check runs on the Node gro in node_modules/@fuzdev/gro <version>, which confines nothing, because Landlock isn't available here (the kernel has none, or a seccomp filter refuses its calls), which the kernel box needs at ABI 6 (Linux 6.12) or later`.
-  `GRO_FALLBACK=command` refuses a fallback the project's files decide, the version, and one the host decides, the kernel's, exit 2;
-  a fallback the command decides still runs the project's installed `dist`, which confines nothing
-  ([authority](authority.md#what-the-first-release-is-for)).
+  `GRO_FALLBACK` decides which fallbacks are refused ([authority](authority.md#what-the-first-release-is-for)).
   So a project's policy file is designed to hold its own tasks alone,
   and `gro check`, which spawns Node tools through Gro's own tasks, leaves the project nothing to declare for them.
 

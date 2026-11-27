@@ -75,7 +75,8 @@ Gro holds files and the kernel's surface with Landlock and seccomp instead, and 
 - they inherit across `execve`, so every child is held with no cooperation from the child;
 - they nest, so a child can tighten further under the parent's rules.
 
-Their cost: both need `no_new_privs`, so a setuid helper in a child (Chromium's setuid sandbox under a browser test) can't work inside the box,
+Their cost: both need `no_new_privs`, so a setuid or setcap program, like `sudo` or `ping`, runs without its privileges inside the box,
+a setuid helper in a child (Chromium's setuid sandbox under a browser test) can't work there,
 and Chromium's own user-namespace sandbox falls under the box's refusal of nested user namespaces.
 
 The network is the one place the run's box takes a namespace, since nothing else closes Landlock's port-only rule.
@@ -85,9 +86,9 @@ so a test that binds and connects to `127.0.0.1` passes and nothing outside the 
 Where unprivileged user namespaces are restricted (by a sysctl, by AppArmor's policy, by a seccomp filter, or with none left to make),
 the box keeps the host's network and refuses every internet socket instead, loopback's included, so such a test fails there.
 AppArmor's restriction is read before the namespace is made, since under it the namespace is made
-and then left unusable, stranding the process; a test run with the restriction on holds that an unchecked one is unusable there.
-Built, and taken by every command of Gro's the binary runs, which says which form it got when it's the second:
-a `note:` line, once the box is up, names why there's no namespace and that a test binding `127.0.0.1` fails.
+and then left unusable, stranding the process.
+Built for every command of Gro's the binary runs.
+Without the namespace, a `note:` line once the box is up says why and that a test binding `127.0.0.1` fails.
 
 ## The box for runs and children
 
@@ -99,6 +100,12 @@ A command the binary leaves to Node runs on the Node Gro, which confines nothing
 Each program the run starts runs in a narrower box of its own inside the run's ([below](#a-box-for-each-tool)).
 
 ### What a command's box admits
+
+In short: the project is read-only to every process in the run but for the write roots that follow,
+and outside it little under the home directory is readable (the reads below list what is).
+Gro's own code writes the project's top-level entries only under `gen`, `format`, and `sync`, never `.git`, `node_modules`, or another dot-entry.
+Each tool writes only its own tool directories, its own temporary directory, and what `--allow-run-write=` names for it.
+The network is the run's own loopback (or no internet socket at all where user namespaces are restricted), and the grant flags widen the rest as the list below says.
 
 The rules come from one plan, derived from the command's closure, the grant flags, and what the run reads from the disk before the box:
 the project's top-level entries, its `node_modules`, which system directories are real ones, the packages linked into the project,
@@ -132,41 +139,45 @@ anything else that keeps a rule from opening, like a symlink on its path, refuse
   what a grant flag names, the project's own trees wherever they sit (the project, its linked packages, a linked `node_modules`),
   and the run's temp directory where `TMPDIR` puts it there.
 - **Writes on the project:** a command whose closure writes the project, like `gen`, `format`, or `sync`, gets a rule per top-level entry, never the project root.
-  Each existing directory and regular file is one, but `.git`, `node_modules`, and every other dot-entry (`.env*`, `.github`, and `.gro` among them),
+  Each existing directory and regular file gets one, except `.git`, `node_modules`, every other dot-entry (`.env*`, `.github`, and `.gro` among them),
   every symlink (an `AGENTS.md` that links `CLAUDE.md` stays read-only), a regular file with more than one link, and a FIFO, socket, or device.
   A top-level entry the command would make, like a genfile's new output beside `src`, has no rule, so it's refused.
   A check-mode command, like a plain `check`, `gen --check`, or `format --check`, gets no write on the project from its grants,
   and neither do `test`, `typecheck`, and `lint`.
 - **Tool directories:** the directories the project's tools write on their own,
   each a write root of the tools whose grant in the grants table names it (their `write`),
-  when the command's closure grants such a tool and the project declares the dependency that writes it:
-  `.svelte-kit` for `svelte-kit`, all of what its sync writes, which `vite build` reads;
-  `.svelte-kit/generated/dev`, the modules SvelteKit generates for a dev server, for svelte-check and Vitest;
-  `.svelte-kit/types`, the route types, for Vitest;
-  and `node_modules/$app`, the tsconfig and types SvelteKit generates, for `svelte-kit` alone, each of these for `@sveltejs/kit`:
-  a later typecheck, `dev`, `build`, and the editor trust what's there, and a file planted beside the generated ones,
-  like a `package.json` whose `exports` redirect `$app/tsconfig`, survives every sync,
-  so `gro test` syncs first ([test](test.md#sveltekits-files-synced-first)) and Vitest finds nothing there to write;
-  `node_modules/.vite-temp`, where Vite's config loader writes a bundled config, for `svelte-kit`, svelte-check, and Vitest, for `vite` or `vitest`;
-  and `node_modules/.vite/vitest`, Vitest's own cache, for Vitest, for `vitest`.
-  No tool writes `node_modules/.vite` beside that cache, where a later `dev` loads its optimized dependencies,
+  when the command's closure grants such a tool and the project declares a dependency that calls for it:
+
+  | directory                   | what it holds                                                  | written by                         | called for by      |
+  | --------------------------- | -------------------------------------------------------------- | ---------------------------------- | ------------------ |
+  | `.svelte-kit`               | all of what `svelte-kit sync` writes, which `vite build` reads | `svelte-kit`                       | `@sveltejs/kit`    |
+  | `.svelte-kit/generated/dev` | the modules SvelteKit generates for a dev server               | svelte-check, Vitest               | `@sveltejs/kit`    |
+  | `.svelte-kit/types`         | the route types                                                | Vitest                             | `@sveltejs/kit`    |
+  | `node_modules/$app`         | the tsconfig and types SvelteKit generates                     | `svelte-kit` alone                 | `@sveltejs/kit`    |
+  | `node_modules/.vite-temp`   | the bundled config Vite's config loader writes                 | `svelte-kit`, svelte-check, Vitest | `vite` or `vitest` |
+  | `node_modules/.vite/vitest` | Vitest's own cache                                             | Vitest                             | `vitest`           |
+
+  `node_modules/$app` is `svelte-kit`'s alone because a later typecheck, `dev`, `build`, and the editor trust what's there,
+  and a file planted beside the generated ones, like a `package.json` whose `exports` redirect `$app/tsconfig`, survives every sync;
+  `gro test` syncs first ([test](test.md#sveltekits-files-synced-first)), so Vitest finds nothing there to write.
+  No tool writes `node_modules/.vite` beside Vitest's cache, where a later `dev` loads its optimized dependencies,
   nor fuz_css's `.fuz/cache`, whose entries a later `dev` or `build` trusts, though Vitest's dev server writes it as it scans the project:
   fuz_css skips a refused cache write quietly.
-  No tool makes a symlink or a FIFO in a tool directory, even its own, nor moves or links an entry in from another directory,
-  which could bring a symlink from its own temporary directory or a directory `--allow-run-write=` names,
-  and the same holds for Gro's own code and every tool in a directory `--allow-write=` or `--allow-run-write=` names
-  that is a tool directory (any of them, made or not) or where a linked `node_modules` leads, lies in one, or holds either;
-  every other directory either flag names keeps them, like `src` for `eslint --fix` or a snapshot directory for `test -u`:
-  a later unconfined tool writing one of its files there by name, as SvelteKit's `vite dev` rewrites its generated files, would follow a planted link out of the project,
-  or block reading a FIFO.
+  Vitest's module cache, `node_modules/.vitest-cache`, is never a tool directory ([test](test.md#vitests-module-cache)).
+
+  No tool makes a symlink or FIFO in a tool directory, even its own, or moves or links an entry in from another directory,
+  which could bring a symlink from its own temporary directory or a directory `--allow-run-write=` names.
+  The same holds, for Gro's own code and every tool, in a directory `--allow-write=` or `--allow-run-write=` names
+  that is a tool directory (made or not) or a linked `node_modules`'s target, or that lies in or holds one.
+  Every other directory either flag names keeps those rights, like `src` for `eslint --fix` or a snapshot directory for `test -u`.
+  Otherwise a later unconfined tool that rewrites its files there by name, as SvelteKit's `vite dev` rewrites its generated files,
+  would follow a planted link out of the project or block reading a FIFO.
+
   Each is made as a real directory where it's absent before the box, every directory on its path opened with symlinks refused,
   and one already there as a symlink or anything but a directory refuses the run, exit 2, so a link planted by an earlier run can't send it elsewhere;
   one that can't be made fails the run, exit 1.
-  So a plain `check` writes the tool directories and nothing else in the project, and `format --check`, which starts no tool, writes nothing at all;
-  a step the command line turns off leaves the closure with its tool, so `check --no-test` grants no Vitest, and with it none of Vitest's own.
-  Vitest's module cache under `node_modules` is never one: it holds transformed code that later Vitest runs load unverified,
-  so a test that could write it could plant code for a run outside any box.
-  `gro test` turns the cache off on either runtime ([test](test.md#vitests-module-cache)), and in the box a test can't write it either.
+  So a plain `check` writes the tool directories and nothing else in the project, and `format --check`, which starts no tool, writes nothing at all.
+  A step the command line turns off takes its tool out of the closure, so `check --no-test` grants no Vitest, and with it none of the directories only Vitest writes.
 - **The run's temp directory:** a directory private to the run, made in the OS's temporary directory before the box
   for a command that may start a program or that `--allow-temp` grants, which it may read, write, and execute in.
   `TMPDIR` names it for the run, and so do `TMP` and `TEMP` where the process had them set,
@@ -174,7 +185,7 @@ anything else that keeps a rule from opening, like a symlink on its path, refuse
   Each program the run starts gets a directory of its own inside it, which its `TMPDIR`, its `TMP` and `TEMP` where its environment has them, and its XDG variables name,
   over whatever its environment asked for, and no program reads the run's or another program's,
   so a tool that keeps state under those (Vitest keeps a token there, and won't start without one) gets a fresh, private place,
-  and nothing under the home directory is read or written for it.
+  and nothing under the home directory is read or written for it, so a tool that caches there or in its own directory starts cold every run.
   A file Gro's own code makes in the run's temp directory, like one `fs.temp_dir` makes, is unreadable to every tool.
   A run with no private directory keeps those variables as they were.
   An OS temporary directory inside the project, by its path or by its identity (a bind mount counts), refuses such a run, exit 2, before anything is made,
@@ -187,7 +198,7 @@ anything else that keeps a rule from opening, like a symlink on its path, refuse
 - **Execute:** for a command that may start a program, the system's programs, each pinned program's file (`node`'s among them),
   each program's own temporary directory, where test suites run scripts they write, the project's `node_modules`, and the linked packages, each on its real tree,
   for a native binary a tool may run, like esbuild's under Vite, beside the directories `--allow-run-in=` names.
-  The rest of the project isn't executable, so a tool runs a script there only through its interpreter.
+  The rest of the project isn't executable, so a script there run by its path fails with `EACCES`, and a tool runs one only through its interpreter (`node scripts/x.js`).
   The right bounds `execve` alone: a native library loads from anywhere the box reads.
   A pinned `.bin` script runs as `node`'s argument, by the script's real path, so it needs no rule of its own and nothing runs `/usr/bin/env`.
 - **System files:** `/usr` read and executed and `/etc` read, `/bin`, `/sbin`, `/lib`, `/lib32`, and `/lib64` only where they're real directories rather than links into `/usr`,
@@ -200,12 +211,12 @@ anything else that keeps a rule from opening, like a symlink on its path, refuse
   One naming an entry the box leaves out, like `--allow-write=.git`, is honored, the command line's own choice.
   One naming a directory that holds the project root, like `--allow-write=..`, is refused, exit 2,
   since a rule there would cover `.git` and every entry the box leaves out, and Landlock can't carve them back out.
-  A directory any of these flags lists that lies inside the project by its text, relative or absolute, or through a link to the project,
-  and leads out of it through a symlink, like `--allow-read=src` with a committed `src -> ~`, is refused, exit 2,
-  naming the real path to type instead, so a flag typed as documented never grants what a link in the tree points at;
-  one through a symlink that stays inside is noted, as `fgro run` notes every one ([run](run.md#usage)),
-  unless it lands in a dot-entry or `node_modules` the path doesn't name, like `src/fixtures -> ../.git`,
-  which is refused, exit 2, naming that entry's path to type instead, as is a path typed outside the project through a link of your own into such an entry,
+  A directory any of these flags lists that lies inside the project, by its text (relative or absolute) or through a link to the project,
+  is refused, exit 2, when it leads out of the project through a symlink, like `--allow-read=src` with a committed `src -> ~`,
+  naming the real path to type instead, so a flag typed as documented never grants what a link in the tree points at.
+  One through a symlink that stays inside is noted, as `fgro run` notes every one ([run](run.md#usage)).
+  One that lands in a dot-entry or `node_modules` the path doesn't name, like `src/fixtures -> ../.git`, is refused, exit 2, naming that entry's path to type instead,
+  as is a path typed outside the project through a link of your own into such an entry,
   so an entry the box leaves out is written only when a flag names it.
   `--allow-run-write=<program>:<dirs>` reads and writes directories for one program the command starts,
   named as the tool is called, like `vitest`, or as `--allow-run=` names it, or by its name in the run, like `node_modules/.bin/vitest`,
@@ -226,9 +237,9 @@ anything else that keeps a rule from opening, like a symlink on its path, refuse
   so a read the box allows there isn't refused as a symlink leaving the project.
   A package there resolves its imports within that `node_modules`, and nothing of the checkout holding it is read,
   its `package.json` included ([resolver](resolver.md#departures-from-node)).
-  No tool directory is made there, since that checkout's own unconfined commands run what a tool writes there:
-  a tool writes there only what `--allow-run-write=` names for it, by the path it leads to, and `--allow-write=` naming it lets only Gro's own code write there,
-  each writing plain there, with no symlink, FIFO, or entry moved in.
+  No tool directory is made there, since that checkout's own unconfined commands run what a tool writes there.
+  A tool writes there only what `--allow-run-write=` names for it, by the path it leads to; `--allow-write=` naming it lets only Gro's own code write there;
+  both write plain (no symlink, FIFO, or moved-in entry).
   A tool that needs a directory there fails without the flag, and the `note:` line names the tools that write there, if any.
   Under `fgro check` in a worktree linking a SvelteKit project's `node_modules` at `<target>`, that is
   `'--allow-run-write=svelte-kit:<target>/.vite-temp,<target>/$app' --allow-run-write=svelte-check:<target>/.vite-temp '--allow-run-write=vitest:<target>/.vite-temp,<target>/.vite/vitest'`
@@ -236,6 +247,7 @@ anything else that keeps a rule from opening, like a symlink on its path, refuse
   A link to any other directory, like `~/.ssh` or `.git`, is refused, exit 2.
 - **Network:** the run's own namespace, whose only interface is its loopback,
   or where user namespaces are restricted the host's network with every internet socket refused ([namespaces](#namespaces)).
+  So a test that connects to a service outside the run, like a database on the host, fails, its connection refused or its network unreachable.
 - **seccomp:** a denylist that classifies every call number, refusing by family with its reason:
   unix sockets but a stream or sequenced-packet pair connected to itself, which a child's pipes use,
   and every socket family but IPv4 and IPv6, whose TCP and UDP reach only the namespace, and in the host's network none at all;
@@ -247,7 +259,8 @@ anything else that keeps a rule from opening, like a symlink on its path, refuse
   A rule can't name `/proc/self` for a child, since the handle names whichever process opened it, so the choice is all of `/proc` or none.
   Boxed code sees the command line and status of every process your user can see, as any unconfined `dev` does,
   but the environment, memory, and working directory of a process outside the box stay refused, by Landlock's restriction on tracing a process outside its domain.
-  The run marks itself not dumpable before its box goes up, so no program in the box reads the run's own environment or memory either.
+  The run marks itself not dumpable before its box goes up, so no program in the box reads the run's own environment or memory either,
+  and attaching to the run (`perf -p`, `gdb -p`) is refused, while starting `fgro` under `perf` or `gdb` works.
   The programs it starts are dumpable, but each runs in a box of its own, so no tool reads another's environment, memory, or working directory,
   while each still sees the others' command line and status.
 - **Resource limits:** the `core` hard limit, the only one lowered, set to 0 before the box,
@@ -255,13 +268,14 @@ anything else that keeps a rule from opening, like a symlink on its path, refuse
   a guardrail against that accident and not a wall, since deliberate code writes what it holds into a write root;
   a process changes only its own limits, the denylist refusing a limit set on another.
 - **The environment:** the run's programs see the run's own, as on Node, but for the temp and XDG variables above
-  and the vendored `deno_core`'s diagnostic variables, which the run removes ([run](run.md#usage)).
+  and the vendored `deno_core`'s diagnostic variables, `DENO_STARTUP_PHASES`, `DENO_LOG_LAZY_LOAD`, and `DENO_SNAPSHOT_IMPORT_GRAPH`,
+  which the run removes for itself and its tools ([run](run.md#usage)).
 
 The realm and the box are derived from the same run, and the box's plan feeds the realm one root back, the linked `node_modules` above.
 The realm's roots are directories, and its write on the project is the project root;
 the box is narrower on the project and wider for the tools.
-So a write the realm admits and the box refuses, like a genfile's new top-level output or a write under `.git`, fails as an `FsError` of kind `permission_denied`,
-and a tool's own write fails with the kernel's `EACCES`.
+So a write the realm admits and the box refuses, like a genfile's new top-level output or a write under `.git`, `node_modules`, or another dot-entry, fails as an `FsError` of kind `permission_denied`,
+and a tool's own write fails with the kernel's `EACCES`, where the Node Gro writes each.
 The `FsError`'s cause gains what the box lets the command write and what stays read-only, as in
 
 ```
@@ -276,17 +290,18 @@ A mode or time change never gains the cause, since Landlock checks neither,
 and a refusal of a path the box writes, like a file's own mode refusing it, gains nothing.
 These refusals print no cause: a write through a dangling symlink, resolved only to its own parent,
 and a recursive `mkdir` or copy through a symlink on the way.
-A run that exits nonzero after a tool it started ended other than by exiting 0, not counting one the run signaled itself, ends with a `note:` line naming the box's network and writes, as in
+When a run exits nonzero and a tool it started ended other than by exiting 0 (not by the run's own signal), the run ends with a `note:` line naming the box's network and writes, as in
 
 ```
 note: fgro test's tools each ran in a kernel box of their own inside the run's, which lets them reach no network but the run's own loopback and write only to a temporary directory of their own and to their own directories (svelte-kit: .svelte-kit, node_modules/$app, node_modules/.vite-temp; vitest: .svelte-kit/generated/dev, .svelte-kit/types, node_modules/.vite-temp, node_modules/.vite/vitest, src): a tool that hits a wall fails with EACCES, EPERM, or ENOSYS; --allow-run-write=<program>:<dirs> lets one of them (svelte-kit or vitest) write more, --allow-read= and --allow-run-in= widen every box, and --allow-write= widens only what gro's own code writes
 ```
 
-Both are built from the rules the box installed: the cause names tool and flag directories; the note names each tool's own directories, the tool directories the box made for it and what `--allow-run-write=` gives it;
-and in the host's network the note's clause reads "reach no network".
-The note, here for `fgro test --allow-run-write=vitest:src -- -u`, names the directories `--allow-run-write=` gives each program as that program's and the programs the command may start,
-and never what `--allow-write=` names, which no tool writes;
-the cause leaves them out, as gro's own code can't write there, and names the top-level entries only where gro's code writes the project.
+Both are built from the rules the box installed.
+The cause names tool and flag directories: it leaves out the directories `--allow-run-write=` gives a program, as gro's own code can't write there,
+and names the top-level entries only where gro's code writes the project.
+The note, here for `fgro test --allow-run-write=vitest:src -- -u`, names each tool's own directories (the tool directories the box made for it and what `--allow-run-write=` gives it),
+and the programs the command may start; it never names what `--allow-write=` names.
+In the host's network the note's clause reads "reach no network".
 Both are review signals, which the run's code can print as well.
 
 ### How it goes up
@@ -296,14 +311,18 @@ The binary takes the box's steps on its one thread, before V8 or any other threa
 1. The pre-pass reads the command's closure, the grant flags, and the project, and holds no descriptor when it returns.
    Every fallback the command line or the project's files decide runs the Node Gro here, so Node gets the process the Node Gro would have,
    and what it refuses, like `-A` before the command word, or `--allow-run-write=` naming a program the command may start by no name, exits 2.
+   `-A` before the command word is refused as `-A comes before the command, and the binary runs each command of Gro's in a kernel box, which -A can't lift: …`,
+   ending with the whole command on the Node Gro;
+   before `run`, as in `fgro -A run x.ts`, the refusal says grant flags go after the command word, like `fgro run -A`.
 2. It refuses what can't run boxed, before anything changes:
-   a binary built without its snapshot, which would read its own sources from its build tree, exit 1 ([run](run.md#errors-and-exit-codes)),
-   and `-A` after the command word, whose unconfined spelling is the Node Gro, exit 2.
+   a binary built without its snapshot, which would read its own sources from its build tree, exit 1,
+   and `-A` after the command word, whose unconfined spelling is the Node Gro, exit 2, as
+   `error: -A would run a command of Gro's unconfined, and the binary runs each in a kernel box: the project's Node gro is the unconfined spelling (node_modules/.bin/gro format --check)`.
 3. It probes the kernel and the standard streams, changing nothing.
-   Where the kernel's Landlock is missing, off, or below its sixth ABI, or a seccomp filter the process inherited refuses its calls, there's no box, so the command runs on the Node Gro after a `note:` line saying so, a fallback the host decides,
-   which `GRO_FALLBACK=command` refuses, exit 2 ([authority](authority.md#what-the-first-release-is-for)),
-   as it's refused, exit 2, when the project installed no Node Gro to run.
-   A socket on stdin, stdout, or stderr that isn't a connected unix stream is refused, exit 2, since a box can't hold where it leads.
+   Where the kernel's Landlock is missing, off, or below its sixth ABI, or a seccomp filter the process inherited refuses its calls, there's no box, so the command runs on the Node Gro after a `note:` line saying so, a fallback the host decides.
+   `GRO_FALLBACK=command` refuses that fallback, exit 2 ([authority](authority.md#what-the-first-release-is-for)), and so does a project with no Node Gro installed.
+   A socket on stdin, stdout, or stderr that isn't a connected unix stream is refused, exit 2, since a box can't hold where it leads,
+   so an inetd-style launch fails, while a pipe, a file, a terminal, `/dev/null`, and a connected socket pair, like Node's `spawn` makes, pass.
 4. Then the first change: it closes every descriptor it inherited above stderr, and from here nothing falls back.
    It enters the network namespace, then drops its capabilities, marks itself not dumpable, lowers the `core` limit, and raises its open-files soft limit, as Node does.
 5. It opens the OS's temporary directory by its real path and removes the stale private directories there, unless it lies in the project.
@@ -312,8 +331,9 @@ The binary takes the box's steps on its one thread, before V8 or any other threa
 7. It derives the box's plan from that resolution and the disk's facts, read once, and prints the plan's note.
    The plan refuses, exit 2, a write flag or a program's write directory naming a directory that holds the project root;
    a program's write directory under a dot-entry or `node_modules` where gro's own code writes the whole project and no `--allow-write=` names it, naming the command;
-   a `node` on `PATH` that's a script, like an asdf or nodenv shim, which reads its manager's tree under the home directory, naming the shim and the fix,
-   unless an `--allow-run-in=` names the directory it's in;
+   a `node` on `PATH` that's a script, like an asdf or nodenv shim, which reads its manager's tree under the home directory, naming the shim and the fix
+   (the real `node` first on `PATH`, or `--allow-run-in=` naming the version manager's directory), unless an `--allow-run-in=` names the directory it's in,
+   while a native shim, like volta's, can't be told apart from `node`, and its tools fail inside the box;
    a `node_modules` symlink to anything but another checkout's `node_modules`;
    and, for a command that may start a program, git's files it can't read.
 8. It makes its private directory, where it has one, refusing an OS temporary directory inside the project, exit 2, then the tool directories.
@@ -326,18 +346,37 @@ From the first change on, a path planted where the box opens a rule or makes a t
 and a step that fails ends the run, exit 1.
 A program that preloads a library starting a thread (`LD_PRELOAD`) can leave the process with more than one, which the box refuses, naming the count, exit 1.
 
+So a command of Gro's on the binary exits with Gro's code as a run does, and `2` when it's refused before anything runs:
+
+- its grant flags, `-A` before or after the command word among them
+- a write flag or a program's write directory naming a directory that holds the project root
+- a directory a grant flag lists inside the project that leads out of it through a symlink, or through one into a dot-entry or `node_modules` it doesn't name
+- `--allow-run-write=` naming a program the command may start by no name, or by one two programs share
+- a program's write directory under a dot-entry or `node_modules` where gro's own code writes the whole project and no `--allow-write=` names it too
+- `GRO_FALLBACK`'s value, a working directory with no project's `package.json`, or a project's `package.json` or installed Gro's that can't be read
+- a forwarded section turning off a check the command's invoke runs, like `-- gro gen --no-check` after `check` ([task](task.md#a-builtins-host-and-grants))
+- a `node` on `PATH` that's a script
+- a `node_modules` symlink to anything but another checkout's `node_modules`, or git's files the box can't read for a command that may start a program
+- a socket on stdin, stdout, or stderr that isn't a connected unix stream, or an OS temporary directory inside the project
+- a flag or rule a program's box takes holding the OS temporary directory for a command that may start a program (`--allow-read=/tmp`, `--allow-read=/`, `--allow-run-write=vitest:/tmp`, never `--allow-write=`)
+- a path planted where the box opens a rule or makes a tool directory, like a symlink
+- a fallback `GRO_FALLBACK=command` refuses, the one the host decides where Landlock can't hold the box among them, or a fallback with no installed or built Node Gro or no `node` to run it
+
+It exits `1` when the grants table or the working directory can't be read, `node` fails to start, the binary was built without its snapshot,
+or a step of the box fails once the first has changed the process (a namespace left unusable, a tool directory that can't be made, where a linked `node_modules` leads that can't be looked at, a process with more than one thread),
+and with the Node Gro's code when it falls back, where Landlock can't hold the box too.
+
 ### When a command hits a wall
 
 A tool that meets the box fails with the kernel's own error:
-`EACCES` for a path its rules leave out, `EPERM` for a signal to a process outside the run or a change of a file's owner,
+`EACCES` for a path its rules leave out, `EPERM` for a signal to a process outside the run (like an editor, or a dev server it didn't start) or a change of a file's owner,
 and `ENOSYS` for a call family the box refuses.
 Gro's own code fails with a `permission_denied` `FsError` whose cause names where the box lets the command write,
 and a run that fails after a tool did ends with a `note:` line naming the box's network and writes ([above](#what-a-commands-box-admits)).
 The grant flags, right after the command word, widen the box for one run:
 
-- a read outside the project, like a tool's config or cache under the home directory, takes `--allow-read=<dir>`
-- a write of Gro's own code outside the write roots takes `--allow-write=<dir>`, naming the directory itself, never one that holds the project root;
-  a tool's write takes `--allow-run-write=`, below, since `--allow-write=` widens no tool's box
+- a read outside the project, like a tool's config or cache under the home directory, which the tool otherwise finds unreadable, failing with `EACCES` or running as though there's none, takes `--allow-read=<dir>`
+- a write of Gro's own code outside the write roots takes `--allow-write=<dir>`, naming the directory itself, never one that holds the project root
 - a tool's own write, like a test updating its snapshots or `eslint --fix`, takes `--allow-run-write=<program>:<dirs>`, like `gro test --allow-run-write=vitest:src -- -u`
 - a program run from a directory outside `node_modules` and the system's takes `--allow-run-in=<dir>`
 
@@ -379,19 +418,17 @@ A box that can't be built fails each launch of its program, `launch_failed`, as 
 Landlock restricts the thread that installs its rules, so a launch given a program's box starts the program from a short-lived thread that first restricts itself with that box
 and then spawns it as today, and the program inherits the narrower box (`host/spawn/launch.rs`); nothing re-executes the binary.
 Each program's box gives it a temporary directory of its own, named by the program's place among the run's programs, never by its name.
-The box lets a program of the grants table write the tool directories its grant names, its `write`, of those the run made, but make no symlink or FIFO there nor move an entry in,
-and every other program, like one a flag grants or one of the table that names none, nothing but its own temporary directory,
-and each writes too what `--allow-run-write=` names for it, and no program anything another's names;
-a program's box takes nothing of what `--allow-write=` names, not even its read, which is Gro's own code's, so a tool that must read what Gro's code wrote outside the project takes `--allow-read=`.
-The tools that write on their own, `svelte-kit`, svelte-check, and Vitest, name their own tool directories ([above](#what-a-commands-box-admits)),
-and the ones that don't, tsc, ESLint, git, and npm, name none.
+A program of the grants table writes the tool directories its grant's `write` names, of those the run made, with no symlink, FIFO, or moved-in entry.
+Any other program, like one a flag grants, writes only its own temporary directory, and so does one of the table whose grant names none: tsc, ESLint, git, and npm
+([above](#what-a-commands-box-admits) has the tools that name some).
+Each program also writes what `--allow-run-write=` names for it, and nothing another program's flag names.
+No program's box takes anything `--allow-write=` names, not even its read; a tool that must read what Gro's code wrote outside the project takes `--allow-read=`.
 The nested boxes also keep a tool from signalling Gro or another tool and from reading another's environment, memory, or working directory through `/proc`.
 So a test or an ESLint plugin can't plant in what `vite build` runs, `.svelte-kit/generated/build`,
 in the optimized dependencies a later `dev` loads from `node_modules/.vite`, in the tsconfig and types `node_modules/$app` hands every later checker,
 or in fuz_css's `.fuz/cache`, and no tool leaves a symlink in a tool directory or a linked `node_modules` for a later one to write through.
 It leaves the project's own config, which runs in every tool and which `dev` runs unconfined,
-a write into a tool's own directory that a dev server already running picks up, like a test's into `.svelte-kit/generated/dev`,
-and the tool directories two tools share.
+and a write into a tool's own directory that a dev server already running picks up, like a test's into `.svelte-kit/generated/dev`.
 A tool still reads what the others write in the project, sees their command line, status, and descriptor numbers in `/proc`,
 gets a handle from `pidfd_open` on another or on the run, one that can't signal, and can take the terminal's foreground.
 A child that sets `PR_SET_PDEATHSIG` while the short-lived thread that started it still runs is killed when that thread ends,

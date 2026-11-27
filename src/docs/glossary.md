@@ -50,20 +50,10 @@ each with what defeats it, like an engine exploit for the runtime's own checks (
 ## box
 
 The kernel rules (Landlock and seccomp, and for a run a network namespace) a process is held in on Linux, with every program it starts:
-a coarsening of the grant set, installed from the process's one thread before V8 starts and inherited by every child process.
-It's coarser than the runtime's own checks (hierarchies and ports, not single files or hostnames),
-so it backs them up rather than replacing them ([box](box.md) has the kernel layer and the design for the rest).
-`fgro eval`'s box is built, installed from the process's one thread before V8 starts, after it closes every descriptor it inherited above stderr:
-file contents read-only to the [project root](#project-root) and its [link closure](#link-closure)
-(a path's metadata stays readable everywhere),
-no write, no execution, no network,
-and no signal outside it, nor a resource limit, priority, or scheduling set at all.
-The first box built ([eval](eval.md#the-box)).
-The run's box is built too, and every command of Gro's the binary runs starts in it:
-the project read-only but for the command's [write roots](#write-root), nothing under the home directory but what git reads there, the programs the run pins (`node`'s own file among them), and the project's own trees,
-no network but the run's own loopback, and every tool the run starts inside it
-([box](box.md#what-a-commands-box-admits)).
-A box for `fgro run` is designed, and each tool a command of Gro's starts runs in a box of its own inside the run's.
+a coarsening of the grant set, installed from the process's one thread before V8 starts and inherited by every child process,
+which backs up the runtime's own checks rather than replacing them.
+Built for `fgro eval` ([eval](eval.md#the-box)) and for every command of Gro's the binary runs, each tool it starts in a box of its own inside it
+([box](box.md#what-a-commands-box-admits)); designed for `fgro run` ([box](box.md)).
 
 ## builtin module
 
@@ -120,7 +110,7 @@ and each tool's own box inside it refuses those of every other tool and of the r
 Designed ([authority](authority.md#secure-by-default), [host modules](host_modules.md#native-requirements));
 until they land, `fs` on `fgro` reads any file beneath a root that reads (`.env` included)
 and writes any beneath a root that writes (`.git` and `node_modules` included) ([host modules](host_modules.md#fs-on-fgro));
-in a run of `fgro <command>` the run's [box](#box) refuses those writes at the kernel, but in its [tool directories](#tool-directory) and what a grant flag names, as it does under the other dot-entries, and leaves `.env*` readable.
+in a run of `fgro <command>` the run's [box](#box) refuses those writes at the kernel (outside its [tool directories](#tool-directory) and what a grant flag names), as it refuses writes under every dot-entry, and leaves `.env*` readable.
 
 ## determinism modes
 
@@ -394,10 +384,8 @@ but for Gro's own package, whose specifiers resolve in [Gro's library](#gros-lib
 ## tool directory
 
 A directory in the project a tool writes on its own, like `.svelte-kit` or Vitest's `node_modules/.vite/vitest`,
-which the run's [box](#box) makes a [write root](#write-root) of each tool whose grant in the grants table names it,
-when the command's closure grants such a tool and the project declares the dependency that writes it; no other tool writes it, and neither a tool nor Gro's own code makes a symlink or a FIFO there or moves an entry in, not even under a write flag.
-Each is made empty where it's absent before the box goes up, never through a symlink, and never in a `node_modules` linked from another checkout, where a tool writes only what `--allow-run-write=` names for it,
-and what a tool leaves there is code a later command may run ([box](box.md#what-a-commands-box-admits)).
+which the run's [box](#box) makes a [write root](#write-root) of each tool whose grant in the grants table names it;
+what a tool leaves there is code a later command may run ([box](box.md#what-a-commands-box-admits)).
 
 ## type marker
 
@@ -413,9 +401,7 @@ every grant at its widest, with no global added and native code still out of pro
 ## write root
 
 A directory a run may write.
-As designed, a project's are declared and accepted like any [grant](#grant) (`dist/`, `build/`, `.gro/`),
-and a child process gets only these writable at the kernel ([box](box.md#the-box-for-runs-and-children)).
-In a run of `fgro <command>` the run's [box](#box) writes a rule per top-level entry for a command that writes the project, leaving out `.git`, `node_modules`, and the other dot-entries,
-and none for a check-mode command, beside its [tool directories](#tool-directory), its temp directory, and what the grant flags name;
+As designed, a project's are declared and accepted like any [grant](#grant) (`dist/`, `build/`, `.gro/`).
+In a run of `fgro <command>` the run's [box](#box) sets them ([box](box.md#what-a-commands-box-admits));
 on `fgro run` today, a run's write roots are each directory `--allow-write=` names, or `/` under `-A`, and each directory `fs.temp_dir` makes under `--allow-temp`, read and written, until it's disposed of.
 A read root is the same for reads. On `fgro`, each read or write root is one of the `fs` module's [roots](#root).
