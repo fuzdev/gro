@@ -49,6 +49,16 @@ A linked package's real path has no `node_modules` in it, so only its admission 
 - **`#`** specifiers resolve through the `"imports"` of the nearest `package.json` ([imports](#imports)).
 - **Files on disk only,** but for the builtin modules. No `https:`, `jsr:`, or `npm:` imports,
   and Gro never pre-bundles a project's dependencies.
+- **No Node built-ins:** a `node:` specifier is refused, and so is a bare specifier that is exactly a name Node resolves as its built-in
+  (`fs`, `fs/promises`, `crypto`, …: `builtinModules` less the names only `node:` reaches and the internals starting with `_`),
+  ahead of any package lookup, as Node resolves one ahead of `node_modules`, so a package installed under such a name never stands in for the built-in.
+  The refusal names Gro's host module for it where there is one, by the advisory table in [host modules](host_modules.md#where-to-import-them)
+  (`@fuzdev/gro/fs.ts` for `node:fs`, `@fuzdev/gro/spawn.ts` for `node:child_process`, the process modules for `node:process`),
+  says when that module isn't on `fgro` yet (`node:net` and the rest of the network's),
+  and says so when Gro has none.
+  A name only `node:` reaches, like `test`, and a subpath that names no built-in, like `punycode/`, resolve as packages, as in Node.
+  Like a missing package, the refusal doesn't fail a run that catches it.
+  An internal starting with `_`, like `_http_agent`, resolves as a package, where Node resolves it as the internal; npm publishes no package of such a name.
 - **Refused, with the reason and a fix where there is one:** a package without `"exports"` (no `main`),
   a CommonJS package or file, a `.js` file whose nearest `package.json` lacks `"type": "module"`,
   schemes other than `file:` (the host's own `ext:` modules and the builtin modules' `builtin:` URLs included), and the file types [typescript](typescript.md#file-types) lists

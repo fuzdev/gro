@@ -418,5 +418,47 @@
 		"node": {
 			"error": "ERR_MODULE_NOT_FOUND"
 		}
+	},
+	{
+		"importer": "src/main.mjs",
+		"specifier": "node:fs",
+		"node": {
+			"url": "node:fs"
+		}
+	},
+	{
+		"importer": "src/main.mjs",
+		"specifier": "fs",
+		"node": {
+			"url": "node:fs"
+		}
+	},
+	{
+		"importer": "src/main.mjs",
+		"specifier": "fs/promises",
+		"node": {
+			"url": "node:fs/promises"
+		}
+	},
+	{
+		"importer": "src/main.mjs",
+		"specifier": "events",
+		"node": {
+			"url": "node:events"
+		}
+	},
+	{
+		"importer": "src/main.mjs",
+		"specifier": "test",
+		"node": {
+			"url": "node_modules/test/index.js"
+		}
+	},
+	{
+		"importer": "node_modules/dep/probe.mjs",
+		"specifier": "events",
+		"node": {
+			"url": "node:events"
+		}
 	}
 ]

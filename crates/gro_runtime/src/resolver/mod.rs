@@ -85,6 +85,7 @@ mod error;
 mod exports;
 mod find;
 mod format;
+mod node_builtin;
 mod package;
 mod project;
 mod roots;

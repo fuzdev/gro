@@ -203,7 +203,7 @@ fn exports_resolve_as_node_does() {
                 "above: Some(\"/w/package.json\")",
             ]),
         ),
-        ("fs", Err(&["PackageNotFound", "\"fs\""])),
+        ("fs", Err(&["NodeBuiltin", "name: \"fs\"", "bare: true"])),
         (".x", Err(&["InvalidPackageName"])),
         ("@scope", Err(&["InvalidPackageName"])),
         ("@scope/", Err(&["InvalidPackageName"])),

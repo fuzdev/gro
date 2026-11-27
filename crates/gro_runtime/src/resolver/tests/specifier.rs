@@ -258,7 +258,13 @@ fn formats() {
 
 #[test]
 fn schemes() {
-    assert_eq!(kind("node:fs"), ResolveErrorKind::NodeBuiltin);
+    assert_eq!(
+        kind("node:fs"),
+        ResolveErrorKind::NodeBuiltin {
+            name: "fs".to_owned(),
+            bare: false,
+        }
+    );
     for specifier in ["npm:svelte", "jsr:@std/toml@^1"] {
         assert_eq!(kind(specifier), ResolveErrorKind::Registry, "{specifier}");
     }
@@ -276,6 +282,47 @@ fn schemes() {
     assert_eq!(
         kind("blob:abc"),
         ResolveErrorKind::UnsupportedScheme("blob".to_owned())
+    );
+}
+
+/// A bare specifier that is exactly a name Node resolves as a built-in is
+/// refused as one, ahead of any package lookup; one only `node:` names, an
+/// internal starting with `_`, and a subpath that names no built-in are
+/// looked up as packages, as Node does.
+#[test]
+fn bare_node_builtin_names() {
+    let builtin = |name: &str| ResolveErrorKind::NodeBuiltin {
+        name: name.to_owned(),
+        bare: true,
+    };
+    for name in crate::resolver::node_builtin::NODE_BUILTINS {
+        assert_eq!(kind(name), builtin(name), "{name}");
+    }
+    for specifier in [
+        "test",
+        "sqlite",
+        "_http_agent",
+        "punycode/",
+        "fs/x",
+        "events/",
+        "Fs",
+    ] {
+        assert!(
+            !matches!(kind(specifier), ResolveErrorKind::NodeBuiltin { .. }),
+            "{specifier}"
+        );
+    }
+}
+
+/// The names are sorted, distinct, and bare, so the search finds each.
+#[test]
+fn node_builtins_are_sorted_and_bare() {
+    let names = crate::resolver::node_builtin::NODE_BUILTINS;
+    assert!(names.windows(2).all(|pair| pair[0] < pair[1]));
+    assert!(
+        names
+            .iter()
+            .all(|name| !name.starts_with("node:") && !name.starts_with('_'))
     );
 }
 
@@ -366,12 +413,64 @@ fn messages() {
             .unwrap_err()
             .to_string()
     };
-    assert_eq!(
-        message("node:fs"),
-        "cannot resolve 'node:fs' from file:///p/main.js: a node: specifier names a Node \
-         built-in, and there is no Node compat. Fix: import Gro's host module for it, or run \
-         this under Node"
-    );
+    let node = "a node: specifier names a Node built-in, and there is no Node compat";
+    // the package a bare name would be, `fs` for `fs/promises`
+    let bare = |name: &str| {
+        let package = name.split('/').next().unwrap();
+        format!(
+            "it names the Node built-in 'node:{name}', which Node resolves ahead of any package \
+             named '{package}', and there is no Node compat"
+        )
+    };
+    let fs = ". Fix: import '@fuzdev/gro/fs.ts', Gro's host module for it, or run this under Node";
+    for (specifier, head, fix) in [
+        ("node:fs", node.to_owned(), fs.to_owned()),
+        ("node:fs/promises", node.to_owned(), fs.to_owned()),
+        ("fs", bare("fs"), fs.to_owned()),
+        ("fs/promises", bare("fs/promises"), fs.to_owned()),
+        (
+            "node:child_process",
+            node.to_owned(),
+            ". Fix: import '@fuzdev/gro/spawn.ts', Gro's host module for it, or run this under \
+             Node"
+                .to_owned(),
+        ),
+        (
+            "process",
+            bare("process"),
+            ". Fix: import what you use from Gro's process modules, of which fgro has \
+             '@fuzdev/gro/env.ts', '@fuzdev/gro/args.ts', '@fuzdev/gro/exit.ts', \
+             '@fuzdev/gro/stdout.ts', '@fuzdev/gro/stderr.ts', '@fuzdev/gro/cwd.ts', \
+             '@fuzdev/gro/pid.ts', and '@fuzdev/gro/runtime_version.ts', or run this under Node"
+                .to_owned(),
+        ),
+        (
+            "node:https",
+            node.to_owned(),
+            ". Gro's host module for it, '@fuzdev/gro/net.ts', isn't on fgro yet. Fix: run this \
+             under Node"
+                .to_owned(),
+        ),
+        (
+            "path",
+            bare("path"),
+            ", and Gro has no host module for it. Fix: use code that doesn't need it, or run \
+             this under Node"
+                .to_owned(),
+        ),
+        (
+            "node:test",
+            node.to_owned(),
+            ", and Gro has no host module for it. Fix: use code that doesn't need it, or run \
+             this under Node"
+                .to_owned(),
+        ),
+    ] {
+        assert_eq!(
+            message(specifier),
+            format!("cannot resolve '{specifier}' from file:///p/main.js: {head}{fix}"),
+        );
+    }
     assert!(message("https://example.com/a.js").contains("only files on disk load"));
     assert!(!message("https://example.com/a.js").contains("node_modules"));
     assert!(message("jsr:@std/toml").contains("@jsr/<scope>__<name>"));

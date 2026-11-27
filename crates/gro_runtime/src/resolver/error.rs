@@ -6,6 +6,7 @@ use std::path::PathBuf;
 
 use super::CONDITIONS;
 use super::builtin::{GRO_PACKAGE, Reserved, UNBUILT_HOST_MODULES};
+use super::node_builtin::write_refusal;
 use super::roots::{Origin, Root};
 use super::tree::ReadRefusal;
 use crate::BINARY_NAME;
@@ -26,8 +27,15 @@ pub struct ResolveError {
 /// [`ResolveError`]'s, which names the specifier and its importer.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ResolveErrorKind {
-    /// A `node:` specifier.
-    NodeBuiltin,
+    /// A Node built-in module: a `node:` specifier, or, `bare`, a bare
+    /// specifier that is exactly a name Node resolves as one ahead of any
+    /// package (the resolver's `NODE_BUILTINS`).
+    NodeBuiltin {
+        /// The built-in's name, without `node:`.
+        name: String,
+        /// Whether the specifier was the bare name.
+        bare: bool,
+    },
     /// A registry specifier: `npm:`, `jsr:`.
     Registry,
     /// A remote or inline specifier: `http:`, `https:`, `data:`.
@@ -555,7 +563,7 @@ impl ResolveErrorKind {
             Self::Target { error, .. } | Self::ImportTarget { error, .. } => {
                 error.guards_a_boundary()
             }
-            Self::NodeBuiltin
+            Self::NodeBuiltin { .. }
             | Self::Registry
             | Self::InvalidImportSpecifier
             | Self::NoImportScope { .. }
@@ -611,10 +619,7 @@ impl fmt::Display for ResolveErrorKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // the specifier is quoted by `ResolveError`, so these restate it only where the spec's wording does
         match self {
-            Self::NodeBuiltin => f.write_str(
-                "a node: specifier names a Node built-in, and there is no Node compat. \
-                 Fix: import Gro's host module for it, or run this under Node",
-            ),
+            Self::NodeBuiltin { name, bare } => write_refusal(f, name, *bare, BINARY_NAME),
             Self::Registry => f.write_str(
                 "it is a registry specifier; only files on disk load. \
                  Fix: install the package into node_modules and import it by name \
@@ -1338,7 +1343,7 @@ impl fmt::Display for UrlFault {
 
 /// Writes `count` specifiers quoted, joined as a list by `conjunction`
 /// (`or`, `and`): `'a'`, `'a' or 'b'`, `'a', 'b', or 'c'`.
-fn write_specifiers<'a>(
+pub(super) fn write_specifiers<'a>(
     f: &mut fmt::Formatter<'_>,
     specifiers: impl Iterator<Item = &'a str>,
     count: usize,

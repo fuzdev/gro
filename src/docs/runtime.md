@@ -382,9 +382,9 @@ As designed, except where marked built:
   A project's typecheck reads the types of the Gro it installed while the command runs the binary's embedded code.
   Another installed version falls back, so the two can differ when the installed Gro has the binary's version but not its code,
   like a build of a later commit before the version moves, or when the project installed no Gro, whose typecheck then finds no Gro types.
-  A run that fails after the resolver refused a `node:` specifier, caught or not, ends with a hint naming the cause
+  A run that fails after the resolver refused a Node built-in, by a `node:` specifier or a bare name Node resolves as one, caught or not, ends with a hint naming the cause
   and the whole command on the Node Gro, which confines nothing (`node_modules/.bin/gro` and the command line, its grant flags stripped),
-  a [review signal](glossary.md#review-signal) the run's code controls: project code can print it at will by catching a `node:` import and failing.
+  a [review signal](glossary.md#review-signal) the run's code controls: project code can print it at will by catching a Node built-in's import and failing.
   The box adds its own differences, each a cost of holding the tools where it holds them.
   A tool reaches no network but the run's own loopback, reads nothing under the home directory but the project's own trees, what git reads there, the programs the run pins, and what a grant flag names,
   writes only its own directories, executes nothing in the project outside `node_modules`, and can't attach to, signal, or read the environment of a process outside the run;

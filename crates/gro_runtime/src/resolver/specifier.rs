@@ -6,6 +6,7 @@ use url::Url;
 
 use super::error::{ResolveErrorKind, UrlFault};
 use super::exports::has_invalid_segment;
+use super::node_builtin::is_node_builtin;
 use super::package::parse_package_name;
 
 /// A parsed specifier.
@@ -40,7 +41,13 @@ pub(super) fn parse_specifier<'a>(
     if let Ok(url) = Url::parse(specifier) {
         return match url.scheme() {
             "file" => Ok(Request::Url(url)),
-            "node" => Err(ResolveErrorKind::NodeBuiltin),
+            "node" => Err(ResolveErrorKind::NodeBuiltin {
+                name: specifier
+                    .strip_prefix("node:")
+                    .unwrap_or(specifier)
+                    .to_owned(),
+                bare: false,
+            }),
             "npm" | "jsr" => Err(ResolveErrorKind::Registry),
             "http" | "https" | "data" => Err(ResolveErrorKind::Remote),
             scheme => Err(ResolveErrorKind::UnsupportedScheme(scheme.to_owned())),
@@ -54,6 +61,13 @@ pub(super) fn parse_specifier<'a>(
             return Err(ResolveErrorKind::InvalidImportSpecifier);
         }
         return Ok(Request::Import(specifier));
+    }
+    // Node resolves its built-ins' bare names ahead of any package
+    if is_node_builtin(specifier) {
+        return Err(ResolveErrorKind::NodeBuiltin {
+            name: specifier.to_owned(),
+            bare: true,
+        });
     }
     Ok(Request::Package(specifier))
 }

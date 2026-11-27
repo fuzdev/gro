@@ -237,13 +237,13 @@ pub fn run_module(run: &RunInvocation) -> u8 {
 }
 
 /// How a run that `started` ended, printed: its failure, then the refusals,
-/// then `node_hint` when the run failed after the resolver refused a
-/// `node:` specifier in it, then `walls` when the run failed after a
+/// then `node_hint` when the run failed after the resolver refused a Node
+/// built-in in it, then `walls` when the run failed after a
 /// program it started ended other than by exiting 0, returning the exit
 /// code ([`exit_code`]).
 ///
 /// Kind of the hint and the note: review signals the run's code controls,
-/// which can set the hint's flag by catching a `node:` import and then
+/// which can set the hint's flag by catching a Node built-in's import and then
 /// fail, steering the reader to the Node Gro, which confines nothing, and
 /// the note's by starting a program that fails; it could print the same
 /// lines itself.
@@ -257,7 +257,7 @@ pub fn finish(
         refused,
         exit_code: set,
         runtime,
-        node_specifier_refused,
+        node_builtin_refused,
         child_failed,
     } = match started {
         Ok(outcome) => outcome,
@@ -275,7 +275,7 @@ pub fn finish(
     report_refused(&refused);
     let code = exit_code(ended, !refused.is_empty());
     if code != 0
-        && node_specifier_refused
+        && node_builtin_refused
         && let Some(hint) = node_hint
     {
         stderr_line(hint);

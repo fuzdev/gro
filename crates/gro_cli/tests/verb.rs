@@ -356,17 +356,17 @@ fn a_command_s_run_matches_the_development_condition() {
     assert!(stderr.contains("which: prod"), "{stderr}");
 }
 
-/// A run that fails after a `node:` specifier was refused, caught or not,
-/// says how to run the command on the Node Gro; one that fails otherwise
-/// doesn't.
+/// A run that fails after a Node built-in was refused, caught or not, a
+/// bare name Node resolves as one included, says how to run the command on
+/// the Node Gro; one that fails otherwise doesn't.
 #[test]
 #[cfg_attr(
     not(feature = "snapshot"),
     ignore = "a command of Gro's runs on the binary only from a snapshot build"
 )]
-fn a_refused_node_specifier_hints_at_the_node_gro() {
+fn a_refused_node_builtin_hints_at_the_node_gro() {
     let genfile = "export const gen = async () => {\n\
-                   \ttry { await import('node:fs'); } catch {}\n\
+                   \ttry { await import('events'); } catch {}\n\
                    \tthrow new Error('the genfile failed');\n\
                    };\n";
     let project = linked_project("verb_node_hint", &[("src/lib/a b/n.gen.ts", genfile)]);
@@ -377,7 +377,7 @@ fn a_refused_node_specifier_hints_at_the_node_gro() {
     assert_eq!(code, Some(1), "{stdout}{stderr}");
     assert!(
         stderr.ends_with(
-            "hint: a node: specifier was refused in this run; the Node gro runs it, unconfined: \
+            "hint: a Node built-in's import was refused in this run; the Node gro runs it, unconfined: \
              node_modules/.bin/gro gen 'src/lib/a b' --check\n"
         ),
         "{stdout}{stderr}"

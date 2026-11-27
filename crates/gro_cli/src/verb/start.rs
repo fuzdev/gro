@@ -1043,7 +1043,7 @@ fn run_on_thread(run: &VerbRun, boxed: Boxed) -> u8 {
     };
     let cwd = run.root.clone();
     let node_hint = format!(
-        "hint: a node: specifier was refused in this run; the Node gro runs it, unconfined: {}",
+        "hint: a Node built-in's import was refused in this run; the Node gro runs it, unconfined: {}",
         node_gro_command(&run.cli_args)
     );
     let ran = on_sized_thread(BINARY_NAME.to_owned(), move || {

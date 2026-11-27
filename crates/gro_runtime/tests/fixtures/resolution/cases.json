@@ -20,11 +20,71 @@
 		"node_modules/dep/lib/x.js": "export default 'x';\n",
 		"inner/package.json": "{\"type\": \"module\", \"imports\": {\"#here\": \"./h.js\", \"#up_link\": \"./link.js\"}}",
 		"inner/probe.mjs": "",
-		"inner/h.js": "export default 'h';\n"
+		"inner/h.js": "export default 'h';\n",
+		"node_modules/events/package.json": "{\"name\": \"events\", \"type\": \"module\", \"exports\": \"./index.js\"}",
+		"node_modules/events/index.js": "export default 'events';\n",
+		"node_modules/test/package.json": "{\"name\": \"test\", \"type\": \"module\", \"exports\": \"./index.js\"}",
+		"node_modules/test/index.js": "export default 'test';\n"
 	},
 	"links": {
 		"inner/link.js": "../src/lib/a.js"
 	},
+	"node_builtins": [
+		"assert",
+		"assert/strict",
+		"async_hooks",
+		"buffer",
+		"child_process",
+		"cluster",
+		"console",
+		"constants",
+		"crypto",
+		"dgram",
+		"diagnostics_channel",
+		"dns",
+		"dns/promises",
+		"domain",
+		"events",
+		"fs",
+		"fs/promises",
+		"http",
+		"http2",
+		"https",
+		"inspector",
+		"inspector/promises",
+		"module",
+		"net",
+		"os",
+		"path",
+		"path/posix",
+		"path/win32",
+		"perf_hooks",
+		"process",
+		"punycode",
+		"querystring",
+		"readline",
+		"readline/promises",
+		"repl",
+		"stream",
+		"stream/consumers",
+		"stream/promises",
+		"stream/web",
+		"string_decoder",
+		"sys",
+		"timers",
+		"timers/promises",
+		"tls",
+		"trace_events",
+		"tty",
+		"url",
+		"util",
+		"util/types",
+		"v8",
+		"vm",
+		"wasi",
+		"worker_threads",
+		"zlib"
+	],
 	"cases": [
 		{ "importer": "src/main.mjs", "specifier": "#lib/a.js" },
 		{ "importer": "src/main.mjs", "specifier": "#lib/nested/c.js" },
@@ -145,6 +205,37 @@
 		{ "importer": "src/main.mjs", "specifier": "nope", "fgro": "PackageNotFound" },
 		{ "importer": "src/main.mjs", "specifier": "./rel.js" },
 		{ "importer": "src/main.mjs", "specifier": "./nope.js", "fgro": "NotFound" },
-		{ "importer": "src/main.mjs", "specifier": "./rel", "fgro": "NoExtension" }
+		{ "importer": "src/main.mjs", "specifier": "./rel", "fgro": "NoExtension" },
+		{
+			"importer": "src/main.mjs",
+			"specifier": "node:fs",
+			"fgro": "NodeBuiltin",
+			"departure": "there is no Node compat"
+		},
+		{
+			"importer": "src/main.mjs",
+			"specifier": "fs",
+			"fgro": "NodeBuiltin",
+			"departure": "there is no Node compat, so a name Node resolves as its built-in ahead of node_modules is refused as a node: specifier is"
+		},
+		{
+			"importer": "src/main.mjs",
+			"specifier": "fs/promises",
+			"fgro": "NodeBuiltin",
+			"departure": "there is no Node compat, so a name Node resolves as its built-in ahead of node_modules is refused as a node: specifier is"
+		},
+		{
+			"importer": "src/main.mjs",
+			"specifier": "events",
+			"fgro": "NodeBuiltin",
+			"departure": "there is no Node compat, so a name Node resolves as its built-in ahead of node_modules is refused as a node: specifier is, a package of its name installed or not"
+		},
+		{ "importer": "src/main.mjs", "specifier": "test" },
+		{
+			"importer": "node_modules/dep/probe.mjs",
+			"specifier": "events",
+			"fgro": "NodeBuiltin",
+			"departure": "there is no Node compat, so a name Node resolves as its built-in ahead of node_modules is refused as a node: specifier is, from a package too"
+		}
 	]
 }

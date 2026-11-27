@@ -212,9 +212,9 @@ pub struct Loader {
     /// The stack left where `deno_core` asks whether to build a builtin's
     /// module there.
     headroom: Headroom,
-    /// Whether a `node:` specifier was refused, by an import or
+    /// Whether a Node built-in was refused, by an import or
     /// `import.meta.resolve`, caught or not.
-    node_specifier_refused: Cell<bool>,
+    node_builtin_refused: Cell<bool>,
 }
 
 /// What a loader refuses beyond the resolver's rules, fixed when it is made.
@@ -308,7 +308,7 @@ impl Loader {
             box_check: BoxCheck::default(),
             authority: None,
             headroom: Headroom::default(),
-            node_specifier_refused: Cell::new(false),
+            node_builtin_refused: Cell::new(false),
         }
     }
 
@@ -387,9 +387,9 @@ impl Loader {
         let Refused { reason, message } = refused;
         if matches!(
             *reason,
-            FailureReason::Resolve(ResolveErrorKind::NodeBuiltin)
+            FailureReason::Resolve(ResolveErrorKind::NodeBuiltin { .. })
         ) {
-            self.node_specifier_refused.set(true);
+            self.node_builtin_refused.set(true);
         }
         if reached == Reached::Import(Reach::Dynamic) && reason.guards_a_boundary() {
             self.refused.borrow_mut().record_import(&message);
@@ -466,11 +466,11 @@ impl Loader {
         self.resolve_reached(&tree, specifier, referrer, reached)
     }
 
-    /// Whether the resolver refused a `node:` specifier so far, by an
+    /// Whether the resolver refused a Node built-in so far, by an
     /// import or `import.meta.resolve`, whether or not the program caught
     /// the refusal ([`ResolveErrorKind::NodeBuiltin`]).
-    pub const fn node_specifier_refused(&self) -> bool {
-        self.node_specifier_refused.get()
+    pub const fn node_builtin_refused(&self) -> bool {
+        self.node_builtin_refused.get()
     }
 
     /// What was refused by rule so far, taken from the loader, which starts

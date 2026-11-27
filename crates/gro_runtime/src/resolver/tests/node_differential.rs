@@ -9,7 +9,9 @@
 //! unless its `departure` says why `fgro` differs by design: it refuses the
 //! case, or resolves it to the other URL the case's `fgro_url` names. A case
 //! Node refuses is refused too. Either refusal is the kind the case's `fgro`
-//! names, and a case `fgro` resolves names none.
+//! names, and a case `fgro` resolves names none. The names the resolver
+//! refuses as Node's built-ins are the cases' `node_builtins`, which the
+//! oracle holds to the `builtinModules` of the Node it runs under.
 
 use std::path::Path;
 
@@ -18,6 +20,7 @@ use url::Url;
 
 use super::from_entry;
 use crate::resolver::DiskTree;
+use crate::resolver::node_builtin::NODE_BUILTINS;
 use crate::test_support::TestDir;
 
 /// `name`'s JSON, from the fixture directory.
@@ -26,6 +29,18 @@ fn read_fixture(name: &str) -> Value {
         .join("tests/fixtures/resolution")
         .join(name);
     serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
+}
+
+#[test]
+fn the_node_builtins_are_the_cases() {
+    let cases = read_fixture("cases.json");
+    let names: Vec<&str> = cases["node_builtins"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|name| name.as_str().unwrap())
+        .collect();
+    assert_eq!(NODE_BUILTINS, names);
 }
 
 #[test]

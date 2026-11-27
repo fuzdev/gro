@@ -117,15 +117,16 @@ pub struct RunOutcome {
     /// as it is by [`SpentRuntime::forget`] in a process about to exit.
     /// Unset when the run ended before a runtime was made.
     pub runtime: Option<SpentRuntime>,
-    /// Whether the resolver refused a `node:` specifier during the run,
-    /// caught or not, which no grant allows: what the program asked for is
-    /// Node's, so an embedder can say how to run it there.
+    /// Whether the resolver refused a Node built-in during the run, by a
+    /// `node:` specifier or a bare name Node resolves as one, caught or
+    /// not, which no grant allows: what the program asked for is Node's, so
+    /// an embedder can say how to run it there.
     ///
     /// Kind: a review signal the run's code controls. Any of its code can
-    /// set it by asking for a `node:` specifier and catching the refusal,
+    /// set it by asking for a Node built-in and catching the refusal,
     /// so it says only that one was asked for, never that the program
     /// needs Node.
-    pub node_specifier_refused: bool,
+    pub node_builtin_refused: bool,
     /// Whether a program the run started ended other than by exiting 0, by
     /// a signal or a code of its own, the run never having signaled it (a
     /// timeout, an abort, a stop, a program's own `kill`), so an embedder
@@ -145,7 +146,7 @@ impl RunOutcome {
             refused: Refusals::default(),
             exit_code: None,
             runtime: None,
-            node_specifier_refused: false,
+            node_builtin_refused: false,
             child_failed: false,
         }
     }
@@ -378,7 +379,7 @@ fn run_resolved(
         refused,
         exit_code,
         runtime,
-        node_specifier_refused: loader.node_specifier_refused(),
+        node_builtin_refused: loader.node_builtin_refused(),
         child_failed,
     }
 }

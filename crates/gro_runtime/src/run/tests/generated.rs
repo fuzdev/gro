@@ -47,7 +47,7 @@ fn run_flagged(
         .spawn(move || {
             let pins = RunPins::pin(&options.authority, None, &entry.root);
             let outcome = run_generated_on(engine, &options, &entry, pins, None, &cwd);
-            (outcome.result, outcome.node_specifier_refused)
+            (outcome.result, outcome.node_builtin_refused)
         })
         .unwrap()
         .join()

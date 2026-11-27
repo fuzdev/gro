@@ -519,7 +519,10 @@ fn the_refusals_by_rule_are_the_ones_that_guard_the_run() {
         }),
     ];
     let nothing_there = [
-        FailureReason::Resolve(ResolveErrorKind::NodeBuiltin),
+        FailureReason::Resolve(ResolveErrorKind::NodeBuiltin {
+            name: "fs".to_owned(),
+            bare: true,
+        }),
         FailureReason::Resolve(ResolveErrorKind::Registry),
         FailureReason::Resolve(ResolveErrorKind::InvalidImportSpecifier),
         FailureReason::Resolve(ResolveErrorKind::NoImportScope { stopped_at: None }),

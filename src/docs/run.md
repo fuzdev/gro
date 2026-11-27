@@ -223,7 +223,7 @@ The binary embeds the commit, so a dirty tree (a changed file, or an untracked o
   ([resolver](resolver.md#imports)).
   The host's own modules (`ext:`) and the builtin modules' URLs (`builtin:`) are among the refused schemes:
   none loads into user code by a static `import`, `import()`, or `import.meta.resolve`.
-  A Node built-in's bare name, like `fs`, fails as a package that isn't installed.
+  A Node built-in's bare name, like `fs`, is refused as its `node:` specifier is, ahead of any package of that name, as Node resolves it ahead of `node_modules` ([resolver](resolver.md#specifiers)).
 - An `import()` inside code compiled from a string (an `eval`, direct or indirect, a `Function` constructor, its async and generator ones included,
   or a string passed to `setTimeout` or `setInterval`) is refused with a `TypeError`, whatever it names, wherever the code is called from.
   V8 can share such code between the modules that compile the same string and names the first as its importer,
@@ -353,7 +353,7 @@ for `pass_env: 'all'`, which no flag grants,
 or for a refused `import()` but the project's own of a builtin module the flags don't grant, which records the row it needed:
 a package is granted no host module by any flag, and most rules are grantable by nothing.
 The hint is made from what the run recorded of each refusal, the grant that would have allowed it, never from the listed text.
-A refusal because nothing is there to load (no such file or package, no matching export or condition, an extension or format that doesn't load, `node:`, a registry specifier)
+A refusal because nothing is there to load (no such file or package, no matching export or condition, an extension or format that doesn't load, a Node built-in, a registry specifier)
 or because a feature isn't supported (an import attribute under a key but `type`, a file imported with a `type`)
 doesn't fail the run and isn't listed, so probing for an optional dependency or a feature still exits 0, and neither does `import.meta.resolve`, which imports nothing.
 A run that a signal kills, Ctrl-C included, or that aborts, as V8 does out of memory, lists nothing, and never exits 0.

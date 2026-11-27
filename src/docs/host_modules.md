@@ -1154,7 +1154,8 @@ Its results are the Node module's, held to them by the differential cases on Gro
   `fgro` has no `process` global, so these move when Gro runs on it.
 
 - Advisory grants, designed and not built, will count a `node:*` import on the Node Gro as the host module it corresponds to,
-  and report one with no entry here as ambient:
+  and report one with no entry here as ambient.
+  `fgro` names the host module from this table when it refuses a Node built-in ([resolver](resolver.md#specifiers)):
 
   | Node builtin                                                               | host module      |
   | -------------------------------------------------------------------------- | ---------------- |

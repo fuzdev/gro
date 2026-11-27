@@ -20,6 +20,7 @@ import {
 	symlinkSync,
 	writeFileSync
 } from 'node:fs';
+import { builtinModules } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -31,10 +32,25 @@ const dir = realpathSync(import.meta.dirname);
 const expected_path = join(dir, 'expected.json');
 
 /** @typedef {{importer: string, specifier: string, fgro?: string, fgro_url?: string, departure?: string}} Case */
-/** @typedef {{files: Record<string, string>, links: Record<string, string>, cases: Array<Case>}} Cases */
+/** @typedef {{files: Record<string, string>, links: Record<string, string>, node_builtins: Array<string>, cases: Array<Case>}} Cases */
 
 /** @type {Cases} */
-const { files, links, cases } = JSON.parse(readFileSync(join(dir, 'cases.json'), 'utf8'));
+const { files, links, node_builtins, cases } = JSON.parse(
+	readFileSync(join(dir, 'cases.json'), 'utf8')
+);
+
+// the names this Node resolves bare as its built-ins, which the resolver refuses as `node:` ones:
+// all but the ones only `node:` names and the internals starting with `_`, which versions add and drop
+const bare_builtins = builtinModules
+	.filter((name) => !name.startsWith('node:') && !name.startsWith('_'))
+	.sort();
+if (JSON.stringify(bare_builtins) !== JSON.stringify(node_builtins)) {
+	console.error(
+		`cases.json's node_builtins aren't the names Node ${process.version} resolves bare as its ` +
+			`built-ins, which the resolver's NODE_BUILTINS must match:\n${JSON.stringify(bare_builtins)}`
+	);
+	process.exit(1);
+}
 
 /** What each importer is in the tree: it resolves and imports what it's asked to. */
 const PROBE = `export const probe = async (specifier) => {
