@@ -66,8 +66,8 @@ use gro_runtime::engine::{EngineOptions, init_engine};
 use gro_runtime::file_id::FileId;
 use gro_runtime::phases::{self, Phase};
 use gro_runtime::resolver::{
-    Conditions, DiskTree, GRO_PACKAGE, InstalledPackage, ProjectPackage, ResolveErrorKind,
-    normalize, read_installed_package, read_project_package,
+    BUILTINS, Capability, Conditions, DiskTree, GRO_PACKAGE, InstalledPackage, ProjectPackage,
+    ResolveErrorKind, normalize, read_installed_package, read_project_package,
 };
 use gro_runtime::verb::table::BuiltinGrantsTable;
 use gro_runtime::{
@@ -687,7 +687,9 @@ fn refusal_line(refusal: &Refusal) -> String {
 }
 
 /// The hint lines saying what grants the refused calls' needs
-/// (`refused.needed`), made of that data, never of a listed message: one
+/// (`refused.needed`), made of that data, never of a listed message: for
+/// each builtin module the project imported that the run's grants lack the
+/// row of, the flag that grants it ([`module_hint`]), naming no name; one
 /// for `--allow-env=` naming each variable that's a [`hint_name`], one for
 /// `--allow-run=` naming each program that's a [`hint_program`], and one
 /// for `--allow-run-env=` naming each variable that's a [`hint_name`], a
@@ -707,8 +709,17 @@ fn grant_hints(refused: &Refusals) -> Vec<String> {
     );
     let (mut read, mut link, mut write, mut open_dir, mut temp, mut run_in) =
         (false, false, false, false, false, false);
+    let mut hints: Vec<String> = refused
+        .needed
+        .iter()
+        .filter_map(|needed| match needed {
+            NeededGrant::Module(capability) => module_hint(*capability),
+            _ => None,
+        })
+        .collect();
     for needed in &refused.needed {
         match needed {
+            NeededGrant::Module(_) => {}
             NeededGrant::Env(name) if hint_name(name) => names.push(name),
             NeededGrant::Env(_) => some_env = true,
             NeededGrant::Run(name) if hint_program(name) => programs.push(name),
@@ -723,7 +734,6 @@ fn grant_hints(refused: &Refusals) -> Vec<String> {
             NeededGrant::RunIn => run_in = true,
         }
     }
-    let mut hints = Vec::new();
     for (flag, listed, some, refused_by) in [
         (ALLOW_ENV, names, some_env, "env"),
         (ALLOW_RUN, programs, some_run, "spawn"),
@@ -773,6 +783,33 @@ fn grant_hints(refused: &Refusals) -> Vec<String> {
         ));
     }
     hints
+}
+
+/// The hint naming the flag that grants a builtin module needing
+/// `capability`, which the project imported and the run's grants lack:
+/// `--allow-env` for `env`, `--allow-run` or `--allow-run-in` for `spawn`,
+/// naming no name, since the import says none; none for the rows `fgro
+/// run` grants the project whatever its flags.
+fn module_hint(capability: Capability) -> Option<String> {
+    let flags = match capability {
+        Capability::Env => format!("{ALLOW_ENV} naming each variable the run reads"),
+        Capability::Spawn => format!(
+            "{ALLOW_RUN} naming each program the run starts, \
+             or {ALLOW_RUN_IN} naming a directory holding them,"
+        ),
+        Capability::Args
+        | Capability::Exit
+        | Capability::Stdout
+        | Capability::Stderr
+        | Capability::Fs => return None,
+    };
+    let specifier = BUILTINS
+        .iter()
+        .find(|builtin| builtin.grant == Some(capability))?
+        .specifier;
+    Some(format!(
+        "hint: add {flags} to grant the import of '{specifier}'"
+    ))
 }
 
 /// Whether the hint names `name`: ASCII letters, digits, and `_` only
@@ -1514,6 +1551,37 @@ mod tests {
             hints(&[env("A B")], false),
             Vec::<String>::new(),
             "an env name it can't show makes no line"
+        );
+    }
+
+    /// A builtin module the run's grants lack the row of names the flag
+    /// that grants it, first, once each, in the order each was needed,
+    /// naming no name; a row `fgro run` always grants has no hint.
+    #[test]
+    fn the_module_hints_name_the_flag_first() {
+        use gro_runtime::resolver::Capability;
+        use gro_runtime::{NeededGrant, Refusals};
+
+        use super::grant_hints;
+
+        let hints = grant_hints(&Refusals {
+            needed: vec![
+                NeededGrant::Env("HOME".to_owned()),
+                NeededGrant::Module(Capability::Spawn),
+                NeededGrant::Module(Capability::Fs),
+                NeededGrant::Module(Capability::Env),
+            ],
+            ..Refusals::default()
+        });
+        assert_eq!(
+            hints,
+            [
+                "hint: add --allow-run naming each program the run starts, or --allow-run-in \
+                 naming a directory holding them, to grant the import of '@fuzdev/gro/spawn.ts'",
+                "hint: add --allow-env naming each variable the run reads to grant the import of \
+                 '@fuzdev/gro/env.ts'",
+                "hint: add --allow-env=HOME to grant what env refused",
+            ]
         );
     }
 

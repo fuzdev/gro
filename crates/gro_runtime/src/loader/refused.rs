@@ -15,6 +15,7 @@
 use std::borrow::Cow;
 
 use crate::host::error_class::{ENV_ERROR, FS_ERROR, SPAWN_ERROR};
+use crate::resolver::Capability;
 
 /// The most refusals listed.
 ///
@@ -137,11 +138,17 @@ impl From<SpawnNeed> for NeededGrant {
 /// symlink, which the link or the path the program opens lets through,
 /// where a grant of the target's directory needn't; and an op a handle's
 /// scope lacks, a grant of the kind it lacks, unless a root the op's
-/// target is in already grants it, since a handle's scope never widens.
-/// Never a name refused by a handle the program narrowed, which no grant
-/// widens.
+/// target is in already grants it, since a handle's scope never widens;
+/// and a builtin module the project's own module imported that the run's
+/// grants lack the row of, which an embedder's flag grants. Never a name
+/// refused by a handle the program narrowed, which no grant widens, and
+/// never a builtin refused to a package or to Gro's library, which no grant
+/// of the project's lets through.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NeededGrant {
+    /// A builtin module's row, by the capability it needs: the run's
+    /// grants lack it, and the project's own module imported the builtin.
+    Module(Capability),
     /// An environment variable to read, by its name.
     Env(String),
     /// An fs grant, by its kind.
@@ -163,7 +170,7 @@ impl NeededGrant {
             Self::Env(_) => Some(NameKind::Env),
             Self::Run(_) => Some(NameKind::Run),
             Self::RunEnv(_) => Some(NameKind::RunEnv),
-            Self::Fs(_) | Self::RunIn => None,
+            Self::Module(_) | Self::Fs(_) | Self::RunIn => None,
         }
     }
 }
@@ -263,6 +270,14 @@ impl Refusals {
     /// `message` ([`Self::list`]).
     pub(crate) fn record_import(&mut self, message: &str) {
         self.list(RefusedBy::Import, message);
+    }
+
+    /// Records that the project's own module imported a builtin needing
+    /// `capability`, which the run's grants lack, whether the import was
+    /// static or an `import()`; the static one isn't listed, since it's the
+    /// run's failure.
+    pub(crate) fn need_module(&mut self, capability: Capability) {
+        self.need(NeededGrant::Module(capability));
     }
 
     /// Records a host module's call refused about `target`, its error's

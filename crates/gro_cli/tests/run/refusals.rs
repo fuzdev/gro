@@ -1063,3 +1063,38 @@ fn a_run_v8_aborts_after_a_refusal_ends_by_a_signal() {
     assert!(stderr.contains("out of memory"), "{stderr}");
     assert!(!stderr.contains("import() refused"), "{stderr}");
 }
+
+/// A project's `import()` of a host module the run's flags don't grant
+/// fails the run though it's caught, and ends with the hint naming the
+/// flag that grants it, once however often it's tried, naming no program;
+/// granted, it imports.
+#[test]
+fn a_host_module_the_flags_dont_grant_names_its_flag() {
+    let fixtures = temp_fixtures(
+        "module_hint",
+        &[(
+            "main.js",
+            "for (let i = 0; i < 2; i++) {\n\
+             \ttry {\n\t\tawait import('@fuzdev/gro/spawn.ts');\n\t\tconsole.log('imported');\n\
+             \t} catch {\n\t\tconsole.log('caught');\n\t}\n}\n",
+        )],
+    );
+    let run = run_with(&fixtures, &[], "main.js", &[]);
+    assert_eq!(run.code, 1, "{}", run.stderr);
+    assert_eq!(run.stdout, "caught\ncaught\n");
+    assert_eq!(
+        run.stderr,
+        format!(
+            "error: import() refused: cannot import '@fuzdev/gro/spawn.ts' from file://{}/main.js: \
+             it needs the grant 'spawn', which this run doesn't grant\n{REFUSALS_FAIL}\
+             hint: add --allow-run naming each program the run starts, or --allow-run-in naming \
+             a directory holding them, to grant the import of '@fuzdev/gro/spawn.ts'\n",
+            fixtures.0.display()
+        )
+    );
+    let run = run_with(&fixtures, &["--allow-run=git"], "main.js", &[]);
+    assert_eq!(
+        (run.code, run.stdout.as_str(), run.stderr.as_str()),
+        (0, "imported\nimported\n", "")
+    );
+}

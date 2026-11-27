@@ -310,7 +310,13 @@ then closes with `error: a refusal fails the run, whether or not the program cau
 One that is the run's uncaught error (a `TypeError`, an `EnvError`, an `FsError`, or a `SpawnError` with its message) prints as that and isn't listed, though past the listed ones it's still counted;
 an `FsError` names no need, so when `fs` refused its path more than once, needing different grants, each of those stays listed,
 and once any refusal was counted, the uncaught one may be among the counted, so every listed one stays.
-Last comes one hint, `hint: add --allow-env=A,B to grant what env refused`, naming each variable the run's own grant lacked,
+Last come the hints.
+The first hints name the flag that grants a builtin module the project's own module imported, by a static import or `import()`, when the run's flags don't grant it,
+once each, naming no name, since an import names none:
+`hint: add --allow-env naming each variable the run reads to grant the import of '@fuzdev/gro/env.ts'`,
+and `hint: add --allow-run naming each program the run starts, or --allow-run-in naming a directory holding them, to grant the import of '@fuzdev/gro/spawn.ts'`.
+A package's import of a builtin module, or Gro's library's, has none, since no flag of the project's lets it through.
+Then `hint: add --allow-env=A,B to grant what env refused`, naming each variable the run's own grant lacked,
 distinct, in the order each was first refused, the first 8, its uncaught one's and the counted ones' included:
 a name the root `env` refused, which holds what `--allow-env=` gave the project, so the flag lets the call through, whichever module made it.
 It names only ASCII letters, digits, and `_`, which every shell passes as printed, since the program chose the names and pasting the hint mustn't run anything,
@@ -344,8 +350,8 @@ and two refusals of one path that needed different kinds are two lines.
 The listed refusal names the path; a hint never does, since a path the program chose, shown back, can grant another directory than it names, through a symlink, or run something when pasted.
 There's no hint for a name outside a narrowed handle's set, which no flag widens, for any refusal under `-A`, whose roots reach everything,
 for `pass_env: 'all'`, which no flag grants,
-or for a refused `import()`, which records no grant: a package is granted no host module by any flag, most rules are grantable by nothing,
-and the project's `import()` of `env` without `--allow-env=` names no variable the flag could list.
+or for a refused `import()` but the project's own of a builtin module the flags don't grant, which records the row it needed:
+a package is granted no host module by any flag, and most rules are grantable by nothing.
 The hint is made from what the run recorded of each refusal, the grant that would have allowed it, never from the listed text.
 A refusal because nothing is there to load (no such file or package, no matching export or condition, an extension or format that doesn't load, `node:`, a registry specifier)
 or because a feature isn't supported (an import attribute under a key but `type`, a file imported with a `type`)

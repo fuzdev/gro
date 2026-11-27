@@ -3,7 +3,8 @@
 
 use super::*;
 use crate::Authority;
-use crate::resolver::{BUILTINS, Builtin, Origin, ResolveErrorKind};
+use crate::loader::refused::NeededGrant;
+use crate::resolver::{BUILTINS, Builtin, Capability, Origin, ResolveErrorKind};
 use crate::test_support::run_authority;
 
 const ARGS: &str = "@fuzdev/gro/args.ts";
@@ -92,10 +93,17 @@ fn no_authority_grants_nothing() {
         );
     }
     assert_no_builtin(&loader);
+    assert_eq!(
+        loader.take_refused().needed,
+        [],
+        "no grant lets eval import"
+    );
 }
 
-/// Granting nothing refuses the project; granting `args` grants it to
-/// the project and still refuses the package, whichever imports first.
+/// Granting nothing refuses the project, recording the row its import
+/// needed, once; granting `args` grants it to the project and still
+/// refuses the package, whichever imports first, recording no need, since
+/// no grant of the run lets a package import it.
 #[test]
 fn the_project_is_granted_and_a_package_never() {
     let tree = tree();
@@ -108,6 +116,17 @@ fn the_project_is_granted_and_a_package_never() {
         "which this run doesn't grant",
     );
     assert_no_builtin(&empty);
+    assert_refused(
+        &empty,
+        MAIN,
+        Reached::Import(Reach::Dynamic),
+        &Origin::Project,
+        "which this run doesn't grant",
+    );
+    assert_eq!(
+        empty.take_refused().needed,
+        [NeededGrant::Module(Capability::Args)]
+    );
     let package_refusal = "which package 'bar' isn't granted: only the project's own modules are granted host \
          modules";
     for project_first in [true, false] {
@@ -143,6 +162,11 @@ fn the_project_is_granted_and_a_package_never() {
             load_disk(&granted, &url)
                 .unwrap_err()
                 .contains("a builtin has no file to load")
+        );
+        assert_eq!(
+            granted.take_refused().needed,
+            [],
+            "a package's need is none"
         );
     }
 }

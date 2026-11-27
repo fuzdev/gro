@@ -53,7 +53,7 @@
 //! A module of Gro's embedded library
 //! ([`Resolved::Embedded`](crate::resolver::Resolved::Embedded)) has no
 //! file: it's recorded with its path and code, its origin
-//! [`Origin::Embedded`](crate::resolver::Origin::Embedded), which the grant
+//! [`Origin::Embedded`], which the grant
 //! check refuses every builtin that needs a grant under any authority, and
 //! loads from its code as it is, never read or stripped, since the copy was
 //! stripped when it was made. Its imports resolve from its path in the
@@ -150,7 +150,7 @@ use crate::confine::BoxRoots;
 use crate::embed::LoadEmbed;
 use crate::file_id::FileId;
 use crate::resolver::{
-    Conditions, DiskTree, EmbeddedModule, Resolution, ResolveErrorKind, Roots, SourceTree,
+    Conditions, DiskTree, EmbeddedModule, Origin, Resolution, ResolveErrorKind, Roots, SourceTree,
     find_builtin, find_embedded_builtin,
 };
 use boxed::{BoxCheck, Boxed};
@@ -373,7 +373,9 @@ impl Loader {
     /// Records `refused` as the failure of `specifier`, reached from
     /// `referrer` as `reached`, at `at` in its importer when `deno_core`
     /// says, lists it among the refused `import()`s when it's a rule's
-    /// refusal of what one reached, and returns the error JS sees.
+    /// refusal of what one reached, records the grant a project's import of
+    /// a builtin needed when the run's grants lack its row, and returns the
+    /// error JS sees.
     fn record_refused(
         &self,
         specifier: &str,
@@ -391,6 +393,17 @@ impl Loader {
         }
         if reached == Reached::Import(Reach::Dynamic) && reason.guards_a_boundary() {
             self.refused.borrow_mut().record_import(&message);
+        }
+        // a grant of the run's would let the project's own import through,
+        // a package's or Gro's library's never
+        if let FailureReason::NotGranted {
+            builtin,
+            origin: Origin::Project,
+        } = &*reason
+            && let Some(Authority::Confined(_)) = &self.authority
+            && let Some(capability) = builtin.grant
+        {
+            self.refused.borrow_mut().need_module(capability);
         }
         let failure = Failure {
             at,

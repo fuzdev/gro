@@ -69,14 +69,15 @@ fn allow_env_grants_the_named_variables_and_no_others() {
     let run = run_with(&fixtures, &[], "main.js", &vars);
     assert_eq!(run.code, 1);
     assert_eq!(run.stdout, "");
-    assert!(
-        run.stderr
-            .contains("cannot import '@fuzdev/gro/env.ts' from file://")
-            && run
-                .stderr
-                .contains("it needs the grant 'env', which this run doesn't grant"),
-        "{}",
-        run.stderr
+    assert_eq!(
+        run.stderr,
+        format!(
+            "error: cannot import '@fuzdev/gro/env.ts' from file://{}/main.js: it needs the grant \
+             'env', which this run doesn't grant\n\
+             hint: add --allow-env naming each variable the run reads to grant the import of \
+             '@fuzdev/gro/env.ts'\n",
+            fixtures.0.display()
+        )
     );
 }
 
