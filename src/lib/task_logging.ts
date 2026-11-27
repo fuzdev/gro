@@ -53,16 +53,18 @@ const to_task_row_segments = (rows: Array<[string, string]>): Array<string> => {
 /**
  * Logs Gro's builtin tasks with their summaries and the CLI's usage,
  * from the generated summaries, so it imports no task module.
+ * @param log - the logger
+ * @param cli_name - the name the CLI runs as, which the usage tells a user to type
  */
-export const log_builtin_tasks = (log: Logger): void => {
+export const log_builtin_tasks = (log: Logger, cli_name: string): void => {
 	const rows = Object.entries(GRO_BUILTIN_TASK_SUMMARIES);
 	const logged: Array<string> = [`\n\n${rows.length} builtin tasks:\n`];
 	logged.push(...to_task_row_segments(rows));
 	logged.push(
-		`\n\n${st('gray', 'Run a builtin:')}        gro [name]`,
-		`\n${st('gray', 'View its help:')}        gro [name] --help`,
-		`\n${st('gray', 'Run a project task:')}   gro task [path/to/file.task.ts]`,
-		`\n${st('gray', 'List project tasks:')}   gro task [dir], defaults to src/`
+		`\n\n${st('gray', 'Run a builtin:')}        ${cli_name} [name]`,
+		`\n${st('gray', 'View its help:')}        ${cli_name} [name] --help`,
+		`\n${st('gray', 'Run a project task:')}   ${cli_name} task [path/to/file.task.ts]`,
+		`\n${st('gray', 'List project tasks:')}   ${cli_name} task [dir], defaults to src/`
 	);
 	log.info(logged.join('') + '\n');
 };

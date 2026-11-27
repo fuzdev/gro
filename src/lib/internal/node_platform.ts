@@ -51,5 +51,6 @@ export const load_gro_package = async (fs_paths: FsPaths, dir: string): Promise<
 export const create_node_platform = async (fs_paths: FsPaths): Promise<GroPlatform> => ({
 	create_module_graph: create_node_module_graph,
 	load_svelte_config: load_default_svelte_config,
-	gro: await load_gro_package(fs_paths, to_gro_package_dir(to_file_path(new URL(import.meta.url))))
+	gro: await load_gro_package(fs_paths, to_gro_package_dir(to_file_path(new URL(import.meta.url)))),
+	cli_name: 'gro'
 });

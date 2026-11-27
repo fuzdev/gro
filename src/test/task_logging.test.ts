@@ -187,7 +187,7 @@ describe('log_tasks', () => {
 describe('log_builtin_tasks', () => {
 	test('lists the builtins with their summaries and the usage, importing no task module', () => {
 		const log = create_mock_logger();
-		log_builtin_tasks(log);
+		log_builtin_tasks(log, 'gro');
 		const text = stripVTControlCharacters(vi.mocked(log.info).mock.calls[0]!.join(' '));
 		const names = Object.keys(GRO_BUILTIN_TASK_SUMMARIES);
 		assert.include(text, `${names.length} builtin tasks:`);
@@ -197,5 +197,16 @@ describe('log_builtin_tasks', () => {
 		assert.include(text, 'Run a project task:   gro task [path/to/file.task.ts]');
 		assert.include(text, 'List project tasks:   gro task [dir], defaults to src/');
 		assert.notInclude(text, 'resolve');
+	});
+
+	test('names the CLI it runs as in the usage', () => {
+		const log = create_mock_logger();
+		log_builtin_tasks(log, 'fgro');
+		const text = stripVTControlCharacters(vi.mocked(log.info).mock.calls[0]!.join(' '));
+		assert.include(text, 'Run a builtin:        fgro [name]');
+		assert.include(text, 'View its help:        fgro [name] --help');
+		assert.include(text, 'Run a project task:   fgro task [path/to/file.task.ts]');
+		assert.include(text, 'List project tasks:   fgro task [dir], defaults to src/');
+		assert.notInclude(text, ' gro [name]');
 	});
 });

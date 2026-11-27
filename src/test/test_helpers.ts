@@ -65,7 +65,8 @@ export const TEST_GRO_PACKAGE: GroPackage = Object.freeze({
 export const create_test_platform = (): GroPlatform => ({
 	create_module_graph: create_node_module_graph,
 	load_svelte_config: load_default_svelte_config,
-	gro: TEST_GRO_PACKAGE
+	gro: TEST_GRO_PACKAGE,
+	cli_name: 'gro'
 });
 
 /**

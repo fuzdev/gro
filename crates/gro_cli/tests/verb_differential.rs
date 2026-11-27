@@ -127,6 +127,10 @@ enum Difference {
     CheckTurnedOffRefused,
     /// "`-A` is refused, exit 2": the case's `binary`, in Node's place.
     AllowAllRefused,
+    /// "The builtins' listing, bare `fgro`, names the binary in its usage
+    /// lines, `fgro [name]`, where the Node Gro's names `gro`": the
+    /// binary's name in the usage lines read as Node's.
+    CliName,
 }
 
 impl Difference {
@@ -138,6 +142,7 @@ impl Difference {
             "binary_version" => Self::BinaryVersion,
             "check_turned_off_refused" => Self::CheckTurnedOffRefused,
             "allow_all_refused" => Self::AllowAllRefused,
+            "cli_name" => Self::CliName,
             name => panic!("no declared difference is named {name}"),
         }
     }
@@ -292,6 +297,12 @@ fn apply(
                 }
             }
             Difference::LoggerColors => actual = actual.map(strip_sgr),
+            Difference::CliName => {
+                actual = actual.map(|text| {
+                    text.replace(&format!("{BINARY_NAME} [name]"), "gro [name]")
+                        .replace(&format!("{BINARY_NAME} task ["), "gro task [")
+                });
+            }
             Difference::ConsoleQuotes => actual = actual.map(requote_inspected),
             Difference::BinaryVersion => {
                 let prefix = format!("{BINARY_NAME} {version} (commit ");

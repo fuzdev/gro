@@ -19,5 +19,6 @@ await binary_main({
 	set_exit_code,
 	import_url: (url) => import(url),
 	home: '/home/fixture',
-	version: '0.0.0-fixture'
+	version: '0.0.0-fixture',
+	cli_name: 'fgro'
 });

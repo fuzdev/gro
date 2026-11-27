@@ -268,6 +268,19 @@ describe('invoke_cli', () => {
 		assert.strictEqual(vi.mocked(run_task).mock.calls.length, 0);
 	});
 
+	test('the listing names the CLI the platform runs as', async () => {
+		await invoke_cli(
+			await create_project_fs_paths(process.cwd()),
+			cli_task_args(''),
+			config,
+			[],
+			import_module_node,
+			create_throwing_builtin_host_root(),
+			{ ...create_test_platform(), cli_name: 'fgro' }
+		);
+		assert.strictEqual(vi.mocked(log_builtin_tasks).mock.calls[0]![1], 'fgro');
+	});
+
 	test('`gro <name>` runs the builtin, given the first section after `--` as its own', async () => {
 		await cli(cli_task_args('typecheck'), config, ['--', '--watch', '--', 'vitest', 'x']);
 		assert.strictEqual(vi.mocked(run_task).mock.calls.length, 1);

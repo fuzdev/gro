@@ -72,6 +72,11 @@ export interface GroPlatform {
 	 * The running Gro, every task's context's `gro`.
 	 */
 	readonly gro: GroPackage;
+	/**
+	 * The name the CLI runs as, which its builtins' listing tells a user to type:
+	 * `gro` for the Node Gro, the binary's own name on it.
+	 */
+	readonly cli_name: string;
 }
 
 /**
@@ -411,7 +416,7 @@ export const invoke_cli = async (
 			log.info(`${st('gray', 'v')}${st('cyan', platform.gro.version || '[no version]')}`);
 			return;
 		}
-		log_builtin_tasks(log);
+		log_builtin_tasks(log, platform.cli_name);
 		return;
 	}
 

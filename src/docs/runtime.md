@@ -373,6 +373,7 @@ As designed, except where marked built:
   normalizing only the differences here that each case names.
   Gro's logger colors its output even under `NO_COLOR` or when piped.
   `fgro --help` and `fgro help` print the binary's own help, where `gro --help` lists the builtins.
+  The builtins' listing, bare `fgro`, names the binary in its usage lines, `fgro [name]`, where the Node Gro's names `gro`.
   The console prints a string inside an array or object with double quotes, where Node's prints single ones,
   so a list Gro logs, like `gen`'s files, reads differently.
   A forwarded `-- gro <builtin>` section that turns off a `check`-marked step its command runs, like `fgro check -- gro gen --no-check`,

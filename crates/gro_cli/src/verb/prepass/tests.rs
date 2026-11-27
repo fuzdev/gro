@@ -616,7 +616,7 @@ fn the_run_s_condition_and_entry() {
     assert!(!development(Some("production")));
     let entry = run(&["check"]).entry;
     assert!(entry.contains("\thome: '/home/u',\n"), "{entry}");
-    assert!(entry.contains("\tversion: '1.2.3'\n"), "{entry}");
+    assert!(entry.contains("\tversion: '1.2.3',\n"), "{entry}");
 }
 
 /// A table the TS would refuse, or that grants one program two ways in a

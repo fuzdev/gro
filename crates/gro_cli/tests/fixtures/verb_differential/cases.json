@@ -13,7 +13,8 @@
 			"args": [],
 			"differs": [
 				"linked_node_modules",
-				"logger_colors"
+				"logger_colors",
+				"cli_name"
 			]
 		},
 		{

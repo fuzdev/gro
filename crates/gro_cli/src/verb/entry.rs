@@ -16,9 +16,11 @@
 
 use std::fmt::Write as _;
 
+use gro_runtime::BINARY_NAME;
+
 /// The entry's text: `home`, the `HOME` the binary read, `undefined` when
-/// it's unset, and `version`, the binary's, each written as a string
-/// literal ([`js_string`]).
+/// it's unset, `version`, the binary's, and the binary's name
+/// ([`BINARY_NAME`]), each written as a string literal ([`js_string`]).
 pub fn main_entry(home: Option<&str>, version: &str) -> String {
     let home = home.map_or_else(|| "undefined".to_owned(), js_string);
     format!(
@@ -43,10 +45,12 @@ await binary_main({{
 \tset_exit_code,
 \timport_url: (url) => import(url),
 \thome: {home},
-\tversion: {version}
+\tversion: {version},
+\tcli_name: {cli_name}
 }});
 ",
         version = js_string(version),
+        cli_name = js_string(BINARY_NAME),
     )
 }
 
@@ -98,7 +102,8 @@ mod tests {
     fn an_unset_home_is_undefined() {
         let entry = main_entry(None, "1.2.3");
         assert!(entry.contains("\thome: undefined,\n"), "{entry}");
-        assert!(entry.contains("\tversion: '1.2.3'\n"), "{entry}");
+        assert!(entry.contains("\tversion: '1.2.3',\n"), "{entry}");
+        assert!(entry.contains("\tcli_name: 'fgro'\n"), "{entry}");
     }
 
     /// A value read from the environment stays one literal on one line,

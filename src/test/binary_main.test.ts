@@ -59,7 +59,8 @@ const run = async (
 				return import_url(url);
 			},
 			home: undefined,
-			version: '1.2.3-binary'
+			version: '1.2.3-binary',
+			cli_name: 'xgro'
 		});
 	} finally {
 		rmSync(temp, { recursive: true });
@@ -88,6 +89,15 @@ test('a run that succeeds sets no exit code, and names the binary as the running
 	const { exit_codes } = await run(['--version'], {}, () => Promise.reject(Error('no import')));
 	assert.deepEqual(exit_codes, []);
 	assert.ok(info.mock.calls.some((call) => String(call[0]).includes('1.2.3-binary')));
+});
+
+test("the listing names the binary's name in its usage", async () => {
+	const { info } = silence_logs();
+	const { exit_codes } = await run([], {}, () => Promise.reject(Error('no import')));
+	assert.deepEqual(exit_codes, []);
+	const listing = info.mock.calls.map((call) => String(call[0])).join('\n');
+	assert.include(listing, 'xgro [name]');
+	assert.notInclude(listing, ' gro [name]');
 });
 
 test("the project loader imports a module by its file URL, a path's `#`, `?`, and `%` escaped", async () => {

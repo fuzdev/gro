@@ -76,6 +76,10 @@ export interface BinaryMainDeps {
 	 * The binary's version, every task's context's `gro.version`.
 	 */
 	readonly version: string;
+	/**
+	 * The binary's name, which its builtins' listing tells a user to type.
+	 */
+	readonly cli_name: string;
 }
 
 /**
@@ -92,7 +96,7 @@ export const binary_main = async (deps: BinaryMainDeps): Promise<void> => {
 			fs_paths: create_fs_paths(fs, { cwd: deps.cwd(), home: deps.home }),
 			host_root: { env, spawn, stdout, stderr },
 			import_module: (id) => import_url(to_file_url(id)),
-			platform: create_binary_platform(to_command_word(args), deps.version)
+			platform: create_binary_platform(to_command_word(args), deps.version, deps.cli_name)
 		});
 	} catch (error) {
 		log_cli_error(error, 'gro');
@@ -105,8 +109,13 @@ export const binary_main = async (deps: BinaryMainDeps): Promise<void> => {
  * Svelte config, read through Node's machinery, refuse naming the command and its Node run.
  * @param command - the command word, which the refusals name
  * @param version - the binary's version
+ * @param cli_name - the binary's name
  */
-const create_binary_platform = (command: string | undefined, version: string): GroPlatform => {
+const create_binary_platform = (
+	command: string | undefined,
+	version: string,
+	cli_name: string
+): GroPlatform => {
 	const refuse = (what: string): Promise<never> => {
 		const gro_command = command === undefined ? 'gro' : `gro ${command}`;
 		return Promise.reject(
@@ -126,7 +135,8 @@ const create_binary_platform = (command: string | undefined, version: string): G
 	return {
 		create_module_graph: () => graph,
 		load_svelte_config: () => refuse('the Svelte config'),
-		gro: { version, dir: null }
+		gro: { version, dir: null },
+		cli_name
 	};
 };
 
