@@ -68,7 +68,7 @@ for Linux x86_64 only, built from source ([install](../src/docs/runtime.md#insta
     An exec root that is also a write root runs what the run writes there.
     A run that grants a program raises its soft limit on open descriptors to the hard one as it starts, as Node does, and goes on when the kernel refuses the raise.
     A call's `signal` option isn't built: given, it rejects saying so.
-    Until each child is boxed, granting any program is close to granting what `-A` grants, since most programs can be made to run code
+    Since `fgro run` starts each child unboxed, granting any program there is close to granting what `-A` grants, since most programs can be made to run code
     by their arguments or environment and the root's `env` values set any variable; hand library code a narrowed root, which refuses them.
     A program outside a handle's set, a directory outside every exec root, or a variable its program's grant doesn't forward, throws `SpawnError` `not_granted`.
   - More builtin modules need no grant, so a package's modules import them as the project's do:

@@ -12,7 +12,7 @@
 > the grant-free modules link for every module; `-A` grants every module every one;
 > and `spawn` with the programs `--allow-run=` names, each pinned as the run starts, and those found beneath the exec roots `--allow-run-in=` names, each held as the run starts,
 > its `run`, `out`, `out_bytes`, and `start` starting them unboxed,
-> any program granted that way being close to `-A` until each child is boxed, since most can be made to run code by their arguments or environment
+> any program granted that way being close to `-A`, since `fgro run` boxes no child and most can be made to run code by their arguments or environment
 > (a shell, git, and cargo among them) and the root's `env` values set any variable: hand library code a narrowed root, which refuses them;
 > an exec root that is also a write root runs whatever the run writes there, so a run granted both can write a program and run it, and holds what that program can reach;
 > and a refused `import()`, `env` name, `fs` reach, or `spawn` program fails the run, caught or not ([run](run.md#errors-and-exit-codes)).
@@ -149,7 +149,7 @@ Native code stays out of the runtime's process, `-A` included: FFI loads its lib
 A widening of the second kind is a diff accepted in review, and the first kind has nothing to widen.
 
 The exceptions are explicit and labeled.
-`-A` is the one flag that widens everything but the always-on deny overlay (designed), never a default; some grants are as strong (any program until children are boxed, a child's whole environment) and are shown that way.
+`-A` is the one flag that widens everything but the always-on deny overlay (designed), never a default; some grants are as strong (any program under `fgro run`, which starts children unboxed, a child's whole environment) and are shown that way.
 As designed, a tool built on the runtime names unconfined phases, like Gro's `publish`, `deploy`, `commit`, and `changeset`,
 which push and use credentials;
 they're shown that way in the policy diff, with credentials passed to the one process that needs them.

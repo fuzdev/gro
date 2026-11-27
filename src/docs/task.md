@@ -318,7 +318,7 @@ const grants = {
 	env: ['CI'],
 	programs: {
 		git_cli: {name: 'git', pass_env: GIT_LOCAL_PASS_ENV},
-		sveltekit_cli: {name: SVELTEKIT_CLI, local: true, pass_env: 'all'},
+		sveltekit_cli: SVELTEKIT_CLI_GRANT,
 	},
 	invokes: {
 		sync: {when: 'install'},
@@ -483,7 +483,7 @@ run `svelte-kit sync` first for a project declaring `@sveltejs/kit` that's missi
 either of two files a sync writes, `.svelte-kit/types/route_meta_data.json`
 or the generated `node_modules/$app/tsconfig.json`, so a `.svelte-kit` directory that exists unsynced still syncs,
 each through its own `sveltekit_cli` grant, and `typecheck` always runs a full sync,
-as `dev`, `build`, and `sync` do in their sync step, and `test`'s Vite does when it starts;
+as `dev`, `build`, and `sync` do in their sync step, and `test` does before Vitest unless `--no-sync` ([test](./test.md#sveltekits-files-synced-first));
 the listing, `--version`, `format`, `clean`, `run`, and project tasks run none.
 When `svelte-kit` isn't in `node_modules/.bin` it skips the sync and warns that SvelteKit's files
 weren't synced, except on a fresh clone with no `node_modules`, where `gro sync --install` installs first.

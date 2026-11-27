@@ -1517,7 +1517,7 @@ what can fail for a reason of the run's fails in what the module exports, as `cw
 - Create a link with `symlinkat` on the parent's descriptor, never checking the target, which is data (built).
   Landlock's `MAKE_SYM` limits where links are made, the write roots, and Landlock's own walk refuses to follow one
   out of a granted hierarchy for the confined process and its children;
-  a link a later unconfined tool follows is the time-shifted case [box](box.md#the-box-for-runs-and-children) accepts for writes.
+  a link a later unconfined tool follows is the time-shifted case [box](box.md#what-it-holds-and-what-it-leaves) accepts for writes.
 - Set times and mode, following a final symlink, on an entry opened as a path beneath the handle,
   through its `/proc/self/fd` link (built).
   Landlock gates neither at any ABI, so the run box has to admit them by form (designed, and open:
@@ -1549,7 +1549,7 @@ what can fail for a reason of the run's fails in what the module exports, as `cw
 - Inherit only fds 0, 1, and 2 into the child (built: a run that grants a program marks every descriptor it inherited
   above stderr close-on-exec before anything runs, and what the runtime opens is close-on-exec already).
 - Confine the child with the run's kernel rules:
-  the project and the linked packages readable, only the run's write roots writable (the tool directories among them, each child only its own), never the project root,
+  the project and the linked packages readable, writable only its own tool directories, its own temporary directory, and what `--allow-run-write=` names for it, never the project root,
   the network the run's own loopback (or, where user namespaces are restricted, no internet socket), and seccomp refusing unix sockets by path, nested user namespaces, and terminal input injection (`TIOCSTI`, `TIOCLINUX`)
   ([box](box.md#what-a-commands-box-admits)) (built for a command of Gro's, whose children start each in a box of its own inside the run's; designed for `fgro run`, whose children run unboxed).
 - Keep the runtime's own environment and memory from a child that can read `/proc`:

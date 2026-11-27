@@ -19,7 +19,7 @@ See [task args forwarding](/src/docs/task.md#task-args-forwarding).
 > Vitest has native TypeScript support and excellent performance.
 
 > Where it's going: Vitest stays until the [runtime](runtime.md) ships its own test runner near the Node exit,
-> running as a subprocess under the run's kernel rules meanwhile.
+> running meanwhile as a subprocess, on the binary in a kernel box of its own ([box](box.md#a-box-for-each-tool)).
 
 Like other tasks, use `--help` to see the args info:
 
@@ -36,6 +36,7 @@ gro test: run tests with vitest
 dir                string             '/path/to/project/src/' working directory for tests
 fail_without_tests boolean            false                   opt out of `passWithNoTests`
 t                  string | undefined undefined               search pattern for test names, same as vitest -t and --testNamePattern
+no-sync            boolean            false                   opt out of syncing SvelteKit before the tests
 ```
 
 [`gro test`](/src/lib/test.task.ts) runs all `*.test.ts`
@@ -63,7 +64,7 @@ Gro supports Vitest 5, the range `^5` of its `vitest` peer dependency.
 In a SvelteKit project `gro test` runs `svelte-kit sync` before Vitest, as `gro typecheck` does,
 and `gro check` turns that off with `--no-sync` once its typecheck has synced.
 SvelteKit's plugin in Vitest then finds the tsconfig and types it generates in `node_modules/$app` current and writes nothing there,
-so on the binary the [box](box.md#what-a-commands-box-admits) lets only `svelte-kit` write `$app`:
+so on the binary the [box](box.md#what-a-commands-box-admits) lets no tool but `svelte-kit` write `$app`:
 a later typecheck, `dev`, `build`, and the editor trust what's there,
 and a file planted beside the generated ones, like a `package.json` whose `exports` redirect `$app/tsconfig`, survives every sync.
 `gro test --no-sync` skips the sync, so on the binary it fails on an unsynced tree, where Vitest would have to write `$app`.

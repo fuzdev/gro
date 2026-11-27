@@ -19,7 +19,7 @@
 > Designed, not built: the host modules not marked built in [host modules](host_modules.md#the-modules) (`net`, `watch`, and `stdin`;
 > every host module exists as its Node implementation), the grant flags beyond those listed in [run](run.md#usage), the policy file,
 > and the seal on the global object.
-> So is the box for `fgro run`; each tool a command of Gro's starts runs in a box of its own inside the command's ([box](box.md#a-box-for-each-tool)).
+> So is the box for `fgro run`.
 > Until they land, `fgro run` gives code no API past its own module graph, the console, and the builtin modules [host modules](host_modules.md#the-modules) marks built,
 > but the process itself isn't confined or limited: against code that exploits V8 it's an ordinary process with your user's authority,
 > the same class as Deno with no permissions granted;
@@ -124,7 +124,7 @@ any language compiled to it (see [polyglot confinement](#what-the-design-opens-u
   and library code takes it as a parameter rather than importing it ([host modules](host_modules.md#where-to-import-them)).
 - **A kernel box under it.** On Linux a coarsening of the grant set becomes Landlock and seccomp rules
   for the whole invocation and every child, so an op-check bug, an engine escape, or a spawned tool still lands in a box;
-  children get the project read-only and only the declared write roots writable ([box](box.md)).
+  children get the project read-only and only their own tool directories and temporary directory writable ([box](box.md#a-box-for-each-tool)).
 - **No prompts.** A grant denial fires at link time, before any confined code has written to your terminal
   (scoped checks inside a grant fail at the call and are reported, failing the run, so a `try/catch` can't hide them:
   built for `env`, `fs`, and `spawn`, designed for the modules to come),

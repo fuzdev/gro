@@ -274,7 +274,7 @@ so removing or renaming a top-level entry names the box, since the project's roo
 and for a file written or a copy's destination, the whole path, a final symlink followed.
 A mode or time change never gains the cause, since Landlock checks neither,
 and a refusal of a path the box writes, like a file's own mode refusing it, gains nothing.
-Two kinds of refusal the box makes print no cause: a write through a dangling symlink, resolved only to its own parent,
+These refusals print no cause: a write through a dangling symlink, resolved only to its own parent,
 and a recursive `mkdir` or copy through a symlink on the way.
 A run that exits nonzero after a tool it started ended other than by exiting 0, not counting one the run signaled itself, ends with a `note:` line naming the box's network and writes, as in
 

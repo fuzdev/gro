@@ -148,7 +148,7 @@ the value, or an error with its kind, which a caller branches on.
 `-A` (Deno's `--allow-all`, which `fgro run` spells only `-A`), which makes a run [unconfined](#unconfined):
 built on `fgro run`, where it grants every builtin module to every module of the run, `env` with every variable, `fs` with every directory, `spawn` with any program.
 `fgro <command>` refuses it before the command word, and after it for every command the binary runs itself, since that run is always boxed (a command left to Node passes it to the Node Gro), so a command of Gro's runs unconfined only on the Node Gro (`node_modules/.bin/gro`).
-It's the one flag that widens everything but the always-on [deny overlay](#deny-overlays) (designed), never a default; some grants are as strong (any program until children are boxed, a child's whole environment) and are shown that way.
+It's the one flag that widens everything but the always-on [deny overlay](#deny-overlays) (designed), never a default; some grants are as strong (any program under `fgro run`, which starts children unboxed, a child's whole environment) and are shown that way.
 Narrower ways to widen sit beside each default, like a blanket net grant and the JIT flag for `gro eval`.
 
 ## exec root

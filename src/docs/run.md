@@ -82,7 +82,7 @@ A run grants the project's own modules `args`, `exit`, `stdout`, `stderr`, and `
   and pins each name then, once the entry has resolved and before any module evaluates, to the file it finds and that file's real path ([host modules](host_modules.md#spawn-on-fgro)),
   a script at a `node_modules/.bin` name with the `node` it runs under, read from its `#!` line, which must name `node` through `/usr/bin/env`;
   a name that finds nothing is no error, and `find` returns `null` for it.
-  Until each child is boxed, granting any program is close to granting what `-A` grants:
+  Since `fgro run` starts each child unboxed, granting any program there is close to granting what `-A` grants:
   most programs can be made to run code by their arguments or environment, a shell, git, and cargo among them,
   and the root's `env` values set any variable for a program; hand library code a narrowed root, which refuses `env` values.
 - `--allow-run-in=target,../tools` grants `@fuzdev/gro/spawn.ts` to the project's modules with these directories as exec roots, listed as `--allow-read=` lists its own:
