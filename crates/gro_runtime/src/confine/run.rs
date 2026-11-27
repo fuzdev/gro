@@ -16,15 +16,20 @@
 //!    process inherited is closed, since Landlock gates only what's opened
 //!    after it, and a socket made before the namespace keeps the network it
 //!    was made in.
-//! 2. [`RunClosed::enter_network`]: the run's own user and network
-//!    namespace entered, its loopback brought up, and user namespaces
-//!    nested in it refused (`gro_sys::namespace`), so a test binds and
-//!    connects to `127.0.0.1` and reaches nothing outside the run
-//!    ([`RunNetwork::Namespace`]). Where the kernel refuses the namespaces
-//!    with nothing changed, the run takes the host's network with every
-//!    internet socket refused, keeping the refusal's cause
-//!    ([`RunNetwork::InetRefused`]); a process left in a namespace whose
-//!    ids weren't all mapped fails ([`RunStepError::Stranded`]).
+//! 2. [`RunClosed::enter_network`]: for a run that may start a program,
+//!    the run's own user and network namespace entered, its loopback
+//!    brought up, and user namespaces nested in it refused
+//!    (`gro_sys::namespace`), so a test binds and connects to `127.0.0.1`
+//!    and reaches nothing outside the run ([`RunNetwork::Namespace`]).
+//!    Where the kernel refuses the namespaces with nothing changed, the run
+//!    takes the host's network with every internet socket refused, keeping
+//!    the refusal's cause ([`RunNetwork::InetRefused`]); a process left in
+//!    a namespace whose ids weren't all mapped fails
+//!    ([`RunStepError::Stranded`]). A run that starts no program stays in
+//!    the host's network with every internet socket refused
+//!    ([`RunClosed::host_network`], [`RunNetwork::Host`]): its realm has no
+//!    socket of its own to bind, and the walls refuse one to an exploit
+//!    either way.
 //! 3. [`RunNetworked::harden`]: every capability dropped
 //!    (`gro_sys::capabilities`), after the loopback and the nested refusal,
 //!    which take capabilities the namespace gives; the process marked not
@@ -193,7 +198,8 @@ pub struct RunClosed {
 }
 
 /// The process in its network: its own namespace, or the host's with
-/// internet sockets refused. Made only by [`RunClosed::enter_network`].
+/// internet sockets refused. Made only by [`RunClosed::enter_network`] and
+/// [`RunClosed::host_network`].
 #[derive(Debug)]
 pub struct RunNetworked {
     /// The network it's in.
@@ -265,6 +271,9 @@ pub enum RunNetwork {
         /// (`gro_sys::namespace::NamespaceRefused::errno`).
         errno: Option<i32>,
     },
+    /// The host's network, every internet socket refused, since the run
+    /// starts no program and so takes no namespace of its own.
+    Host,
 }
 
 impl RunNetwork {
@@ -272,7 +281,7 @@ impl RunNetwork {
     pub const fn form(&self) -> NetForm {
         match self {
             Self::Namespace => NetForm::Namespace,
-            Self::InetRefused { .. } => NetForm::InetRefused,
+            Self::InetRefused { .. } | Self::Host => NetForm::InetRefused,
         }
     }
 }
@@ -399,6 +408,15 @@ impl RunClosed {
             Err(error) => network_refused(error)?,
         };
         Ok(RunNetworked { network })
+    }
+
+    /// Stays in the host's network, every internet socket refused, as a
+    /// run that starts no program does ([`RunNetwork::Host`]): no
+    /// namespace is entered, so nothing is said about one.
+    pub const fn host_network(self) -> RunNetworked {
+        RunNetworked {
+            network: RunNetwork::Host,
+        }
     }
 }
 

@@ -24,8 +24,8 @@
 //! Node Gro (a `node` of the test's own that records how it was run) with
 //! the process as it started, a descriptor it inherited and its network
 //! unchanged, or is refused under `GRO_FALLBACK=command`. Then the refusals
-//! before the box: `-A`, and a socket on stdin; and `fgro run`, which has no
-//! box.
+//! before the box: `-A`, and a socket on stdin. `fgro run`'s box is
+//! `run_boxed.rs`'s.
 //!
 //! A command of Gro's runs in the box only from a snapshot build, so these
 //! run from `cargo xtask build --verify` and are ignored in a plain `cargo
@@ -726,33 +726,6 @@ fn a_socket_on_stdin_is_refused() {
     assert!(made.is_empty(), "{made:?}");
 }
 
-/// `fgro run` has no box: a program it starts holds no seccomp filter but
-/// its launcher's.
-#[test]
-#[cfg_attr(
-    not(feature = "snapshot"),
-    ignore = "a command of Gro's runs in its box only from a snapshot build"
-)]
-fn fgro_run_has_no_box() {
-    let scratch = Scratch::new(
-        "verb_box_run",
-        &[(
-            "a.mjs",
-            "import {spawn} from '@fuzdev/gro/spawn.ts';\n\
-             await spawn.program('python3').run(['-I', '-c', \
-             'print([l for l in open(\"/proc/self/status\") if l.startswith(\"Seccomp_filters:\")][0])']);\n",
-        )],
-    );
-    let mut command = fgro_command(&["run", "--allow-run=python3", "a.mjs"]);
-    command.current_dir(&scratch.0);
-    let (code, stdout, stderr) = run(command);
-    assert_eq!(code, Some(0), "{stdout}{stderr}");
-    assert_eq!(
-        stdout.split_whitespace().collect::<Vec<_>>(),
-        ["Seccomp_filters:", &own_filters().to_string()]
-    );
-}
-
 /// A run that fails after a tool it started failed names the box's walls
 /// on its last line, one that left a process holding its pipes, which the
 /// run then killed, included; one that fails with every tool exiting 0
@@ -1373,7 +1346,12 @@ fn a_command_s_directory_leading_out_of_the_project_is_refused() {
     assert_eq!(code, Some(0), "{stdout}{stderr}");
     assert_eq!(
         stderr,
-        format!("note: --allow-read=out grants {}\n", outside.display())
+        format!(
+            "note: --allow-read=out grants {}\nnote: node_modules is a symlink to {}, which the \
+             box follows to read\n",
+            outside.display(),
+            checkout_node_modules().display()
+        )
     );
 }
 
@@ -1509,8 +1487,8 @@ fn a_temporary_directory_in_the_project_is_refused() {
     assert!(
         stderr.ends_with(&format!(
             "error: the kernel box makes the run's private directory in the OS's temporary \
-             directory, and {} is inside the project, where the run's tools could write what \
-             later commands read: point TMPDIR outside the project\n",
+             directory, and {} is inside the project, where the run could write what later \
+             commands read: point TMPDIR outside the project\n",
             project.join("src").display()
         )),
         "{stderr}"
@@ -2020,8 +1998,8 @@ fn a_temporary_directory_in_the_project_s_bind_mount_is_refused() {
     assert!(
         stderr.ends_with(&format!(
             "error: the kernel box makes the run's private directory in the OS's temporary \
-             directory, and {} is inside the project, where the run's tools could write what \
-             later commands read: point TMPDIR outside the project\n",
+             directory, and {} is inside the project, where the run could write what later \
+             commands read: point TMPDIR outside the project\n",
             bind.join("src").display()
         )),
         "{stderr}"

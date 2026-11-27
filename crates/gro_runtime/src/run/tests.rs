@@ -113,6 +113,7 @@ fn loader_shares(name: &str, end: fn(crate::SpentRuntime)) -> (usize, usize, boo
                 &loader,
                 RunPins::default(),
                 None,
+                false,
             );
             outcome.result.unwrap();
             let held = std::rc::Rc::strong_count(&loader);

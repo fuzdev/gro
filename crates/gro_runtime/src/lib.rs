@@ -1,7 +1,8 @@
 //! gro's JS host: a minimal web-standards runtime on V8.
 //!
 //! [`run_main`] runs an ES module from disk to completion,
-//! or [`run_file`] one resolved before the run ([`resolve_file_entry`], [`FileEntry`]), and
+//! or [`run_file`] one resolved before the run ([`resolve_file_entry`], [`FileEntry`]) in the
+//! run's box, [`run_file_unboxed`] where no box went up, and
 //! [`run_generated`] one the embedder generated ([`GeneratedEntry`]): it
 //! resolves the entry, evaluates it on a `deno_core` `JsRuntime` driven by a current-thread
 //! tokio runtime, and drains the event loop (timers, pending promises). An
@@ -109,8 +110,8 @@
 //! printed to stderr) and its import graph file (`DENO_SNAPSHOT_IMPORT_GRAPH`,
 //! which it appends every module's imports to), and ICU's locale. So an
 //! embedder that wants none read clears its environment before it starts a
-//! thread, as `fgro eval` does and `fgro run` doesn't; a command of Gro's
-//! removes those three.
+//! thread, as `fgro eval` does and `fgro run` in no box doesn't; a run in
+//! `fgro`'s kernel box removes those three.
 //!
 //! Without a [`RuntimeOptions::snapshot`], the runtime starts from source:
 //! `deno_web`'s JS is read from its crate's path on the build machine, so such
@@ -177,7 +178,7 @@ pub use crate::loader::refused::{
 pub use crate::report::Report;
 pub use crate::run::{
     FileEntry, GENERATED_ENTRY_URL, GeneratedEntry, RunError, RunOutcome, StartError,
-    resolve_file_entry, run_file, run_generated, run_main,
+    resolve_file_entry, run_file, run_file_unboxed, run_generated, run_main,
 };
 pub use crate::runtime::SpentRuntime;
 

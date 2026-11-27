@@ -21,15 +21,17 @@ use crate::resolver::{DiskTree, SourceTree};
 ///
 /// An entry the listing says isn't a symlink has its holder's real path,
 /// read once per holder, joined with its name as its own
-/// ([`PackageEntry::real`]), and the containment check, which reads nothing
-/// from the disk, comes first: every package installed under a root is
-/// skipped with no path resolved, and only a link, or an entry whose holder
-/// is real outside the roots, is read further.
+/// ([`PackageEntry::real`]), so one whose holder lies in a root lies there
+/// too and is left out of the listing as it's read, before a path is made
+/// or sorted for it ([`package_entries`]): every package installed under a
+/// root costs its directory entry alone, and only a link, or an entry whose
+/// holder is real outside the roots, is read further. The roots only grow,
+/// so an entry left out would have been skipped by the containment check.
 pub(super) fn link_closure(seeds: Vec<(PathBuf, OwnedFd)>) -> (Vec<PathBuf>, Vec<OwnedFd>) {
     let (mut roots, mut pins): (Vec<PathBuf>, Vec<OwnedFd>) = seeds.into_iter().unzip();
     let mut next = 0;
     while let Some(root) = roots.get(next) {
-        let listing = package_entries(root.join("node_modules"));
+        let listing = package_entries(root.join("node_modules"), &roots);
         next += 1;
         for entry in &listing.entries {
             // a package is a directory with a package.json, and none holds a
@@ -94,13 +96,13 @@ fn held_by_world_writable(listing: &Listing, entry: &PackageEntry, target: &Path
 
 /// A `node_modules` directory's package entries, with the directories
 /// holding them.
-struct Listing {
+pub(super) struct Listing {
     /// The `node_modules` directory.
     node_modules: Holder,
-    /// Its `@scope` directories that were listed.
+    /// Its `@scope` directories that hold an entry listed.
     scopes: Vec<Holder>,
     /// The entries, sorted by path.
-    entries: Vec<PackageEntry>,
+    pub(super) entries: Vec<PackageEntry>,
 }
 
 /// A directory holding package entries: a `node_modules` or an `@scope` in
@@ -114,9 +116,9 @@ struct Holder {
 
 /// A package entry: a `<name>` in `node_modules` or a `<name>` in one of its
 /// `@scope` directories.
-struct PackageEntry {
+pub(super) struct PackageEntry {
     /// Its path, as listed.
-    path: PathBuf,
+    pub(super) path: PathBuf,
     /// The index in [`Listing::scopes`] of the `@scope` directory holding
     /// it, or none when `node_modules` does.
     scope: Option<usize>,
@@ -130,16 +132,17 @@ struct PackageEntry {
 
 /// The package entries of the `node_modules` at `node_modules`, sorted by
 /// path: each `<name>` and each `@<scope>/<name>`, the dot-named ones (`.bin`,
-/// a `.package-lock.json`, a `.deno` store) skipped. Its real path is read
-/// once, after it's listed, and each `@scope`'s is derived from it the same
-/// way an entry's is ([`PackageEntry::real`]).
-fn package_entries(node_modules: PathBuf) -> Listing {
-    let listed = list(&node_modules);
-    let real = if listed.is_empty() {
-        None
-    } else {
-        std::fs::canonicalize(&node_modules).ok()
-    };
+/// a `.package-lock.json`, a `.deno` store) skipped, and so is each that
+/// isn't a symlink in a directory whose real path lies in one of `roots`,
+/// which lies there too. Its real path is read once, when it lists
+/// anything, and each `@scope`'s is derived from it the same way an
+/// entry's is ([`PackageEntry::real`]).
+pub(super) fn package_entries(node_modules: PathBuf, roots: &[PathBuf]) -> Listing {
+    let mut listed = list(&node_modules).peekable();
+    let real = listed
+        .peek()
+        .and_then(|_| std::fs::canonicalize(&node_modules).ok());
+    let installed = in_roots(real.as_deref(), roots);
     let mut listing = Listing {
         node_modules: Holder {
             path: node_modules,
@@ -148,48 +151,65 @@ fn package_entries(node_modules: PathBuf) -> Listing {
         scopes: Vec::new(),
         entries: Vec::new(),
     };
-    for (path, linked) in listed {
-        let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+    for entry in listed {
+        let linked = may_be_link(&entry);
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else {
             continue;
         };
         if name.starts_with('.') {
             continue;
         }
-        let real = real_by_name(listing.node_modules.real.as_deref(), &path, linked);
         if name.starts_with('@') {
-            let scoped = list(&path);
+            let path = entry.path();
+            let real = real_by_name(listing.node_modules.real.as_deref(), &path, linked);
+            let installed = in_roots(real.as_deref(), roots);
+            let scope = listing.scopes.len();
+            let scoped: Vec<(PathBuf, bool)> = list(&path)
+                .filter_map(|scoped| {
+                    let linked = may_be_link(&scoped);
+                    (linked || !installed)
+                        .then(|| (scoped.path(), linked))
+                        .filter(|(path, _)| {
+                            !path
+                                .file_name()
+                                .is_some_and(|name| name.as_encoded_bytes().starts_with(b"."))
+                        })
+                })
+                .collect();
             if scoped.is_empty() {
                 continue;
             }
-            let scope = Holder {
+            let holder = Holder {
                 real: real.or_else(|| std::fs::canonicalize(&path).ok()),
                 path,
             };
-            listing.entries.extend(
-                scoped
-                    .into_iter()
-                    .filter(|(scoped, _)| {
-                        !scoped
-                            .file_name()
-                            .is_some_and(|name| name.as_encoded_bytes().starts_with(b"."))
-                    })
-                    .map(|(scoped, linked)| PackageEntry {
-                        real: real_by_name(scope.real.as_deref(), &scoped, linked),
-                        path: scoped,
-                        scope: Some(listing.scopes.len()),
-                    }),
-            );
-            listing.scopes.push(scope);
-        } else {
+            listing
+                .entries
+                .extend(scoped.into_iter().map(|(scoped, linked)| PackageEntry {
+                    real: real_by_name(holder.real.as_deref(), &scoped, linked),
+                    path: scoped,
+                    scope: Some(scope),
+                }));
+            listing.scopes.push(holder);
+        } else if linked || !installed {
+            let path = entry.path();
             listing.entries.push(PackageEntry {
+                real: real_by_name(listing.node_modules.real.as_deref(), &path, linked),
                 path,
                 scope: None,
-                real,
             });
         }
     }
     listing.entries.sort_by(|a, b| a.path.cmp(&b.path));
     listing
+}
+
+/// Whether `holder`, a real path, lies in one of `roots`: an entry it holds
+/// that isn't a symlink lies there too. None, a holder whose real path
+/// can't be read, lies in none.
+fn in_roots(holder: Option<&Path>, roots: &[PathBuf]) -> bool {
+    holder.is_some_and(|holder| roots.iter().any(|root| holder.starts_with(root)))
 }
 
 /// The real path of the entry at `path`, listed in a directory whose real
@@ -202,22 +222,17 @@ fn real_by_name(holder: Option<&Path>, path: &Path, linked: bool) -> Option<Path
     Some(holder?.join(path.file_name()?))
 }
 
-/// The entries of the directory `dir`, or none when it can't be listed: each
-/// path, and whether it may be a symlink, by its directory entry's type,
-/// which std reads with `lstat` where the filesystem records none (and an
-/// entry whose type can't be read may be one).
-fn list(dir: &Path) -> Vec<(PathBuf, bool)> {
-    std::fs::read_dir(dir).map_or_else(
-        |_| Vec::new(),
-        |entries| {
-            entries
-                .filter_map(|entry| {
-                    entry.ok().map(|entry| {
-                        let linked = !entry.file_type().is_ok_and(|kind| !kind.is_symlink());
-                        (entry.path(), linked)
-                    })
-                })
-                .collect()
-        },
-    )
+/// The entries of the directory `dir`, or none when it can't be listed.
+fn list(dir: &Path) -> impl Iterator<Item = std::fs::DirEntry> + use<> {
+    std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .filter_map(Result::ok)
+}
+
+/// Whether `entry` may be a symlink, by its directory entry's type, which
+/// std reads with `lstat` where the filesystem records none (and an entry
+/// whose type can't be read may be one).
+fn may_be_link(entry: &std::fs::DirEntry) -> bool {
+    !entry.file_type().is_ok_and(|kind| !kind.is_symlink())
 }

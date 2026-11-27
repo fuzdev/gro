@@ -327,6 +327,7 @@ fn host_data() -> HostData {
             .into_iter()
             .collect(),
         project: None,
+        project_unbounded: false,
         temp_dir: None,
         denied_write_cause: None,
         spawn: None,

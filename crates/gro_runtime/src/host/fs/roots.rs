@@ -203,6 +203,10 @@ pub(super) struct Table {
     roots: Vec<Root>,
     /// What the project reads and writes of the roots.
     project: View,
+    /// Whether the project's root, the first, is the entry's own directory
+    /// with no project's `package.json` at or above it, which grants
+    /// nothing on its own (`HostData::project_unbounded`).
+    unbounded: bool,
 }
 
 /// What one origin reads and writes of the run's roots: places in the
@@ -259,6 +263,25 @@ impl Table {
         &self.project
     }
 
+    /// Whether each of `targets`, absolute paths, lies in the project's
+    /// root by its text, where that root is the entry's own directory with
+    /// no project's `package.json` at or above it, which grants nothing on
+    /// its own: a refusal there needs a flag naming that directory, which
+    /// the embedder that resolved it names (`FsNeed::EntryDirRead`,
+    /// `FsNeed::EntryDirWrite`).
+    pub(super) fn in_unbounded_root(&self, targets: &[&str]) -> bool {
+        let Some(root) = self.roots.first().filter(|_| self.unbounded) else {
+            return false;
+        };
+        let base = root.handle_base();
+        !targets.is_empty()
+            && targets.iter().all(|target| {
+                target.strip_prefix(base).is_some_and(|rest| {
+                    rest.is_empty() || rest.starts_with('/') || base.ends_with('/')
+                })
+            })
+    }
+
     /// Every view of the run, which the rule's scope gain is checked in
     /// ([`Held`]): the project's alone.
     pub(super) fn views(&self) -> impl Iterator<Item = &View> {
@@ -297,6 +320,7 @@ impl Table {
             project: View {
                 entries: scopes.into_iter().enumerate().collect(),
             },
+            unbounded: false,
         }
     }
 }
@@ -306,7 +330,7 @@ impl FsState {
     /// and authority ([`root_table`]).
     pub(super) fn roots(&self, data: &HostData, authority: Option<&Authority>) -> Ref<'_, Table> {
         if self.roots.borrow().is_none() {
-            let table = root_table(data.project.as_deref(), authority);
+            let table = root_table(data.project.as_deref(), data.project_unbounded, authority);
             *self.roots.borrow_mut() = Some(table);
         }
         Ref::map(self.roots.borrow(), |roots| {
@@ -321,6 +345,7 @@ static EMPTY_TABLE: Table = Table {
     project: View {
         entries: Vec::new(),
     },
+    unbounded: false,
 };
 
 /// Whether `path`, an absolute path, is a root's directory or holds one,
@@ -544,7 +569,9 @@ impl<'g> Joined<'g> {
     }
 }
 
-/// The run's roots: the project's, `project`, a real path, read; then the
+/// The run's roots: the project's, `project`, a real path, read unless
+/// it's `unbounded`, the entry's own directory with no project's
+/// `package.json` at or above it, which grants nothing on its own; then the
 /// directories `authority`'s fs grant reads and writes ([`FsGrant`]), or,
 /// unconfined, `/`, read and written. Each granted path's root is the real
 /// path the embedder read as the run started, never read again here, and
@@ -558,10 +585,14 @@ impl<'g> Joined<'g> {
 /// ([`holds_beneath`]), by these real paths, the start's, and the
 /// descriptors now, and the project's view, holding every root, joins
 /// each one's scope with theirs ([`View::joined`]).
-fn root_table(project: Option<&Path>, authority: Option<&Authority>) -> Table {
+fn root_table(project: Option<&Path>, unbounded: bool, authority: Option<&Authority>) -> Table {
     let mut wanted = vec![Wanted {
         real: project.map(Path::to_path_buf),
-        scope: Scope::READ,
+        scope: if unbounded {
+            Scope::default()
+        } else {
+            Scope::READ
+        },
         granted: None,
     }];
     match authority {
@@ -638,7 +669,11 @@ fn root_table(project: Option<&Path>, authority: Option<&Authority>) -> Table {
         .collect();
     let roots: Vec<Root> = table.into_iter().zip(holders).map(root).collect();
     let project = View::joined(&roots, &granted);
-    Table { roots, project }
+    Table {
+        roots,
+        project,
+        unbounded,
+    }
 }
 
 /// Whether `outer` holds `inner`'s directory: `inner` itself, or a root
@@ -986,7 +1021,7 @@ mod tests {
             }),
             ..Grants::default()
         });
-        let table = root_table(Some(&at("p")), Some(&authority));
+        let table = root_table(Some(&at("p")), false, Some(&authority));
         let path = |name: &str| at(name).display().to_string();
         let scopes: Vec<(Option<String>, Scope)> = show(&table)
             .into_iter()
@@ -1008,6 +1043,49 @@ mod tests {
             .map(|root| root.holders.as_slice())
             .collect();
         assert_eq!(holders, [&[][..], &[], &[1], &[1, 2], &[]]);
+    }
+
+    /// A project's root that is an entry's own directory with no project's
+    /// `package.json` at or above it grants nothing on its own, and a flag
+    /// naming it joins its scope there; a path is in it by its text, whole
+    /// names only, and only where the root is so.
+    #[test]
+    fn an_unbounded_root_grants_only_what_a_flag_joins() {
+        use std::collections::BTreeMap;
+
+        use crate::{Authority, FsGrant, Grants};
+
+        let dir = crate::test_support::TestDir::on_disk("unbounded_root");
+        let at = |name: &str| dir.path().join(name);
+        for name in ["p", "px"] {
+            std::fs::create_dir_all(at(name)).unwrap();
+        }
+        let path = |name: &str| at(name).display().to_string();
+        let flagged = |read: bool| {
+            Authority::Confined(Grants {
+                fs: Some(FsGrant {
+                    temp: false,
+                    read: if read {
+                        [checked(&at("p"))].into()
+                    } else {
+                        BTreeMap::new()
+                    },
+                    write: BTreeMap::new(),
+                }),
+                ..Grants::default()
+            })
+        };
+        let table = root_table(Some(&at("p")), true, Some(&flagged(false)));
+        assert_eq!(table.project().scope_of(0), Scope::default());
+        assert!(table.in_unbounded_root(&[&path("p"), &path("p/a/b")]));
+        assert!(!table.in_unbounded_root(&[&path("px/a")]));
+        assert!(!table.in_unbounded_root(&[&path("p/a"), &path("px/a")]));
+        assert!(!table.in_unbounded_root(&[]));
+        let joined = root_table(Some(&at("p")), true, Some(&flagged(true)));
+        assert_eq!(joined.project().scope_of(0), Scope::READ);
+        let bounded = root_table(Some(&at("p")), false, Some(&flagged(false)));
+        assert_eq!(bounded.project().scope_of(0), Scope::READ);
+        assert!(!bounded.in_unbounded_root(&[&path("p/a")]));
     }
 
     /// Unconfined, `/` holds everything, read and written, and the
@@ -1122,7 +1200,7 @@ mod tests {
             }),
             ..Grants::default()
         });
-        let table = root_table(Some(&at("p")), Some(&authority));
+        let table = root_table(Some(&at("p")), false, Some(&authority));
         let path = |name: &str| at(name).display().to_string();
         let shown = show(&table);
         let replaced = |name: &str| {
@@ -1187,7 +1265,7 @@ mod tests {
             }),
             ..Grants::default()
         });
-        let table = root_table(Some(&at("p")), Some(&authority));
+        let table = root_table(Some(&at("p")), false, Some(&authority));
         let path = |name: &str| at(name).display().to_string();
         let shown = show(&table);
         assert_eq!(
@@ -1281,7 +1359,7 @@ mod tests {
         std::fs::remove_file(at("wl")).unwrap();
         std::os::unix::fs::symlink("r/w", at("wl")).unwrap();
         std::fs::rename(at("r/out"), at("away/out")).unwrap();
-        let table = root_table(Some(&at("p")), Some(&authority));
+        let table = root_table(Some(&at("p")), false, Some(&authority));
         let path = |name: &str| at(name).display().to_string();
         let shown = show(&table);
         let gone = |granted: &str, real: &str| {
@@ -1348,6 +1426,7 @@ mod tests {
         };
         let table = root_table(
             Some(&at("p")),
+            false,
             Some(&grants(
                 &[at("r"), at("p/./out"), at("missing")],
                 &[at("p/out"), at("to_w"), at("w"), at("r/../w"), at("r")],
@@ -1375,7 +1454,7 @@ mod tests {
             "{:?}",
             table.roots()[1].fd
         );
-        let unconfined = root_table(Some(&at("p")), Some(&Authority::Unconfined));
+        let unconfined = root_table(Some(&at("p")), false, Some(&Authority::Unconfined));
         let shown: Vec<(Option<&str>, Scope, bool)> = unconfined
             .roots()
             .iter()

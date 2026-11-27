@@ -28,8 +28,8 @@ impl BoxFacts {
     /// file's link count; its `node_modules`, a symlink followed to its real
     /// path when that is a directory; the merged system directories' kinds;
     /// the link closure from the root and where `node_modules` leads; and
-    /// for a run that may start a program, whose tools run git, what git
-    /// reads outside the project (`git::home_files`, `git::git_dirs`), or
+    /// for a run that may start git ([`BoxInputs::git`]), what git reads
+    /// outside the project (`git::home_files`, `git::git_dirs`), or
     /// why that can't be read.
     ///
     /// # Errors
@@ -74,7 +74,7 @@ impl BoxFacts {
         {
             seeds.push((real.clone(), pinned));
         }
-        let (git_home, git_dirs, git_fault) = if inputs.spawns {
+        let (git_home, git_dirs, git_fault) = if inputs.git {
             read_git(inputs)
         } else {
             (Vec::new(), Vec::new(), None)

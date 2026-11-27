@@ -110,3 +110,20 @@ fn a_file_entry_moves_to_another_thread() {
     let moved = std::thread::spawn(move || entry).join().unwrap();
     assert_eq!(moved.root(), root);
 }
+
+/// An entry with no project's `package.json` at or above it is unbounded,
+/// and its type markers above its root are the `package.json` files its
+/// walk read there, by their real paths; any other entry has none.
+#[test]
+fn only_an_unbounded_entry_has_markers_above_its_root() {
+    let dir = tree("markers");
+    let real = dir.path().canonicalize().unwrap();
+    let loose = resolve_file_entry(Path::new("loose/sub/x.mjs"), dir.path()).unwrap();
+    assert!(loose.is_unbounded());
+    assert_eq!(loose.markers(), [real.join("loose/package.json")]);
+    for path in ["p/src/main.mjs", "p/node_modules/q/index.mjs"] {
+        let entry = resolve_file_entry(Path::new(path), dir.path()).unwrap();
+        assert!(!entry.is_unbounded(), "{path}");
+        assert_eq!(entry.markers(), Vec::<std::path::PathBuf>::new(), "{path}");
+    }
+}

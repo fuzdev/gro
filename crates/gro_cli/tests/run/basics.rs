@@ -3,7 +3,7 @@
 
 use std::process::Stdio;
 
-use crate::support::fgro_command;
+use crate::support::{fgro_command, without_unboxed_note};
 use crate::{REFUSALS_FAIL, fixtures, fixtures_url, run, run_in, temp_fixtures};
 
 #[test]
@@ -91,7 +91,11 @@ fn a_console_write_is_dropped_when_its_reader_left_and_throws_otherwise() {
             command.stdout(writer).stderr(Stdio::piped());
         }
         let output = command.output().unwrap();
-        let other = if stderr { output.stdout } else { output.stderr };
+        let other = if stderr {
+            output.stdout
+        } else {
+            without_unboxed_note(output.stderr)
+        };
         (output.status.code(), String::from_utf8(other).unwrap())
     };
     assert_eq!(closed(false), (Some(3), "err\nerr 2\n".to_owned()));
@@ -113,7 +117,7 @@ fn a_console_write_is_dropped_when_its_reader_left_and_throws_otherwise() {
     let output = command.output().unwrap();
     assert_eq!(output.status.code(), Some(1));
     let dir = format!("file://{}", fixtures.0.display());
-    let stderr = String::from_utf8(output.stderr).unwrap();
+    let stderr = String::from_utf8(without_unboxed_note(output.stderr)).unwrap();
     assert!(
         stderr.starts_with(
             "error: Uncaught (in promise) Error: failed to write to stdout: No space left on \
@@ -152,7 +156,7 @@ fn output_to_a_file_is_whole_when_the_run_ends() {
         .stdin(Stdio::null())
         .stdout(std::fs::File::create(&path).unwrap());
     let output = command.output().unwrap();
-    let stderr = String::from_utf8(output.stderr).unwrap();
+    let stderr = String::from_utf8(without_unboxed_note(output.stderr)).unwrap();
     assert_eq!(output.status.code(), Some(0), "{stderr}");
     assert_eq!(stderr, "");
     let written = std::fs::read_to_string(&path).unwrap();
@@ -185,7 +189,10 @@ fn output_before_exit_is_whole() {
         .stdout(std::fs::File::create(&path).unwrap());
     let output = command.output().unwrap();
     assert_eq!(output.status.code(), Some(4));
-    assert_eq!(String::from_utf8(output.stderr).unwrap(), "to stderr\n");
+    assert_eq!(
+        String::from_utf8(without_unboxed_note(output.stderr)).unwrap(),
+        "to stderr\n"
+    );
     assert_eq!(std::fs::read_to_string(&path).unwrap(), expected);
     let run = run_in(&fixtures, "main.js");
     assert_eq!(run.code, 4);

@@ -58,18 +58,20 @@ pub enum Phase {
     /// join. A command of Gro's, from the entry: parsing the arguments, the
     /// verb's pre-pass, and the probes before its box's first change.
     Prepass,
-    /// A command of Gro's inherited descriptors closed, the phases file
-    /// created, its network entered, and the process hardened.
+    /// A run in the run's box: its inherited descriptors closed, the phases
+    /// file created, its network entered, and the process hardened.
     Network,
-    /// A command of Gro's temporary directory opened and the private
-    /// directories of runs gone swept from it.
-    Sweep,
-    /// What a command of Gro's run and its box both hold, resolved (the
+    /// What a run in the run's box and its box both hold, resolved (the
     /// grant flags' directories, the programs pinned), and the disk's
     /// facts its box's plan reads.
     Facts,
-    /// A command of Gro's box planned from its inputs and the facts.
+    /// A run in the run's box: its box planned from its inputs and the
+    /// facts.
     Plan,
+    /// A run in the run's box that makes its private directory: the
+    /// private directories of runs gone swept from the OS's temporary
+    /// directory.
+    Sweep,
     /// `fgro eval`'s snapshot check and its box installed: Landlock and
     /// seccomp. A command of Gro's private and tool directories made, its
     /// environment set, its options read, and its box's rules opened, then

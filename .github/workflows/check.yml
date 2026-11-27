@@ -128,12 +128,13 @@ jobs:
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           cargo xtask check-rust
 
-      # A command of Gro's in the run's box where unprivileged user namespaces
-      # are restricted again, as this image ships: the box infers the
-      # namespace is unusable and takes the host's network, internet sockets
-      # refused, saying why, and verb_box's probe holds every wall from inside
-      # it there. Against the snapshot fgro the step before built and verified,
-      # its commit and version read from that binary's version line, as xtask
+      # A command of Gro's and `fgro run` in the run's box where unprivileged
+      # user namespaces are restricted again, as this image ships: the box
+      # infers the namespace is unusable and takes the host's network,
+      # internet sockets refused, saying why, verb_box's probe holds every
+      # wall from inside it there, and run_boxed's cases hold `fgro run`'s.
+      # Against the snapshot fgro the step before built and verified, its
+      # commit and version read from that binary's version line, as xtask
       # stamped them, so the test reuses the verified build's gro_cli.
       - name: Check the boxed verb with user namespaces restricted
         run: |
@@ -142,7 +143,7 @@ jobs:
           GRO_SNAPSHOT_DIR="$PWD/target/gro_snapshot/debug" \
           GRO_COMMIT="$("$fgro" --version | sed -n 's/.*(commit \([^,]*\),.*/\1/p')" \
           GRO_VERSION="$("$fgro" --version | cut -d' ' -f2)" \
-            cargo test --locked -p gro_cli --features snapshot --test verb_box
+            cargo test --locked -p gro_cli --features snapshot --test verb_box --test run_boxed
 
   # The claim that a clean checkout of one commit, with the same toolchain and
   # cargo home, builds the same release fgro, byte for byte, from any path:

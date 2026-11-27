@@ -869,6 +869,7 @@ fn network_line(network: &RunNetwork) -> String {
             "network: inet_refused, {cause:?}, {}",
             errno.map_or_else(|| "none".to_owned(), |errno| errno.to_string())
         ),
+        RunNetwork::Host => "network: host".to_owned(),
     }
 }
 
@@ -1171,6 +1172,7 @@ fn tool_dirs(scratch: &Path) {
     let spawning_inputs = BoxInputs {
         root: project.clone(),
         spawns: true,
+        git: true,
         ..BoxInputs::default()
     };
     let spawning =
@@ -1331,6 +1333,7 @@ fn planned(scratch: &Path, writing: bool) {
         writes_root: writing,
         tools: table_tools(&["svelte-kit"]),
         spawns: true,
+        git: true,
         declared: ["@sveltejs/kit".to_owned(), "vite".to_owned()].into(),
         programs: vec![ProgramFile::Node {
             script: {
@@ -1597,6 +1600,7 @@ fn program_box(scratch: &Path, case: &str) {
         writes_root: true,
         tools: table_tools(&["svelte-kit"]),
         spawns: true,
+        git: true,
         declared: ["@sveltejs/kit".to_owned()].into(),
         flags: vec![GrantedFlagDir {
             flag: DirFlag::Write,
@@ -1871,6 +1875,7 @@ fn program_box_umask(scratch: &Path) {
     let inputs = BoxInputs {
         root: base.join("project"),
         spawns: true,
+        git: true,
         home: Some(base.join("home")),
         ..BoxInputs::default()
     };

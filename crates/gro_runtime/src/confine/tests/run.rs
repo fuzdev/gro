@@ -41,11 +41,12 @@ fn a_failed_namespace_falls_back_only_when_refused() {
 }
 
 /// The run's own namespace builds the walls of [`NetForm::Namespace`], and
-/// the host's network, whatever refused the namespace, those of
-/// [`NetForm::InetRefused`].
+/// the host's network, whatever refused the namespace or where a run that
+/// starts no program takes none, those of [`NetForm::InetRefused`].
 #[test]
 fn each_network_builds_its_form_s_walls() {
     assert_eq!(RunNetwork::Namespace.form(), NetForm::Namespace);
+    assert_eq!(RunNetwork::Host.form(), NetForm::InetRefused);
     for (cause, errno) in [(Refusal::AppArmor, None), (Refusal::Filtered, Some(1))] {
         assert_eq!(
             RunNetwork::InetRefused { cause, errno }.form(),

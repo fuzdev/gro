@@ -95,6 +95,11 @@ pub struct HostData {
     /// The project's root, the entry's, a real path: the fs host module's
     /// first root, opened when the run first makes the fs namespace.
     pub project: Option<std::path::PathBuf>,
+    /// Whether the project's root is the entry's own directory because no
+    /// project's `package.json` is at or above it (`EntryBound::Unbounded`):
+    /// the root then reads and writes only what the run's fs grant joins to
+    /// it, a flag naming it, never on its own.
+    pub project_unbounded: bool,
     /// The OS's temporary directory, as the embedder names it for a run
     /// whose `fs` grant makes temporary directories
     /// ([`RuntimeOptions::temp_dir`](crate::RuntimeOptions::temp_dir)).

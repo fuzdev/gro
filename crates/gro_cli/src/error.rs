@@ -16,6 +16,7 @@ use thiserror::Error;
 use crate::cli::{ALLOW_RUN, ALLOW_RUN_WRITE, GrantListError, ListFlag, RUN};
 use crate::print::{echo_argument, escape_controls, stderr_line};
 use crate::start::BoxStartError;
+use crate::verb::fallback::KernelLandlock;
 use crate::verb::prepass::{VerbError, command_line};
 use crate::{EXIT_FAILURE, EXIT_USAGE};
 
@@ -288,12 +289,88 @@ pub enum CliError {
         /// Why.
         source: std::io::Error,
     },
+    /// `fgro run`'s project root is or holds the home directory, found by a
+    /// `package.json` or a `node_modules` at or above the entry, so the run
+    /// would read all of the home directory.
+    #[error("{}", home_root_message(root, *holds, found))]
+    RootHoldsHome {
+        /// The root, a real path.
+        root: PathBuf,
+        /// Whether it holds the home directory, rather than being it.
+        holds: bool,
+        /// What made it the root.
+        found: HomeRootBy,
+    },
+    /// `GRO_FALLBACK=command` refuses running `fgro run` in no kernel box.
+    #[error(
+        "GRO_FALLBACK=command refuses running {BINARY_NAME} {RUN} in no kernel box, where only \
+         the runtime's own checks hold its grants: {0}"
+    )]
+    StrictUnboxed(Unboxed),
     /// `fgro run`'s module failed, printed as [`run_failure`] prints it.
     #[error("{}", run_failure(.0))]
     Run(#[from] RunError),
     /// Output couldn't be written to stdout (a closed pipe, a full disk).
     #[error("failed to write to stdout: {0}")]
     Stdout(#[source] std::io::Error),
+}
+
+/// What made an `fgro run`'s project root the directory it is.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HomeRootBy {
+    /// The first project's `package.json` at or above the entry, by its
+    /// path.
+    PackageJson(PathBuf),
+    /// The entry is inside the `node_modules` at this path, whose directory
+    /// is the root.
+    NodeModules(PathBuf),
+}
+
+/// Why `fgro run` runs in no kernel box.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Unboxed {
+    /// The kernel's Landlock is below the box's floor.
+    Floor(KernelLandlock),
+    /// The build has no startup snapshot, which the box starts from.
+    NoSnapshot,
+}
+
+impl std::fmt::Display for Unboxed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Floor(kernel) => kernel.fmt(f),
+            Self::NoSnapshot => {
+                f.write_str("this build has no startup snapshot (cargo xtask build makes one)")
+            }
+        }
+    }
+}
+
+/// [`CliError::RootHoldsHome`]'s message.
+fn home_root_message(root: &std::path::Path, holds: bool, found: &HomeRootBy) -> String {
+    let root = escape_controls(&root.to_string_lossy()).into_owned();
+    let relation = if holds { "holds" } else { "is" };
+    let (since, fix) = match found {
+        HomeRootBy::PackageJson(path) => (
+            format!(
+                "{} is the first package.json at or above the entry",
+                escape_controls(&path.to_string_lossy())
+            ),
+            "remove that package.json, or give the entry a project of its own (a package.json \
+             beside it)",
+        ),
+        HomeRootBy::NodeModules(path) => (
+            format!(
+                "the entry is in {}, whose directory is its root",
+                escape_controls(&path.to_string_lossy())
+            ),
+            "run it from a project of its own",
+        ),
+    };
+    format!(
+        "{BINARY_NAME} {RUN}'s project root, {root}, {relation} your home directory, since \
+         {since}, and the run reads its root whole: {fix}"
+    )
 }
 
 /// `error` as `fgro` prints it: a report, which can hold any text the
@@ -355,6 +432,8 @@ impl CliError {
             | Self::InternalUsage(..)
             | Self::InternalFlag(..)
             | Self::NodeGroUnbuilt { .. }
+            | Self::RootHoldsHome { .. }
+            | Self::StrictUnboxed(_)
             | Self::NoNode { .. } => EXIT_USAGE,
             Self::Run(RunError::Entry(error)) if error.kind.is_refusal() => EXIT_USAGE,
             Self::OutputDir { .. }

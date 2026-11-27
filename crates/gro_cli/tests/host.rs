@@ -56,7 +56,7 @@ use gro_runtime::BINARY_NAME;
 use gro_runtime::resolver::BUILTINS;
 use serde_json::Value;
 
-use support::{Scratch, fgro_command, spawn};
+use support::{Scratch, fgro_command, spawn, without_unboxed_note};
 
 fn fixtures() -> PathBuf {
     support::fixtures("host")
@@ -326,8 +326,27 @@ fn each_case_matches_the_node_implementation_but_for_its_named_differences() {
             scratch.remove(&started_in);
         }
         drop(sockets);
-        let stderr = String::from_utf8(output.stderr).unwrap();
+        let stderr = String::from_utf8(without_unboxed_note(output.stderr)).unwrap();
         let stdout = String::from_utf8(output.stdout).unwrap();
+        // the run's box makes its private directory in the temporary
+        // directory, which it refuses in the project, where this case has it
+        if cfg!(feature = "snapshot")
+            && let Some((_, temp)) = case.env.iter().find(|(name, _)| name == "TMPDIR")
+        {
+            assert_eq!(output.status.code(), Some(2), "{}: {stderr}", case.name);
+            assert_eq!(
+                stderr,
+                format!(
+                    "error: the kernel box makes the run's private directory in the OS's \
+                     temporary directory, and {} is inside the project, where the run could \
+                     write what later commands read: point TMPDIR outside the project\n",
+                    started_in.join(temp).display()
+                ),
+                "{}",
+                case.name
+            );
+            continue;
+        }
         let mut refusals = String::new();
         for line in &case.refused {
             writeln!(refusals, "{line}").unwrap();
@@ -662,15 +681,20 @@ impl Reports {
     }
 
     /// The `line` reports, in order, with the path of `project`, the run's
-    /// own, as `{project}`.
-    /// A temporary directory's name, made in the project's `tmp`, ends in
-    /// six random letters, shown as `XXXXXX`.
+    /// own, as `{project}`, and of its temporary directory ([`patched_tmp`]),
+    /// the box's private directory there dropped, as `{project}/tmp`.
+    /// A temporary directory's name ends in six random letters, shown as
+    /// `XXXXXX`.
     fn lines(&self, project: &Scratch) -> Vec<String> {
         let dir = project.0.canonicalize().unwrap();
         let dir = dir.to_str().unwrap();
+        let tmp = format!("{dir}_tmp");
         let lines = self.strings("line").into_iter();
         lines
-            .map(|line| unrandom_pids(&unrandom_temp_names(&line.replace(dir, "{project}"))))
+            .map(|line| {
+                let line = without_private_dirs(&line.replace(&tmp, "{project}/tmp"));
+                unrandom_pids(&unrandom_temp_names(&line.replace(dir, "{project}")))
+            })
             .collect()
     }
 
@@ -762,6 +786,37 @@ const GRANT_ENV: &str = "--allow-env=GRO_PATCHED_SET,GRO_PATCHED_UNSET,hostile";
 /// options they read.
 const GRANT_WRITE: &str = "--allow-write=w";
 
+/// `line` with each private directory of a run's box in `{project}/tmp`
+/// (`gro-<pid>-<start>`, its process's, which differ run to run) left
+/// out, so a temporary directory made in it reads as one made in `tmp`.
+fn without_private_dirs(line: &str) -> String {
+    const TMP: &str = "{project}/tmp/gro-";
+    let mut shown = String::new();
+    let mut rest = line;
+    while let Some(at) = rest.find(TMP) {
+        let (before, after) = rest.split_at(at + "{project}/tmp/".len());
+        shown.push_str(before);
+        // `gro-<digits>-<digits>/`, else left as it is
+        let named = after.strip_prefix("gro-").and_then(|after| {
+            let (pid, after) = after.split_once('-')?;
+            let (start, after) = after.split_once('/')?;
+            (pid.bytes().all(|b| b.is_ascii_digit())
+                && start.bytes().all(|b| b.is_ascii_digit())
+                && !pid.is_empty()
+                && !start.is_empty())
+            .then_some(after)
+        });
+        if let Some(after) = named {
+            rest = after;
+        } else {
+            shown.push_str("gro-");
+            rest = &after["gro-".len()..];
+        }
+    }
+    shown.push_str(rest);
+    shown
+}
+
 /// `line` with each temporary directory's name in the project's `tmp`
 /// ending in `XXXXXX` in place of its six random letters.
 fn unrandom_temp_names(line: &str) -> String {
@@ -806,9 +861,16 @@ fn unrandom_pids(line: &str) -> String {
 /// missing, which a run may.
 const GRANT_RUN: &str = "--allow-run=tool,hostile";
 
-/// The grant to make temporary directories, which the run makes in `tmp`
-/// in the project [`patched_project`] makes, as `TMPDIR` names it.
+/// The grant to make temporary directories, which the run makes beside the
+/// project [`patched_project`] makes ([`patched_tmp`]), as `TMPDIR` names
+/// it, or in its box's private directory there.
 const GRANT_TEMP: &str = "--allow-temp";
+
+/// The temporary directory of a run of the project [`patched_project`]
+/// makes: beside it, never in it, where the run's box refuses one.
+fn patched_tmp(project: &Scratch) -> PathBuf {
+    PathBuf::from(format!("{}_tmp", project.0.display()))
+}
 
 /// `fgro run` of `entry` in `project`, granted [`GRANT_ENV`],
 /// [`GRANT_WRITE`], [`GRANT_TEMP`], and [`GRANT_RUN`], given two
@@ -826,14 +888,16 @@ fn run_entry(project: &Scratch, entry: &str) -> (Option<i32>, Reports, String) {
         "a",
         "b c",
     ]);
-    std::fs::create_dir_all(project.0.join("tmp")).unwrap();
+    let tmp = patched_tmp(project);
+    std::fs::create_dir_all(&tmp).unwrap();
     command
         .env_clear()
         .env("GRO_PATCHED_SET", "set")
-        .env("TMPDIR", project.0.join("tmp"))
+        .env("TMPDIR", &tmp)
         .env("PATH", project.0.join("bin"))
         .current_dir(&project.0);
     let output = spawn(command, b"");
+    let _ = std::fs::remove_dir_all(&tmp);
     let stdout = String::from_utf8(output.stdout).unwrap();
     let reports = stdout
         .lines()
@@ -841,7 +905,7 @@ fn run_entry(project: &Scratch, entry: &str) -> (Option<i32>, Reports, String) {
             serde_json::from_str(line).unwrap_or_else(|error| panic!("{entry}: {error}: {line}"))
         })
         .collect();
-    let stderr = String::from_utf8(output.stderr).unwrap();
+    let stderr = String::from_utf8(without_unboxed_note(output.stderr)).unwrap();
     (output.status.code(), Reports(reports), stderr)
 }
 
@@ -1227,7 +1291,10 @@ fn forced_project(name: &str) -> Scratch {
     let read = |file: &str| std::fs::read_to_string(fixtures().join("forced").join(file)).unwrap();
     let sources = FORCED_FILES.map(read);
     let mut files = vec![
-        ("package.json", "{\"type\": \"module\"}\n"),
+        (
+            "package.json",
+            "{\"name\": \"forced\", \"type\": \"module\"}\n",
+        ),
         ("w/.keep", ""),
         ("modules.js", modules.as_str()),
     ];
@@ -1255,7 +1322,7 @@ fn run_printing(project: &Scratch, entry: &str) -> Value {
     let mut command = fgro_command(&["run", GRANT_ENV, GRANT_RUN, entry]);
     command.env_clear().current_dir(&project.0);
     let output = spawn(command, b"");
-    let stderr = String::from_utf8(output.stderr).unwrap();
+    let stderr = String::from_utf8(without_unboxed_note(output.stderr)).unwrap();
     let stdout = String::from_utf8(output.stdout).unwrap();
     // the status first: a run a signal ended has no code, and says so
     assert_eq!(
@@ -1366,7 +1433,10 @@ console.log(JSON.stringify(rows));
     let project = Scratch::new(
         "deferred",
         &[
-            ("package.json", "{\"type\": \"module\"}\n"),
+            (
+                "package.json",
+                "{\"name\": \"deferred\", \"type\": \"module\"}\n",
+            ),
             ("main.js", &main),
         ],
     );
@@ -1489,7 +1559,7 @@ fn fs_refuses_every_escape_and_forgery() {
     let output = spawn(command, b"");
     let _ = std::fs::remove_dir_all(&outside);
     let stdout = String::from_utf8(output.stdout).unwrap();
-    let stderr = String::from_utf8(output.stderr).unwrap();
+    let stderr = String::from_utf8(without_unboxed_note(output.stderr)).unwrap();
     let root = project.0.display().to_string();
     let out = outside.display().to_string();
     assert_eq!(
@@ -1565,7 +1635,10 @@ fn fs_project_is_the_entry_s_root_not_the_working_directory() {
     let mut command = fgro_command(&["run", "../main.js"]);
     command.env_clear().current_dir(project.0.join("sub"));
     let output = spawn(command, b"");
-    assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
+    assert_eq!(
+        String::from_utf8(without_unboxed_note(output.stderr)).unwrap(),
+        ""
+    );
     let printed: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(
         printed,
@@ -1674,7 +1747,7 @@ fn fs_roots_by_flag_scope_their_handles() {
     command.env_clear().current_dir(&project.0);
     let output = spawn(command, b"");
     let stdout = String::from_utf8(output.stdout).unwrap();
-    let stderr = String::from_utf8(output.stderr).unwrap();
+    let stderr = String::from_utf8(without_unboxed_note(output.stderr)).unwrap();
     let written = (
         std::fs::read_to_string(Path::new(&w).join("x.txt")).ok(),
         Path::new(&w).join("sub/x").is_dir(),
@@ -1788,7 +1861,7 @@ fn fs_flag_directories_are_checked_as_the_run_starts() {
         command.env_clear().current_dir(&project.0);
         let output = spawn(command, b"");
         assert_eq!(
-            String::from_utf8(output.stderr).unwrap(),
+            String::from_utf8(without_unboxed_note(output.stderr)).unwrap(),
             format!("error: {message}\n{help}\n"),
             "{args:?}"
         );
@@ -1865,7 +1938,7 @@ fn a_flag_directory_that_cant_be_looked_at_is_a_usage_error() {
     let help = format!("Run {BINARY_NAME} run --help for more information.");
     for ((args, output), flag) in outputs.into_iter().zip(["--allow-read", "--allow-write"]) {
         assert_eq!(
-            String::from_utf8(output.stderr).unwrap(),
+            String::from_utf8(without_unboxed_note(output.stderr)).unwrap(),
             format!(
                 "error: a {flag} directory can't be looked at: {p}/locked/inner \
                  (Permission denied (os error 13))\n{help}\n"
@@ -1906,7 +1979,7 @@ fn a_flag_directory_through_a_symlink_is_noted_as_the_run_starts() {
         command.env_clear().current_dir(&project.0);
         let output = spawn(command, b"");
         assert_eq!(output.status.code(), Some(0), "{args:?}");
-        String::from_utf8(output.stderr).unwrap()
+        String::from_utf8(without_unboxed_note(output.stderr)).unwrap()
     };
     assert_eq!(
         run(&[
@@ -2020,7 +2093,7 @@ fn fs_flag_roots_open_at_the_first_import() {
     stdout.read_line(&mut line).unwrap();
     let output = child.wait_with_output().unwrap();
     assert_eq!(
-        String::from_utf8(output.stderr).unwrap(),
+        String::from_utf8(without_unboxed_note(output.stderr)).unwrap(),
         format!(
             "note: --allow-write={} grants {}\n",
             text(&l),
@@ -2145,7 +2218,7 @@ fn fs_a_flag_root_nests_as_the_run_started() {
     stdout.read_line(&mut line).unwrap();
     let output = child.wait_with_output().unwrap();
     assert_eq!(
-        String::from_utf8(output.stderr).unwrap(),
+        String::from_utf8(without_unboxed_note(output.stderr)).unwrap(),
         format!(
             "note: --allow-write={} grants {}\n",
             text(&at("wl")),
@@ -2222,7 +2295,11 @@ fn fs_unconfined_reads_and_writes_everything() {
     let output = spawn(command, b"");
     let _ = std::fs::remove_dir_all(&outside);
     let stdout = String::from_utf8(output.stdout).unwrap();
-    assert_eq!(String::from_utf8(output.stderr).unwrap(), "", "{stdout}");
+    assert_eq!(
+        String::from_utf8(without_unboxed_note(output.stderr)).unwrap(),
+        "",
+        "{stdout}"
+    );
     assert_eq!(output.status.code(), Some(0));
     let ended: Value = serde_json::from_str(&stdout).unwrap();
     assert_eq!(
@@ -2330,7 +2407,11 @@ fn fs_a_root_s_directory_is_neither_moved_nor_removed() {
     command.env_clear().current_dir(&project.0);
     let output = spawn(command, b"");
     let stdout = String::from_utf8(output.stdout).unwrap();
-    assert_eq!(String::from_utf8(output.stderr).unwrap(), "", "{stdout}");
+    assert_eq!(
+        String::from_utf8(without_unboxed_note(output.stderr)).unwrap(),
+        "",
+        "{stdout}"
+    );
     assert_eq!(output.status.code(), Some(0));
     let ended: Value = serde_json::from_str(&stdout).unwrap();
     let refused = serde_json::json!(["FsError", "io_error"]);
@@ -2411,7 +2492,11 @@ fn fs_a_root_s_directory_is_kept_under_a_run_granted_everything() {
     command.env_clear().current_dir(scratch.path("proj"));
     let output = spawn(command, b"");
     let stdout = String::from_utf8(output.stdout).unwrap();
-    assert_eq!(String::from_utf8(output.stderr).unwrap(), "", "{stdout}");
+    assert_eq!(
+        String::from_utf8(without_unboxed_note(output.stderr)).unwrap(),
+        "",
+        "{stdout}"
+    );
     assert_eq!(output.status.code(), Some(0));
     let ended: Value = serde_json::from_str(&stdout).unwrap();
     assert_eq!(
@@ -2492,7 +2577,7 @@ fn fs_a_write_s_paths_are_judged_by_the_handle_s_scope() {
         (
             output.status.code(),
             String::from_utf8(output.stdout).unwrap(),
-            String::from_utf8(output.stderr).unwrap(),
+            String::from_utf8(without_unboxed_note(output.stderr)).unwrap(),
         )
     };
     let p = project.0.display();
@@ -2621,7 +2706,7 @@ fn fs_a_copy_into_a_root_that_reads_is_refused_its_read() {
         (
             output.status.code(),
             String::from_utf8(output.stdout).unwrap(),
-            String::from_utf8(output.stderr).unwrap(),
+            String::from_utf8(without_unboxed_note(output.stderr)).unwrap(),
         ),
         (
             Some(1),
@@ -2765,6 +2850,11 @@ console.log(JSON.stringify(await scenarios[name]()));
 /// `fs.open_dir` reaches it as a root of its own, and after, through none. One never disposed of
 /// stays after the run, as on Node.
 #[test]
+#[cfg_attr(
+    feature = "snapshot",
+    ignore = "in the run's box fs.temp_dir makes its directories in the run's private directory \
+              (run_boxed.rs); the plain build holds the realm's own rule"
+)]
 fn fs_a_temporary_directory_is_a_root_until_disposed_of() {
     let project = Scratch::new(
         "fs_temp",
@@ -2792,7 +2882,7 @@ fn fs_a_temporary_directory_is_a_root_until_disposed_of() {
         (
             output.status.code(),
             String::from_utf8(output.stdout).unwrap(),
-            String::from_utf8(output.stderr).unwrap(),
+            String::from_utf8(without_unboxed_note(output.stderr)).unwrap(),
         )
     };
     assert_eq!(
@@ -2871,6 +2961,11 @@ console.log(JSON.stringify(kinds));
 /// A disposal that fails rejects with the kind the OS said and keeps the
 /// root: its handles still work, and a later disposal removes it.
 #[test]
+#[cfg_attr(
+    feature = "snapshot",
+    ignore = "in the run's box fs.temp_dir makes its directories in the run's private directory \
+              (run_boxed.rs); the plain build holds the realm's own rule"
+)]
 fn fs_a_failed_disposal_keeps_the_temporary_root() {
     let project = Scratch::new(
         "fs_temp_failed",
@@ -2893,7 +2988,7 @@ fn fs_a_failed_disposal_keeps_the_temporary_root() {
         (
             output.status.code(),
             String::from_utf8(output.stdout).unwrap(),
-            String::from_utf8(output.stderr).unwrap(),
+            String::from_utf8(without_unboxed_note(output.stderr)).unwrap(),
         ),
         (
             Some(0),
@@ -2932,6 +3027,11 @@ try {
 /// saying why, and makes nothing where the symlink leads, which no grant
 /// reaches.
 #[test]
+#[cfg_attr(
+    feature = "snapshot",
+    ignore = "in the run's box fs.temp_dir makes its directories in the run's private directory \
+              (run_boxed.rs); the plain build holds the realm's own rule"
+)]
 fn fs_a_temporary_directory_swapped_for_a_symlink_is_refused() {
     let project = Scratch::new(
         "fs_temp_swapped",
@@ -2970,7 +3070,7 @@ fn fs_a_temporary_directory_swapped_for_a_symlink_is_refused() {
         assert_eq!(
             (
                 output.status.code(),
-                String::from_utf8(output.stderr).unwrap()
+                String::from_utf8(without_unboxed_note(output.stderr)).unwrap()
             ),
             (Some(0), String::new()),
             "{name}"
@@ -3023,6 +3123,11 @@ console.log(made);
 /// and disposes of more temporary directories, one at a time, than it may
 /// hold descriptors.
 #[test]
+#[cfg_attr(
+    feature = "snapshot",
+    ignore = "in the run's box fs.temp_dir makes its directories in the run's private directory \
+              (run_boxed.rs); the plain build holds the realm's own rule"
+)]
 fn fs_a_disposed_temporary_directory_holds_no_descriptor() {
     let project = Scratch::new(
         "fs_temp_cycled",
@@ -3074,6 +3179,11 @@ try {
 /// limits differ by one, one runs out between the two, where only the
 /// directory's open fails.
 #[test]
+#[cfg_attr(
+    feature = "snapshot",
+    ignore = "in the run's box fs.temp_dir makes its directories in the run's private directory \
+              (run_boxed.rs); the plain build holds the realm's own rule"
+)]
 fn fs_a_temporary_directory_that_fails_to_open_is_removed() {
     let project = Scratch::new(
         "fs_temp_exhausted",
@@ -3130,6 +3240,11 @@ console.log(JSON.stringify([before, await show()]));
 /// the run makes the directory, by no symlink, then makes its directories
 /// there.
 #[test]
+#[cfg_attr(
+    feature = "snapshot",
+    ignore = "in the run's box fs.temp_dir makes its directories in the run's private directory \
+              (run_boxed.rs); the plain build holds the realm's own rule"
+)]
 fn fs_a_temporary_directory_missing_as_the_run_starts_is_made_later() {
     let project = Scratch::new(
         "fs_temp_missing",
@@ -3150,7 +3265,7 @@ fn fs_a_temporary_directory_missing_as_the_run_starts_is_made_later() {
     assert_eq!(
         (
             output.status.code(),
-            String::from_utf8(output.stderr).unwrap()
+            String::from_utf8(without_unboxed_note(output.stderr)).unwrap()
         ),
         (Some(0), String::new())
     );
@@ -3211,7 +3326,7 @@ fn fs_a_refused_move_of_a_root_hints_no_grant() {
         let output = spawn(command, b"");
         assert_eq!(output.status.code(), Some(1), "{name}");
         assert_eq!(String::from_utf8(output.stdout).unwrap(), "not_granted\n");
-        String::from_utf8(output.stderr).unwrap()
+        String::from_utf8(without_unboxed_note(output.stderr)).unwrap()
     };
     // the line names the need as the hint does, or that there's none
     let refused = |path: &str, hint: Option<&str>| {
@@ -3242,7 +3357,7 @@ fn fs_a_refused_move_of_a_root_hints_no_grant() {
             (
                 output.status.code(),
                 String::from_utf8(output.stdout).unwrap(),
-                String::from_utf8(output.stderr).unwrap()
+                String::from_utf8(without_unboxed_note(output.stderr)).unwrap()
             ),
             (Some(0), "io_error\n".to_owned(), String::new()),
             "{name}"
@@ -3338,7 +3453,7 @@ fn fs_a_symlink_out_of_its_root_hints_the_link_or_its_target() {
         (
             output.status.code(),
             String::from_utf8(output.stdout).unwrap(),
-            String::from_utf8(output.stderr).unwrap(),
+            String::from_utf8(without_unboxed_note(output.stderr)).unwrap(),
         )
     };
     let read_d = format!("--allow-read={d}");
@@ -3445,7 +3560,7 @@ fn fs_hints_name_the_flag_and_no_path() {
         command.env_clear().current_dir(&project.0);
         let output = spawn(command, b"");
         assert_eq!(output.status.code(), Some(1), "{paths:?}");
-        let stderr = String::from_utf8(output.stderr).unwrap();
+        let stderr = String::from_utf8(without_unboxed_note(output.stderr)).unwrap();
         stderr
             .lines()
             .filter(|line| line.starts_with("hint:"))
@@ -3540,7 +3655,7 @@ fn fs_a_scope_a_root_grants_hints_the_handle_to_open() {
         assert_eq!(output.status.code(), Some(1), "{args:?}");
         (
             String::from_utf8(output.stdout).unwrap(),
-            String::from_utf8(output.stderr).unwrap(),
+            String::from_utf8(without_unboxed_note(output.stderr)).unwrap(),
         )
     };
     // each refusal by the kind of grant it needed, as its hint names it
@@ -3685,7 +3800,10 @@ fn fs_handle_refuses_a_symlink_swapped_onto_its_path() {
     line.clear();
     stdout.read_line(&mut line).unwrap();
     let output = child.wait_with_output().unwrap();
-    assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
+    assert_eq!(
+        String::from_utf8(without_unboxed_note(output.stderr)).unwrap(),
+        ""
+    );
     assert_eq!(output.status.code(), Some(0));
     let ended: Value = serde_json::from_str(&line).unwrap();
     assert_eq!(
@@ -3758,7 +3876,10 @@ fn fs_real_path_refuses_a_root_moved_since_it_opened() {
     line.clear();
     stdout.read_line(&mut line).unwrap();
     let output = child.wait_with_output().unwrap();
-    assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
+    assert_eq!(
+        String::from_utf8(without_unboxed_note(output.stderr)).unwrap(),
+        ""
+    );
     assert_eq!(output.status.code(), Some(0));
     let ended: Value = serde_json::from_str(&line).unwrap();
     assert_eq!(
@@ -3841,7 +3962,10 @@ fn fs_reads_refuse_a_fifo_at_once() {
     let output = spawn(command, b"");
     assert!(started.elapsed() < Duration::from_secs(20));
     drop(held);
-    assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
+    assert_eq!(
+        String::from_utf8(without_unboxed_note(output.stderr)).unwrap(),
+        ""
+    );
     assert_eq!(output.status.code(), Some(0));
     let ended: Value = serde_json::from_slice(&output.stdout).unwrap();
     let refused = |name: &str| {
@@ -4067,7 +4191,10 @@ fn fs_list_fails_on_a_name_that_is_not_utf8() {
     let mut command = fgro_command(&["run", "main.js"]);
     command.env_clear().current_dir(&project.0);
     let output = spawn(command, b"");
-    assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
+    assert_eq!(
+        String::from_utf8(without_unboxed_note(output.stderr)).unwrap(),
+        ""
+    );
     assert_eq!(output.status.code(), Some(0));
     let ended: Value = serde_json::from_slice(&output.stdout).unwrap();
     let root = project.0.to_str().unwrap();
@@ -4136,6 +4263,11 @@ await wait('done');
 /// failed, and never started, each kept alive so nothing is collected,
 /// leave the process's descriptors as they were.
 #[test]
+#[cfg_attr(
+    feature = "snapshot",
+    ignore = "the run's box marks the run not dumpable, so its descriptors can't be counted from \
+              outside it; the plain build holds the realm's own rule"
+)]
 fn fs_listings_hold_no_descriptor() {
     use std::io::BufRead as _;
     let project = Scratch::new(
@@ -4175,7 +4307,10 @@ fn fs_listings_hold_no_descriptor() {
     let after = descriptors(child.id());
     std::fs::write(project.0.join("done"), "").unwrap();
     let output = child.wait_with_output().unwrap();
-    assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
+    assert_eq!(
+        String::from_utf8(without_unboxed_note(output.stderr)).unwrap(),
+        ""
+    );
     assert_eq!(output.status.code(), Some(0));
     assert_eq!(after, before, "descriptors before and after the listings");
 }
@@ -4226,7 +4361,11 @@ fn spawn_pins_each_granted_program_as_the_run_starts() {
         let mut command = fgro_command(&args);
         command.env_clear().current_dir(&project.0);
         let output = spawn(command, b"");
-        assert_eq!(String::from_utf8(output.stderr).unwrap(), "", "{flags:?}");
+        assert_eq!(
+            String::from_utf8(without_unboxed_note(output.stderr)).unwrap(),
+            "",
+            "{flags:?}"
+        );
         assert_eq!(output.status.code(), Some(0), "{flags:?}");
         let printed: Value = serde_json::from_slice(&output.stdout).unwrap();
         (printed, project.path("bin/tool"))
@@ -4295,7 +4434,7 @@ fn spawn_program_in_needs_an_exec_root() {
         let printed: Value = serde_json::from_slice(&output.stdout).unwrap();
         (
             output.status.code(),
-            String::from_utf8(output.stderr).unwrap(),
+            String::from_utf8(without_unboxed_note(output.stderr)).unwrap(),
             printed,
         )
     };
@@ -4428,7 +4567,7 @@ fn a_narrowed_spawn_keeps_the_run_s_pins_and_forwarding() {
         ])
     );
     assert_eq!(
-        String::from_utf8(output.stderr).unwrap(),
+        String::from_utf8(without_unboxed_note(output.stderr)).unwrap(),
         "error: spawn refused: not_granted: tool\n\
          error: a refusal fails the run, whether or not the program caught it\n\
          hint: add --allow-run-env=GRO_SECRET to grant what spawn refused\n"

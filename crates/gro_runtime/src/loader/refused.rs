@@ -216,6 +216,13 @@ pub enum FsNeed {
     /// A fresh temporary directory, which `fs.temp_dir` makes under the
     /// OS's temporary directory once it's granted.
     Temp,
+    /// A read in the project's root where it's the entry's own directory,
+    /// with no project's `package.json` at or above it, which a run reads
+    /// only by a flag naming it: the embedder, which resolved that root,
+    /// names it in its hint, never a path the program chose.
+    EntryDirRead,
+    /// A write there, as [`FsNeed::EntryDirRead`] is for a read.
+    EntryDirWrite,
 }
 
 /// One refusal, as a run's record lists it.

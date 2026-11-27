@@ -644,3 +644,47 @@ fn a_refused_call_is_listed_with_its_error_s_message() {
 fn needs(name: &str) -> NeededGrant {
     NeededGrant::Env(name.to_owned())
 }
+
+/// An entry with no project's `package.json` at or above it reads and
+/// writes its own directory, the project's root, only as a flag naming it
+/// grants: `fs.project`'s read and write there are refused, each needing
+/// that directory by its own kind, apart from a reach no root holds.
+#[test]
+fn an_unbounded_entry_s_own_directory_needs_a_flag_naming_it() {
+    let engine = init_engine(Confinement::Unconfined, &EngineOptions::default()).unwrap();
+    let test_dir = TestDir::in_system_temp("refused_unbounded");
+    let dir = test_dir.path().to_owned();
+    std::fs::write(dir.join("d.txt"), "d").unwrap();
+    std::fs::write(
+        dir.join("main.mjs"),
+        "import { fs } from '@fuzdev/gro/fs.ts';
+for (const call of [() => fs.project.read_text('d.txt'), () => fs.project.write('o.txt', 'x'), () => fs.open_dir('/')]) {
+\ttry {
+\t\tawait call();
+\t} catch {}
+}
+",
+    )
+    .unwrap();
+    let options = RuntimeOptions {
+        authority: granted(),
+        exit_step: Some(never_exits),
+        ..RuntimeOptions::default()
+    };
+    let entry = dir.join("main.mjs");
+    let outcome = std::thread::Builder::new()
+        .stack_size(STACK_SIZE)
+        .spawn(move || Ended::from(run_main(engine, &options, &entry, &dir)))
+        .unwrap()
+        .join()
+        .unwrap();
+    assert_eq!(
+        outcome.refused.needed,
+        [
+            NeededGrant::Fs(FsNeed::EntryDirRead),
+            NeededGrant::Fs(FsNeed::EntryDirWrite),
+            NeededGrant::Fs(FsNeed::Read),
+        ]
+    );
+    assert!(!test_dir.path().join("o.txt").exists());
+}

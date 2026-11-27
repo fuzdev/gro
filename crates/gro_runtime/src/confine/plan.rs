@@ -31,11 +31,16 @@
 //!
 //! A run that may start a program also gets each pinned program's real
 //! file read and executed (for a `node_modules/.bin` script, the `node` it
-//! runs under), `node_modules` read and executed, what git reads from its
-//! home config and the project's git directories outside the root, each by
-//! its real path (`git.rs`, which refuses what it can't read), and a
-//! directory private to the run, read, written, and executed, which
-//! `--allow-temp` alone grants too.
+//! runs under), `node_modules` read and executed, and a directory private
+//! to the run, read, written, and executed, which `--allow-temp` alone
+//! grants too. A run that may start git ([`BoxInputs::git`]) gets what git
+//! reads from its home config and the project's git directories outside
+//! the root, each by its real path (`git.rs`, which refuses what it can't
+//! read). A root with no project's `package.json` at or above it
+//! ([`BoxInputs::unbounded`]) gets each type marker above it read,
+//! file-only, by its real path ([`BoxInputs::markers`]), and its own rule
+//! is the run's loader's ([`RuleSource::UnboundedRoot`]), which no
+//! program's box takes unless a flag names the root.
 //!
 //! A run whose closure grants a program of the grants table that writes
 //! tool directories gets each its `write` names that the project's declared
@@ -78,7 +83,7 @@
 //! open them to it; a
 //! `node` that is a script, a version manager's shim, which can't read its
 //! manager's directory inside the box, unless a run-in flag admits it;
-//! for a run that may start a program, git's files `git.rs` can't read
+//! for a run that may start git, git's files `git.rs` can't read
 //! (a [`GitFault`]); and a `node_modules` symlink to anything but a
 //! directory named `node_modules` outside the project, neither in it nor
 //! holding it, so a committed link to `~/.ssh` or to `.git` gets no rule.
@@ -121,6 +126,12 @@ use super::rules::{Need, RealRights, Rights};
 pub struct BoxInputs {
     /// The project's root, a real path.
     pub root: PathBuf,
+    /// Whether the root is the directory of an entry with no project's
+    /// `package.json` at or above it, which the run reads for its loader
+    /// alone: its rule is [`RuleSource::UnboundedRoot`], which a program's
+    /// box takes only where the program's `--allow-run-write=` names the
+    /// root, so a program reads it only as a grant flag names it.
+    pub unbounded: bool,
     /// Whether the run is unconfined (`-A`), which no box holds.
     pub unconfined: bool,
     /// Whether the command's closure writes the project's root, its check
@@ -155,6 +166,17 @@ pub struct BoxInputs {
     pub xdg_config_home: Option<PathBuf>,
     /// `GIT_CONFIG_GLOBAL`, if it's set.
     pub git_config_global: Option<PathBuf>,
+    /// Whether the run may start git, whose home config and the project's
+    /// git directories outside the root the box then reads: every run of a
+    /// command of Gro's that may start a program, whose tools run git, and
+    /// an `fgro run` whose `--allow-run=` names `git`.
+    pub git: bool,
+    /// The type markers above the root, each a `package.json` by its real
+    /// path, read file-only: an entry with no project's `package.json` at
+    /// or above it has its own directory as its root, and a `.js` module's
+    /// type is read from the nearest marker above it as each module loads,
+    /// after the box is up.
+    pub markers: Vec<PathBuf>,
 }
 
 /// The file a pinned program executes, as the box grants it.
@@ -425,6 +447,9 @@ pub enum Anchor {
 pub enum RuleSource {
     /// The project's tree, read.
     Project,
+    /// The root of an entry in no project ([`BoxInputs::unbounded`]), read
+    /// for the run's own loader.
+    UnboundedRoot,
     /// A top-level entry of the project, written.
     Entry,
     /// A tool directory, written.
@@ -447,6 +472,8 @@ pub enum RuleSource {
     GitHome,
     /// The project's git directory outside its root.
     GitDir,
+    /// A type marker above the root ([`BoxInputs::markers`]).
+    Marker,
     /// The run's private directory.
     PrivateTemp,
     /// A grant flag.
@@ -661,7 +688,7 @@ pub enum PlanRefusal {
     /// per-entry rules keep the realm out of those, so the program's rule
     /// would open it to gro's code as well. Its message names the command
     /// where the caller has one ([`PlanRefusal::message`]).
-    #[error("{}", realm_writes_message(program, dir, cause, None))]
+    #[error("{}", realm_writes_message(program, dir, cause, None, GRO_CODE))]
     RealmWritesProgramDir {
         /// The program, as written.
         program: String,
@@ -684,11 +711,10 @@ pub enum PlanRefusal {
         found: PathBuf,
     },
     /// Git's home config or the project's git directories can't be read
-    /// for a run that may start a program, whose tools run git.
+    /// for a run that may start git ([`BoxInputs::git`]).
     #[error(
         "the kernel box can't read git's files ({0}): it grants git what its config and the \
-         project's .git name, so it refuses a run that may start a program when it can't read \
-         them"
+         project's .git name, so it refuses a run that may start git when it can't read them"
     )]
     Git(GitFault),
     /// `node_modules` is a symlink to anything but another checkout's
@@ -719,14 +745,16 @@ pub enum RootWriter {
 impl PlanRefusal {
     /// The refusal's message, naming `command` (`fgro gen`, as a message
     /// names the command line) where it names the command that writes the
-    /// project, else as its `Display` prints it.
-    pub fn message(&self, command: Option<&str>) -> String {
+    /// project, and `realm` as what runs in the run's realm (`gro's own
+    /// code` for a command of Gro's, `the run's own code` for `fgro run`),
+    /// else as its `Display` prints it.
+    pub fn message(&self, command: Option<&str>, realm: &str) -> String {
         match self {
             Self::RealmWritesProgramDir {
                 program,
                 dir,
                 cause,
-            } => realm_writes_message(program, dir, cause, command),
+            } => realm_writes_message(program, dir, cause, command, realm),
             _ => self.to_string(),
         }
     }
@@ -741,26 +769,27 @@ fn written_as(program: Option<&str>) -> String {
     )
 }
 
+/// What a command of Gro's runs in its realm, as a message names it.
+pub const GRO_CODE: &str = "gro's own code";
+
 /// [`PlanRefusal::RealmWritesProgramDir`]'s message, naming `command` as
 /// what writes the project when the closure is the cause, or `the command`
-/// with none.
+/// with none, and `realm` as what runs in the run's realm.
 fn realm_writes_message(
     program: &str,
     dir: &str,
     cause: &RootWriter,
     command: Option<&str>,
+    realm: &str,
 ) -> String {
     let since = match cause {
         RootWriter::Closure => format!("{} writes the project", command.unwrap_or("the command")),
         RootWriter::Flag(root) => {
-            format!(
-                "{}={root} lets gro's own code write the project",
-                DirFlag::Write
-            )
+            format!("{}={root} lets {realm} write the project", DirFlag::Write)
         }
     };
     format!(
-        "--allow-run-write={program}:{dir} would let gro's own code write {dir} as well, since \
+        "--allow-run-write={program}:{dir} would let {realm} write {dir} as well, since \
          {since} and only the kernel box keeps it out of .git, node_modules, and the \
          dot-entries: add {}={dir} to grant it to both",
         DirFlag::Write
@@ -838,7 +867,12 @@ impl BoxPlan {
         } else {
             RealRights::Read
         };
-        plan.beneath(Anchor::Project, ".", Rights::READ, RuleSource::Project);
+        let root_source = if inputs.unbounded {
+            RuleSource::UnboundedRoot
+        } else {
+            RuleSource::Project
+        };
+        plan.beneath(Anchor::Project, ".", Rights::READ, root_source);
         if let Some(real) = plan.node_modules_link.clone() {
             plan.real(
                 &real,
@@ -854,6 +888,9 @@ impl BoxPlan {
                 Need::Optional,
                 RuleSource::Linked,
             );
+        }
+        for marker in &inputs.markers {
+            plan.real(marker, RealRights::Read, Need::Optional, RuleSource::Marker);
         }
         plan.system(facts);
         if inputs.writes_root || writes_root_by_flag(inputs) || run_writes_root(inputs) {
@@ -1021,6 +1058,12 @@ impl BoxPlan {
         self.rules.iter().find_map(|rule| {
             let path = match &rule.opening {
                 Opening::Real { path, .. } => path.clone(),
+                // the root's own rule names the root, never `root/.`
+                Opening::Beneath {
+                    anchor: Anchor::Project,
+                    path,
+                    ..
+                } if path.as_os_str() == "." => self.root.clone(),
                 Opening::Beneath {
                     anchor: Anchor::Project,
                     path,
@@ -1305,7 +1348,8 @@ impl BoxPlan {
     }
 
     /// What a run that may start a program needs: each pinned file,
-    /// `node_modules`, git's home config.
+    /// `node_modules`, and for one that may start git, git's home config and
+    /// the project's git directories outside the root.
     fn spawning(&mut self, inputs: &BoxInputs, facts: &BoxFacts) {
         for program in &inputs.programs {
             let (path, source) = match program {
@@ -1325,11 +1369,13 @@ impl BoxPlan {
                 source: RuleSource::NodeModules,
             });
         }
-        for git in &facts.git_home {
-            self.real(git, RealRights::Read, Need::Optional, RuleSource::GitHome);
-        }
-        for dir in &facts.git_dirs {
-            self.real(dir, RealRights::Read, Need::Optional, RuleSource::GitDir);
+        if inputs.git {
+            for git in &facts.git_home {
+                self.real(git, RealRights::Read, Need::Optional, RuleSource::GitHome);
+            }
+            for dir in &facts.git_dirs {
+                self.real(dir, RealRights::Read, Need::Optional, RuleSource::GitDir);
+            }
         }
     }
 
@@ -1542,7 +1588,7 @@ fn refuse(inputs: &BoxInputs, facts: &BoxFacts) -> Result<(), PlanRefusal> {
     {
         return Err(PlanRefusal::NodeModulesLink { real: real.clone() });
     }
-    if inputs.spawns
+    if inputs.git
         && let Some(fault) = &facts.git_fault
     {
         return Err(PlanRefusal::Git(fault.clone()));

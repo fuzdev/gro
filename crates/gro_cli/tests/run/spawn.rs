@@ -73,10 +73,10 @@ const ENDINGS: &str = "import { args } from '@fuzdev/gro/args.ts';
 import { exit } from '@fuzdev/gro/exit.ts';
 import { spawn } from '@fuzdev/gro/spawn.ts';
 const sh = spawn.program('sh');
-sh.out(['-c', 'echo $$ > grouped.pid; exec sleep 30']);
-sh.run(['-c', 'echo $$ > shared.pid; exec sleep 30 > /dev/null 2>&1']);
+sh.out(['-c', 'echo $$ > out/grouped.pid; exec sleep 30']);
+sh.run(['-c', 'echo $$ > out/shared.pid; exec sleep 30 > /dev/null 2>&1']);
 while (true) {
-\tconst found = await sh.out(['-c', 'test -s grouped.pid && test -s shared.pid']);
+\tconst found = await sh.out(['-c', 'test -s out/grouped.pid && test -s out/shared.pid']);
 \tif (found.code === 0) break;
 }
 if (args[0] === 'exit') exit(5);
@@ -90,14 +90,23 @@ await new Promise(() => setInterval(() => {}, 1000));
 #[test]
 fn no_child_outlives_a_run_that_exits_or_throws() {
     for (ending, code) in [("exit", 5), ("throw", 1)] {
-        let fixtures = temp_fixtures(&format!("spawn_ending_{ending}"), &[("main.js", ENDINGS)]);
-        let mut command = fgro_command(&["run", "--allow-run=sh", "main.js", ending]);
+        let fixtures = temp_fixtures(
+            &format!("spawn_ending_{ending}"),
+            &[("main.js", ENDINGS), ("out/.keep", "")],
+        );
+        let mut command = fgro_command(&[
+            "run",
+            "--allow-run=sh",
+            "--allow-run-write=sh:out",
+            "main.js",
+            ending,
+        ]);
         command.current_dir(&fixtures.0);
         let output = spawn(command, b"");
         assert_eq!(output.status.code(), Some(code), "{ending}: {output:?}");
-        await_gone(read_pid(&fixtures, "grouped.pid"), "the grouped child");
+        await_gone(read_pid(&fixtures, "out/grouped.pid"), "the grouped child");
         await_gone(
-            read_pid(&fixtures, "shared.pid"),
+            read_pid(&fixtures, "out/shared.pid"),
             "the child sharing the run's group",
         );
     }
@@ -111,19 +120,30 @@ fn no_child_outlives_a_run_that_exits_or_throws() {
 #[test]
 fn a_signal_ending_the_run_kills_its_groups_and_passes_a_sigterm_on() {
     for (signal, number) in [("INT", SIGINT), ("TERM", SIGTERM), ("HUP", SIGHUP)] {
-        let fixtures = temp_fixtures(&format!("spawn_signal_{signal}"), &[("main.js", ENDINGS)]);
+        let fixtures = temp_fixtures(
+            &format!("spawn_signal_{signal}"),
+            &[("main.js", ENDINGS), ("out/.keep", "")],
+        );
         let mut command = std::process::Command::new("env");
         command.arg("--default-signal=INT,TERM,HUP");
-        let mut command =
-            support::wrapped_fgro_command(command, &["run", "--allow-run=sh", "main.js", "signal"]);
+        let mut command = support::wrapped_fgro_command(
+            command,
+            &[
+                "run",
+                "--allow-run=sh",
+                "--allow-run-write=sh:out",
+                "main.js",
+                "signal",
+            ],
+        );
         command
             .current_dir(&fixtures.0)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null());
         let mut child = KillOnDrop(command.spawn().unwrap());
-        let grouped = read_pid(&fixtures, "grouped.pid");
-        let shared = read_pid(&fixtures, "shared.pid");
+        let grouped = read_pid(&fixtures, "out/grouped.pid");
+        let shared = read_pid(&fixtures, "out/shared.pid");
         let status = std::process::Command::new("kill")
             .args([&format!("-{signal}"), &child.id().to_string()])
             .status()
@@ -473,16 +493,23 @@ console.log(JSON.stringify([status.stdout, add.code, commit.code, commit.stderr,
             ),
         ],
     );
+    // a home of the test's beside the project, so no configuration of the
+    // machine's is read
+    let home = Scratch::in_system_temp("spawn_git_home", &[]);
     let init = std::process::Command::new("git")
         .args(["init", "-q", "-b", "main"])
         .current_dir(&fixtures.0)
-        .env("HOME", &fixtures.0)
+        .env("HOME", &home.0)
         .status()
         .unwrap();
     assert!(init.success());
-    // a home of the test's, so no configuration of the machine's is read
-    let mut command = fgro_command(&["run", "--allow-run=git", "main.js"]);
-    command.current_dir(&fixtures.0).env("HOME", &fixtures.0);
+    let mut command = fgro_command(&[
+        "run",
+        "--allow-run=git",
+        "--allow-run-write=git:.git",
+        "main.js",
+    ]);
+    command.current_dir(&fixtures.0).env("HOME", &home.0);
     let output = spawn(command, b"");
     assert_eq!(output.status.code(), Some(0), "{output:?}");
     let printed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
@@ -625,20 +652,25 @@ fn a_group_s_grace_kill_outlasts_the_call_s_result() {
             "main.js",
             "import { spawn } from '@fuzdev/gro/spawn.ts';
 const sh = spawn.program('sh');
-const result = await sh.out(['-c', 'trap \"exit 0\" TERM; sh -c \"trap \\\\\"\\\\\" TERM; echo \\\\$\\\\$ > member.pid; exec sleep 30\" > /dev/null 2>&1 < /dev/null & sleep 30 & wait'], { timeout_ms: 300 });
+const result = await sh.out(['-c', 'trap \"exit 0\" TERM; sh -c \"trap \\\\\"\\\\\" TERM; echo \\\\$\\\\$ > out/member.pid; exec sleep 30\" > /dev/null 2>&1 < /dev/null & sleep 30 & wait'], { timeout_ms: 300 });
 console.log(JSON.stringify([result.kind, result.code]));
 await new Promise((resolve) => setTimeout(resolve, 8000));
 ",
-        )],
+        ), ("out/.keep", "")],
     );
-    let mut command = fgro_command(&["run", "--allow-run=sh", "main.js"]);
+    let mut command = fgro_command(&[
+        "run",
+        "--allow-run=sh",
+        "--allow-run-write=sh:out",
+        "main.js",
+    ]);
     command
         .current_dir(&fixtures.0)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
     let mut run = KillOnDrop(command.spawn().unwrap());
-    let member = read_pid(&fixtures, "member.pid");
+    let member = read_pid(&fixtures, "out/member.pid");
     await_gone(member, "the group's member past the grace");
     assert!(
         run.try_wait().unwrap().is_none(),
@@ -840,10 +872,10 @@ const STARTED_ENDINGS: &str = "import { args } from '@fuzdev/gro/args.ts';
 import { exit } from '@fuzdev/gro/exit.ts';
 import { spawn } from '@fuzdev/gro/spawn.ts';
 const sh = spawn.program('sh');
-await sh.start(['-c', 'echo $$ > grouped.pid; exec sleep 30'], { stdio: 'ignore' });
-await sh.start(['-c', 'echo $$ > shared.pid; exec sleep 30'], { stdio: ['inherit', 'ignore', 'ignore'] });
+await sh.start(['-c', 'echo $$ > out/grouped.pid; exec sleep 30'], { stdio: 'ignore' });
+await sh.start(['-c', 'echo $$ > out/shared.pid; exec sleep 30'], { stdio: ['inherit', 'ignore', 'ignore'] });
 while (true) {
-\tconst found = await sh.out(['-c', 'test -s grouped.pid && test -s shared.pid']);
+\tconst found = await sh.out(['-c', 'test -s out/grouped.pid && test -s out/shared.pid']);
 \tif (found.code === 0) break;
 }
 if (args[0] === 'exit') exit(5);
@@ -859,31 +891,48 @@ fn no_started_child_outlives_its_run() {
     for (ending, code) in [("exit", 5), ("throw", 1)] {
         let fixtures = temp_fixtures(
             &format!("spawn_started_ending_{ending}"),
-            &[("main.js", STARTED_ENDINGS)],
+            &[("main.js", STARTED_ENDINGS), ("out/.keep", "")],
         );
-        let mut command = fgro_command(&["run", "--allow-run=sh", "main.js", ending]);
+        let mut command = fgro_command(&[
+            "run",
+            "--allow-run=sh",
+            "--allow-run-write=sh:out",
+            "main.js",
+            ending,
+        ]);
         command.current_dir(&fixtures.0).stdin(Stdio::null());
         let output = spawn(command, b"");
         assert_eq!(output.status.code(), Some(code), "{ending}: {output:?}");
-        await_gone(read_pid(&fixtures, "grouped.pid"), "the grouped child");
+        await_gone(read_pid(&fixtures, "out/grouped.pid"), "the grouped child");
         await_gone(
-            read_pid(&fixtures, "shared.pid"),
+            read_pid(&fixtures, "out/shared.pid"),
             "the child in the run's group",
         );
     }
-    let fixtures = temp_fixtures("spawn_started_signal", &[("main.js", STARTED_ENDINGS)]);
+    let fixtures = temp_fixtures(
+        "spawn_started_signal",
+        &[("main.js", STARTED_ENDINGS), ("out/.keep", "")],
+    );
     let mut command = std::process::Command::new("env");
     command.arg("--default-signal=INT,TERM,HUP");
-    let mut command =
-        support::wrapped_fgro_command(command, &["run", "--allow-run=sh", "main.js", "signal"]);
+    let mut command = support::wrapped_fgro_command(
+        command,
+        &[
+            "run",
+            "--allow-run=sh",
+            "--allow-run-write=sh:out",
+            "main.js",
+            "signal",
+        ],
+    );
     command
         .current_dir(&fixtures.0)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
     let mut child = KillOnDrop(command.spawn().unwrap());
-    let grouped = read_pid(&fixtures, "grouped.pid");
-    let shared = read_pid(&fixtures, "shared.pid");
+    let grouped = read_pid(&fixtures, "out/grouped.pid");
+    let shared = read_pid(&fixtures, "out/shared.pid");
     let status = std::process::Command::new("kill")
         .args(["-TERM", &child.id().to_string()])
         .status()
@@ -1046,18 +1095,23 @@ fn a_stream_nobody_reads_pauses_its_child() {
             "main.js",
             "import { spawn } from '@fuzdev/gro/spawn.ts';
 const sh = spawn.program('sh');
-const child = await sh.start(['-c', 'head -c 3000000 /dev/zero; touch done'], { stdio: ['ignore', 'pipe', 'ignore'] });
+const child = await sh.start(['-c', 'head -c 3000000 /dev/zero; touch out/done'], { stdio: ['ignore', 'pipe', 'ignore'] });
 await new Promise((resolve) => setTimeout(resolve, 1000));
-const blocked = (await sh.out(['-c', 'test -e done'])).code;
+const blocked = (await sh.out(['-c', 'test -e out/done'])).code;
 let length = 0;
 for await (const chunk of child.stdout) length += chunk.length;
 const closed = await child.closed;
-const finished = (await sh.out(['-c', 'test -e done'])).code;
+const finished = (await sh.out(['-c', 'test -e out/done'])).code;
 console.log(JSON.stringify([blocked, length, closed.kind, closed.code, finished]));
 ",
-        )],
+        ), ("out/.keep", "")],
     );
-    let mut command = fgro_command(&["run", "--allow-run=sh", "main.js"]);
+    let mut command = fgro_command(&[
+        "run",
+        "--allow-run=sh",
+        "--allow-run-write=sh:out",
+        "main.js",
+    ]);
     command.current_dir(&fixtures.0);
     let output = spawn(command, b"");
     assert_eq!(output.status.code(), Some(0), "{output:?}");

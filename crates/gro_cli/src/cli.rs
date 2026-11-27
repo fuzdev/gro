@@ -268,7 +268,10 @@ fn run_help() -> String {
         "                    grant the project's modules `@fuzdev/gro/fs.ts` reading these",
         "                    directories, a comma-separated list of existing ones,",
         "                    relative to the working directory or absolute; repeatable;",
-        "                    the project's root is read without it",
+        "                    the project's root is read without it, but for an entry in",
+        "                    no project (no package.json at or above it holds more than",
+        "                    \"type\" or \"sideEffects\"), whose directory is read only as",
+        "                    named",
         "  --allow-write=<dirs>",
         "                    grant the project's modules `@fuzdev/gro/fs.ts` writing these",
         "                    directories, as --allow-read lists them; a directory only",
@@ -281,20 +284,21 @@ fn run_help() -> String {
         "                    grant the project's modules `@fuzdev/gro/spawn.ts` making",
         "                    these programs, a comma-separated list of exact names, each",
         "                    found on PATH, or beneath the project's root when it holds",
-        "                    `/`, and pinned as the run starts; repeatable. Until each",
-        "                    child is boxed, granting any program is close to granting",
-        "                    what -A grants: most can be made to run code by their",
-        "                    arguments or environment, a shell, git, and cargo among",
-        "                    them, and the root's env values set any variable; hand",
-        "                    library code a narrowed root, which refuses env values",
+        "                    `/`, and pinned as the run starts; repeatable. Each runs in",
+        "                    a kernel box of its own inside the run's, writing only a",
+        "                    temporary directory of its own and what --allow-run-write",
+        "                    names for it, and reading what the run's box reads; most",
+        "                    can be made to run code by their arguments or environment,",
+        "                    a shell, git, and cargo among them, and the root's env",
+        "                    values set any variable; hand library code a narrowed",
+        "                    root, which refuses env values",
         "  --allow-run-in=<dirs>",
         "                    grant the project's modules `@fuzdev/gro/spawn.ts` making",
         "                    programs found beneath these directories with program_in",
         "                    and find_in, as --allow-read lists them, each held as the",
         "                    run starts; repeatable. A directory also granted by",
-        "                    --allow-write runs what the run writes there; as for",
-        "                    --allow-run, granting one is close to granting what -A",
-        "                    grants",
+        "                    --allow-write runs what the run writes there; a program",
+        "                    found there runs in a box of its own, as --allow-run's do",
         "  --allow-run-env=<names>",
         "                    let the programs --allow-run grants, and those found",
         "                    beneath what --allow-run-in grants, be passed these",
@@ -303,13 +307,10 @@ fn run_help() -> String {
         "                    globs; repeatable; only beside --allow-run or",
         "                    --allow-run-in",
         "  --allow-run-write=<program>:<dirs>",
-        "                    let one program --allow-run grants write these directories:",
-        "                    its name, `:`, then directories as --allow-write lists them;",
-        "                    repeatable, one program each, only beside --allow-run.",
-        &format!(
-            "                    `{BINARY_NAME} {RUN}` starts programs in no box, so here the flag is"
-        ),
-        "                    checked and holds nothing back",
+        "                    let one program --allow-run grants write these directories",
+        "                    from its box: its name, `:`, then directories as",
+        "                    --allow-write lists them; repeatable, one program each,",
+        "                    only beside --allow-run",
         "  -A                run unconfined: every grant at its widest, to every module,",
         "                    every environment variable and every directory among them",
         "  --help, help      display usage information",
@@ -399,7 +400,7 @@ impl RunInvocation {
     /// `--allow-run=` or `--allow-run-in=`; then `--allow-run-write=`
     /// without `--allow-run=`, then naming a program no `--allow-run=`
     /// lists; then no file.
-    fn check(args: RunArgs) -> Result<Task, CliError> {
+    fn check(args: RunArgs) -> Result<Invocation, CliError> {
         let mut help = false;
         let mut grant = RunGrantBuilder::default();
         let mut args = args.args.into_iter();
@@ -430,11 +431,11 @@ impl RunInvocation {
             return Err(CliError::RunWriteUngranted(program.to_owned()));
         }
         match (help, file) {
-            (true, _) => Ok(Task::Help(run_help())),
+            (true, _) => Ok(Invocation::Sized(Task::Help(run_help()))),
             (false, None) => Err(CliError::RunNoFile),
             (false, Some(file)) => {
                 let (grant, dirs) = grant.build();
-                Ok(Task::Run(Self {
+                Ok(Invocation::Run(Self {
                     file: PathBuf::from(file),
                     args: args.collect(),
                     grant,
@@ -1067,6 +1068,10 @@ pub enum Invocation {
     /// box's steps run on the main thread before any thread starts, then
     /// it runs on a thread with a stated stack, or on the Node Gro.
     Verb(Vec<String>),
+    /// `run <file> [<args...>]`: its entry resolved and its box's steps
+    /// taken on the main thread before any thread starts, then it runs on a
+    /// thread with a stated stack.
+    Run(RunInvocation),
     /// Every other command, run on a thread with a stated stack.
     Sized(Task),
 }
@@ -1082,8 +1087,6 @@ pub enum Task {
     /// `make-embed <src> <dir>`: the checkout's `src/` and the directory
     /// to write into.
     MakeEmbed(PathBuf, PathBuf),
-    /// `run <file> [<args...>]`.
-    Run(RunInvocation),
 }
 
 /// The `N` paths an internal subcommand takes, `args` its name and them,
@@ -1162,7 +1165,7 @@ pub fn parse(args: &[&str]) -> Result<Invocation, CliError> {
         Ok(Args {
             version: false,
             command: Some(Command::Run(args)),
-        }) => RunInvocation::check(args).map(Invocation::Sized),
+        }) => RunInvocation::check(args),
         Ok(Args {
             version: false,
             command: Some(Command::Eval(args)),
@@ -1283,9 +1286,7 @@ mod tests {
 
     fn run_outcome(args: &[&str]) -> Run {
         match parse(args) {
-            Ok(Invocation::Sized(Task::Run(run))) => {
-                Run::Runs(run.file.to_str().unwrap().to_owned(), run.args)
-            }
+            Ok(Invocation::Run(run)) => Run::Runs(run.file.to_str().unwrap().to_owned(), run.args),
             Ok(Invocation::Sized(Task::Help(help))) if help == run_help() => Run::Help,
             Err(CliError::RunNoFile) => Run::NoFile,
             Err(CliError::RunOption(option)) => Run::Option(option),
@@ -1318,7 +1319,7 @@ mod tests {
     fn grant(args: &[&str]) -> RunGrant {
         let args = [&["run"][..], args].concat();
         match parse(&args) {
-            Ok(Invocation::Sized(Task::Run(run))) => run.grant,
+            Ok(Invocation::Run(run)) => run.grant,
             _ => panic!("{args:?} runs a file"),
         }
     }
@@ -1817,7 +1818,7 @@ mod tests {
         let dirs = |args: &[&str]| {
             let args = [&["run"][..], args].concat();
             match parse(&args) {
-                Ok(Invocation::Sized(Task::Run(run))) => (run.grant, run.dirs),
+                Ok(Invocation::Run(run)) => (run.grant, run.dirs),
                 _ => panic!("{args:?} runs a file"),
             }
         };
@@ -1863,7 +1864,7 @@ mod tests {
         // the variables' flag passes on to programs an exec root finds
         assert!(matches!(
             parse(&["run", "--allow-run-in=x", "--allow-run-env=A", "a.js"]),
-            Ok(Invocation::Sized(Task::Run(_)))
+            Ok(Invocation::Run(_))
         ));
     }
 
@@ -2021,7 +2022,10 @@ Options:
                     grant the project's modules `@fuzdev/gro/fs.ts` reading these
                     directories, a comma-separated list of existing ones,
                     relative to the working directory or absolute; repeatable;
-                    the project's root is read without it
+                    the project's root is read without it, but for an entry in
+                    no project (no package.json at or above it holds more than
+                    \"type\" or \"sideEffects\"), whose directory is read only as
+                    named
   --allow-write=<dirs>
                     grant the project's modules `@fuzdev/gro/fs.ts` writing these
                     directories, as --allow-read lists them; a directory only
@@ -2034,20 +2038,21 @@ Options:
                     grant the project's modules `@fuzdev/gro/spawn.ts` making
                     these programs, a comma-separated list of exact names, each
                     found on PATH, or beneath the project's root when it holds
-                    `/`, and pinned as the run starts; repeatable. Until each
-                    child is boxed, granting any program is close to granting
-                    what -A grants: most can be made to run code by their
-                    arguments or environment, a shell, git, and cargo among
-                    them, and the root's env values set any variable; hand
-                    library code a narrowed root, which refuses env values
+                    `/`, and pinned as the run starts; repeatable. Each runs in
+                    a kernel box of its own inside the run's, writing only a
+                    temporary directory of its own and what --allow-run-write
+                    names for it, and reading what the run's box reads; most
+                    can be made to run code by their arguments or environment,
+                    a shell, git, and cargo among them, and the root's env
+                    values set any variable; hand library code a narrowed
+                    root, which refuses env values
   --allow-run-in=<dirs>
                     grant the project's modules `@fuzdev/gro/spawn.ts` making
                     programs found beneath these directories with program_in
                     and find_in, as --allow-read lists them, each held as the
                     run starts; repeatable. A directory also granted by
-                    --allow-write runs what the run writes there; as for
-                    --allow-run, granting one is close to granting what -A
-                    grants
+                    --allow-write runs what the run writes there; a program
+                    found there runs in a box of its own, as --allow-run's do
   --allow-run-env=<names>
                     let the programs --allow-run grants, and those found
                     beneath what --allow-run-in grants, be passed these
@@ -2056,11 +2061,10 @@ Options:
                     globs; repeatable; only beside --allow-run or
                     --allow-run-in
   --allow-run-write=<program>:<dirs>
-                    let one program --allow-run grants write these directories:
-                    its name, `:`, then directories as --allow-write lists them;
-                    repeatable, one program each, only beside --allow-run.
-                    `{BINARY_NAME} run` starts programs in no box, so here the flag is
-                    checked and holds nothing back
+                    let one program --allow-run grants write these directories
+                    from its box: its name, `:`, then directories as
+                    --allow-write lists them; repeatable, one program each,
+                    only beside --allow-run
   -A                run unconfined: every grant at its widest, to every module,
                     every environment variable and every directory among them
   --help, help      display usage information";

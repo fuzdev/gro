@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 
 use gro_runtime::confine::ConfineError;
 use gro_runtime::confine::plan::{
-    BoxFacts, BoxInputs, BoxPlan, DirFlag, GrantedFlagDir, PlanRefusal, RootWriter, RuleSource,
-    RunWriteDir, RunWriteGrant, ToolDir, ToolWrites,
+    BoxFacts, BoxInputs, BoxPlan, DirFlag, GRO_CODE, GrantedFlagDir, PlanRefusal, RootWriter,
+    RuleSource, RunWriteDir, RunWriteGrant, ToolDir, ToolWrites,
 };
 use gro_runtime::resolver::InstalledPackage;
 use gro_runtime::{BINARY_NAME, RunPins};
@@ -315,7 +315,8 @@ fn the_refusals_before_the_box_print_their_texts_and_codes() {
         refusal: PlanRefusal::NodeModulesLink {
             real: PathBuf::from("/h/.ssh\u{1b}[2J"),
         },
-        command: Some("check".to_owned()),
+        named: format!("{BINARY_NAME} check"),
+        realm: GRO_CODE,
     };
     assert_eq!(planted.exit_code(), EXIT_USAGE);
     let text = planted.to_string();
@@ -329,7 +330,8 @@ fn the_refusals_before_the_box_print_their_texts_and_codes() {
             dir: ".git\u{1b}[2J".to_owned(),
             cause,
         },
-        command: command.map(str::to_owned),
+        named: crate::verb::prepass::command_line(command),
+        realm: GRO_CODE,
     };
     let closure = corner(Some("gen"), RootWriter::Closure);
     assert_eq!(closure.exit_code(), EXIT_USAGE);
@@ -376,7 +378,8 @@ fn a_planted_path_exits_2_and_a_failed_step_1() {
         BoxStartError::Confine(ConfineError::StdioSocket { fds: vec![0] }),
         BoxStartError::Plan {
             refusal: PlanRefusal::Unconfined,
-            command: None,
+            named: BINARY_NAME.to_owned(),
+            realm: GRO_CODE,
         },
         BoxStartError::TempInProject {
             path: path(),
@@ -841,5 +844,99 @@ fn a_held_temporary_directory_names_the_flag_that_holds_it() {
         }
         .to_string()
         .contains("and --allow-run-write=node_modules/.bin/vitest:/tmp holds it")
+    );
+}
+
+/// `fgro run`'s file names the command `fgro run` in what the box says,
+/// its programs and the run's modules where a command of Gro's names its
+/// tools and gro's own code; its box reads git's files only where
+/// `--allow-run=` grants git, and the type markers above an entry's own
+/// directory with no project's `package.json` at or above it, a root its
+/// programs read only as a flag names it.
+#[test]
+fn a_file_s_run_names_fgro_run_and_reads_git_s_files_only_for_git() {
+    use gro_runtime::confine::run::RunNetwork;
+
+    let dir = std::env::temp_dir().join(format!("gro_cli_start_file_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("marker/b")).unwrap();
+    std::fs::write(dir.join("marker/package.json"), "{\"type\": \"module\"}\n").unwrap();
+    std::fs::write(dir.join("marker/b/x.mjs"), "").unwrap();
+    let entry = gro_runtime::resolve_file_entry(Path::new("b/x.mjs"), &dir.join("marker")).unwrap();
+    let marker = dir.join("marker/package.json").canonicalize().unwrap();
+    std::fs::remove_dir_all(&dir).unwrap();
+    let file = |run: &[&str]| RunStart {
+        cli_args: vec!["--watch".to_owned()],
+        grant_flags: Vec::new(),
+        root: PathBuf::from("/p"),
+        cwd: PathBuf::from("/p"),
+        grant: RunGrant::Named {
+            env: BTreeSet::new(),
+            temp: false,
+            run: set(run),
+            run_env: BTreeSet::new(),
+        },
+        dirs: FlagDirs::default(),
+        flag_dirs: FlagDirs::default(),
+        writes_root: false,
+        tools: BTreeMap::new(),
+        declared: BTreeSet::new(),
+        programs: BTreeMap::new(),
+        run_writes: [("cargo".to_owned(), "cargo".to_owned())].into(),
+        may_start: set(run),
+        development: false,
+        policy: FallbackPolicy::All,
+        gro: None,
+        entry: super::StartEntry::File(Box::new(entry.clone())),
+    };
+    let inputs = |start: &RunStart| {
+        box_inputs(
+            start,
+            &[],
+            &[],
+            &RunPins::default(),
+            &TestEnvironment(Vec::new()),
+        )
+    };
+    let cargo = file(&["cargo"]);
+    assert!(!inputs(&cargo).git);
+    assert_eq!(inputs(&cargo).markers, [marker]);
+    assert!(inputs(&cargo).unbounded);
+    assert!(inputs(&file(&["cargo", "git"])).git);
+    let plan = spawning_plan(
+        BTreeMap::new(),
+        vec![RunWriteGrant {
+            program: "cargo".to_owned(),
+            dirs: vec![RunWriteDir {
+                named: "cargo".to_owned(),
+                dir: "target".to_owned(),
+                real: PathBuf::from("/p/target"),
+            }],
+        }],
+    );
+    let rules = [
+        wall("/p", RuleSource::Project, false),
+        wall("/p/target", RuleSource::RunWrite(0), true),
+        wall("/tmp/gro-1-2", RuleSource::PrivateTemp, true),
+    ];
+    assert_eq!(
+        super::walls_note(&cargo, &rules, &plan, &RunNetwork::Namespace),
+        format!(
+            "note: {BINARY_NAME} run's programs each ran in a kernel box of their own inside the \
+             run's, which lets them reach no network but the run's own loopback and write only \
+             to a temporary directory of their own and to their own directories (cargo: \
+             target): a program that hits a wall fails with EACCES, EXDEV, EPERM, or ENOSYS; \
+             --allow-run-write=<program>:<dirs> lets one of them (cargo) write more, \
+             --allow-read= and --allow-run-in= widen every box, and --allow-write= widens only \
+             what the run's modules write"
+        )
+    );
+    assert_eq!(
+        super::denied_write_cause(&cargo, &rules, false).cause,
+        format!(
+            "the run's kernel box lets {BINARY_NAME} run write only to a temporary directory of \
+             the run's; .git, node_modules, the other dot-entries, and a new top-level entry \
+             stay read-only"
+        )
     );
 }

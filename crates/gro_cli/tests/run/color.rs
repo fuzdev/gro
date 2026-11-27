@@ -3,7 +3,7 @@
 
 use std::process::Command;
 
-use crate::support::{COLOR_VARS, Scratch, spawn};
+use crate::support::{COLOR_VARS, Scratch, spawn, without_unboxed_note};
 use crate::{fgro_with_env, fixtures};
 
 /// Runs `console.js` on a pseudo-terminal through util-linux's `script`, with
@@ -31,7 +31,7 @@ fn run_on_terminal(env: &[(&str, &str)], redirect: &str) -> String {
     });
     let output = spawn(script, b"");
     assert!(output.status.success(), "{output:?}");
-    String::from_utf8(output.stdout).unwrap()
+    String::from_utf8(without_unboxed_note(output.stdout)).unwrap()
 }
 
 #[test]
@@ -40,7 +40,8 @@ fn color_is_decided_per_stream() {
     // stdout on the terminal, stderr to a file
     let stderr_file = scratch.0.join("stderr");
     let terminal = run_on_terminal(&[], &format!("2>'{}'", stderr_file.display()));
-    let stderr = std::fs::read_to_string(&stderr_file).unwrap();
+    let stderr =
+        String::from_utf8(without_unboxed_note(std::fs::read(&stderr_file).unwrap())).unwrap();
     assert!(terminal.contains("log \x1b["), "{terminal:?}");
     assert_eq!(stderr, "warn\nerror Map(1) { \"k\" => 1 }\n");
 

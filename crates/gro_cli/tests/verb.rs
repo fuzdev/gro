@@ -8,8 +8,8 @@
 //!
 //! A project that runs on the binary links the checkout's `node_modules`
 //! whole, where Gro's embedded library finds its peers. One that falls back
-//! plants its own `@fuzdev/gro` at the binary's version, and a `node` on
-//! `PATH` that records what it was run with.
+//! plants its own `@fuzdev/gro` at the binary's version, and finds on
+//! `PATH` a committed `node` that records what it was run with.
 
 #![expect(clippy::unwrap_used, reason = "a test's setup fails by panicking")]
 
@@ -167,32 +167,34 @@ fn a_plain_build_refuses_a_command_of_gro_s() {
     );
 }
 
-/// A project that installs `@fuzdev/gro` at `gro_version`, built or not,
-/// with a `node` in `bin/` that records its args, its working directory,
-/// and a variable only the whole environment passes, then exits 7.
+/// A project that installs `@fuzdev/gro` at `gro_version`, built or not.
 fn planted_project(name: &str, gro_version: &str, built: bool) -> Scratch {
     let package = format!(r#"{{"name": "@fuzdev/gro", "version": "{gro_version}"}}"#);
     let mut files = vec![
         ("package.json", r#"{"name": "p", "type": "module"}"#),
         ("node_modules/@fuzdev/gro/package.json", package.as_str()),
-        (
-            "bin/node",
-            "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$FAKE_NODE_RECORD\"\npwd >> \"$FAKE_NODE_RECORD\"\nexit 7\n",
-        ),
     ];
     if built {
         files.push(("node_modules/@fuzdev/gro/dist/invoke.js", "throw 1;\n"));
     }
-    let project = Scratch::new(name, &files);
-    project.set_mode("bin/node", 0o755);
-    project
+    Scratch::new(name, &files)
 }
 
-/// `fgro` with `args` in the planted `project`, `PATH` its `bin/` alone.
+/// The directory of the fake `node`, which records its args and its
+/// working directory in the file `FAKE_NODE_RECORD` names, a variable only
+/// the whole environment passes, then exits 7. It's committed, not written
+/// by the test, since a file just written can't run while another
+/// thread's fork holds it open for writing (`ETXTBSY`).
+fn fake_node_dir() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/verb/bin")
+}
+
+/// `fgro` with `args` in the planted `project`, `PATH` the fake `node`'s
+/// directory alone, recording in the project's `record.txt`.
 fn planted_fgro(project: &Scratch, args: &[&str]) -> Command {
     let mut command = fgro_in(&project.0, args);
     command
-        .env("PATH", project.0.join("bin"))
+        .env("PATH", fake_node_dir())
         .env("FAKE_NODE_RECORD", project.0.join("record.txt"));
     command
 }
@@ -313,7 +315,7 @@ fn a_fallback_skips_a_node_the_project_plants() {
         format!(
             "{}:{}",
             project.0.join("node_modules/.bin").display(),
-            project.0.join("bin").display()
+            fake_node_dir().display()
         ),
     );
     let (code, stdout, stderr) = run(command);

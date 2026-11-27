@@ -17,7 +17,12 @@
 //!   a directory holding it, reading and executing as the run's grants,
 //!   never writing, so a program reads the project, the system, and
 //!   `node_modules` as the run does, and nothing of the private directory,
-//!   where its siblings' temporary directories and the run's own lie. A
+//!   where its siblings' temporary directories and the run's own lie. The
+//!   root of an entry in no project (`RuleSource::UnboundedRoot`) is the
+//!   run's loader's alone, taken only by a program whose
+//!   `--allow-run-write=` names the root, so a program reads that directory
+//!   (the home directory for `~/x.ts`, a world-writable one for
+//!   `/var/tmp/x.ts`) only as a grant flag names it. A
 //!   rule holding the private directory would grant all of it, since
 //!   Landlock grants beneath a rule whatever the rule's directory holds:
 //!   the verb refuses a spawning run planned with one before its box
@@ -171,10 +176,11 @@ const TEMP_MODE: u32 = 0o700;
 /// [module doc](self) says: none for the run's private directory, the
 /// devices as the run has them, a tool directory as the run has it, plain,
 /// for a program whose write set holds it and none for any other, an
-/// entry's rule for one that
-/// writes the root, a rule `--allow-run-write=` made as the run has it for
-/// the program it names and none for any other, none for what a write flag
-/// names, and the rest without writing; none where that leaves nothing.
+/// entry's rule for one that writes the root, the root of an entry in no
+/// project read for one that writes the root and none for any other, a
+/// rule `--allow-run-write=` made as the run has it for the program it
+/// names and none for any other, none for what a write flag names, and the
+/// rest without writing; none where that leaves nothing.
 /// The private directory's arm is the derivation's alone:
 /// `ProgramRules::hold` takes that rule apart before any rule is held, so
 /// no box built reaches it.
@@ -184,7 +190,10 @@ pub(super) const fn program_rights(
     writes: ProgramWrites,
 ) -> Option<Rights> {
     let rights = match source {
-        RuleSource::PrivateTemp | RuleSource::Flag(DirFlag::Write) => return None,
+        RuleSource::UnboundedRoot if writes.root => rights.without_write(),
+        RuleSource::PrivateTemp | RuleSource::Flag(DirFlag::Write) | RuleSource::UnboundedRoot => {
+            return None;
+        }
         RuleSource::ToolDir(dir) if writes.tool_dirs.contains(dir) => rights,
         RuleSource::Entry if writes.root => rights,
         RuleSource::RunWrite(index) => match writes.run_write {

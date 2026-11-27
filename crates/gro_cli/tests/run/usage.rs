@@ -129,11 +129,11 @@ fn usage_errors_exit_2() {
 
 /// `--allow-run-write=` under `fgro run`: refused without `--allow-run=`,
 /// and for a program no `--allow-run=` lists, before anything runs; given
-/// one, its directories are checked, and it says once that it holds
-/// nothing back, since `fgro run` starts its programs in no box, the run
-/// otherwise unchanged; under `-A` it's checked and says nothing.
+/// one, its directories are checked, the run otherwise unchanged, with no
+/// note of its own, since the program's box holds it to them
+/// (`run_boxed.rs`); under `-A` it's checked and says nothing.
 #[test]
-fn run_checks_a_program_s_write_flag_and_says_it_holds_nothing_back() {
+fn run_checks_a_program_s_write_flag() {
     let stderr = |args: &[&str]| {
         let output = fgro(args);
         (
@@ -185,21 +185,11 @@ fn run_checks_a_program_s_write_flag_and_says_it_holds_nothing_back() {
         "run",
         "--allow-run=git",
         "--allow-run-write=git:.",
-        "--allow-run-write=git:..",
         "console.js",
     ]);
     assert_eq!(code, Some(0), "{noted}");
     assert!(stdout.starts_with("log 1"), "{stdout}");
-    assert_eq!(
-        noted
-            .lines()
-            .filter(|line| line.starts_with("note:"))
-            .collect::<Vec<_>>(),
-        [format!(
-            "note: {BINARY_NAME} run starts programs in no box, so --allow-run-write= holds \
-             nothing back: a program --allow-run= grants writes wherever you can"
-        )]
-    );
+    assert!(!noted.contains("note:"), "{noted}");
     let (code, _, all) = stderr(&[
         "run",
         "-A",

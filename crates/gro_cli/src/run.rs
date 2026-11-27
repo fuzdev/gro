@@ -6,6 +6,12 @@
 //! the process exits next. [`exit_code`] is the one place the run's exit
 //! code is decided, however the run ended.
 //!
+//! **`fgro run`** ([`run_file`]) resolves its entry on the main thread
+//! before any thread starts, then runs it in the run's kernel box as a
+//! command of Gro's does (`start`), its programs each in a box of its own;
+//! under `-A`, or where the box can't go up, it runs in no box
+//! ([`run_unboxed`]).
+//!
 //! **A command of gro's** ([`verb`]) is planned on the main thread before
 //! any thread starts (`verb::prepass`), from the command line, the grants
 //! table, the project at the working directory, and `GRO_FALLBACK`,
@@ -49,15 +55,16 @@
 //!   `RuntimeOptions::temp_dir`.
 //!
 //! The host asks the OS for the process's id, `pid`, when a run first
-//! imports the module. `fgro run` leaves the process's environment as it
-//! was, so the vendored `deno_core` still reads its own diagnostic
+//! imports the module. A run in no box leaves the process's environment
+//! as it was, so the vendored `deno_core` still reads its own diagnostic
 //! variables (`gro_runtime`'s module doc names them); `fgro eval` clears
-//! it, and a command of Gro's removes those and points the temporary and
-//! `XDG_*` data, cache, and state directories into the run's private
-//! directory before it reads any of the above (`start`).
+//! it, and a run in the run's box removes those and points the temporary
+//! and `XDG_*` data, cache, and state directories into the run's private
+//! directory, where it has one, before it reads any of the above
+//! (`start`).
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 
 use gro_runtime::confine::Confinement;
@@ -66,33 +73,35 @@ use gro_runtime::engine::{EngineOptions, init_engine};
 use gro_runtime::file_id::FileId;
 use gro_runtime::phases::{self, Phase};
 use gro_runtime::resolver::{
-    BUILTINS, Capability, Conditions, DiskTree, GRO_PACKAGE, InstalledPackage, ProjectPackage,
-    ResolveErrorKind, SPLIT_MODULES, find_builtin, normalize, read_installed_package,
-    read_project_package,
+    BUILTINS, Capability, Conditions, DiskTree, EntryBound, GRO_PACKAGE, InstalledPackage,
+    ProjectPackage, ResolveErrorKind, SPLIT_MODULES, find_builtin, normalize,
+    read_installed_package, read_project_package,
 };
 use gro_runtime::verb::table::BuiltinGrantsTable;
 use gro_runtime::{
     ArgsGrant, Authority, BINARY_NAME, CHILD_BASE_ENV, EnvGrant, EnvPattern, EnvVars,
-    ExecRootGrant, Exit, ExitGrant, FreeGlobal, FsGrant, FsNeed, GrantedDir, Grants, NameKind,
-    NeededGrant, PassEnvGrant, ProgramGrant, Refusal, Refusals, RefusedBy, RunOutcome,
-    RuntimeOptions, SpawnGrant, StderrGrant, StdoutGrant, env_name_fault,
+    ExecRootGrant, Exit, ExitGrant, FileEntry, FreeGlobal, FsGrant, FsNeed, GrantedDir, Grants,
+    NameKind, NeededGrant, PassEnvGrant, ProgramGrant, Refusal, Refusals, RefusedBy, RunError,
+    RunOutcome, RuntimeOptions, SpawnGrant, StderrGrant, StdoutGrant, env_name_fault,
+    resolve_file_entry,
 };
 
-use crate::EXIT_FAILURE;
 use crate::cli::{
-    ALLOW_ENV, ALLOW_READ, ALLOW_RUN, ALLOW_RUN_ENV, ALLOW_RUN_IN, ALLOW_RUN_WRITE, ALLOW_TEMP,
-    ALLOW_WRITE, FlagDirs, ListFlag, RUN, RunGrant, RunInvocation,
+    ALLOW_ENV, ALLOW_READ, ALLOW_RUN, ALLOW_RUN_ENV, ALLOW_RUN_IN, ALLOW_TEMP, ALLOW_WRITE,
+    FlagDirs, ListFlag, RunGrant, RunInvocation,
 };
 use crate::color;
 use crate::embed::load_embed;
-use crate::error::{CliError, DirFault};
-use crate::print::{escape_controls, stderr_line};
+use crate::error::{CliError, DirFault, HomeRootBy};
+use crate::print::{escape_controls, shell_quote, stderr_line};
 use crate::snapshot::STARTUP_SNAPSHOT;
-use crate::start::{RunStart, StartEntry, listed, run_boxed};
-use crate::verb::fallback::{GRO_FALLBACK, exec_node_gro};
+use crate::start::{BoxStartError, RunStart, StartEntry, listed, run_boxed};
+use crate::thread::{Joined, on_sized_thread};
+use crate::verb::fallback::{FallbackPolicy, GRO_FALLBACK, exec_node_gro};
 use crate::verb::prepass::{ProjectReads, VerbInputs, VerbPlan, plan};
 use crate::version::RUNTIME_VERSION;
 use crate::version::VERSION;
+use crate::{EXIT_FAILURE, EXIT_PANIC};
 
 /// How a run ended, as its exit code is decided from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -130,27 +139,11 @@ pub struct RunSpec<'a> {
     verb: bool,
 }
 
-/// No program granted by the table's policy, as `fgro run`'s flags grant
-/// none.
-static NO_TABLE_PROGRAMS: BTreeMap<String, ProgramGrant> = BTreeMap::new();
-
-impl RunInvocation {
-    /// What `fgro run`'s flags hand the run: no table program, the
-    /// resolver's conditions alone, and the env and spawn host modules only
-    /// when a flag names something for them.
-    fn spec(&self) -> RunSpec<'_> {
-        RunSpec {
-            grant: &self.grant,
-            dirs: &self.dirs,
-            programs: &NO_TABLE_PROGRAMS,
-            args: &self.args,
-            conditions: Conditions::default(),
-            verb: false,
-        }
-    }
-}
-
-/// What `run`, a run started in the box, hands the run: a command of Gro's when it starts from the entry one generates (`RunSpec::verb`).
+/// What `run`, a run started in the box or `fgro run`'s in none, hands the
+/// run: a command of Gro's when it starts from the entry one generates
+/// (`RunSpec::verb`); `fgro run`'s no table program, the resolver's
+/// conditions alone, and the env and spawn host modules only when a flag
+/// names something for them.
 pub fn start_spec(run: &RunStart) -> RunSpec<'_> {
     RunSpec {
         grant: &run.grant,
@@ -227,33 +220,194 @@ impl ProjectReads for DiskProject<'_> {
     }
 }
 
-/// Runs the module `run.file` names (a path relative to the working
-/// directory, or absolute), handing the runtime the script's arguments,
-/// prints its failure if it failed, then the `import()`s and host
-/// functions' calls gro's rules refused, and returns the exit code ([`exit_code`]). A
+/// Runs `fgro run`'s module, `run.file` (a path relative to the working
+/// directory, or absolute), on the main thread, before any thread starts:
+/// its entry resolved first, with the project root its walk finds; then
+/// under `-A` in no box, unconfined; else `GRO_FALLBACK`'s policy read,
+/// refused when it names none, a root that is or holds the home directory
+/// refused ([`home_root`]), and the run started in the run's box
+/// ([`run_boxed`]), which runs in no box where it can't go up, after a note
+/// saying so, unless `GRO_FALLBACK=command` refuses that. Each prints its
+/// failure if it failed, then the `import()`s and host functions' calls
+/// gro's rules refused, and returns the exit code ([`exit_code`]). A
 /// program that calls `exit` never gets here: [`exit_now`] ends the process
 /// from inside the call.
-pub fn run_module(run: &RunInvocation) -> u8 {
-    finish(start_and_run(&run.spec(), &run.file), None, None)
+pub fn run_file(run: RunInvocation) -> u8 {
+    let environment = ProcessEnvironment;
+    // read here, not in the runtime, which takes it as an input
+    let cwd = match std::env::current_dir() {
+        Ok(cwd) => cwd,
+        Err(error) => return CliError::Cwd(error).report(),
+    };
+    let entry = match resolve_file_entry(&run.file, &cwd) {
+        Ok(entry) => entry,
+        Err(error) => return CliError::Run(RunError::Entry(error)).report(),
+    };
+    let RunInvocation {
+        args, grant, dirs, ..
+    } = run;
+    let (may_start, run_writes) = match &grant {
+        RunGrant::Named { run, .. } => (
+            run.clone(),
+            dirs.run_write
+                .keys()
+                .map(|name| (name.clone(), name.clone()))
+                .collect(),
+        ),
+        RunGrant::All => (BTreeSet::new(), BTreeMap::new()),
+    };
+    let mut start = RunStart {
+        cli_args: args,
+        grant_flags: Vec::new(),
+        root: entry.root().to_owned(),
+        cwd,
+        grant,
+        flag_dirs: dirs.clone(),
+        dirs,
+        writes_root: false,
+        tools: BTreeMap::new(),
+        declared: BTreeSet::new(),
+        programs: BTreeMap::new(),
+        run_writes,
+        may_start,
+        development: false,
+        policy: FallbackPolicy::All,
+        gro: None,
+        entry: StartEntry::File(Box::new(entry.clone())),
+    };
+    // unconfined, in no box, as the escape hatch is
+    if matches!(start.grant, RunGrant::All) {
+        return run_unboxed(&start, entry);
+    }
+    start.policy = match FallbackPolicy::read(environment.var(GRO_FALLBACK).as_deref()) {
+        Ok(policy) => policy,
+        Err(error) => return CliError::Verb(error.into()).report(),
+    };
+    if let Some(error) = home_root(&entry, environment.var("HOME").as_deref()) {
+        return error.report();
+    }
+    run_boxed(start, &[])
 }
 
-/// How a run that `started` ended, printed: its failure, then the refusals,
-/// then the hint for the global its uncaught error says was free
-/// ([`free_global_hint`]), then `node_hint` when the run failed after the resolver refused a Node
-/// built-in in it, then `walls` when the run failed after a
-/// program it started ended other than by exiting 0, returning the exit
-/// code ([`exit_code`]).
+/// The refusal of `entry`'s project root when it is or holds `home`, the
+/// home directory as `HOME` names it, read by its real path where it has
+/// one: a root a project's `package.json` or a `node_modules` at or above
+/// the entry found, which the run reads whole, so a stray
+/// `~/package.json` would hand every script beneath it the whole home
+/// directory. An entry with no project's `package.json` at or above it,
+/// whose root is its own directory, is never refused: the realm and every
+/// program the run starts read that only as a flag naming it grants, while
+/// the box's rule on it, the run's own for its loader, reads it whole.
+///
+/// Kind: a native check before anything runs, of what the project's tree
+/// makes the root (adversary: a stray or planted `package.json` above the
+/// entry; asset: the home directory), against the realm's `fs.project`
+/// and the box's rule on the root alike. Unsetting `HOME` defeats it, the
+/// user's choice.
+fn home_root(entry: &FileEntry, home: Option<&OsStr>) -> Option<CliError> {
+    let home = PathBuf::from(home?);
+    if !home.is_absolute() {
+        return None;
+    }
+    let home = std::fs::canonicalize(&home).unwrap_or_else(|_| normalize(&home));
+    let root = entry.root();
+    if !home.starts_with(root) {
+        return None;
+    }
+    let found = match entry.bound() {
+        EntryBound::Found => HomeRootBy::PackageJson(root.join("package.json")),
+        EntryBound::InNodeModules => HomeRootBy::NodeModules(root.join("node_modules")),
+        EntryBound::Unbounded { .. } => return None,
+    };
+    Some(CliError::RootHoldsHome {
+        root: root.to_owned(),
+        holds: home != root,
+        found,
+    })
+}
+
+/// Runs `run`, `fgro run`'s, in no kernel box, its `entry` resolved: under
+/// `-A`, unconfined, as the escape hatch is; or where the box can't go up,
+/// with only the runtime's native checks holding its grants, its programs
+/// in no box of their own. On a thread with [`STACK_SIZE`] reserved, the
+/// engine named unconfined, returning the exit code.
+///
+/// [`STACK_SIZE`]: gro_runtime::STACK_SIZE
+pub fn run_unboxed(run: &RunStart, entry: FileEntry) -> u8 {
+    let ending = Ending {
+        node_hint: None,
+        entry_dir: entry_dir_flag(&entry, &run.cwd),
+        walls: None,
+    };
+    let ran = on_sized_thread(BINARY_NAME.to_owned(), move || {
+        let spec = start_spec(run);
+        finish(start_unboxed(&spec, &run.cwd, entry), &ending)
+    });
+    match ran {
+        Joined::Returned(code) => code,
+        Joined::Unstarted(error) => CliError::from(BoxStartError::Thread(error)).report(),
+        Joined::Panicked => EXIT_PANIC,
+    }
+}
+
+/// `entry`'s project root where it's the entry's own directory, with no
+/// project's `package.json` at or above it, which the run reads and writes
+/// only as a flag naming it grants, with the flag's value naming it: `.`
+/// where that's the working directory, `cwd`, else the root's real path.
+/// None for any other entry.
+pub fn entry_dir_flag(entry: &FileEntry, cwd: &Path) -> Option<EntryDir> {
+    entry.is_unbounded().then(|| {
+        let root = entry.root().to_string_lossy().into_owned();
+        let flag = if entry.root() == cwd {
+            ".".to_owned()
+        } else {
+            root.clone()
+        };
+        EntryDir { root, flag }
+    })
+}
+
+/// An entry's own directory, its project's root where no project's
+/// `package.json` is at or above it ([`entry_dir_flag`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EntryDir {
+    /// Its real path.
+    pub root: String,
+    /// What a flag names it by: `.` from it, else its real path.
+    pub flag: String,
+}
+
+/// What a run's ending prints beside its failure and refusals
+/// ([`finish`]).
+#[derive(Debug, Default)]
+pub struct Ending {
+    /// The hint when the run failed after the resolver refused a Node
+    /// built-in in it.
+    pub node_hint: Option<String>,
+    /// The entry's own directory, where the project's root is that, with
+    /// no project's `package.json` at or above it ([`entry_dir_flag`]),
+    /// which a refusal there hints.
+    pub entry_dir: Option<EntryDir>,
+    /// The note when the run failed after a program it started ended other
+    /// than by exiting 0.
+    pub walls: Option<String>,
+}
+
+/// How a run that `started` ended, printed: its failure, then the refusals
+/// with their hints ([`report_refused`], naming `ending.entry_dir` for a
+/// refusal in the entry's own directory), then the hint for the global its
+/// uncaught error says was free ([`free_global_hint`]), then
+/// `ending.node_hint` when the run failed after the resolver refused a Node
+/// built-in in it, then `ending.walls` when the run failed after a program
+/// it started ended other than by exiting 0, returning the exit code
+/// ([`exit_code`]).
 ///
 /// Kind of the hint and the note: review signals the run's code controls,
 /// which can set the hint's flag by catching a Node built-in's import and then
 /// fail, steering the reader to the Node Gro, which confines nothing, and
 /// the note's by starting a program that fails; it could print the same
 /// lines itself.
-pub fn finish(
-    started: Result<RunOutcome, CliError>,
-    node_hint: Option<&str>,
-    walls: Option<&str>,
-) -> u8 {
+pub fn finish(started: Result<RunOutcome, CliError>, ending: &Ending) -> u8 {
     let RunOutcome {
         result,
         refused,
@@ -275,20 +429,20 @@ pub fn finish(
         Ok(()) => Ended::Completed(set),
         Err(error) => Ended::Failed(CliError::from(error).report()),
     };
-    report_refused(&refused);
+    report_refused(&refused, ending.entry_dir.as_ref());
     if let Some(global) = free_global {
         stderr_line(free_global_hint(global));
     }
     let code = exit_code(ended, !refused.is_empty());
     if code != 0
         && node_builtin_refused
-        && let Some(hint) = node_hint
+        && let Some(hint) = &ending.node_hint
     {
         stderr_line(hint);
     }
     if code != 0
         && child_failed
-        && let Some(walls) = walls
+        && let Some(walls) = &ending.walls
     {
         stderr_line(walls);
     }
@@ -300,7 +454,9 @@ pub fn finish(
 /// own does, then ends the process with [`exit_code`]'s code,
 /// by the step every command exits by.
 fn exit_now(exit: &Exit) -> ! {
-    report_refused(&exit.refused);
+    // the hint naming an entry's own directory needs the embedder's root,
+    // which the step isn't handed, so the fixed one stands in
+    report_refused(&exit.refused, None);
     crate::end(exit_code(
         Ended::Exited(exit.code),
         !exit.refused.is_empty(),
@@ -331,24 +487,19 @@ const fn exit_code(ended: Ended, refused: bool) -> u8 {
     }
 }
 
-/// Starts the engine, named unconfined, and runs `fgro run`'s `file` as
-/// `spec` says, returning how the run ended.
+/// Starts the engine, named unconfined, and runs `fgro run`'s `entry`, in
+/// `cwd`, as `spec` says, in no box, returning how the run ended.
 ///
 /// # Errors
 ///
-/// Returns why the working directory, a directory a flag grants
-/// ([`granted_dirs`]), or the engine failed, before anything ran.
-fn start_and_run(spec: &RunSpec<'_>, file: &Path) -> Result<RunOutcome, CliError> {
-    // read here, not in the runtime, which takes it as an input
-    let cwd = std::env::current_dir().map_err(CliError::Cwd)?;
-    let granted = granted_dirs(spec.dirs, &cwd, true)?;
+/// Returns why a directory a flag grants ([`granted_dirs`]), making ready
+/// to start programs, or the engine failed, before anything ran.
+fn start_unboxed(spec: &RunSpec<'_>, cwd: &Path, entry: FileEntry) -> Result<RunOutcome, CliError> {
+    let granted = granted_dirs(spec.dirs, cwd, DirCheck::Noted)?;
     // a directory `-A` names grants nothing more, so there's nothing to note
     if !matches!(spec.grant, RunGrant::All) {
         for note in granted.notes {
             stderr_line(note);
-        }
-        if !granted.run_writes.is_empty() {
-            stderr_line(run_write_unboxed());
         }
     }
     if grants_programs(spec.grant, spec.dirs) {
@@ -356,20 +507,8 @@ fn start_and_run(spec: &RunSpec<'_>, file: &Path) -> Result<RunOutcome, CliError
     }
     let engine = init_engine(Confinement::Unconfined, &EngineOptions::default())?;
     phases::mark(Phase::Engine);
-    let options = runtime_options(spec, &ProcessEnvironment, granted.dirs, &cwd);
-    Ok(gro_runtime::run_main(engine, &options, file, &cwd))
-}
-
-/// What `fgro run` says once when given `--allow-run-write=`, which it
-/// checks and which changes nothing: it starts its programs in no box, so
-/// each writes wherever the user can.
-///
-/// Kind: a review signal.
-fn run_write_unboxed() -> String {
-    format!(
-        "note: {BINARY_NAME} {RUN} starts programs in no box, so {ALLOW_RUN_WRITE}= holds nothing \
-         back: a program {ALLOW_RUN}= grants writes wherever you can"
-    )
+    let options = runtime_options(spec, &ProcessEnvironment, granted.dirs, cwd);
+    Ok(gro_runtime::run_file_unboxed(engine, &options, entry, cwd))
 }
 
 /// Whether the run may start a program: `-A`, a program `--allow-run=`
@@ -401,6 +540,19 @@ fn ready_to_spawn(raise: fn() -> std::io::Result<u64>) -> std::io::Result<()> {
     // a run that grants no program does
     let _ = raise();
     Ok(())
+}
+
+/// How [`granted_dirs`] holds a directory a flag lists that leads through
+/// a symlink.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DirCheck<'a> {
+    /// A command of Gro's, of the project at this root, a real path:
+    /// refused when it leads out of the project, or into an entry the box
+    /// leaves out that its text doesn't name.
+    Project(&'a Path),
+    /// `fgro run`'s: noted, the path being the person's, and a directory
+    /// that isn't one names `fgro run`'s help.
+    Noted,
 }
 
 /// The directories the flags grant: the fs grant's, read and written, and
@@ -446,34 +598,42 @@ pub struct Granted {
 /// `--allow-run-write=` lists are in no grant of the run's: they widen
 /// only the box, for the program each names.
 ///
-/// For a command of Gro's (`run_help` false), whose working directory is
-/// the project's root, a directory typed inside the project, relative or
-/// absolute, by its text or through a link to the project, whose real path
-/// leads out of it through a symlink is refused ([`leaves_project`]): a
-/// committed link like `src -> ~` would turn a flag typed as documented
-/// into a grant on whatever it leads to. So is one whose real path lies in
-/// a top-level dot-entry or `node_modules` its text doesn't name
+/// For a command of Gro's (`DirCheck::Project`, with the project's root),
+/// a directory typed inside the project, relative or absolute, by its text
+/// or through a link to the project, whose real path leads out of it
+/// through a symlink is refused ([`leaves_project`]): a committed link like
+/// `src -> ~` would turn a flag typed as documented into a grant on
+/// whatever it leads to. So is one whose real path lies in a top-level
+/// dot-entry or `node_modules` its text doesn't name
 /// ([`into_unnamed_entry`]): a committed `src/fixtures -> ../.git` would
 /// turn one into a grant on `.git`, which the box otherwise leaves out.
-/// `fgro run` notes both instead, the path being the person's.
+/// `fgro run` (`DirCheck::Noted`) notes both instead, the path being the
+/// person's.
 ///
 /// # Errors
 ///
 /// Returns [`CliError::NoDir`] for the first that's missing, isn't a
-/// directory, or can't be looked at, naming `fgro run`'s help when
-/// `run_help` says its flags listed them; and, for a command of Gro's,
+/// directory, or can't be looked at, naming `fgro run`'s help when its
+/// flags listed them; and, for a command of Gro's,
 /// [`CliError::LeavesProject`] for the first that leads out of the project
 /// through a symlink, and [`CliError::LinksIntoEntry`] for the first that
 /// leads through one into an entry it doesn't name.
-pub fn granted_dirs(dirs: &FlagDirs, cwd: &Path, run_help: bool) -> Result<Granted, CliError> {
+pub fn granted_dirs(dirs: &FlagDirs, cwd: &Path, check: DirCheck<'_>) -> Result<Granted, CliError> {
     let mut notes = Vec::new();
+    let root = match check {
+        DirCheck::Project(root) => Some(root),
+        DirCheck::Noted => None,
+    };
+    let run_help = root.is_none();
     let mut check = |flag: ListFlag, program: Option<&str>, dir: &String| {
         let path = cwd.join(dir);
         let found = std::fs::canonicalize(&path)
             .and_then(|real| std::fs::metadata(&real).map(|metadata| (real, metadata)));
         let fault = match found {
             Ok((real, metadata)) if metadata.is_dir() => {
-                if !run_help && leaves_project(&path, &real, cwd) {
+                if let Some(root) = root
+                    && leaves_project(&path, &real, root)
+                {
                     return Err(CliError::LeavesProject {
                         flag,
                         program: program.map(str::to_owned),
@@ -481,7 +641,9 @@ pub fn granted_dirs(dirs: &FlagDirs, cwd: &Path, run_help: bool) -> Result<Grant
                         real,
                     });
                 }
-                if !run_help && let Some(entry) = into_unnamed_entry(&path, &real, cwd) {
+                if let Some(root) = root
+                    && let Some(entry) = into_unnamed_entry(&path, &real, root)
+                {
                     return Err(CliError::LinksIntoEntry {
                         flag,
                         program: program.map(str::to_owned),
@@ -647,10 +809,10 @@ const REFUSALS_FAIL: &str = "error: a refusal fails the run, whether or not the 
 /// Prints to stderr each refusal `refused` lists, one line each
 /// ([`refusal_line`]), then one line counting the refusals it doesn't
 /// list, then, when there were any, [`REFUSALS_FAIL`]; then the hints
-/// saying what grants the refused calls' needs ([`grant_hints`]), if any
-/// does, which the refusal that is the run's uncaught error, not listed,
-/// has too.
-fn report_refused(refused: &Refusals) {
+/// saying what grants the refused calls' needs ([`grant_hints`]), naming
+/// `entry_dir` for one in the entry's own directory, if any does, which the
+/// refusal that is the run's uncaught error, not listed, has too.
+fn report_refused(refused: &Refusals, entry_dir: Option<&EntryDir>) {
     for refusal in &refused.listed {
         stderr_line(refusal_line(refusal));
     }
@@ -662,7 +824,7 @@ fn report_refused(refused: &Refusals) {
     if !refused.is_empty() {
         stderr_line(REFUSALS_FAIL);
     }
-    for hint in grant_hints(refused) {
+    for hint in grant_hints(refused, entry_dir) {
         stderr_line(hint);
     }
 }
@@ -680,9 +842,9 @@ fn refusal_line(refusal: &Refusal) -> String {
         RefusedBy::Spawn => format!("error: spawn refused: {message}"),
         RefusedBy::Fs(need) => {
             let need = match need {
-                Some(FsNeed::Read) => "a read",
+                Some(FsNeed::Read | FsNeed::EntryDirRead) => "a read",
                 Some(FsNeed::LinkTarget) => "a symlink leaving its root",
-                Some(FsNeed::Write) => "a write",
+                Some(FsNeed::Write | FsNeed::EntryDirWrite) => "a write",
                 Some(FsNeed::OpenDir) => "what the run grants",
                 Some(FsNeed::Temp) => "a temporary directory",
                 None => "what no grant allows",
@@ -701,9 +863,15 @@ fn refusal_line(refusal: &Refusal) -> String {
 /// for `--allow-run-env=` naming each variable that's a [`hint_name`], a
 /// glob never, each saying `some of what` when it can't show every name
 /// of its kind; then each fs line once, then the exec root's, fixed text
-/// naming no path.
+/// naming no path but the project's root where it's the entry's own
+/// directory, with no project's `package.json` at or above it, which the
+/// embedder resolved, never a path the program chose: `entry_dir`, with the
+/// flag's value naming it ([`entry_dir_flag`]), each quoted for a shell, or
+/// none where the run can't name it or a flag can't list it as one
+/// directory (it holds a `,`), which the fixed read and write lines stand
+/// in for.
 /// `src/docs/run.md` §Errors and exit codes states the rules.
-fn grant_hints(refused: &Refusals) -> Vec<String> {
+fn grant_hints(refused: &Refusals, entry_dir: Option<&EntryDir>) -> Vec<String> {
     let mut names: Vec<&str> = Vec::new();
     let mut programs: Vec<&str> = Vec::new();
     let mut forwarded: Vec<&str> = Vec::new();
@@ -715,6 +883,7 @@ fn grant_hints(refused: &Refusals) -> Vec<String> {
     );
     let (mut read, mut link, mut write, mut open_dir, mut temp, mut run_in) =
         (false, false, false, false, false, false);
+    let (mut entry_read, mut entry_write) = (false, false);
     let mut hints: Vec<String> = refused
         .needed
         .iter()
@@ -737,6 +906,8 @@ fn grant_hints(refused: &Refusals) -> Vec<String> {
             NeededGrant::Fs(FsNeed::Write) => write = true,
             NeededGrant::Fs(FsNeed::OpenDir) => open_dir = true,
             NeededGrant::Fs(FsNeed::Temp) => temp = true,
+            NeededGrant::Fs(FsNeed::EntryDirRead) => entry_read = true,
+            NeededGrant::Fs(FsNeed::EntryDirWrite) => entry_write = true,
             NeededGrant::RunIn => run_in = true,
         }
     }
@@ -753,6 +924,20 @@ fn grant_hints(refused: &Refusals) -> Vec<String> {
             ));
         }
     }
+    // the entry's own directory by its flag, where the run names it and
+    // the flag can list it as one directory
+    let named = entry_dir.filter(|dir| !dir.flag.contains(','));
+    if named.is_none() {
+        read |= entry_read;
+        write |= entry_write;
+    }
+    let named_read = named
+        .filter(|_| entry_read)
+        .map(|dir| entry_dir_hint(false, dir));
+    let named_write = named
+        .filter(|_| entry_write)
+        .map(|dir| entry_dir_hint(true, dir));
+    hints.extend(named_read);
     if read {
         hints.push(format!(
             "hint: add {ALLOW_READ} naming the directory to grant what fs refused"
@@ -767,6 +952,7 @@ fn grant_hints(refused: &Refusals) -> Vec<String> {
                 .to_owned(),
         );
     }
+    hints.extend(named_write);
     if write {
         hints.push(format!(
             "hint: add {ALLOW_WRITE} naming the directory to grant what fs refused, \
@@ -789,6 +975,33 @@ fn grant_hints(refused: &Refusals) -> Vec<String> {
         ));
     }
     hints
+}
+
+/// The hint for a refusal in the project's root where it's the entry's own
+/// directory, `dir`, with no project's `package.json` at or above it (a
+/// type marker's isn't one): the write flag where `write`, else the read
+/// flag, naming it as [`entry_dir_flag`] does, quoted for a shell
+/// ([`shell_quote`]), and its path escaped. A write's says what the flag
+/// leaves out in the run's kernel box: the per-entry set, which a new
+/// top-level entry isn't in.
+fn entry_dir_hint(write: bool, dir: &EntryDir) -> String {
+    let (flag, verb, rest) = if write {
+        (
+            ALLOW_WRITE,
+            "writes",
+            "; in the run's kernel box a new entry at its top level stays read-only, so write in \
+             a directory already there",
+        )
+    } else {
+        (ALLOW_READ, "reads", "")
+    };
+    format!(
+        "hint: {} is in no project (no package.json at or above the entry holds more than \
+         \"type\" or \"sideEffects\"), so the run {verb} it only as a flag grants: add {} to \
+         grant what fs refused{rest}",
+        escape_controls(&dir.root),
+        shell_quote(&format!("{flag}={}", dir.flag))
+    )
 }
 
 /// The hint for `global`, which the run's uncaught error says was free:
@@ -1140,10 +1353,30 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     use super::{
-        EXIT_FAILURE, Ended, Environment, FsGrant, GrantedDir, GrantedDirs, RUNTIME_VERSION,
-        exit_code, exit_now, real_temp_dir, runtime_options,
+        Conditions, EXIT_FAILURE, Ended, Environment, FsGrant, GrantedDir, GrantedDirs,
+        ProgramGrant, RUNTIME_VERSION, RunSpec, exit_code, exit_now, real_temp_dir,
+        runtime_options,
     };
-    use crate::cli::{Invocation, RunInvocation, Task, parse};
+    use crate::cli::{Invocation, RunInvocation, parse};
+
+    /// No program granted by the table's policy, as `fgro run`'s flags grant
+    /// none.
+    static NO_TABLE_PROGRAMS: BTreeMap<String, ProgramGrant> = BTreeMap::new();
+
+    /// What `fgro run`'s flags, `run`, hand the run, as [`super::start_spec`]
+    /// hands a file's run: no table program, the resolver's conditions
+    /// alone, and the env and spawn host modules only when a flag names
+    /// something for them.
+    fn spec(run: &RunInvocation) -> RunSpec<'_> {
+        RunSpec {
+            grant: &run.grant,
+            dirs: &run.dirs,
+            programs: &NO_TABLE_PROGRAMS,
+            args: &run.args,
+            conditions: Conditions::default(),
+            verb: false,
+        }
+    }
 
     /// An environment of a test's own, never the process's, which records
     /// what was read of it.
@@ -1192,7 +1425,7 @@ mod tests {
     /// The run `args` (after `run`) ask for.
     fn invocation(args: &[&str]) -> RunInvocation {
         let args = [&["run"][..], args].concat();
-        let Ok(Invocation::Sized(Task::Run(run))) = parse(&args) else {
+        let Ok(Invocation::Run(run)) = parse(&args) else {
             panic!("{args:?} runs a file");
         };
         run
@@ -1209,7 +1442,7 @@ mod tests {
         let named = |args: &[&str], vars: &[(&[u8], &[u8])]| {
             let environment = TestEnvironment::of(vars);
             let options = runtime_options(
-                &invocation(args).spec(),
+                &spec(&invocation(args)),
                 &environment,
                 GrantedDirs::default(),
                 Path::new("/w"),
@@ -1323,12 +1556,12 @@ mod tests {
             "é",
         ];
         let args = [&["run", "--", "a.js"][..], &script_args].concat();
-        let Ok(Invocation::Sized(Task::Run(run))) = parse(&args) else {
+        let Ok(Invocation::Run(run)) = parse(&args) else {
             panic!("{args:?} runs a.js");
         };
         assert_eq!(
             runtime_options(
-                &run.spec(),
+                &spec(&run),
                 &TestEnvironment::default(),
                 GrantedDirs::default(),
                 Path::new("/w")
@@ -1336,12 +1569,12 @@ mod tests {
             .args,
             script_args
         );
-        let Ok(Invocation::Sized(Task::Run(run))) = parse(&["run", "a.js"]) else {
+        let Ok(Invocation::Run(run)) = parse(&["run", "a.js"]) else {
             panic!("runs a.js");
         };
         assert!(
             runtime_options(
-                &run.spec(),
+                &spec(&run),
                 &TestEnvironment::default(),
                 GrantedDirs::default(),
                 Path::new("/w")
@@ -1354,12 +1587,12 @@ mod tests {
     /// The runtime is named as the build names itself.
     #[test]
     fn the_runtime_is_named_with_the_build_s_version() {
-        let Ok(Invocation::Sized(Task::Run(run))) = parse(&["run", "a.js"]) else {
+        let Ok(Invocation::Run(run)) = parse(&["run", "a.js"]) else {
             panic!("runs a.js");
         };
         assert_eq!(
             runtime_options(
-                &run.spec(),
+                &spec(&run),
                 &TestEnvironment::default(),
                 GrantedDirs::default(),
                 Path::new("/w")
@@ -1378,7 +1611,7 @@ mod tests {
         let run = invocation(&["a.js"]);
         let environment = TestEnvironment::of(&[(b"HOME", b"/home/a")]);
         let options = runtime_options(
-            &run.spec(),
+            &spec(&run),
             &environment,
             GrantedDirs::default(),
             Path::new("/w"),
@@ -1422,7 +1655,7 @@ mod tests {
         let environment =
             TestEnvironment::of(&[(b"A", b"1"), (b"B", b"b\xff"), (b"D", b"4"), (b"E", b"5")]);
         let options = runtime_options(
-            &run.spec(),
+            &spec(&run),
             &environment,
             GrantedDirs::default(),
             Path::new("/w"),
@@ -1467,7 +1700,7 @@ mod tests {
                 (b"B", b"again"),
             ]);
             let options = runtime_options(
-                &run.spec(),
+                &spec(&run),
                 &environment,
                 GrantedDirs::default(),
                 Path::new("/w"),
@@ -1506,7 +1739,7 @@ mod tests {
         };
         let run = invocation(&["--allow-read=/r", "a.js"]);
         let options = runtime_options(
-            &run.spec(),
+            &spec(&run),
             &TestEnvironment::default(),
             GrantedDirs {
                 fs: fs.clone(),
@@ -1524,7 +1757,7 @@ mod tests {
             ..GrantedDirs::default()
         };
         let options = runtime_options(
-            &run.spec(),
+            &spec(&run),
             &TestEnvironment::default(),
             dirs,
             Path::new("/w"),
@@ -1545,15 +1778,18 @@ mod tests {
         use super::grant_hints;
 
         let hints = |needed: &[NeededGrant], more_names: bool| {
-            grant_hints(&Refusals {
-                needed: needed.to_vec(),
-                more_names: if more_names {
-                    vec![gro_runtime::NameKind::Env]
-                } else {
-                    Vec::new()
+            grant_hints(
+                &Refusals {
+                    needed: needed.to_vec(),
+                    more_names: if more_names {
+                        vec![gro_runtime::NameKind::Env]
+                    } else {
+                        Vec::new()
+                    },
+                    ..Refusals::default()
                 },
-                ..Refusals::default()
-            })
+                None,
+            )
         };
         let env = |name: &str| NeededGrant::Env(name.to_owned());
         let read = "hint: add --allow-read naming the directory to grant what fs refused";
@@ -1660,15 +1896,18 @@ mod tests {
 
         use super::grant_hints;
 
-        let hints = grant_hints(&Refusals {
-            needed: vec![
-                NeededGrant::Env("HOME".to_owned()),
-                NeededGrant::Module(Capability::Spawn),
-                NeededGrant::Module(Capability::Fs),
-                NeededGrant::Module(Capability::Env),
-            ],
-            ..Refusals::default()
-        });
+        let hints = grant_hints(
+            &Refusals {
+                needed: vec![
+                    NeededGrant::Env("HOME".to_owned()),
+                    NeededGrant::Module(Capability::Spawn),
+                    NeededGrant::Module(Capability::Fs),
+                    NeededGrant::Module(Capability::Env),
+                ],
+                ..Refusals::default()
+            },
+            None,
+        );
         assert_eq!(
             hints,
             [
@@ -1693,11 +1932,14 @@ mod tests {
         use super::grant_hints;
 
         let hints = |needed: &[NeededGrant], more_names: &[NameKind]| {
-            grant_hints(&Refusals {
-                needed: needed.to_vec(),
-                more_names: more_names.to_vec(),
-                ..Refusals::default()
-            })
+            grant_hints(
+                &Refusals {
+                    needed: needed.to_vec(),
+                    more_names: more_names.to_vec(),
+                    ..Refusals::default()
+                },
+                None,
+            )
         };
         let run = |name: &str| NeededGrant::Run(name.to_owned());
         let run_env = |name: &str| NeededGrant::RunEnv(name.to_owned());
@@ -1859,7 +2101,7 @@ mod tests {
     fn a_command_s_directory_leading_out_of_the_project_is_refused() {
         use std::collections::{BTreeMap, BTreeSet};
 
-        use super::{GrantedDirs, granted_dirs};
+        use super::{DirCheck, GrantedDirs, granted_dirs};
         use crate::cli::{FlagDirs, ListFlag};
         use crate::error::CliError;
 
@@ -1888,14 +2130,17 @@ mod tests {
             }
             dirs
         };
-        let refused =
-            |flag: ListFlag, dir: &str| match granted_dirs(&flags(flag, dir), &root, false) {
-                Err(error @ CliError::LeavesProject { .. }) => {
-                    assert_eq!(error.exit_code(), crate::EXIT_USAGE);
-                    error.to_string()
-                }
-                other => panic!("{flag} {dir}: {other:?}"),
-            };
+        let refused = |flag: ListFlag, dir: &str| match granted_dirs(
+            &flags(flag, dir),
+            &root,
+            DirCheck::Project(&root),
+        ) {
+            Err(error @ CliError::LeavesProject { .. }) => {
+                assert_eq!(error.exit_code(), crate::EXIT_USAGE);
+                error.to_string()
+            }
+            other => panic!("{flag} {dir}: {other:?}"),
+        };
         let mut results = Vec::new();
         for flag in [
             ListFlag::Read,
@@ -1935,7 +2180,8 @@ mod tests {
                 ("self", root.clone()),
                 ("../link", outside.clone()),
             ] {
-                let granted = granted_dirs(&flags(flag, dir), &root, false).unwrap();
+                let granted =
+                    granted_dirs(&flags(flag, dir), &root, DirCheck::Project(&root)).unwrap();
                 assert_eq!(
                     granted.notes,
                     [format!(
@@ -1946,7 +2192,7 @@ mod tests {
                 );
             }
             // `fgro run` notes it
-            let granted = granted_dirs(&flags(flag, "out"), &root, true).unwrap();
+            let granted = granted_dirs(&flags(flag, "out"), &root, DirCheck::Noted).unwrap();
             assert_eq!(
                 granted.notes,
                 [format!(
@@ -1957,7 +2203,12 @@ mod tests {
         }
         // the run's write directories stay apart from every grant of the
         // realm's
-        let granted = granted_dirs(&flags(ListFlag::RunWrite, "../outside"), &root, false).unwrap();
+        let granted = granted_dirs(
+            &flags(ListFlag::RunWrite, "../outside"),
+            &root,
+            DirCheck::Project(&root),
+        )
+        .unwrap();
         assert_eq!(granted.dirs, GrantedDirs::default());
         assert!(granted.resolved.is_empty());
         assert_eq!(
@@ -2007,7 +2258,7 @@ mod tests {
     fn a_command_s_directory_leading_into_an_unnamed_entry_is_refused() {
         use std::collections::{BTreeMap, BTreeSet};
 
-        use super::granted_dirs;
+        use super::{DirCheck, granted_dirs};
         use crate::cli::{FlagDirs, ListFlag};
         use crate::error::CliError;
 
@@ -2055,7 +2306,7 @@ mod tests {
                 (&alias.join("src/fixtures").to_string_lossy(), ".git"),
                 ("../alias/out", ".git"),
             ] {
-                match granted_dirs(&flags(flag, dir), &root, false) {
+                match granted_dirs(&flags(flag, dir), &root, DirCheck::Project(&root)) {
                     Err(error @ CliError::LinksIntoEntry { .. }) => {
                         assert_eq!(error.exit_code(), crate::EXIT_USAGE);
                         assert_eq!(
@@ -2078,7 +2329,7 @@ mod tests {
                 "node_modules/x",
                 "src/../node_modules",
             ] {
-                let granted = granted_dirs(&flags(flag, dir), &root, false)
+                let granted = granted_dirs(&flags(flag, dir), &root, DirCheck::Project(&root))
                     .unwrap_or_else(|error| panic!("{flag} {dir}: {error}"));
                 assert!(
                     granted.notes.is_empty() || dir.starts_with(&*alias.to_string_lossy()),
@@ -2087,7 +2338,8 @@ mod tests {
                 );
             }
             // a link inside to an ordinary directory is noted
-            let granted = granted_dirs(&flags(flag, "src/in"), &root, false).unwrap();
+            let granted =
+                granted_dirs(&flags(flag, "src/in"), &root, DirCheck::Project(&root)).unwrap();
             assert_eq!(
                 granted.notes,
                 [format!(
@@ -2096,7 +2348,8 @@ mod tests {
                 )]
             );
             // `fgro run` notes the link into the entry
-            let granted = granted_dirs(&flags(flag, "src/fixtures"), &root, true).unwrap();
+            let granted =
+                granted_dirs(&flags(flag, "src/fixtures"), &root, DirCheck::Noted).unwrap();
             assert_eq!(
                 granted.notes,
                 [format!(
@@ -2228,7 +2481,7 @@ mod tests {
         ]);
         let environment = TestEnvironment::of(vars);
         let options = runtime_options(
-            &run.spec(),
+            &spec(&run),
             &environment,
             GrantedDirs::default(),
             Path::new("/w"),
@@ -2273,7 +2526,7 @@ mod tests {
         let run = invocation(&["--allow-run=git", "--allow-run-env=CARGO_*", "a.js"]);
         let environment = TestEnvironment::of(vars);
         let options = runtime_options(
-            &run.spec(),
+            &spec(&run),
             &environment,
             GrantedDirs::default(),
             Path::new("/w"),
@@ -2294,7 +2547,7 @@ mod tests {
         let run = invocation(&["--allow-env=HOME", "a.js"]);
         let environment = TestEnvironment::of(vars);
         let options = runtime_options(
-            &run.spec(),
+            &spec(&run),
             &environment,
             GrantedDirs::default(),
             Path::new("/w"),
@@ -2305,7 +2558,7 @@ mod tests {
         let run = invocation(&["--allow-run=git", "-A", "a.js"]);
         let environment = TestEnvironment::of(vars);
         let options = runtime_options(
-            &run.spec(),
+            &spec(&run),
             &environment,
             GrantedDirs::default(),
             Path::new("/w"),
@@ -2338,7 +2591,7 @@ mod tests {
         let run = invocation(&["--allow-run-in=/x", "--allow-run-env=A", "a.js"]);
         assert!(super::grants_programs(&run.grant, &run.dirs));
         let environment = TestEnvironment::of(&[(b"A", b"1"), (b"PATH", b"/bin")]);
-        let options = runtime_options(&run.spec(), &environment, dirs, Path::new("/w"));
+        let options = runtime_options(&spec(&run), &environment, dirs, Path::new("/w"));
         let gro_runtime::Authority::Confined(grants) = options.authority else {
             panic!("a run without -A is confined");
         };
@@ -2362,7 +2615,7 @@ mod tests {
         assert!(!super::grants_programs(&run.grant, &run.dirs));
         let environment = TestEnvironment::of(&[(b"PATH", b"/bin")]);
         let options = runtime_options(
-            &run.spec(),
+            &spec(&run),
             &environment,
             GrantedDirs::default(),
             Path::new("/w"),
@@ -2411,7 +2664,7 @@ mod tests {
         let run = invocation(&["--allow-env=TOKEN", "a.js"]);
         let environment = TestEnvironment::of(&[(b"TOKEN", b"secret-value")]);
         let options = runtime_options(
-            &run.spec(),
+            &spec(&run),
             &environment,
             GrantedDirs::default(),
             Path::new("/w"),

@@ -81,12 +81,17 @@ fn run(file: &str) -> Run {
 /// must not pass the format check (a parse error) or that it skips (`.tsx`,
 /// `.cts`) live outside the fixtures, under the system's temporary
 /// directory, which ends every walk up from them; the files under a
-/// `package.json` with `"type": "module"` unless they have their own.
+/// project's `package.json` with `"type": "module"` unless they have their
+/// own, so the project's root is theirs.
 fn temp_fixtures(name: &str, files: &[(&str, &str)]) -> Scratch {
     let fixtures = Scratch::in_system_temp(name, files);
     let package_json = fixtures.0.join("package.json");
     if !package_json.exists() {
-        std::fs::write(package_json, "{\"type\": \"module\"}\n").unwrap();
+        std::fs::write(
+            package_json,
+            "{\"name\": \"fixture\", \"type\": \"module\"}\n",
+        )
+        .unwrap();
     }
     fixtures
 }

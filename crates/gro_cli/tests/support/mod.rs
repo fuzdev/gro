@@ -148,9 +148,44 @@ pub fn spawn_with_pid(mut command: Command, stdin: &[u8]) -> (u32, Output) {
     let output = Output {
         status,
         stdout: stdout.join().unwrap(),
-        stderr: stderr.join().unwrap(),
+        stderr: without_unboxed_note(stderr.join().unwrap()),
     };
     (child.id(), output)
+}
+
+/// The note a plain build's `fgro run` prints first on stderr before it
+/// runs in no kernel box, its programs' clause aside, which `run_boxed.rs`
+/// holds it to.
+pub const UNBOXED_NOTE: &str = "note: fgro run runs in no kernel box, since this build has no \
+                                startup snapshot (cargo xtask build makes one), so only the \
+                                runtime's own checks hold its grants";
+
+/// `stderr`, for a build with no snapshot, without the first line that
+/// is [`UNBOXED_NOTE`], with or without its programs' clause, ended by a
+/// line feed or, on a terminal, a carriage return and one, so a case reads
+/// what the run printed in either build; as it is for the snapshot build,
+/// which prints none.
+pub fn without_unboxed_note(stderr: Vec<u8>) -> Vec<u8> {
+    if cfg!(feature = "snapshot") {
+        return stderr;
+    }
+    let spawning = format!(
+        "{UNBOXED_NOTE}, and the programs it starts run in no box of their own, writing wherever \
+         you can"
+    );
+    let mut start = 0;
+    for line in stderr.split_inclusive(|byte| *byte == b'\n') {
+        let end = start + line.len();
+        let bare = line.strip_suffix(b"\n").unwrap_or(line);
+        let bare = bare.strip_suffix(b"\r").unwrap_or(bare);
+        if bare == UNBOXED_NOTE.as_bytes() || bare == spawning.as_bytes() {
+            let mut kept = stderr[..start].to_vec();
+            kept.extend_from_slice(&stderr[end..]);
+            return kept;
+        }
+        start = end;
+    }
+    stderr
 }
 
 /// Waits for `child` to exit, no longer than the [`DEADLINE`]: past it the
@@ -211,15 +246,26 @@ impl Drop for KillOnDrop {
 
 /// The lines `pipe` prints, each with its newline, read on a thread of its
 /// own, so a test waits for one with `recv_timeout` and a child that never
-/// prints can't hang it. The channel closes at the pipe's end.
+/// prints can't hang it, a plain build's note left out
+/// ([`without_unboxed_note`]). The channel closes at the pipe's end.
 pub fn lines(pipe: impl Read + Send + 'static) -> Receiver<String> {
     let (send, receive) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
         let mut reader = BufReader::new(pipe);
+        let mut first = true;
         loop {
             let mut line = String::new();
+            if !matches!(reader.read_line(&mut line), Ok(1..)) {
+                break;
+            }
+            // a plain build's note, which a run in its box doesn't print
+            if std::mem::take(&mut first)
+                && without_unboxed_note(line.clone().into_bytes()).is_empty()
+            {
+                continue;
+            }
             // the test may have stopped waiting
-            if !matches!(reader.read_line(&mut line), Ok(1..)) || send.send(line).is_err() {
+            if send.send(line).is_err() {
                 break;
             }
         }
@@ -227,12 +273,13 @@ pub fn lines(pipe: impl Read + Send + 'static) -> Receiver<String> {
     receive
 }
 
-/// Reads `pipe` to its end on a thread of its own.
+/// Reads `pipe` to its end on a thread of its own, without a plain
+/// build's note ([`without_unboxed_note`]).
 pub fn drain(mut pipe: impl Read + Send + 'static) -> JoinHandle<Vec<u8>> {
     std::thread::spawn(move || {
         let mut bytes = Vec::new();
         pipe.read_to_end(&mut bytes).unwrap();
-        bytes
+        without_unboxed_note(bytes)
     })
 }
 

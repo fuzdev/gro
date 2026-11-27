@@ -51,8 +51,8 @@
 //! run on a short-lived thread of its own that installs the box on itself
 //! first, so the child starts in it ([`spawn_held`]); the isolate's thread
 //! then joins the child to the run's table and watches it. A run held in
-//! no box, `fgro run`'s, launches each child on the isolate's thread, in
-//! no box of its own.
+//! no box (`fgro run -A`, or where the box can't go up) launches each child
+//! on the isolate's thread, in no box of its own.
 //!
 //! The result is a frozen null-prototype record, as the Node module's:
 //! `kind` and `code` for `exited`, `signal` and `signal_number` for

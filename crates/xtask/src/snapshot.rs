@@ -325,6 +325,7 @@ const INTEGRATION_TESTS: [(Measurement, &[&str]); 3] = [
         Measurement::None,
         &[
             "run",
+            "run_boxed",
             "host",
             "eval",
             "confine",

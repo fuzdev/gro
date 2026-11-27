@@ -12,7 +12,7 @@ use std::time::Duration;
 
 use crate::support::{
     DEADLINE, FGRO, KillOnDrop, Scratch, drain, fgro_command, lines, spawn, wait_bounded,
-    wrapped_fgro_command,
+    without_unboxed_note, wrapped_fgro_command,
 };
 use crate::{REFUSALS_FAIL, run_in, run_with, temp_fixtures};
 
@@ -232,7 +232,7 @@ fn is_terminal_is_each_stream_s() {
             .current_dir(&fixtures.0);
         let output = spawn(script, b"");
         assert!(output.status.success(), "{output:?}");
-        String::from_utf8(output.stdout).unwrap()
+        String::from_utf8(without_unboxed_note(output.stdout)).unwrap()
     };
     assert_eq!(on_terminal(""), "[true,true]\r\n");
     assert_eq!(on_terminal("2>/dev/null"), "[true,false]\r\n");
@@ -427,8 +427,14 @@ fn established((local, remote): (u16, u16)) -> bool {
 /// A write to a socket its peer reset (`ECONNRESET`) resolves `false`, as
 /// a broken pipe's does, and so does the next, which meets `EPIPE`; a
 /// console write that meets the reset is dropped, and the run goes on to
-/// its own exit code.
+/// its own exit code. The run's box refuses an internet socket on stdio
+/// before anything runs (`run_boxed.rs`), so this runs where it can't go
+/// up.
 #[test]
+#[cfg_attr(
+    feature = "snapshot",
+    ignore = "the run's box refuses an internet socket on stdio"
+)]
 fn a_reset_socket_resolves_false_and_the_console_drops_its_write() {
     assert_eq!(
         after_a_reset(

@@ -201,6 +201,15 @@ impl Access {
             Self::Write => FsNeed::Write,
         }
     }
+
+    /// The grant of it in the project's root where that's the entry's own
+    /// directory, which a flag naming it grants.
+    const fn entry_dir(self) -> FsNeed {
+        match self {
+            Self::Read => FsNeed::EntryDirRead,
+            Self::Write => FsNeed::EntryDirWrite,
+        }
+    }
 }
 
 /// What an op throws when the run's roots are borrowed as it would change
@@ -629,7 +638,9 @@ impl<'r> Op<'r> {
     /// does it to, in the order it was given them: else `not_granted`
     /// naming the first, or the handle's own directory for none, before
     /// anything is looked up, recorded as it's thrown with what would let
-    /// it through ([`scope_needed`]); but with nothing that would, when
+    /// it through ([`scope_needed`]), a grant in the project's root where
+    /// that's the entry's own directory as its own kind
+    /// ([`FsNeed::EntryDirRead`], [`FsNeed::EntryDirWrite`]); but with nothing that would, when
     /// `ruled`, an op the rule for a root's directory refuses, and one of
     /// `ends` is or holds a root's directory by its text, which no grant
     /// lets through.
@@ -642,7 +653,15 @@ impl<'r> Op<'r> {
         let need = if ruled && targets.iter().any(|path| holds_a_root(roots, path)) {
             None
         } else {
-            Some(scope_needed(roots, self.table.project(), &targets, access))
+            let need = scope_needed(roots, self.table.project(), &targets, access);
+            // the unbounded root grants only as a flag naming it joins to it
+            Some(
+                if need == access.grant() && self.table.in_unbounded_root(&targets) {
+                    access.entry_dir()
+                } else {
+                    need
+                },
+            )
         };
         Err(Failure::NotGranted {
             path: ends

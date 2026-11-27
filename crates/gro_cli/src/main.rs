@@ -3,7 +3,10 @@
 //!
 //! - `fgro run <file> [<args...>]` runs an ES module (JS or TypeScript) from
 //!   disk until its event loop drains, every argument after the file the
-//!   script's (`cli::RunInvocation`); the reference is `src/docs/run.md`
+//!   script's (`cli::RunInvocation`), its entry resolved on the main thread
+//!   and the run started in the run's kernel box there, as a command of
+//!   Gro's is (`start`), or under `-A` in none; the reference is
+//!   `src/docs/run.md`
 //! - `fgro eval <module> [--driver -] [--export NAME] [--jit] [--timeout MS]
 //!   [--graph]` evaluates a module to JSON data in a kernel box and prints
 //!   one envelope on stdout; the reference is `src/docs/eval.md`
@@ -23,13 +26,14 @@
 //!   kernel that can't hold the box, falls back as well; the reference is
 //!   `src/docs/runtime.md` (§Gro's workflow on the runtime)
 //!
-//! Every command but `eval` and the steps a command of Gro's takes before
-//! its runtime runs on one thread with [`gro_runtime::STACK_SIZE`]
-//! reserved, not on the main thread, so a debug build stays inside the
-//! stack tsv's TypeScript strip is sized for, whatever the platform's main
-//! thread has. `eval` keeps its process at one thread until it is confined;
-//! the order of its steps is `eval::confine_eval`'s, and a command of
-//! Gro's keeps it until the run's box is up.
+//! Every command but `eval` and the steps a command of Gro's or `fgro run`
+//! takes before its runtime runs on one thread with
+//! [`gro_runtime::STACK_SIZE`] reserved, not on the main thread, so a debug
+//! build stays inside the stack tsv's TypeScript strip is sized for,
+//! whatever the platform's main thread has. `eval` keeps its process at one
+//! thread until it is confined; the order of its steps is
+//! `eval::confine_eval`'s, and a command of Gro's and `fgro run` keep it
+//! until the run's box is up.
 //!
 //! Exit codes, the same for `run` and `eval`: `0` success, `1` a run that
 //! fails, `2` a usage error, an entry the resolver refuses included (one
@@ -37,7 +41,12 @@
 //! An entry whose resolution fails reading the tree, on an I/O error or a
 //! symlink loop, exits `1`: no change to the command line fixes it. A
 //! program under `run` can exit with a code of its own, 0 to 255, by the
-//! exit host module (`run::exit_code` has the rules). A command of Gro's
+//! exit host module (`run::exit_code` has the rules); `fgro run` exits `2`
+//! too when `GRO_FALLBACK` names no policy, when its project root, found
+//! by a `package.json` or a `node_modules` at or above the entry, is or
+//! holds the home directory, and when `GRO_FALLBACK=command` refuses a run
+//! in no kernel box, and its box adds the codes a command of Gro's box
+//! does. A command of Gro's
 //! exits as `run` does on the binary, its code Gro's; with `2` when its
 //! pre-pass refuses it (its grant flags, an `--allow-run-write=` naming a
 //! program the command may start by no name or by one two share,
@@ -53,8 +62,8 @@
 //! dot-entry or `node_modules` it doesn't name, what the box's plan
 //! refuses, an OS temporary directory inside the project or held by a rule
 //! a program's box would take, a path planted where the box opens a rule or
-//! makes a tool directory), `1` for a build with no snapshot and a step of
-//! the box that failed.
+//! makes a tool directory), `1` for a command of Gro's on a build with no
+//! snapshot and a step of the box that failed.
 //!
 //! Features (the binary that ships never enables `phases` or `prices`):
 //!
@@ -173,6 +182,8 @@ fn main_code() -> u8 {
         // its pre-pass and its box's steps run here, before any thread
         // starts, and a fallback execs the Node Gro from here
         Ok(Invocation::Verb(args)) => run::verb(&args),
+        // its entry and its box's steps here, before any thread starts
+        Ok(Invocation::Run(invocation)) => run::run_file(invocation),
         Ok(Invocation::Sized(task)) => run_on_sized_stack(&task),
         Err(error) => error.report(),
     }
@@ -213,8 +224,6 @@ fn run(task: &Task) -> u8 {
         Task::Help(text) => stdout_line(text.trim_end()).map_err(CliError::Stdout),
         Task::MakeSnapshot(dir) => make_snapshot(dir),
         Task::MakeEmbed(src, dir) => make_embed(src, dir),
-        // it prints its own failure, before the imports it was refused
-        Task::Run(invocation) => return run::run_module(invocation),
     };
     result.map_or_else(|error| error.report(), |()| 0)
 }
@@ -230,6 +239,7 @@ mod tests {
             Ok(Invocation::Eval(args)) => eval::eval(args),
             Ok(Invocation::Sized(task)) => run(&task),
             Ok(Invocation::Verb(args)) => panic!("{args:?} is a command of gro's"),
+            Ok(Invocation::Run(run)) => panic!("{:?} is a run", run.file),
             Err(error) => error.report(),
         }
     }

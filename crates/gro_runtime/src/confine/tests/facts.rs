@@ -21,11 +21,12 @@ fn inputs(root: &Path, home: &Path, writes: bool) -> BoxInputs {
     }
 }
 
-/// A run of the project at `root` with `HOME` at `home` that may start a
-/// program, for which the facts read git's files.
+/// A run of the project at `root` with `HOME` at `home` that may start
+/// git, for which the facts read git's files.
 fn git_inputs(root: &Path, home: &Path) -> BoxInputs {
     BoxInputs {
         spawns: true,
+        git: true,
         ..inputs(root, home, false)
     }
 }
@@ -513,6 +514,7 @@ fn git_s_config_faults_refuse_a_spawning_run() {
         assert!(fault.why.contains(why), "{case}: {fault}");
         let mut spawning = inputs(&project, &home, false);
         spawning.spawns = true;
+        spawning.git = true;
         assert_eq!(
             BoxPlan::for_run(&spawning, &facts).err(),
             Some(PlanRefusal::Git(fault)),

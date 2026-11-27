@@ -93,6 +93,12 @@ fn a_phases_build_writes_runs_marks_in_order() {
     assert_eq!(
         read_marks(&file),
         [
+            "prepass",
+            "network",
+            "facts",
+            "plan",
+            "sweep",
+            "confine",
             "engine",
             "runtime",
             "bootstrap",
@@ -116,7 +122,19 @@ fn a_phases_build_writes_its_marks_when_the_program_exits() {
     assert_eq!(output.status.code(), Some(3), "{output:?}");
     assert_eq!(
         read_marks(&file),
-        ["engine", "runtime", "bootstrap", "load", "exit"]
+        [
+            "prepass",
+            "network",
+            "facts",
+            "plan",
+            "sweep",
+            "confine",
+            "engine",
+            "runtime",
+            "bootstrap",
+            "load",
+            "exit"
+        ]
     );
 }
 
@@ -186,7 +204,7 @@ fn a_phases_build_writes_a_command_s_box_steps_in_order() {
     assert_eq!(
         marks[..7],
         [
-            "prepass", "network", "sweep", "facts", "plan", "confine", "engine"
+            "prepass", "network", "facts", "plan", "sweep", "confine", "engine"
         ],
         "{marks:?}"
     );

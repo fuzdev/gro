@@ -188,14 +188,14 @@ and the contracts no one module doc owns.
   run's, `confine::run`'s tokens in its order (`probe_floor`'s
   `LandlockFloor` → `RunClosed` → `RunNetworked` → `RunHardened` →
   `RunPrepared` → `RunPrepared::confine` → `RunConfined`), named
-  `Confinement::Run`, which every command of Gro's runs in; or
-  `Confinement::Unconfined` named by `fgro run`, `make-snapshot`, and unit
-  tests. `engine::init_engine` takes a `Confinement` and returns an
+  `Confinement::Run`, which every command of Gro's and `fgro run` run in;
+  or `Confinement::Unconfined` named by `fgro run` in no box (`-A`, or
+  where the box can't go up), `make-snapshot`, and unit tests. `engine::init_engine` takes a `Confinement` and returns an
   `Engine`, which `run_main` and `make_snapshot` require;
   `init_eval_engine` takes an `EvalConfined` and returns the `EvalEngine`
   `eval::eval` requires; and `init_run_engine` takes a `RunConfined` and
-  returns the `RunEngine` `run_generated` and `run_file` require, so a command of Gro's
-  never runs outside the box.
+  returns the `RunEngine` `run_generated` and `run_file` require, so a
+  command of Gro's never runs outside the box.
   No runtime starts before the process is confined or named unconfined; an
   engine in eval's box whose JIT disagrees with the box's is
   `EngineError::JitConflict`; the run's box takes either.
@@ -225,8 +225,8 @@ and the contracts no one module doc owns.
   keeps it, or its first error, for every launch after; the launch fetches
   it before the `Command` is made, so its `TMPDIR`, its `TMP` and `TEMP`
   where it has them, and its XDG data, cache, and state variables name its
-  directory (`confine::program::REDIRECTED`). `fgro run` launches in no box
-  of its own. A launch in a program's box reserves its slot of
+  directory (`confine::program::REDIRECTED`). A run in no box launches
+  its programs in no box of their own. A launch in a program's box reserves its slot of
   the signal handler's tables, spawns, takes the pidfd, and arms on the
   box's own short-lived thread, never splitting those across threads
   (`host/spawn/launch.rs`'s `spawn_held`), and the handler on any thread
@@ -241,9 +241,10 @@ and the contracts no one module doc owns.
   doc in `crates/gro_cli/src/eval.rs`; the run's box takes its steps on one
   thread too, in the order `confine/run.rs`'s module doc writes and its
   tokens hold, and each step that needs one thread reads the count settled;
-  a command of Gro's takes them, from the pre-pass to the box, in the order
-  written once in `crates/gro_cli/src/start.rs`'s module doc, every
-  fallback an exec before the first change.
+  a command of Gro's takes them, from the pre-pass to the box, and `fgro
+  run` from its entry's resolution, in the order written once in
+  `crates/gro_cli/src/start.rs`'s module doc, every fallback an exec, or
+  `fgro run`'s run in no box, before the first change.
   Every other command runs its runtime on a thread of its own, not the main
   one, sized `gro_runtime::STACK_SIZE`.
 - `bootstrap::extensions` drops every lazy ES module and every other
@@ -279,7 +280,7 @@ and the contracts no one module doc owns.
 - `gro_runtime` reads no environment variable but the `phases` feature's
   `GRO_PHASES_FILE` and the `prices` feature's `GRO_PRICES_OFF` (`lib.rs`'s
   module doc, which also names the vendored `deno_core`'s own diagnostic
-  reads, which eval clears and a command of Gro's removes, with the
+  reads, which eval clears and a run in the run's box removes, with the
   temporary and `XDG_*` directories pointed into its private directory).
   What a run takes from the process, `fgro`
   reads once as the run starts and hands in through `RuntimeOptions`, as
@@ -342,7 +343,15 @@ commands' output to the Node Gro's
 --write` there regenerates under Node) but for the declared differences
 each case names, run from `--verify`, ignored in a plain `cargo test`;
 they need Landlock ABI 6, `python3`, the checkout's `node_modules`, and a
-`node` on `PATH` that is no version manager's shim.
+`node` on `PATH` that is no version manager's shim. `fgro run` runs in its
+box only from a snapshot build too, and in no box, after a note, from a
+plain one: `tests/run_boxed.rs` holds its box from inside, run from
+`--verify` but for the cases decided before the box, and the other suites
+that run `fgro run` run in both builds, the plain build's note dropped
+from what they read (`support::without_unboxed_note`), a case about the
+realm's own rules where the box changes what it measures (a temporary
+directory, a descriptor counted from outside) ignored in the snapshot
+build.
 `--verify` names each of `gro_cli`'s integration tests with the features it
 runs under (`INTEGRATION_TESTS` in `crates/xtask/src/snapshot.rs`), and an
 xtask unit test fails on a file of `crates/gro_cli/tests/` no run names.

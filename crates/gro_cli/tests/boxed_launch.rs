@@ -472,6 +472,7 @@ fn boxed(scratch: &Path) -> (RunConfined, ProgramBox, ProgramBox) {
         root: scratch.join("project"),
         writes_root: true,
         spawns: true,
+        git: true,
         ..BoxInputs::default()
     };
     let plan = BoxPlan::for_run(&inputs, &BoxFacts::read(&inputs).unwrap()).unwrap();

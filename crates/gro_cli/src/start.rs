@@ -1,49 +1,58 @@
 //! A run started in the run's kernel box: the steps its process takes on
 //! the main thread, its only one, from the run its front end hands over
-//! ([`RunStart`], which a command of Gro's builds from its pre-pass's plan)
-//! to the box going up, then its run on a thread of its own
-//! ([`run_boxed`]).
+//! ([`RunStart`], which a command of Gro's builds from its pre-pass's plan
+//! and `fgro run` from its flags and its entry, resolved) to the box going
+//! up, then its run on a thread of its own ([`run_boxed`]).
 //!
 //! The order, written once here; each step that changes the process takes
 //! the token the one before it made (`gro_runtime::confine::run`):
 //!
-//! 1. A build with no snapshot is refused: started from source, the
-//!    runtime reads `deno_web`'s JS and makes Gro's library from the build
-//!    tree, which no rule of the box admits.
+//! 1. A build with no snapshot can't hold the box: started from source,
+//!    the runtime reads `deno_web`'s JS and makes Gro's library from the
+//!    build tree, which no rule of the box admits. A command of Gro's is
+//!    refused; `fgro run` runs in no box after a note saying so, or is
+//!    refused under `GRO_FALLBACK=command`.
 //! 2. `-A` is refused, naming the project's Node Gro, the unconfined
-//!    spelling: no box holds it.
+//!    spelling: no box holds it. `fgro run -A` never gets here: it runs
+//!    unconfined, in no box.
 //! 3. The probes that change nothing: the kernel's Landlock held to the
 //!    box's floor (`probe_floor`), where a kernel below it is a fallback
-//!    the host decides ([`floor_fallback`]), which execs the project's Node
-//!    Gro here, as the pre-pass's fallbacks exec it, with the process as
-//!    it started, or is refused under `GRO_FALLBACK=command`; then stdin,
+//!    the host decides, refused under `GRO_FALLBACK=command`: a command of
+//!    Gro's execs the project's Node Gro here ([`floor_fallback`]), as the
+//!    pre-pass's fallbacks exec it, with the process as it started, and
+//!    `fgro run` runs in no box after a note saying so; then stdin,
 //!    stdout, and stderr held to what the box allows (`check_stdio`).
 //! 4. The inherited descriptors closed: the first change, after which
 //!    nothing execs in place of the run.
 //! 5. A phases build's file opened, which the close would have taken.
-//! 6. The run's network, its own namespace or the host's with every
-//!    internet socket refused; then the process hardened.
-//! 7. The OS's temporary directory opened by its real path, and the private
-//!    directories of runs gone swept from it, unless it lies in the
-//!    project, which no sweep reaches.
+//! 6. The run's network: for a run that may start a program, its own
+//!    namespace, or the host's with every internet socket refused where the
+//!    kernel refuses the namespace; for one that starts none, the host's
+//!    with every internet socket refused. Then the process hardened.
+//! 7. The OS's temporary directory opened by its real path.
 //! 8. What the run and its box both hold, resolved once: the directories
-//!    the grant flags list (`granted_dirs`), each resolved against the working directory, one inside the project that
-//!    leads out of it through a symlink, or through one into an entry the
-//!    box leaves out that it doesn't name, refused, those
-//!    `--allow-run-write=` lists the box's alone, and the programs the run
-//!    grants, pinned ([`RunPins::pin`]) beneath the project's root.
+//!    the grant flags list (`granted_dirs`), each resolved against the
+//!    working directory, of which, for a command of Gro's, one inside the
+//!    project that leads out of it through a symlink, or through one into an
+//!    entry the box leaves out that it doesn't name, is refused, and for
+//!    `fgro run` noted; those `--allow-run-write=` lists the box's alone;
+//!    and the programs the run grants, pinned ([`RunPins::pin`]) beneath
+//!    the project's root.
 //! 9. The box's plan, from its inputs ([`box_inputs`]) and the disk's facts
 //!    read once; what it refuses refuses the run, and its note prints. A
 //!    `node_modules` the plan follows to another checkout's gets a read
 //!    root of the realm's there too ([`linked_read_root`]), so the realm
 //!    reads through it what the box reads.
 //! 10. What the box names made: the run's private directory, where it has
-//!     one, refused when the OS's temporary directory lies in the project,
-//!     since it would be an entry the box lets the run's tools write and
-//!     later commands read, and, for a run that starts a program, when a
-//!     rule of the plan a program's box would take holds it, since every
-//!     program would read the others' temporary directories through it;
-//!     then its tool directories.
+//!     one, refused when the OS's temporary directory lies in a project,
+//!     since it would be an entry the box lets the run write and later
+//!     commands read (an `fgro run` entry with no project's `package.json`
+//!     at or above it has no project, so none is refused there), and, for a
+//!     run that starts a program, when a rule of the plan a program's box
+//!     would take holds it, since every program would read the others'
+//!     temporary directories through it; the private directories of runs
+//!     gone swept from the temporary directory first, but where it lies in
+//!     a project, which no sweep reaches; then its tool directories.
 //! 11. The run's environment, set in the process so the run, its tools,
 //!     and the libraries that read the process's own see one: the
 //!     temporary variables and `XDG_DATA_HOME`, `XDG_CACHE_HOME`, and
@@ -61,10 +70,12 @@
 //!     ([`StartEntry`]) on a [`RunEngine`](gro_runtime::engine::RunEngine),
 //!     the engine only a box makes: a command of Gro's generated entry
 //!     names where the plan gives Vitest its module cache
-//!     (`BoxPlan::vitest_module_cache`).
+//!     (`BoxPlan::vitest_module_cache`), and `fgro run`'s file, resolved
+//!     before the box, its type markers above a root with no project's
+//!     `package.json` read through the box's file rules.
 //!
 //! A priced build (`gro_runtime::prices`) can leave out step 6's namespace,
-//! step 7's sweep, and step 13's Landlock or denylist, each to be timed
+//! step 10's sweep, and step 13's Landlock or denylist, each to be timed
 //! against the build with every step taken; without the `prices` feature, as
 //! the binary that ships is built, nothing reads the switches and every step
 //! is taken.
@@ -79,14 +90,16 @@
 //! ([`walls_note`]), since the tool's own error may be a wall it met.
 //!
 //! Exit codes ([`BoxStartError::exit_code`]): `2` for what the caller
-//! changes, `-A`, a socket on stdio, a directory a grant flag lists inside
+//! changes, `-A`, a run in no box `GRO_FALLBACK=command` refuses, a socket
+//! on stdio, a directory a grant flag lists inside
 //! the project that leads out of it through a symlink, or through one into
 //! a dot-entry or `node_modules` it doesn't name (`CliError::LeavesProject`,
 //! `CliError::LinksIntoEntry`), what the plan refuses, a temporary
 //! directory in the project or held by a rule a program's box would take,
 //! and every path planted where the box opens a rule or makes a tool
-//! directory; `1` for a build with no snapshot and a step that failed. A
-//! fallback exits with the Node Gro's code.
+//! directory; `1` for a command of Gro's on a build with no snapshot and a
+//! step that failed. A fallback exits with the Node Gro's code, and a run
+//! in no box with its own.
 //!
 //! Kinds: the box is a boundary, the kernel's, against the project's code
 //! and tests, the tools and their children, and an exploit of the engine;
@@ -96,7 +109,8 @@
 //! (`gro_runtime::confine::run`, `gro_runtime::confine::plan`). The order's
 //! tokens and the engine's are guardrails against gro's own bug, held by
 //! the compiler. The floor's fallback is the host deciding to run the Node
-//! Gro, which confines nothing: its note is a review signal, and
+//! Gro, which confines nothing, or `fgro run` in no box, which only the
+//! runtime's native checks hold: its note is a review signal, and
 //! `GRO_FALLBACK=command` refusing it a boundary, a native check before
 //! anything runs. Every note and refusal here is a review signal the run's
 //! code could print as well.
@@ -108,8 +122,8 @@ use std::path::{Path, PathBuf};
 
 use gro_runtime::confine::ConfineError;
 use gro_runtime::confine::plan::{
-    BoxFacts, BoxInputs, BoxPlan, DirFlag, GrantedFlagDir, PlanRefusal, RuleSource, RunWriteDir,
-    RunWriteGrant, ToolWrites,
+    BoxFacts, BoxInputs, BoxPlan, DirFlag, GRO_CODE, GrantedFlagDir, PlanRefusal, RuleSource,
+    RunWriteDir, RunWriteGrant, ToolWrites,
 };
 use gro_runtime::confine::program::{ProgramRules, REDIRECTED, Redirect};
 use gro_runtime::confine::rules::RuleError;
@@ -124,17 +138,18 @@ use gro_runtime::phases::{self, Phase};
 use gro_runtime::prices::{self, RunDefault};
 use gro_runtime::resolver::InstalledPackage;
 use gro_runtime::{
-    BINARY_NAME, DeniedWriteCause, GeneratedEntry, GrantedDir, ProgramGrant, RunPins,
+    BINARY_NAME, DeniedWriteCause, FileEntry, GeneratedEntry, GrantedDir, ProgramGrant, RunPins,
 };
 use gro_sys::private_dir::PrivateDirError;
 use thiserror::Error;
 
-use crate::cli::{FlagDirs, RunGrant};
-use crate::error::CliError;
+use crate::cli::{FlagDirs, RUN, RunGrant};
+use crate::error::{CliError, Unboxed};
 use crate::print::{escape_controls, stderr_line};
 use crate::run::{
-    Environment, NODE_ENV, ProcessEnvironment, authority, finish, granted_dirs, grants_programs,
-    real_temp_dir, runtime_options, start_spec, temp_dir,
+    DirCheck, Ending, Environment, NODE_ENV, ProcessEnvironment, authority, entry_dir_flag, finish,
+    granted_dirs, grants_programs, real_temp_dir, run_unboxed, runtime_options, start_spec,
+    temp_dir,
 };
 use crate::snapshot::STARTUP_SNAPSHOT;
 use crate::thread::{Joined, on_sized_thread};
@@ -147,12 +162,13 @@ use crate::{EXIT_FAILURE, EXIT_PANIC, EXIT_USAGE};
 
 /// A run to start in the run's kernel box ([`run_boxed`]), as its front end
 /// hands it over: a command of Gro's builds one from its pre-pass's plan
-/// (`VerbRun`).
+/// (`VerbRun`), and `fgro run` from its flags and its entry, resolved.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RunStart {
-    /// The command line without its grant flags, the command word first:
-    /// the args the run's args host module hands its code, and what a
-    /// message names the command by.
+    /// The args the run's args host module hands its code: a command of
+    /// Gro's command line without its grant flags, the command word first,
+    /// which a message names the command by, or `fgro run`'s script's
+    /// arguments.
     pub cli_args: Vec<String>,
     /// The grant flags, as written, in order, for a message that names
     /// the whole command again.
@@ -195,8 +211,8 @@ pub struct RunStart {
     /// the run's box is probed ([`floor_fallback`]).
     pub policy: FallbackPolicy,
     /// The Gro the project installed, at the binary's version, if it
-    /// installed one: what runs in the binary's place on a host that can't
-    /// hold the box.
+    /// installed one: what runs in a command of Gro's place on a host that
+    /// can't hold the box. `fgro run` runs in no box there instead.
     pub gro: Option<InstalledPackage>,
     /// The entry the run starts from.
     pub entry: StartEntry,
@@ -214,7 +230,71 @@ pub enum StartEntry {
         /// The binary's version.
         version: String,
     },
+    /// `fgro run`'s file, resolved before the box, with the roots its
+    /// graph starts with.
+    File(Box<FileEntry>),
 }
+
+/// What runs in `fgro run`'s realm, as a message names it.
+const RUN_CODE: &str = "the run's own code";
+
+impl RunStart {
+    /// Whether it's `fgro run`'s.
+    const fn is_file(&self) -> bool {
+        matches!(self.entry, StartEntry::File(_))
+    }
+
+    /// Whether its root is the entry's own directory, with no project's
+    /// `package.json` at or above it: no project, whose tree a later
+    /// command would read.
+    const fn is_unbounded(&self) -> bool {
+        matches!(&self.entry, StartEntry::File(entry) if entry.is_unbounded())
+    }
+
+    /// The command word a message naming the command that writes the
+    /// project names: a command of Gro's, none for the listing or
+    /// `fgro run`.
+    fn command(&self) -> Option<String> {
+        match self.entry {
+            StartEntry::Generated { .. } => command_of(&self.cli_args),
+            StartEntry::File(_) => None,
+        }
+    }
+
+    /// The command as a message names it: `fgro run`, or a command of
+    /// Gro's command line ([`command_line`]).
+    fn named(&self) -> String {
+        match self.entry {
+            StartEntry::Generated { .. } => command_line(self.command().as_deref()),
+            StartEntry::File(_) => format!("{BINARY_NAME} {RUN}"),
+        }
+    }
+
+    /// What runs in the run's realm, as a message names it.
+    const fn realm(&self) -> &'static str {
+        match self.entry {
+            StartEntry::Generated { .. } => GRO_CODE,
+            StartEntry::File(_) => RUN_CODE,
+        }
+    }
+
+    /// Whether `--allow-run=` grants git by the name `git`, or, for a
+    /// command of Gro's, the run may start a program, each of whose tools
+    /// may run git: what the box's rules for git's files outside the
+    /// project hang on ([`BoxInputs::git`]).
+    fn may_start_git(&self) -> bool {
+        let spawns = grants_programs(&self.grant, &self.dirs);
+        match (&self.entry, &self.grant) {
+            (StartEntry::Generated { .. }, _) => spawns,
+            (StartEntry::File(_), RunGrant::Named { run, .. }) => run.contains(GIT),
+            (StartEntry::File(_), RunGrant::All) => true,
+        }
+    }
+}
+
+/// The program whose home config the box reads for `fgro run` only when
+/// `--allow-run=` names it.
+const GIT: &str = "git";
 
 /// The vendored `deno_core`'s diagnostic variables, removed from the run's
 /// environment: a phases file, a lazy-load log, and an import graph file
@@ -269,8 +349,7 @@ pub enum BoxStartError {
     /// otherwise keeps read-only, left behind for later commands to read.
     #[error(
         "the kernel box makes the run's private directory in the OS's temporary directory, and \
-         {} is inside the project, where the run's tools could write what later commands read: \
-         {}",
+         {} is inside the project, where the run could write what later commands read: {}",
         escape_controls(&.path.to_string_lossy()),
         .variable.map_or_else(
             || "it's the default, so set TMPDIR outside the project".to_owned(),
@@ -327,13 +406,15 @@ pub enum BoxStartError {
         source: std::io::Error,
     },
     /// The box's plan refuses the run.
-    #[error("{}", escape_controls(&refusal.message(Some(&command_line(command.as_deref())))))]
+    #[error("{}", escape_controls(&refusal.message(Some(named), realm)))]
     Plan {
         /// The refusal.
         refusal: PlanRefusal,
-        /// The command word, none for the listing, which a refusal naming
-        /// the command that writes the project names.
-        command: Option<String>,
+        /// The command as a message names it ([`RunStart::named`]), which a
+        /// refusal naming the command that writes the project names.
+        named: String,
+        /// What runs in the run's realm, as a message names it.
+        realm: &'static str,
     },
     /// The run's private directory couldn't be made.
     #[error("the kernel box's private directory: {}", escape_controls(&with_causes(.0)))]
@@ -496,26 +577,16 @@ fn with_causes(error: &dyn std::error::Error) -> String {
 }
 
 /// Runs `run` in the run's box, in the order the [module doc](self)
-/// writes, returning the exit code, or, on a kernel below the box's floor,
-/// execs the project's Node Gro over `cli_args`, the command line as
-/// written.
+/// writes, returning the exit code; or where the box can't go up, for a
+/// command of Gro's on a kernel below the box's floor, execs the project's
+/// Node Gro over `cli_args`, the command line as written, and for `fgro
+/// run` runs in no box ([`unboxed`]).
 pub fn run_boxed(run: RunStart, cli_args: &[String]) -> u8 {
     let environment = ProcessEnvironment;
     let floor = match probed(&run) {
         Ok(floor) => floor,
         Err(Probed::Refused(error)) => return CliError::from(error).report(),
-        Err(Probed::BelowFloor(kernel)) => {
-            return match floor_fallback(run, FallbackReason::KernelFloor(kernel)) {
-                Ok(fallback) => exec_node_gro(
-                    &fallback,
-                    cli_args,
-                    environment.var("PATH").as_deref(),
-                    environment.var(NODE_ENV).as_deref(),
-                )
-                .report(),
-                Err(error) => CliError::Verb(error).report(),
-            };
-        }
+        Err(Probed::Unboxed(why)) => return unboxed(run, why, cli_args, &environment),
     };
     phases::mark(Phase::Prepass);
     match boxed(&run, floor, &environment) {
@@ -524,20 +595,84 @@ pub fn run_boxed(run: RunStart, cli_args: &[String]) -> u8 {
     }
 }
 
+/// Where the box can't go up, `why`: a command of Gro's on a kernel below
+/// the floor execs the project's Node Gro over `cli_args` or is refused
+/// ([`floor_fallback`]), and on a build with no snapshot is refused; `fgro
+/// run` is refused under `GRO_FALLBACK=command`, else runs in no box after
+/// a note saying so ([`unboxed_note`]), returning the exit code.
+fn unboxed(
+    run: RunStart,
+    why: Unboxed,
+    cli_args: &[String],
+    environment: &ProcessEnvironment,
+) -> u8 {
+    match (&run.entry, why) {
+        (StartEntry::Generated { .. }, Unboxed::NoSnapshot) => {
+            CliError::from(BoxStartError::NoSnapshot {
+                command: run.command(),
+            })
+            .report()
+        }
+        (StartEntry::Generated { .. }, Unboxed::Floor(kernel)) => {
+            match floor_fallback(run, FallbackReason::KernelFloor(kernel)) {
+                Ok(fallback) => exec_node_gro(
+                    &fallback,
+                    cli_args,
+                    environment.var("PATH").as_deref(),
+                    environment.var(NODE_ENV).as_deref(),
+                )
+                .report(),
+                Err(error) => CliError::Verb(error).report(),
+            }
+        }
+        (StartEntry::File(_), why) if run.policy == FallbackPolicy::Command => {
+            CliError::StrictUnboxed(why).report()
+        }
+        (StartEntry::File(_), why) => {
+            stderr_line(unboxed_note(why, grants_programs(&run.grant, &run.dirs)));
+            let StartEntry::File(entry) = run.entry.clone() else {
+                return EXIT_FAILURE;
+            };
+            run_unboxed(&run, *entry)
+        }
+    }
+}
+
+/// The note `fgro run` prints before it runs in no kernel box, `why`, and
+/// for a run that `spawns`, that its programs run in no box either.
+///
+/// Kind: a review signal; the runtime's native checks are what hold.
+pub fn unboxed_note(why: Unboxed, spawns: bool) -> String {
+    let programs = if spawns {
+        ", and the programs it starts run in no box of their own, writing wherever you can"
+    } else {
+        ""
+    };
+    match why {
+        Unboxed::Floor(kernel) => format!(
+            "note: {BINARY_NAME} {RUN} runs in no kernel box here, so only the runtime's own \
+             checks hold its grants{programs}: {kernel}"
+        ),
+        Unboxed::NoSnapshot => format!(
+            "note: {BINARY_NAME} {RUN} runs in no kernel box, since this build has no startup \
+             snapshot (cargo xtask build makes one), so only the runtime's own checks hold its \
+             grants{programs}"
+        ),
+    }
+}
+
 /// What the steps before the first change found wrong.
 enum Probed {
     /// The run is refused.
     Refused(BoxStartError),
-    /// The kernel's Landlock is below the box's floor.
-    BelowFloor(KernelLandlock),
+    /// The box can't go up here.
+    Unboxed(Unboxed),
 }
 
 /// Steps 1 to 3 of the [module doc](self): nothing in the process changes.
 fn probed(run: &RunStart) -> Result<LandlockFloor, Probed> {
     if STARTUP_SNAPSHOT.is_none() {
-        return Err(Probed::Refused(BoxStartError::NoSnapshot {
-            command: command_of(&run.cli_args),
-        }));
+        return Err(Probed::Unboxed(Unboxed::NoSnapshot));
     }
     if matches!(run.grant, RunGrant::All) {
         return Err(Probed::Refused(BoxStartError::Unconfined {
@@ -548,7 +683,7 @@ fn probed(run: &RunStart) -> Result<LandlockFloor, Probed> {
         let kernel = KernelLandlock::from_floor_error(&error);
         kernel.map_or_else(
             || Probed::Refused(BoxStartError::Confine(error)),
-            Probed::BelowFloor,
+            |kernel| Probed::Unboxed(Unboxed::Floor(kernel)),
         )
     })?;
     check_stdio().map_err(|error| Probed::Refused(BoxStartError::Confine(error)))?;
@@ -568,9 +703,17 @@ struct Boxed {
     programs: Option<ProgramRules>,
     /// The note it prints when it fails after a tool did ([`walls_note`]).
     walls: String,
-    /// The generated entry's text, with where the box gives Vitest its
-    /// module cache (`BoxPlan::vitest_module_cache`).
-    entry: String,
+    /// The entry it runs.
+    entry: BoxedEntry,
+}
+
+/// The entry a run in its box runs.
+enum BoxedEntry {
+    /// A command of Gro's generated entry's text, with where the box gives
+    /// Vitest its module cache (`BoxPlan::vitest_module_cache`).
+    Generated(String),
+    /// `fgro run`'s file, resolved before the box.
+    File(Box<FileEntry>),
 }
 
 /// Steps 4 to 13 of the [module doc](self), from the probed `floor`.
@@ -586,27 +729,28 @@ fn boxed(
 ) -> Result<Boxed, CliError> {
     let closed = RunClosed::close_inherited(floor).map_err(BoxStartError::Step)?;
     phases::open();
-    let networked = closed.enter_network().map_err(BoxStartError::Step)?;
+    // a run that starts no program takes no namespace of its own
+    let networked = if grants_programs(&run.grant, &run.dirs) {
+        closed.enter_network().map_err(BoxStartError::Step)?
+    } else {
+        closed.host_network()
+    };
     let hardened = networked.harden().map_err(BoxStartError::Step)?;
     phases::mark(Phase::Network);
     // read before the environment points it into the private directory
     let (temp_path, temp_variable) = temp_dir(environment);
     let temp_path = real_temp_dir(&run.cwd.join(temp_path));
-    // the project's own tree, where no private directory goes and no
-    // sweep reaches
-    let in_project = lies_in(&temp_path, &run.root);
+    // a project's own tree, where no private directory goes and no sweep
+    // reaches; an entry with no project has none
+    let in_project = !run.is_unbounded() && lies_in(&temp_path, &run.root);
     let temp = gro_sys::beneath::open_root(&temp_path);
-    // a priced build can leave the sweep out (`gro_runtime::prices`)
-    if let Ok(temp) = &temp
-        && !in_project
-        && !prices::off(RunDefault::Sweep)
-    {
-        // availability alone: a sweep that fails leaves the leftovers
-        let _ = gro_sys::private_dir::sweep_private_dirs(temp.as_fd());
-    }
-    phases::mark(Phase::Sweep);
     let spec = start_spec(run);
-    let mut granted = granted_dirs(&run.dirs, &run.cwd, false)?;
+    let check = if run.is_file() {
+        DirCheck::Noted
+    } else {
+        DirCheck::Project(&run.root)
+    };
+    let mut granted = granted_dirs(&run.dirs, &run.cwd, check)?;
     for note in &granted.notes {
         stderr_line(note);
     }
@@ -637,12 +781,16 @@ fn boxed(
     phases::mark(Phase::Facts);
     let plan = BoxPlan::for_run(&inputs, &facts).map_err(|refusal| BoxStartError::Plan {
         refusal,
-        command: command_of(&run.cli_args),
+        named: run.named(),
+        realm: run.realm(),
     })?;
     phases::mark(Phase::Plan);
-    if let Some(note) =
-        plan.note(|flags| binary_command_with(&run.cli_args, &run.grant_flags, flags))
-    {
+    if let Some(note) = plan.note(|flags| {
+        // `fgro run`'s file starts no program a pasted flag would name
+        (!run.is_file())
+            .then(|| binary_command_with(&run.cli_args, &run.grant_flags, flags))
+            .flatten()
+    }) {
         stderr_line(escape_controls(&note));
     }
     if let Some(linked) = plan.node_modules_link() {
@@ -683,11 +831,18 @@ fn boxed(
             path: temp_path.clone(),
             source,
         })?;
+        // a priced build can leave the sweep out (`gro_runtime::prices`)
+        if !prices::off(RunDefault::Sweep) {
+            // availability alone: a sweep that fails leaves the leftovers
+            let _ = gro_sys::private_dir::sweep_private_dirs(temp.as_fd());
+        }
+        phases::mark(Phase::Sweep);
         let private = hardened
             .make_private_dir(temp.as_fd(), &temp_path)
             .map_err(BoxStartError::PrivateDir)?;
         Some(private)
     } else {
+        phases::mark(Phase::Sweep);
         None
     };
     hardened
@@ -712,18 +867,24 @@ fn boxed(
         realm_writes_root,
     ));
     if let RunNetwork::InetRefused { cause, .. } = confined.network() {
+        let binds = if run.is_file() {
+            "a program that binds 127.0.0.1 fails"
+        } else {
+            "tests that bind 127.0.0.1 fail"
+        };
         stderr_line(format_args!(
             "note: no network namespace here ({cause}), so the box refuses every internet socket \
-             in its place: tests that bind 127.0.0.1 fail"
+             in its place: {binds}"
         ));
     }
     let walls = walls_note(run, &wall_rules(&confined), &plan, confined.network());
     let entry = match &run.entry {
-        StartEntry::Generated { home, version } => main_entry(
+        StartEntry::Generated { home, version } => BoxedEntry::Generated(main_entry(
             home.as_deref(),
             version,
             plan.vitest_module_cache().as_deref(),
-        ),
+        )),
+        StartEntry::File(entry) => BoxedEntry::File(entry.clone()),
     };
     Ok(Boxed {
         confined,
@@ -801,7 +962,10 @@ fn set_environment(private: Option<&RunPrivateDir>) -> Result<(), BoxStartError>
 /// grant flags' own widen the box, `run_writes`, those `--allow-run-write=`
 /// lists, each joined to the program the pre-pass resolved its name to,
 /// `pins`, the programs the run pinned, and the variables git's home
-/// config is found by, read from `environment`. `programs` names each file
+/// config is found by, read from `environment`, whose files the box reads
+/// for a run that may start git ([`RunStart::may_start_git`]), with an
+/// `fgro run` entry's type markers above a root with no project's
+/// `package.json` ([`FileEntry::markers`]). `programs` names each file
 /// once, and `flag_programs` says whether `--allow-run=` grants a program
 /// the closure holds no policy for.
 pub fn box_inputs(
@@ -815,6 +979,7 @@ pub fn box_inputs(
     let path = |name: &str| environment.var(name).map(PathBuf::from);
     BoxInputs {
         root: run.root.clone(),
+        unbounded: run.is_unbounded(),
         unconfined: matches!(run.grant, RunGrant::All),
         writes_root: run.writes_root,
         tools: run.tools.clone(),
@@ -833,6 +998,11 @@ pub fn box_inputs(
         home: path("HOME"),
         xdg_config_home: path("XDG_CONFIG_HOME"),
         git_config_global: path("GIT_CONFIG_GLOBAL"),
+        git: run.may_start_git(),
+        markers: match &run.entry {
+            StartEntry::File(entry) => entry.markers(),
+            StartEntry::Generated { .. } => Vec::new(),
+        },
     }
 }
 
@@ -1069,7 +1239,7 @@ fn read_only_clause(root: &Path, rules: &[WallRule]) -> String {
 fn denied_write_cause(run: &RunStart, rules: &[WallRule], writes_root: bool) -> DeniedWriteCause {
     let cause = format!(
         "the run's kernel box lets {} {}; {}",
-        command_line(command_of(&run.cli_args).as_deref()),
+        run.named(),
         writes_clause(&run.root, rules, writes_root),
         read_only_clause(&run.root, rules)
     );
@@ -1094,7 +1264,7 @@ fn denied_write_cause(run: &RunStart, rules: &[WallRule], writes_root: bool) -> 
 fn walls_note(run: &RunStart, rules: &[WallRule], plan: &BoxPlan, network: &RunNetwork) -> String {
     let network = match network {
         RunNetwork::Namespace => "reach no network but the run's own loopback",
-        RunNetwork::InetRefused { .. } => "reach no network",
+        RunNetwork::InetRefused { .. } | RunNetwork::Host => "reach no network",
     };
     let names: Vec<String> = run
         .may_start
@@ -1116,18 +1286,23 @@ fn walls_note(run: &RunStart, rules: &[WallRule], plan: &BoxPlan, network: &RunN
             rest.join(", ")
         ),
     };
+    let (tools, tool, writer) = if run.is_file() {
+        ("programs", "program", "the run's modules write")
+    } else {
+        ("tools", "tool", "gro's own code writes")
+    };
     format!(
-        "note: {}'s tools each ran in a kernel box of their own inside the run's, which lets them \
-         {network} and {}: a tool that hits a wall fails with EACCES, EXDEV, EPERM, or ENOSYS; \
-         {run_write}--allow-read= and --allow-run-in= widen every box, and --allow-write= widens \
-         only what gro's own code writes",
-        command_line(command_of(&run.cli_args).as_deref()),
+        "note: {}'s {tools} each ran in a kernel box of their own inside the run's, which lets \
+         them {network} and {}: a {tool} that hits a wall fails with EACCES, EXDEV, EPERM, or \
+         ENOSYS; {run_write}--allow-read= and --allow-run-in= widen every box, and \
+         --allow-write= widens only what {writer}",
+        run.named(),
         tools_writes_clause(&run.root, rules, plan)
     )
 }
 
 /// Step 14 of the [module doc](self): the run's thread, started once the
-/// box is up, which runs the generated entry on the engine the box made,
+/// box is up, which runs the run's entry on the engine the box made,
 /// returning the exit code.
 fn run_on_thread(run: &RunStart, boxed: Boxed) -> u8 {
     let Boxed {
@@ -1138,23 +1313,46 @@ fn run_on_thread(run: &RunStart, boxed: Boxed) -> u8 {
         walls,
         entry,
     } = boxed;
-    let entry = GeneratedEntry {
-        source: entry,
-        root: run.root.clone(),
-    };
+    let root = run.root.clone();
     let cwd = run.cwd.clone();
-    let node_hint = format!(
-        "hint: a Node built-in's import was refused in this run; the Node gro runs it, unconfined: {}",
-        node_gro_command(&run.cli_args)
-    );
+    // a command of Gro's names the Node Gro for a Node built-in, and `fgro
+    // run` the flag naming an entry's own directory with no project
+    let ending = match &entry {
+        BoxedEntry::Generated(_) => Ending {
+            node_hint: Some(format!(
+                "hint: a Node built-in's import was refused in this run; the Node gro runs it, \
+                 unconfined: {}",
+                node_gro_command(&run.cli_args)
+            )),
+            entry_dir: None,
+            walls: Some(walls),
+        },
+        BoxedEntry::File(file) => Ending {
+            node_hint: None,
+            entry_dir: entry_dir_flag(file, &run.cwd),
+            walls: Some(walls),
+        },
+    };
     let ran = on_sized_thread(BINARY_NAME.to_owned(), move || {
         let started = init_run_engine(confined, &EngineOptions::default())
             .map_err(CliError::Engine)
             .map(|engine| {
                 phases::mark(Phase::Engine);
-                gro_runtime::run_generated(engine, &options, &entry, pins, programs, &cwd)
+                match entry {
+                    BoxedEntry::Generated(source) => gro_runtime::run_generated(
+                        engine,
+                        &options,
+                        &GeneratedEntry { source, root },
+                        pins,
+                        programs,
+                        &cwd,
+                    ),
+                    BoxedEntry::File(file) => {
+                        gro_runtime::run_file(engine, &options, *file, pins, programs, &cwd)
+                    }
+                }
             });
-        finish(started, Some(&node_hint), Some(&walls))
+        finish(started, &ending)
     });
     match ran {
         Joined::Returned(code) => code,

@@ -249,3 +249,57 @@ fn a_project_with_no_node_modules_is_its_own_box() {
             .holds(&scratch.path().join("projectile/b.ts"))
     );
 }
+
+/// A `node_modules` lists only what can widen the box: in one whose real
+/// path lies in a root, its links, scoped ones included, and nothing
+/// installed there; in one outside every root, every package entry. The
+/// closure over it is the same either way.
+#[test]
+fn a_listing_leaves_out_what_a_root_holds() {
+    use crate::confine::closure::package_entries;
+
+    let scratch = Scratch::new("listing");
+    let project = scratch.dir("w/project");
+    let lib = scratch.dir("w/lib");
+    let scope = scratch.dir("w/scope");
+    for dir in [
+        "w/lib",
+        "w/scope/gamma",
+        "w/project/node_modules/installed",
+        "w/project/node_modules/@fuzdev/scoped",
+    ] {
+        scratch.dir(dir);
+        scratch.file(&format!("{dir}/package.json"));
+    }
+    scratch.dir("w/project/node_modules/@empty");
+    scratch.link(&lib, "w/project/node_modules/@fuzdev/lib");
+    scratch.link(&lib, "w/project/node_modules/linked");
+    scratch.link(&scope, "w/project/node_modules/@linked");
+    let node_modules = project.join("node_modules");
+    let listed = |roots: &[PathBuf]| -> Vec<PathBuf> {
+        package_entries(node_modules.clone(), roots)
+            .entries
+            .into_iter()
+            .map(|entry| entry.path)
+            .collect()
+    };
+    assert_eq!(
+        listed(std::slice::from_ref(&project)),
+        [
+            node_modules.join("@fuzdev/lib"),
+            node_modules.join("@linked/gamma"),
+            node_modules.join("linked"),
+        ]
+    );
+    assert_eq!(
+        listed(&[]),
+        [
+            node_modules.join("@fuzdev/lib"),
+            node_modules.join("@fuzdev/scoped"),
+            node_modules.join("@linked/gamma"),
+            node_modules.join("installed"),
+            node_modules.join("linked"),
+        ]
+    );
+    assert_eq!(closure(&project), [project, lib, scope.join("gamma")]);
+}

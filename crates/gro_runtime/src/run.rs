@@ -108,6 +108,33 @@ impl FileEntry {
     pub const fn bound(&self) -> &EntryBound {
         &self.bound
     }
+
+    /// Whether no project's `package.json` is at or above the entry, so the
+    /// project's root is the entry's own directory, which the run reads and
+    /// writes only as a flag naming it grants (`HostData::project_unbounded`).
+    pub const fn is_unbounded(&self) -> bool {
+        matches!(self.bound, EntryBound::Unbounded { .. })
+    }
+
+    /// The type markers above the root its resolution read, each a
+    /// `package.json` by its real path, for an entry whose root is its own
+    /// directory ([`FileEntry::is_unbounded`]): a `.js` module's type comes
+    /// from the nearest one above it as each module loads, so a box that
+    /// goes up before then reads each, file-only. None for any other
+    /// entry, whose root's own `package.json` ends every walk at or below
+    /// it.
+    pub fn markers(&self) -> Vec<PathBuf> {
+        if !self.is_unbounded() {
+            return Vec::new();
+        }
+        let root = self.root();
+        self.resolution
+            .files_consulted
+            .iter()
+            .filter(|file| !file.path.starts_with(root))
+            .map(|file| file.path.clone())
+            .collect()
+    }
 }
 
 /// Resolves the entry module at `path` from the disk, before any run.
@@ -245,10 +272,25 @@ impl RunOutcome {
 /// runtime starts on that thread, so the size doesn't change how deep JS can
 /// go.
 pub fn run_main(engine: Engine, options: &RuntimeOptions, entry: &Path, cwd: &Path) -> RunOutcome {
-    let entry = match resolve_file_entry(entry, cwd) {
-        Ok(entry) => entry,
-        Err(error) => return RunOutcome::unstarted(error.into()),
-    };
+    match resolve_file_entry(entry, cwd) {
+        Ok(entry) => run_file_unboxed(engine, options, entry, cwd),
+        Err(error) => RunOutcome::unstarted(error.into()),
+    }
+}
+
+/// Runs `entry`, resolved before the run ([`resolve_file_entry`]), as
+/// [`run_main`] runs one, on any engine.
+///
+/// Its granted programs are pinned once its entry has resolved, and start
+/// in no box of their own: it's what an embedder runs where the run's box
+/// doesn't go up, as [`run_main`] does from a path. [`run_main`]'s
+/// `# Stack` holds for it too.
+pub fn run_file_unboxed(
+    engine: Engine,
+    options: &RuntimeOptions,
+    entry: FileEntry,
+    cwd: &Path,
+) -> RunOutcome {
     let pins = pins_of(options, &entry);
     run_file_on(engine, options, entry, pins, None, cwd)
 }
@@ -300,8 +342,11 @@ fn run_file_on(
     programs: Option<ProgramRules>,
     cwd: &Path,
 ) -> RunOutcome {
+    let unbounded = entry.is_unbounded();
     let (url, loader) = file_main(options, entry, Recording::Off);
-    run_resolved(engine, options, &url, cwd, &loader, pins, programs)
+    run_resolved(
+        engine, options, &url, cwd, &loader, pins, programs, unbounded,
+    )
 }
 
 /// The URL of the resolved `entry` and the loader of its graph, which
@@ -364,7 +409,7 @@ fn run_generated_on(
     cwd: &Path,
 ) -> RunOutcome {
     let (url, loader) = generated_main(options, entry, Recording::Off);
-    run_resolved(engine, options, &url, cwd, &loader, pins, programs)
+    run_resolved(engine, options, &url, cwd, &loader, pins, programs, false)
 }
 
 /// The URL of the generated `entry` and the loader of its graph, which
@@ -430,19 +475,26 @@ fn run_recorded(
         Err(error) => return (RunOutcome::unstarted(error.into()).into(), None),
     };
     let pins = pins_of(options, &entry);
+    let unbounded = entry.is_unbounded();
     let (entry, loader) = file_main(options, entry, recording);
     // the runtime is torn down here, so its share of the loader is gone
     // and the graph is taken whole
     let ended = Ended::from(run_resolved(
-        engine, options, &entry, cwd, &loader, pins, None,
+        engine, options, &entry, cwd, &loader, pins, None, unbounded,
     ));
     (ended, Some(loader.take_graph()))
 }
 
 /// Runs the resolved `entry` with `loader`, started in `cwd`, its granted
 /// programs held by `pins`, each started in a box built from `programs`
-/// where given, returning the result with the `import()`s
-/// refused by rule and the spent runtime.
+/// where given, its project's root `unbounded` when it's the entry's own
+/// directory with no project's `package.json` at or above it
+/// ([`FileEntry::is_unbounded`]), returning the result with the
+/// `import()`s refused by rule and the spent runtime.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the run's parts, each its own input, which every runner passes on"
+)]
 fn run_resolved(
     engine: Engine,
     options: &RuntimeOptions,
@@ -451,6 +503,7 @@ fn run_resolved(
     loader: &Rc<Loader>,
     pins: RunPins,
     programs: Option<ProgramRules>,
+    unbounded: bool,
 ) -> RunOutcome {
     let project = loader.graph().roots().project().dir.clone();
     let spawn = SpawnRun::start(
@@ -470,6 +523,7 @@ fn run_resolved(
             runtime_version: options.runtime_version.clone(),
             env: options.env.clone(),
             project: Some(project),
+            project_unbounded: unbounded,
             temp_dir: options.temp_dir.clone(),
             denied_write_cause: options.denied_write_cause.clone(),
             spawn,

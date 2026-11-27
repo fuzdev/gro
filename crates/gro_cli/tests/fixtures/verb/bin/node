@@ -1,0 +1,4 @@
+#!/bin/sh
+printf '%s\n' "$@" > "$FAKE_NODE_RECORD"
+pwd >> "$FAKE_NODE_RECORD"
+exit 7

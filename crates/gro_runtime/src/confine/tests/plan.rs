@@ -5,9 +5,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 use crate::confine::plan::{
-    Anchor, BoxFacts, BoxInputs, BoxPlan, DirFlag, EntryKind, GrantedFlagDir, NodeModules, Opening,
-    PlanRefusal, PlannedRule, ProgramFile, RootWriter, RuleSource, RunWriteDir, RunWriteGrant,
-    Skip, ToolDir, ToolDirs, ToolWrites, TopEntry,
+    Anchor, BoxFacts, BoxInputs, BoxPlan, DirFlag, EntryKind, GRO_CODE, GrantedFlagDir,
+    NodeModules, Opening, PlanRefusal, PlannedRule, ProgramFile, RootWriter, RuleSource,
+    RunWriteDir, RunWriteGrant, Skip, ToolDir, ToolDirs, ToolWrites, TopEntry,
 };
 use crate::confine::program::ProgramWrites;
 use crate::confine::rules::{Need, RealRights, Rights};
@@ -102,6 +102,7 @@ fn inputs(
         writes_root: writes,
         tools: table_tools(tools),
         spawns: !programs.is_empty(),
+        git: !programs.is_empty(),
         declared: set(declared),
         programs,
         home: Some("/h".into()),
@@ -592,6 +593,7 @@ fn both_write_flags_write_a_tool_directory_plain() {
         real: "/usr/bin/git".into(),
     }];
     none_writes.spawns = true;
+    none_writes.git = true;
     none_writes.run_writes = vec![named_writes(
         "git",
         "git",
@@ -808,9 +810,11 @@ fn the_plan_refuses_what_no_box_holds() {
     let mut run_in = flagged(&[(DirFlag::RunIn, "~/.asdf", "/h/.asdf")]);
     run_in.programs = vec![shim.clone()];
     run_in.spawns = true;
+    run_in.git = true;
     let mut read = flagged(&[(DirFlag::Read, "~/.asdf", "/h/.asdf")]);
     read.programs = vec![shim.clone()];
     read.spawns = true;
+    read.git = true;
     // a `node` found through a link of its own, whose real path the
     // run-in flag covers
     let mut linked_shim = run_in.clone();
@@ -1348,6 +1352,7 @@ fn allow_temp_gets_the_private_directory() {
 fn a_rule_holding_the_temporary_directory_is_found() {
     let spawning = |flags: &[(DirFlag, &str, &str)]| BoxInputs {
         spawns: true,
+        git: true,
         programs: vec![node()],
         ..flagged(flags)
     };
@@ -1423,6 +1428,7 @@ fn run_writing(
     BoxInputs {
         writes_root: writes,
         spawns: true,
+        git: true,
         programs: vec![node()],
         run_writes,
         tools: table_tools(&["vitest"]),
@@ -1635,7 +1641,7 @@ fn the_plan_refuses_a_run_write_flag_gro_s_code_would_write_through() {
     // the message, with and without the command's name
     let refusal = corner(".git");
     assert_eq!(
-        refusal.message(Some("fgro gen")),
+        refusal.message(Some("fgro gen"), GRO_CODE),
         "--allow-run-write=vitest:.git would let gro's own code write .git as well, since fgro \
          gen writes the project and only the kernel box keeps it out of .git, node_modules, and \
          the dot-entries: add --allow-write=.git to grant it to both"
@@ -1695,5 +1701,114 @@ fn a_run_write_flag_holding_the_temporary_directory_is_found() {
     assert_eq!(
         BoxPlan::for_run(&still, &facts()).unwrap().program_writes(),
         []
+    );
+}
+
+/// A spawning run that may not start git reads none of git's files outside
+/// the project and isn't refused when they can't be read; type markers
+/// above the root are read, file-only, by their real paths, after the
+/// link closure.
+#[test]
+fn git_s_files_hang_on_git_and_markers_are_read_file_only() {
+    let mut cargo = inputs(
+        false,
+        &[],
+        &[],
+        vec![ProgramFile::Direct {
+            real: "/usr/bin/cargo".into(),
+        }],
+    );
+    cargo.git = false;
+    cargo.markers = vec!["/m/package.json".into()];
+    let plan = BoxPlan::for_run(&cargo, &facts()).unwrap();
+    let lines = render(&plan);
+    assert!(
+        !lines
+            .iter()
+            .any(|line| line.contains("GitHome") || line.contains("GitDir")),
+        "{lines:#?}"
+    );
+    let marker = lines
+        .iter()
+        .position(|line| line == "real /m/package.json r opt Marker")
+        .unwrap_or_else(|| panic!("{lines:#?}"));
+    let linked = lines
+        .iter()
+        .position(|line| line.starts_with("real /elsewhere/pkg"))
+        .unwrap();
+    assert_eq!(marker, linked + 1, "{lines:#?}");
+    let faulty = BoxFacts {
+        git_fault: Some(crate::confine::git::GitFault {
+            path: "/h/.gitconfig".into(),
+            why: "unreadable".to_owned(),
+        }),
+        ..facts()
+    };
+    assert!(BoxPlan::for_run(&cargo, &faulty).is_ok());
+    cargo.git = true;
+    assert!(matches!(
+        BoxPlan::for_run(&cargo, &faulty),
+        Err(PlanRefusal::Git(_))
+    ));
+}
+
+/// The root of an entry in no project is the run's loader's: its rule
+/// reaches no program's box, so nothing a spawning run starts reads it,
+/// unless a read or run-in flag names it, or `--allow-run-write=` names it
+/// for that program, which reads it then; a project's root reaches every
+/// program's box.
+#[test]
+fn an_unbounded_root_reaches_no_program_unless_a_flag_names_it() {
+    let loose = |flags: &[(DirFlag, &str, &str)]| BoxInputs {
+        unbounded: true,
+        spawns: true,
+        programs: vec![ProgramFile::Direct {
+            real: "/usr/bin/cat".into(),
+        }],
+        ..flagged(flags)
+    };
+    let holding = |inputs: &BoxInputs| {
+        BoxPlan::for_run(inputs, &facts())
+            .unwrap()
+            .holding(std::path::Path::new("/p/src"))
+    };
+    let plan = BoxPlan::for_run(&loose(&[]), &facts()).unwrap();
+    assert!(
+        render(&plan).contains(&"project . r req UnboundedRoot".to_owned()),
+        "{:#?}",
+        render(&plan)
+    );
+    assert_eq!(holding(&loose(&[])), None);
+    for flag in [DirFlag::Read, DirFlag::RunIn] {
+        assert_eq!(
+            holding(&loose(&[(flag, ".", "/p")])),
+            Some((PathBuf::from("/p"), RuleSource::Flag(flag)))
+        );
+    }
+    // a write flag's directory is gro's own code's
+    assert_eq!(holding(&loose(&[(DirFlag::Write, ".", "/p")])), None);
+    let writes_root = ProgramWrites {
+        root: true,
+        run_write: Some(0),
+        ..ProgramWrites::NONE
+    };
+    for (source, writes, granted) in [
+        (RuleSource::UnboundedRoot, ProgramWrites::NONE, None),
+        (RuleSource::UnboundedRoot, writes_root, Some(Rights::READ)),
+        (RuleSource::Project, ProgramWrites::NONE, Some(Rights::READ)),
+    ] {
+        assert_eq!(
+            crate::confine::program::program_rights(source, Rights::READ, writes),
+            granted,
+            "{source:?} {writes:?}"
+        );
+    }
+    let bounded = BoxInputs {
+        unbounded: false,
+        ..loose(&[])
+    };
+    assert_eq!(
+        holding(&bounded),
+        Some((PathBuf::from("/p/."), RuleSource::Project))
     );
 }
