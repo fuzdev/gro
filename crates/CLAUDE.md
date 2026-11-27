@@ -211,8 +211,8 @@ and the contracts no one module doc owns.
   in the run's, names only handles the run's box held past it, none on
   the private directory or a directory holding it, taking what its write
   set (`ProgramWrites`) names (the tool directories its grants table entry
-  names in `write`, which no other program's box takes, without Landlock's
-  `MakeSym`, and what
+  names in `write`, which a program's box takes only where its own entry names it, written plain, without Landlock's
+  `MakeSym`, `MakeFifo`, or `Refer`, and what
   `--allow-run-write=` names for it) and never what `--allow-write=` names,
   and
   its own temporary directory, made beneath the held private directory's handle, an entry

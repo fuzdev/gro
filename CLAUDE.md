@@ -93,7 +93,7 @@ errors and exit codes. Where it lives:
   role, its tool's name with `_cli` (`eslint_cli`, `npm_cli`, `vitest_cli`, `git_cli`),
   with the program's `name`, the only one the role runs,
   `local` for the project's own install in `node_modules/.bin`, never one on `PATH`,
-  and its environment as `SpawnProgramOptions` has it),
+  its environment as `SpawnProgramOptions` has it, and `write`, the tool directories it writes on its own (`BuiltinToolDir`), which the binary's box holds it to),
   emitted as `GRO_BUILTIN_TASK_GRANTS` by the summaries genfile, and with the CLI's row as JSON
   in `src/builtin_grants.json` for the binary to read natively, which `gro_runtime::verb` reads
   into a command's closure, which `fgro <command>` runs with; the root's
