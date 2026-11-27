@@ -92,7 +92,7 @@ use crate::loader::RefusalLog;
 use crate::loader::refused::{NOT_GRANTED, NotGranted};
 use crate::{Authority, FsNeed};
 use roots::{Root, Table, holds_a_root};
-use walk::scope_needed;
+use walk::{one_root_holds, scope_needed};
 
 /// What a member throws in a runtime started without the run's fs state,
 /// which only a runtime made outside a run's start is.
@@ -273,6 +273,15 @@ enum Failure {
         /// The kind of grant that would have allowed it.
         need: Option<FsNeed>,
     },
+    /// `outside_root` about `path`, the path as given, `cause` why, which
+    /// a root of the run already grants the op: recorded as it's thrown,
+    /// so a report can say to open the directory with `fs.open_dir`.
+    OutsideGranted {
+        /// The path as given.
+        path: String,
+        /// Why it's outside the handle.
+        cause: String,
+    },
     /// A plain `Error` of this message: what isn't the call's to fix.
     Plain(String),
     /// What V8 threw, already pending.
@@ -333,6 +342,13 @@ fn throw(
         Failure::Type(message) => return throw_type_error(scope, &message),
         Failure::Plain(message) => return throw_error(scope, &message),
         Failure::Fs { kind, path, cause } => (kind, path, cause),
+        Failure::OutsideGranted { path, cause } => {
+            let Some(log) = state.try_borrow::<RefusalLog>() else {
+                return throw_error(scope, NO_REFUSAL_STATE);
+            };
+            log.record_outside_granted(&path);
+            (FsErrorKind::OutsideRoot, path, Some(cause))
+        }
         Failure::NotGranted { path, need } => {
             let Some(log) = state.try_borrow::<RefusalLog>() else {
                 return throw_error(scope, NO_REFUSAL_STATE);
@@ -542,19 +558,65 @@ impl<'r> Op<'r> {
     }
 
     /// `path` checked as a path ([`path_text`]), then resolved beneath the
-    /// handle ([`Op::resolve`]).
+    /// handle for an op that does `access` there ([`Op::resolve`]).
     fn path(
         &self,
         scope: &v8::PinScope<'_, '_>,
         path: v8::Local<'_, v8::Value>,
+        access: Access,
     ) -> Result<End, Failure> {
-        self.resolve(path_text(scope, path)?)
+        self.resolve(path_text(scope, path)?, access)
+    }
+
+    /// `from` and `to` each checked as a path and resolved beneath the
+    /// handle, in that order, for an op that does `from_access` at `from`
+    /// and writes `to` ([`Op::resolve_granted`]): an `outside_root` of either is
+    /// recorded only when one root grants both ends, so one handle
+    /// `fs.open_dir` makes could make the call.
+    fn paths(
+        &self,
+        scope: &v8::PinScope<'_, '_>,
+        from: v8::Local<'_, v8::Value>,
+        from_access: Access,
+        to: v8::Local<'_, v8::Value>,
+    ) -> Result<(End, End), Failure> {
+        let one_handle = |_: &str| {
+            let (Ok(from), Ok(to)) = (path_text(scope, from), path_text(scope, to)) else {
+                return false;
+            };
+            self.grants_outside(&[(&from, from_access), (&to, Access::Write)])
+        };
+        let source = self.resolve_granted(path_text(scope, from)?, one_handle)?;
+        let destination = self.resolve_granted(path_text(scope, to)?, one_handle)?;
+        Ok((source, destination))
+    }
+
+    /// `requested` resolved beneath the handle for an op that does `access`
+    /// there ([`Op::resolve_granted`]), an `outside_root` recorded when a
+    /// root already grants `access` to its path.
+    fn resolve(&self, requested: String, access: Access) -> Result<End, Failure> {
+        self.resolve_granted(requested, |path| self.grants_outside(&[(path, access)]))
     }
 
     /// `requested` resolved by its text beneath the handle
-    /// ([`to_lexical`]), `outside_root` for a climb above it.
-    fn resolve(&self, requested: String) -> Result<End, Failure> {
-        let lexical = to_lexical(&requested, &self.handle_path)?;
+    /// ([`to_lexical`]), `outside_root` for a climb above it or an absolute
+    /// path; one `granted` says a root already grants the call is recorded
+    /// as it's thrown, so a report can say to open that directory
+    /// ([`Failure::OutsideGranted`]).
+    fn resolve_granted(
+        &self,
+        requested: String,
+        granted: impl FnOnce(&str) -> bool,
+    ) -> Result<End, Failure> {
+        let lexical =
+            to_lexical(&requested, &self.handle_path).map_err(|failure| match failure {
+                Failure::Fs {
+                    kind: FsErrorKind::OutsideRoot,
+                    path,
+                    cause: Some(cause),
+                } if granted(&path) => Failure::OutsideGranted { path, cause },
+                failure => failure,
+            })?;
         let target = lexical.path_beneath(&self.handle_path);
         Ok(End {
             requested,
@@ -588,6 +650,23 @@ impl<'r> Op<'r> {
                 .map_or_else(|| self.handle_path.clone(), |end| end.target.clone()),
             need,
         })
+    }
+
+    /// Whether one root of the run already grants each of `ends`, a path
+    /// an op was given, one of them refused as `outside_root` by its text,
+    /// and what the op does there, each read against the handle's path as
+    /// `fs.open_dir` reads one, `..` lexically: a review signal's input,
+    /// read only to say so.
+    fn grants_outside(&self, ends: &[(&str, Access)]) -> bool {
+        let absolute: Vec<(String, Access)> = ends
+            .iter()
+            .map(|(path, access)| (to_absolute_lexical(path, &self.handle_path), *access))
+            .collect();
+        let ends: Vec<(&str, Access)> = absolute
+            .iter()
+            .map(|(path, access)| (path.as_str(), *access))
+            .collect();
+        one_root_holds(self.table.roots(), self.table.project(), &ends)
     }
 
     /// The handle's root.
@@ -903,6 +982,28 @@ impl Lexical {
     }
 }
 
+/// `requested`, a path that leaves the handle at `handle_path`, as the
+/// absolute path it names: itself when absolute, else joined to the
+/// handle's path, each `..` resolved by its text, never above `/`.
+fn to_absolute_lexical(requested: &str, handle_path: &str) -> String {
+    let base = if requested.starts_with('/') {
+        ""
+    } else {
+        handle_path
+    };
+    let mut segments: Vec<&str> = Vec::new();
+    for part in base.split('/').chain(requested.split('/')) {
+        match part {
+            "" | "." => {}
+            ".." => {
+                segments.pop();
+            }
+            name => segments.push(name),
+        }
+    }
+    format!("/{}", segments.join("/"))
+}
+
 /// `requested` resolved by its text beneath the handle at `handle_path`, as
 /// the Node module's `to_lexical_path` resolves it: an absolute path, or one
 /// whose `..` climbs above the handle, is `outside_root`.
@@ -1061,8 +1162,28 @@ mod tests {
     use super::roots::{Root, Table};
     use super::{
         Access, Failure, FsErrorKind, Handle, NOT_GRANTED, Op, Scope, beneath_of, kind_of,
-        op_failure, sys, to_lexical,
+        op_failure, sys, to_absolute_lexical, to_lexical,
     };
+
+    /// A path leaving a handle names the absolute path its text does, read
+    /// against the handle's, `..` lexically and never above `/`.
+    #[test]
+    fn a_path_leaving_a_handle_names_its_absolute_path() {
+        for (requested, handle, expected) in [
+            ("../o/f", "/p/proj", "/p/o/f"),
+            ("../../../../x", "/p/proj", "/x"),
+            ("a/../../o", "/p/proj", "/p/o"),
+            ("/a/./b/../c/", "/p/proj", "/a/c"),
+            ("/", "/p/proj", "/"),
+            ("..", "/", "/"),
+        ] {
+            assert_eq!(
+                to_absolute_lexical(requested, handle),
+                expected,
+                "{requested} from {handle}"
+            );
+        }
+    }
 
     /// What `failure` is, as data: its kind of error, and an `FsError`'s
     /// kind and path, a `TypeError`'s message.
@@ -1070,6 +1191,7 @@ mod tests {
         match failure {
             Failure::Type(message) => ("TypeError".to_owned(), message),
             Failure::Fs { kind, path, .. } => (kind.as_str().to_owned(), path),
+            Failure::OutsideGranted { path, .. } => ("outside_root granted".to_owned(), path),
             Failure::NotGranted { path, .. } => (NOT_GRANTED.to_owned(), path),
             Failure::Plain(message) => ("Error".to_owned(), message),
             Failure::Thrown => ("thrown".to_owned(), String::new()),
@@ -1091,7 +1213,10 @@ mod tests {
             },
             handle_path: "/r/h".to_owned(),
         };
-        let end = op.resolve("a/b".to_owned()).map_err(shown).unwrap();
+        let end = op
+            .resolve("a/b".to_owned(), Access::Read)
+            .map_err(shown)
+            .unwrap();
         assert_eq!(
             op.call(&end).map(|_| ()).map_err(shown),
             Err(("io_error".to_owned(), "/r/h/a/b".to_owned()))

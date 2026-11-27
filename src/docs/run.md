@@ -350,6 +350,9 @@ which a grant of the target's directory needn't let through, since a root holds 
 since a handle never gains what its root lacked, so `fs.project` writes nothing, whatever is granted inside it;
 and, when a root already grants what was refused, holding by its text the path a read reads or each path a write writes (a copy's `to`, a rename's `from` and `to`), `hint: the run grants what fs refused: open the directory with fs.open_dir and use that handle`,
 never a flag, which would widen the handle's root (the whole project, for a write through `fs.project`);
+the same line ends the report of an uncaught `outside_root`, a path that leaves its handle by `..` or is absolute, like `fs.project.read_text('../x/f')`,
+when one root the run already has grants the whole call there, each path it names (a copy's or a rename's both ends) read against the handle's own (`${fs.project.path}/../x/f`, which `fs.open_dir` takes),
+even under `-A`; an `outside_root` isn't a refusal, so caught it prints nothing and fails nothing;
 and `hint: add --allow-temp to grant what fs refused`, for an `fs.temp_dir` the run doesn't grant.
 A copy is refused naming the path it writes, its `to`, and judged by it, so a copy into a directory written from outside it hints the handle to open, which writes the copy but can't name its source: the program reads through one handle and writes through the other.
 A walk opens the names before a `..` first, so `fs.real_path('/usr/../etc')` needs `/usr` granted as well as `/etc`.

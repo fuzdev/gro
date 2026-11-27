@@ -187,6 +187,13 @@ impl RefusalLog {
             .borrow_mut()
             .record_not_granted(refused, target);
     }
+
+    /// Records an `fs` call refused `outside_root` about `target`, a path
+    /// a root of the run already grants the call
+    /// ([`Refusals::record_outside_granted`]).
+    pub fn record_outside_granted(&self, target: &str) {
+        self.0.refused.borrow_mut().record_outside_granted(target);
+    }
 }
 
 /// Resolves through the strict resolver over the disk, and loads `.js` and

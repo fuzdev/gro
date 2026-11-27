@@ -448,6 +448,7 @@ fn outcome(
         let Failed { error, uncaught } = *failed;
         if let Some((class, message)) = uncaught {
             refused.unlist(&class, &message);
+            refused.need_for_uncaught(&class, &message);
             free_global = FreeGlobal::of_uncaught(&class, &message);
         }
         error

@@ -244,9 +244,9 @@ fn listed<'s>(
 ) -> Result<v8::Local<'s, v8::Array>, Failure> {
     let op = Op::new(state, scope, &FS_READ_DIR, dir)?;
     let end = if path.is_undefined() {
-        op.resolve(String::new())?
+        op.resolve(String::new(), Access::Read)?
     } else {
-        op.path(scope, path)?
+        op.path(scope, path, Access::Read)?
     };
     op.check(Access::Read, &[&end], false)?;
     let (fd, dir, rel) = op.call(&end)?;

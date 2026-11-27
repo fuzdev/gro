@@ -49,29 +49,34 @@ pub(super) fn scope_needed(
     targets: &[&str],
     access: Access,
 ) -> FsNeed {
-    let need = access.scope();
-    // each target's roots doing `access`
-    let mut held = targets.iter().map(|target| {
+    let ends: Vec<(&str, Access)> = targets.iter().map(|target| (*target, access)).collect();
+    if one_root_holds(roots, view, &ends) {
+        FsNeed::OpenDir
+    } else {
+        access.grant()
+    }
+}
+
+/// Whether one root of `view` holds each of `ends`, an absolute path and
+/// what an op does there, by its text, its scope doing that.
+pub(super) fn one_root_holds(roots: &[Root], view: &View, ends: &[(&str, Access)]) -> bool {
+    // each end's roots doing its access
+    let mut held = ends.iter().map(|(target, access)| {
         let names: Vec<String> = target
             .split('/')
             .filter(|name| !name.is_empty())
             .map(ToOwned::to_owned)
             .collect();
-        find_roots(roots, view, &names, false, need)
+        find_roots(roots, view, &names, false, access.scope())
             .into_iter()
             .map(|(index, ..)| index)
             .collect::<Vec<_>>()
     });
     let first = held.next().unwrap_or_default();
     let rest: Vec<Vec<usize>> = held.collect();
-    if first
+    first
         .iter()
         .any(|index| rest.iter().all(|other| other.contains(index)))
-    {
-        FsNeed::OpenDir
-    } else {
-        access.grant()
-    }
 }
 
 /// The entry at `path`, an absolute path inside a root of `view` whose

@@ -122,7 +122,7 @@ pub fn write<'s>(
     let mut written: Vec<(String, Resolve)> = Vec::new();
     let result = (|| {
         let op = Op::new(state, scope, &FS_DIR, receiver)?;
-        let end = op.path(scope, path)?;
+        let end = op.path(scope, path, Access::Write)?;
         written.push((end.target.clone(), Resolve::Whole));
         let bytes = data_bytes(scope, data)?;
         let create_new = read_flag(scope, options, "create_new")?;
@@ -218,7 +218,7 @@ pub fn mkdir<'s>(
     let mut written: Vec<(String, Resolve)> = Vec::new();
     let result = (|| {
         let op = Op::new(state, scope, &FS_DIR, receiver)?;
-        let end = op.path(scope, path)?;
+        let end = op.path(scope, path, Access::Write)?;
         written.push((end.target.clone(), Resolve::Parent));
         let recursive = read_flag(scope, options, "recursive")?;
         let exists_ok = read_flag(scope, options, "exists_ok")?;
@@ -246,7 +246,7 @@ pub fn remove<'s>(
     let mut written: Vec<(String, Resolve)> = Vec::new();
     let result = (|| {
         let op = Op::new(state, scope, &FS_DIR, receiver)?;
-        let end = op.path(scope, path)?;
+        let end = op.path(scope, path, Access::Write)?;
         written.push((end.target.clone(), Resolve::Parent));
         let recursive = read_flag(scope, options, "recursive")?;
         let missing_ok = read_flag(scope, options, "missing_ok")?;
@@ -293,8 +293,7 @@ pub fn rename<'s>(
     let mut written: Vec<(String, Resolve)> = Vec::new();
     let result = (|| {
         let op = Op::new(state, scope, &FS_DIR, receiver)?;
-        let source = op.path(scope, from)?;
-        let destination = op.path(scope, to)?;
+        let (source, destination) = op.paths(scope, from, Access::Write, to)?;
         written.extend([
             (destination.target.clone(), Resolve::Parent),
             (source.target.clone(), Resolve::Parent),
@@ -358,7 +357,7 @@ pub fn set_times<'s>(
 ) -> Option<v8::Local<'s, v8::Value>> {
     let result = (|| {
         let op = Op::new(state, scope, &FS_DIR, receiver)?;
-        let end = op.path(scope, path)?;
+        let end = op.path(scope, path, Access::Write)?;
         let mtime = time_of(read_option(scope, times, "mtime_ms")?, "mtime_ms")?;
         let atime =
             match read_option(scope, times, "atime_ms")?.filter(|atime| !atime.is_undefined()) {
@@ -430,7 +429,7 @@ pub fn set_mode<'s>(
 ) -> Option<v8::Local<'s, v8::Value>> {
     let result = (|| {
         let op = Op::new(state, scope, &FS_DIR, receiver)?;
-        let end = op.path(scope, path)?;
+        let end = op.path(scope, path, Access::Write)?;
         let mode = v8::Local::<v8::Number>::try_from(mode)
             .ok()
             .map(|number| number.value())
@@ -475,7 +474,7 @@ pub fn symlink<'s>(
     let mut written: Vec<(String, Resolve)> = Vec::new();
     let result = (|| {
         let op = Op::new(state, scope, &FS_DIR, receiver)?;
-        let end = op.path(scope, path)?;
+        let end = op.path(scope, path, Access::Write)?;
         written.push((end.target.clone(), Resolve::Parent));
         let target = link_target(scope, target)?;
         if end.lexical.dir {
@@ -546,8 +545,7 @@ pub fn copy<'s>(
     let mut written: Vec<(String, Resolve)> = Vec::new();
     let result = (|| {
         let op = Op::new(state, scope, &FS_DIR, receiver)?;
-        let source = op.path(scope, from)?;
-        let destination = op.path(scope, to)?;
+        let (source, destination) = op.paths(scope, from, Access::Read, to)?;
         written.push((destination.target.clone(), Resolve::Whole));
         let recursive = read_flag(scope, options, "recursive")?;
         op.check(Access::Read, &[&source], false)?;

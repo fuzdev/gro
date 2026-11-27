@@ -1098,3 +1098,148 @@ fn a_host_module_the_flags_dont_grant_names_its_flag() {
         (0, "imported\nimported\n", "")
     );
 }
+
+/// An `fs` call refused `outside_root` for a path that leaves its handle,
+/// by `..` or as an absolute path, where one root of the run already
+/// grants the whole call, a copy's or a rename's both ends, ends with the
+/// hint to open that directory, when it's the run's uncaught error,
+/// however long the path; caught, it fails nothing and prints nothing, and
+/// with no root granting the call there's no hint.
+#[test]
+fn an_uncaught_outside_root_a_root_grants_hints_at_open_dir() {
+    let fixtures = temp_fixtures(
+        "outside_granted",
+        &[
+            ("proj/package.json", r#"{"name": "proj", "type": "module"}"#),
+            ("other/f.txt", "hi\n"),
+            (
+                "proj/climb.js",
+                "import { fs } from '@fuzdev/gro/fs.ts';\n\
+                 await fs.project.read_text('../other/f.txt');\n",
+            ),
+            (
+                "proj/absolute.js",
+                "import { fs } from '@fuzdev/gro/fs.ts';\n\
+                 await fs.project.read_text(`${fs.project.path}/../other/f.txt`);\n",
+            ),
+            (
+                "proj/write.js",
+                "import { fs } from '@fuzdev/gro/fs.ts';\n\
+                 await fs.project.write('../other/w.txt', 'x');\n",
+            ),
+            (
+                "proj/copy.js",
+                "import { fs } from '@fuzdev/gro/fs.ts';\n\
+                 await fs.project.copy('../other/f.txt', 'c.txt');\n",
+            ),
+            (
+                "proj/copy_other.js",
+                "import { fs } from '@fuzdev/gro/fs.ts';\n\
+                 await fs.project.copy('../other/f.txt', '../other/c.txt');\n",
+            ),
+            (
+                "proj/rename.js",
+                "import { fs } from '@fuzdev/gro/fs.ts';\n\
+                 await fs.project.rename('../other/f.txt', 'r.txt');\n",
+            ),
+            (
+                "proj/rename_other.js",
+                "import { fs } from '@fuzdev/gro/fs.ts';\n\
+                 await fs.project.rename('../other/f.txt', '../other/r.txt');\n",
+            ),
+            (
+                "proj/dir.js",
+                "import { fs } from '@fuzdev/gro/fs.ts';\n\
+                 fs.project.dir('../other');\n",
+            ),
+            (
+                "proj/long.js",
+                "import { fs } from '@fuzdev/gro/fs.ts';\n\
+                 await fs.project.read_text('../other/' + 'a'.repeat(2100));\n",
+            ),
+            (
+                "proj/caught.js",
+                "import { fs } from '@fuzdev/gro/fs.ts';\n\
+                 try {\n\tawait fs.project.read_text('../other/f.txt');\n} catch (error) {\n\
+                 \tconsole.log(error.kind);\n}\n",
+            ),
+            (
+                "proj/caught_then.js",
+                "import { fs } from '@fuzdev/gro/fs.ts';\n\
+                 try {\n\tawait fs.project.read_text('../other/f.txt');\n} catch {}\n\
+                 await fs.project.read_text('missing.txt');\n",
+            ),
+        ],
+    );
+    let proj = fixtures.0.join("proj");
+    let run_here = |flags: &[&str], file: &str| {
+        let mut command = support::fgro_command(&[&["run"][..], flags, &[file]].concat());
+        command.env_clear().current_dir(&proj);
+        crate::run_command(command)
+    };
+    let hint = "hint: the run grants what fs refused: open the directory with fs.open_dir and \
+                use that handle\n";
+    let run = run_here(&["--allow-read=../other"], "climb.js");
+    assert_eq!(run.code, 1, "{}", run.stderr);
+    assert_eq!(
+        run.stderr,
+        format!(
+            "error: Uncaught (in promise) FsError: outside_root: ../other/f.txt\n    at \
+             file://{dir}/climb.js:2:18\nCaused by: Error: ../other/f.txt climbs above {dir}\n    \
+             at file://{dir}/climb.js:2:18\n{hint}",
+            dir = proj.display()
+        )
+    );
+    for (flags, file, hinted) in [
+        (&["--allow-read=../other"][..], "absolute.js", true),
+        (&["--allow-read=.."][..], "climb.js", true),
+        (&[][..], "climb.js", false),
+        (&[][..], "absolute.js", false),
+        (&["--allow-read=../other"][..], "write.js", false),
+        (&["--allow-write=../other"][..], "write.js", true),
+        (&["--allow-read=../other"][..], "caught_then.js", false),
+        (&["--allow-read=.."][..], "dir.js", true),
+        (&["--allow-read=.."][..], "long.js", true),
+        // a copy needs one root reading its `from` and writing its `to`
+        (&["--allow-read=.."][..], "copy.js", false),
+        (
+            &["--allow-read=../other", "--allow-write=."][..],
+            "copy.js",
+            false,
+        ),
+        (
+            &["--allow-read=../other", "--allow-write=../other"][..],
+            "copy_other.js",
+            true,
+        ),
+        (&["--allow-write=../other"][..], "copy_other.js", false),
+        // a rename, one writing both
+        (&["--allow-read=.."][..], "rename.js", false),
+        (
+            &["--allow-write=../other", "--allow-write=."][..],
+            "rename.js",
+            false,
+        ),
+        (&["--allow-write=../other"][..], "rename_other.js", true),
+    ] {
+        let run = run_here(flags, file);
+        assert_eq!(run.code, 1, "{flags:?} {file}: {}", run.stderr);
+        assert_eq!(
+            run.stderr.contains("FsError: outside_root: "),
+            file != "caught_then.js",
+            "{flags:?} {file}: {}",
+            run.stderr
+        );
+        assert_eq!(
+            run.stderr.ends_with(hint),
+            hinted,
+            "{flags:?} {file}: {}",
+            run.stderr
+        );
+    }
+    let run = run_here(&["--allow-read=../other"], "caught.js");
+    assert_eq!(
+        (run.code, run.stdout.as_str(), run.stderr.as_str()),
+        (0, "outside_root\n", "")
+    );
+}

@@ -8,8 +8,8 @@ use deno_core::{OpState, v8};
 use super::roots::Root;
 use super::walk::reach;
 use super::{
-    Failure, NO_FS_STATE, Op, Scope, beneath_of, finish, join, kind_of, make_dir, path_text,
-    read_handle, run_roots, run_state, sys,
+    Access, Failure, NO_FS_STATE, Op, Scope, beneath_of, finish, join, kind_of, make_dir,
+    path_text, read_handle, run_roots, run_state, sys,
 };
 use crate::host::error_class::DeclaredFamily;
 use crate::host::handle::{FS_DIR, FS_READ_DIR, FS_TEMP_DIR, HandleKind};
@@ -123,7 +123,7 @@ pub fn dir<'s>(
 ) -> Option<v8::Local<'s, v8::Value>> {
     let result = (|| {
         let op = Op::new(state, scope, kind, receiver)?;
-        let end = op.path(scope, path)?;
+        let end = op.path(scope, path, Access::Read)?;
         let (fd, dir, rel) = op.call(&end)?;
         let root = op.root();
         let real = sys::open_dir(fd, root.handle_base().to_owned(), dir, rel)

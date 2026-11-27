@@ -83,7 +83,7 @@ fn find<'s>(
         Some(options) => read_follow(scope, options)?,
         None => true,
     };
-    let end = op.resolve(requested)?;
+    let end = op.resolve(requested, Access::Read)?;
     op.check(Access::Read, &[&end], false)?;
     // a trailing `/` follows a final symlink, as in the kernel
     let follow = follow || end.lexical.dir;
@@ -123,7 +123,7 @@ pub fn read<'s>(
 ) -> Option<v8::Local<'s, v8::Value>> {
     let result = (|| {
         let op = Op::new(state, scope, &FS_READ_DIR, receiver)?;
-        let end = op.path(scope, path)?;
+        let end = op.path(scope, path, Access::Read)?;
         op.check(Access::Read, &[&end], false)?;
         let (fd, dir, rel) = op.call(&end)?;
         let reading = match sys::open_read(fd, dir, rel) {
@@ -220,7 +220,7 @@ pub fn read_link<'s>(
 ) -> Option<v8::Local<'s, v8::Value>> {
     let result = (|| {
         let op = Op::new(state, scope, &FS_READ_DIR, receiver)?;
-        let end = op.path(scope, path)?;
+        let end = op.path(scope, path, Access::Read)?;
         op.check(Access::Read, &[&end], false)?;
         let (fd, dir, rel) = op.call(&end)?;
         let target = sys::read_link(fd, dir, rel, end.lexical.dir)

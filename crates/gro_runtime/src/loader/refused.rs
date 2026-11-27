@@ -72,6 +72,10 @@ impl RefusedBy {
 /// `not_granted: target`, as the family's class makes it.
 pub const NOT_GRANTED: &str = "not_granted";
 
+/// The kind of the error an `fs` call throws for a path that leaves the
+/// handle it was called on, by its text or through a symlink.
+const OUTSIDE_ROOT: &str = "outside_root";
+
 /// A host module's call refused for a grant the handle it was called on
 /// doesn't hold, as [`Refusals::record_not_granted`] takes it, with what
 /// would have allowed it.
@@ -249,6 +253,12 @@ pub struct Refusals {
     /// Each kind of name a refused call needed one of that `needed`
     /// doesn't name, past its bound or longer than a name it keeps, once.
     pub more_names: Vec<NameKind>,
+    /// The messages, cut, of the first [`MAX_LISTED_REFUSALS`] distinct
+    /// `fs` errors `outside_root` about a path a root of the run already
+    /// grants the call, which a handle `fs.open_dir` makes there does. Not
+    /// refusals: such an error fails nothing caught, so it's only told
+    /// when it's the run's uncaught error.
+    pub outside_granted: Vec<String>,
 }
 
 impl Refusals {
@@ -278,6 +288,34 @@ impl Refusals {
     /// run's failure.
     pub(crate) fn need_module(&mut self, capability: Capability) {
         self.need(NeededGrant::Module(capability));
+    }
+
+    /// Records an `fs` call's `outside_root` about `target`, a path a
+    /// root of the run already grants the call, its error's message
+    /// `outside_root: target`, while there's room.
+    pub(crate) fn record_outside_granted(&mut self, target: &str) {
+        let message = cut(&format!("{OUTSIDE_ROOT}: {target}")).into_owned();
+        if self.outside_granted.len() < MAX_LISTED_REFUSALS
+            && !self.outside_granted.contains(&message)
+        {
+            self.outside_granted.push(message);
+        }
+    }
+
+    /// Keeps the grant the run's uncaught error needed when the error isn't
+    /// a refusal: an `FsError` `outside_root` about a path a root already
+    /// grants the call ([`Self::record_outside_granted`]), a handle opened
+    /// there with `fs.open_dir` ([`FsNeed::OpenDir`]), the error being of
+    /// the class named `error` and carrying `message`.
+    pub(crate) fn need_for_uncaught(&mut self, error: &str, message: &str) {
+        if error == FS_ERROR.name
+            && self
+                .outside_granted
+                .iter()
+                .any(|kept| *kept == cut(message))
+        {
+            self.need(NeededGrant::Fs(FsNeed::OpenDir));
+        }
     }
 
     /// Records a host module's call refused about `target`, its error's
@@ -773,5 +811,27 @@ mod tests {
             kept(|n| matches!(n, NeededGrant::Env(_))),
             MAX_LISTED_REFUSALS
         );
+    }
+
+    /// An `outside_root` a root grants needs a handle opened there only
+    /// when it's the run's uncaught `FsError`, by its message; it's never
+    /// listed, and the record keeps a few.
+    #[test]
+    fn an_outside_root_a_root_grants_is_told_only_when_uncaught() {
+        let mut refused = Refusals::default();
+        refused.record_outside_granted("../a");
+        refused.record_outside_granted("../a");
+        assert!(refused.is_empty());
+        assert_eq!(refused.outside_granted, ["outside_root: ../a"]);
+        refused.need_for_uncaught("TypeError", "outside_root: ../a");
+        refused.need_for_uncaught("FsError", "outside_root: ../b");
+        refused.need_for_uncaught("FsError", "not_granted: ../a");
+        assert_eq!(refused.needed, []);
+        refused.need_for_uncaught("FsError", "outside_root: ../a");
+        assert_eq!(refused.needed, [NeededGrant::Fs(FsNeed::OpenDir)]);
+        for i in 0..MAX_LISTED_REFUSALS * 2 {
+            refused.record_outside_granted(&format!("../{i}"));
+        }
+        assert_eq!(refused.outside_granted.len(), MAX_LISTED_REFUSALS);
     }
 }
