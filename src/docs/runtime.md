@@ -131,7 +131,7 @@ any language compiled to it (see [polyglot confinement](#what-the-design-opens-u
 
 Of all this, the omissions are built (`fgro` has no runtime namespace, no Node compat, no remote imports, and no authority globals),
 `fgro eval`'s box is built, the link-time grant check is built, over the builtin modules [host modules](host_modules.md#the-modules) marks built, which are its only host APIs,
-the grant flags [run](run.md#usage) lists are built, the run's box is built for every command of Gro's and every `fgro run` but `-A` on the binary,
+the grant flags [run](run.md#usage) lists are built, the run's box is built for every command of Gro's and every `fgro run` but `-A` on the binary where the box can go up,
 and the rest of the host modules, the other grant flags, the policy file, and the seal are designed.
 
 ## Design
@@ -436,7 +436,7 @@ where the host modules and grants land with their first consumer.
 - [ ] the host modules (fs, spawn, watch, net, and the process modules), the grants
       (built so far: the link-time check, the modules [host modules](host_modules.md#the-modules) marks built, and the flags [run](run.md#usage) lists),
       and the policy file, enforced, with the box under every run and its children
-      (built for every command of Gro's and every `fgro run` but `-A` on the binary, each program in a box of its own inside it,
+      (built for every command of Gro's and every `fgro run` but `-A` on the binary where the box can go up, each program in a box of its own inside it,
       [box](box.md#the-box-for-runs-and-children)), landing with Gro on Gro
 - [x] each tool in a box of its own inside the run's, writing only the directories the grants table names for it
       ([box](box.md#a-box-for-each-tool))

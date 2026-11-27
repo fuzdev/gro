@@ -53,7 +53,7 @@
 //!
 //! The run's box installs it after Landlock
 //! ([`RunPrepared::confine`](crate::confine::run::RunPrepared::confine)),
-//! the box every command of Gro's runs in; `fgro run` holds none
+//! the box every command of Gro's and `fgro run` run in; `fgro run -A`, or one where the box can't go up, holds none
 //! ([`Confinement::Unconfined`](crate::confine::Confinement::Unconfined)).
 //! The table is `x86_64`'s, whose numbers no other architecture shares, so
 //! the module builds only there.

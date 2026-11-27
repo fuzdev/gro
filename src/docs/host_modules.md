@@ -1557,7 +1557,7 @@ what can fail for a reason of the run's fails in what the module exports, as `cw
   the network the run's own loopback (or, where user namespaces are restricted, no internet socket), and seccomp refusing unix sockets by path, nested user namespaces, and terminal input injection (`TIOCSTI`, `TIOCLINUX`)
   ([box](box.md#what-a-commands-box-admits)) (built for a command of Gro's and `fgro run`, whose children start each in a box of its own inside the run's).
 - Keep the runtime's own environment and memory from a child that can read `/proc`:
-  the run marks itself not dumpable before its box goes up (built for a command of Gro's, whose box reads `/proc` whole,
+  the run marks itself not dumpable before its box goes up (built for a command of Gro's and `fgro run`, whose box reads `/proc` whole,
   refusing the environment, memory, and working directory of a process outside it, [box](box.md#what-a-commands-box-admits)).
 - Hand the child a `PATH` filtered to absolute entries (built).
 - Refuse a name or argument holding a NUL byte or a lone surrogate before it reaches the kernel (built).

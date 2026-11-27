@@ -69,7 +69,7 @@ and these widen it, for that run only:
   and a handle's `path`, its real path, where a directory symlink in it leads.
   A directory written inside one read is read too, and a handle reads and writes as the directory it was opened on, never more,
   so a program writes a granted directory through a handle `fs.open_dir` makes on it, never through `fs.project` or a handle made from it,
-  unless the granted directory is the project's root or holds it, as with `--allow-write=.` or `--allow-write=..`, when `fs.project` and the handles made from it write the project
+  unless the granted directory is the project's root, as with `--allow-write=.`, when `fs.project` and the handles made from it write the project (one holding the root, like `--allow-write=..` from it, is refused in the run's box, exit 2)
   ([host modules](host_modules.md#fs-on-fgro) has how a handle carries its scope).
 - `--allow-temp` grants `@fuzdev/gro/fs.ts`'s `temp_dir` making fresh directories under the OS's temporary directory,
   each a root the run reads and writes, added as the run goes, and nothing else of the temporary directory, which it neither reads nor writes.
@@ -139,9 +139,9 @@ An exploit of the engine lands in the box; what the box leaves open, `.env*` and
 Where the box can't go up, the kernel's Landlock missing, off, or below ABI 6, or a build with no snapshot, the run runs in no box after
 `note: fgro run runs in no kernel box here, so only the runtime's own checks hold its grants: <why>`
 (for a plain build, `note: fgro run runs in no kernel box, since this build has no startup snapshot (cargo xtask build makes one), so only the runtime's own checks hold its grants`),
-with `, and the programs it starts run in no box of their own, writing wherever you can` for a run that may start a program;
+with `, and the programs it starts run in no box of their own, writing wherever you can` before the `: <why>` (at the end of the plain-build note) for a run that may start a program;
 `GRO_FALLBACK=command` refuses it instead, exit 2, and a `GRO_FALLBACK` naming no policy is refused before anything runs, as for a command of Gro's.
-A project root that is or holds the home directory, found by a `package.json` or a `node_modules` at or above the entry (a stray `~/package.json`), is refused before anything runs, naming what made it the root;
+A project root that is or holds the home directory, found by a `package.json` or a `node_modules` at or above the entry (a stray `~/package.json`), is refused before anything runs, short of `-A`, naming what made it the root;
 an entry in no project is never refused, its own directory read, by the run and by every program it starts, only as a flag names it.
 There are no resource limits, the JIT is on,
 and console output reaches the terminal unescaped: it's the program's own, and can imitate `fgro`'s lines, an `error:` or a `hint:` among them.

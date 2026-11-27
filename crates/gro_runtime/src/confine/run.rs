@@ -129,7 +129,7 @@
 //! anyway. The `core` limit is a guardrail against an accident, a crash writing
 //! the process's memory and environment to disk, not a wall: deliberate code
 //! writes what it holds into a write root. The open-files raise is
-//! availability, no wall, and best-effort, as `fgro run`'s is.
+//! availability, no wall, and best-effort, as `fgro run`'s in no box is.
 
 use std::collections::BTreeMap;
 use std::io;
@@ -461,7 +461,7 @@ impl RunNetworked {
         })?;
         gro_sys::set_not_dumpable().map_err(RunStepError::Dumpable)?;
         gro_sys::lower_hard_limit(gro_sys::Resource::Core, 0).map_err(RunStepError::CoreLimit)?;
-        // best-effort, as `fgro run`'s is: a program the run starts runs
+        // best-effort, as `fgro run`'s in no box is: a program the run starts runs
         // with the limit it was given, as under Node
         let _ = gro_sys::raise_open_files_limit();
         Ok(RunHardened {
