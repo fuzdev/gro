@@ -293,7 +293,7 @@ and a recursive `mkdir` or copy through a symlink on the way.
 When a run exits nonzero and a tool it started ended other than by exiting 0 (not by the run's own signal), the run ends with a `note:` line naming the box's network and writes, as in
 
 ```
-note: fgro test's tools each ran in a kernel box of their own inside the run's, which lets them reach no network but the run's own loopback and write only to a temporary directory of their own and to their own directories (svelte-kit: .svelte-kit, node_modules/$app, node_modules/.vite-temp; vitest: .svelte-kit/generated/dev, .svelte-kit/types, node_modules/.vite-temp, node_modules/.vite/vitest, src): a tool that hits a wall fails with EACCES, EPERM, or ENOSYS; --allow-run-write=<program>:<dirs> lets one of them (svelte-kit or vitest) write more, --allow-read= and --allow-run-in= widen every box, and --allow-write= widens only what gro's own code writes
+note: fgro test's tools each ran in a kernel box of their own inside the run's, which lets them reach no network but the run's own loopback and write only to a temporary directory of their own and to their own directories (svelte-kit: .svelte-kit, node_modules/$app, node_modules/.vite-temp; vitest: .svelte-kit/generated/dev, .svelte-kit/types, node_modules/.vite-temp, node_modules/.vite/vitest, src): a tool that hits a wall fails with EACCES, EXDEV, EPERM, or ENOSYS; --allow-run-write=<program>:<dirs> lets one of them (svelte-kit or vitest) write more, --allow-read= and --allow-run-in= widen every box, and --allow-write= widens only what gro's own code writes
 ```
 
 Both are built from the rules the box installed.
@@ -369,9 +369,13 @@ and with the Node Gro's code when it falls back, where Landlock can't hold the b
 ### When a command hits a wall
 
 A tool that meets the box fails with the kernel's own error:
-`EACCES` for a path its rules leave out, `EPERM` for a signal to a process outside the run (like an editor, or a dev server it didn't start) or a change of a file's owner,
+`EACCES` for a path its rules leave out,
+`EXDEV` for a move or hard link between two directories where either is or lies in a directory the box writes plain and lies in none it writes whole (a tool directory, or a directory `--allow-run-write=` names that is, lies in, or holds one or a linked `node_modules`'s target),
+or into one that grants more than where the entry is (a tool's temporary directory, which is executable, from the project),
+`EACCES` taking precedence where the box also refuses writing at either end of a move, or making the entry where it lands, like a symlink in a plain directory,
+`EPERM` for a signal to a process outside the run (like an editor, or a dev server it didn't start) or a change of a file's owner,
 and `ENOSYS` for a call family the box refuses.
-Gro's own code fails with a `permission_denied` `FsError` whose cause names where the box lets the command write,
+Gro's own code fails with a `permission_denied` `FsError`, whose cause names where the box lets the command write when the path lies outside it, and a `rename` the box refuses between two directories with `io_error`, its cause the kernel's words ([fs on fgro](host_modules.md#fs-on-fgro));
 and a run that fails after a tool did ends with a `note:` line naming the box's network and writes ([above](#what-a-commands-box-admits)).
 The grant flags, right after the command word, widen the box for one run:
 

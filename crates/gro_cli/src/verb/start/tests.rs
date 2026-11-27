@@ -544,7 +544,7 @@ fn the_wall_texts_follow_the_rules() {
             "note: {BINARY_NAME} check's tools each ran in a kernel box of their own inside the \
              run's, which lets them reach no network but the run's own loopback and write only \
              to a temporary directory of their own and to their own directories (svelte-kit: \
-             .svelte-kit): a tool that hits a wall fails with EACCES, EPERM, or ENOSYS; \
+             .svelte-kit): a tool that hits a wall fails with EACCES, EXDEV, EPERM, or ENOSYS; \
              --allow-run-write=<program>:<dirs> lets one of them (git or vitest) write more, \
              --allow-read= and --allow-run-in= widen every box, and --allow-write= widens only \
              what gro's own code writes"
@@ -667,9 +667,9 @@ fn the_wall_texts_follow_the_rules() {
              top-level entries the project had as it started (but .git, node_modules, the \
              dot-entries, symlinks), .git; svelte-kit: .svelte-kit; vi\\u{{1b}}[2Jtest: \
              node_modules, /o; vitest: .svelte-kit/generated/dev, lib): a tool that hits a wall \
-             fails with EACCES, EPERM, or ENOSYS; --allow-run-write=<program>:<dirs> lets one of \
-             them (git or vitest) write more, --allow-read= and --allow-run-in= widen every box, \
-             and --allow-write= widens only what gro's own code writes"
+             fails with EACCES, EXDEV, EPERM, or ENOSYS; --allow-run-write=<program>:<dirs> lets \
+             one of them (git or vitest) write more, --allow-read= and --allow-run-in= widen every \
+             box, and --allow-write= widens only what gro's own code writes"
         )
     );
     // a lone program, and none
@@ -694,7 +694,7 @@ fn the_wall_texts_follow_the_rules() {
             "note: {BINARY_NAME} check's tools each ran in a kernel box of their own inside the \
              run's, which lets them reach no network but the run's own loopback and write only \
              to a temporary directory of their own: a tool that hits a wall fails with EACCES, \
-             EPERM, or ENOSYS; --allow-read= and --allow-run-in= widen every box, and \
+             EXDEV, EPERM, or ENOSYS; --allow-read= and --allow-run-in= widen every box, and \
              --allow-write= widens only what gro's own code writes"
         )
     );

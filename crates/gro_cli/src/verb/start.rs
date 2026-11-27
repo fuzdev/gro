@@ -1018,7 +1018,7 @@ fn walls_note(run: &VerbRun, rules: &[WallRule], plan: &BoxPlan, network: &RunNe
     };
     format!(
         "note: {}'s tools each ran in a kernel box of their own inside the run's, which lets them \
-         {network} and {}: a tool that hits a wall fails with EACCES, EPERM, or ENOSYS; \
+         {network} and {}: a tool that hits a wall fails with EACCES, EXDEV, EPERM, or ENOSYS; \
          {run_write}--allow-read= and --allow-run-in= widen every box, and --allow-write= widens \
          only what gro's own code writes",
         command_line(command_of(&run.cli_args).as_deref()),

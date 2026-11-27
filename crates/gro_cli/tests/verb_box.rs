@@ -831,8 +831,8 @@ fn a_failed_run_whose_tool_failed_names_the_walls() {
         assert!(
             note.contains(
                 " and write only to a temporary directory of their own: a tool that hits a wall \
-                 fails with EACCES, EPERM, or ENOSYS; --allow-run-write=<program>:<dirs> lets one \
-                 of them ("
+                 fails with EACCES, EXDEV, EPERM, or ENOSYS; --allow-run-write=<program>:<dirs> \
+                 lets one of them ("
             ),
             "{stderr}"
         );
@@ -2217,40 +2217,46 @@ export const gen = async () => {
 };
 ";
 
-/// `--allow-write=` on a tool directory writes it plain, as
-/// `--allow-run-write=` does: a genfile under `fgro gen` makes no symlink
-/// there, where it still makes one in a directory the flag names elsewhere.
-#[test]
-#[cfg_attr(
-    not(feature = "snapshot"),
-    ignore = "a command of Gro's runs in its box only from a snapshot build"
-)]
-fn a_write_flag_on_a_tool_directory_writes_it_plain() {
-    let package_json =
-        r#"{"name": "p", "type": "module", "devDependencies": {"@sveltejs/kit": "*"}}"#;
-    let scratch = Scratch::new(
-        "verb_box_flag_plain",
-        &[
-            ("tmp/.keep", ""),
-            ("victim.txt", "kept\n"),
-            ("project/package.json", package_json),
-            ("project/out/.keep", ""),
-            ("project/.svelte-kit/generated/dev/.keep", ""),
-            ("project/.svelte-kit/types/route_meta_data.json", "{}"),
-            ("project/node_modules/$app/tsconfig.json", "{}"),
-            ("project/node_modules/.bin/svelte-kit", FAKE_TOOL),
-            (
-                "project/node_modules/@sveltejs/kit/package.json",
-                r#"{"name": "@sveltejs/kit", "version": "1.0.0"}"#,
-            ),
-        ],
+/// `fgro gen <flags>` in a fresh project: its `package.json`
+/// `package_json`, `files` beside it, an `out` directory, the genfile
+/// `genfile` (`VICTIM` the path of a file outside the project, which no
+/// write may reach), a temporary directory of its own, and the packages
+/// gen loads copied into its `node_modules`, each `.bin` script in `files`
+/// executable. Returns the run's output, what it probed, and the tree,
+/// once the run exits 0 and the victim is as it was.
+fn plain_flag_gen(
+    name: &str,
+    package_json: &str,
+    files: &[(&str, &str)],
+    genfile: &str,
+    flags: &[&str],
+) -> (String, BTreeMap<String, String>, Scratch) {
+    let mut entries: Vec<(String, &str)> = vec![
+        ("tmp/.keep".to_owned(), ""),
+        ("victim.txt".to_owned(), "kept\n"),
+        ("project/package.json".to_owned(), package_json),
+        ("project/out/.keep".to_owned(), ""),
+    ];
+    entries.extend(
+        files
+            .iter()
+            .map(|&(path, content)| (format!("project/{path}"), content)),
     );
-    scratch.set_mode("project/node_modules/.bin/svelte-kit", 0o755);
+    let entries: Vec<(&str, &str)> = entries
+        .iter()
+        .map(|(path, content)| (path.as_str(), *content))
+        .collect();
+    let scratch = Scratch::new(name, &entries);
+    for &(path, _) in files {
+        if path.starts_with("node_modules/.bin/") {
+            scratch.set_mode(&format!("project/{path}"), 0o755);
+        }
+    }
     let victim = scratch.0.join("victim.txt");
     std::fs::create_dir_all(scratch.0.join("project/src")).unwrap();
     std::fs::write(
         scratch.0.join("project/src/probe.gen.ts"),
-        PLAIN_GENFILE.replace("VICTIM", &victim.display().to_string()),
+        genfile.replace("VICTIM", &victim.display().to_string()),
     )
     .unwrap();
     let project = scratch.0.join("project");
@@ -2260,11 +2266,9 @@ fn a_write_flag_on_a_tool_directory_writes_it_plain() {
             &project.join("node_modules").join(package),
         );
     }
-    let mut command = fgro_command(&[
-        "gen",
-        "--allow-write=.svelte-kit/generated/dev",
-        "--allow-write=out",
-    ]);
+    let mut args = vec!["gen"];
+    args.extend_from_slice(flags);
+    let mut command = fgro_command(&args);
     for name in CLEARED {
         command.env_remove(name);
     }
@@ -2274,20 +2278,152 @@ fn a_write_flag_on_a_tool_directory_writes_it_plain() {
     let (code, stdout, stderr) = run(command);
     let output = format!("{stdout}{stderr}");
     assert_eq!(code, Some(0), "{output}");
+    assert_eq!(std::fs::read_to_string(&victim).unwrap(), "kept\n");
     let probed = probed(&stdout, &stderr);
-    for (name, what) in [
-        ("realm_link_dev", "permission_denied"),
-        ("realm_link_out", "created"),
-    ] {
+    (output, probed, scratch)
+}
+
+/// Asserts each probe in `expected` printed what it names.
+fn assert_probed(probed: &BTreeMap<String, String>, expected: &[(&str, &str)], output: &str) {
+    for &(name, what) in expected {
         assert_eq!(
             probed.get(name).map(String::as_str),
             Some(what),
             "{name}: {output}"
         );
     }
+}
+
+/// `--allow-write=` on a tool directory writes it plain, as
+/// `--allow-run-write=` does: a genfile under `fgro gen` makes no symlink
+/// there, where it still makes one in a directory the flag names elsewhere.
+#[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "a command of Gro's runs in its box only from a snapshot build"
+)]
+fn a_write_flag_on_a_tool_directory_writes_it_plain() {
+    let (output, probed, scratch) = plain_flag_gen(
+        "verb_box_flag_plain",
+        r#"{"name": "p", "type": "module", "devDependencies": {"@sveltejs/kit": "*"}}"#,
+        &[
+            (".svelte-kit/generated/dev/.keep", ""),
+            (".svelte-kit/types/route_meta_data.json", "{}"),
+            ("node_modules/$app/tsconfig.json", "{}"),
+            ("node_modules/.bin/svelte-kit", FAKE_TOOL),
+            (
+                "node_modules/@sveltejs/kit/package.json",
+                r#"{"name": "@sveltejs/kit", "version": "1.0.0"}"#,
+            ),
+        ],
+        PLAIN_GENFILE,
+        &[
+            "--allow-write=.svelte-kit/generated/dev",
+            "--allow-write=out",
+        ],
+    );
+    assert_probed(
+        &probed,
+        &[
+            ("realm_link_dev", "permission_denied"),
+            ("realm_link_out", "created"),
+        ],
+        &output,
+    );
+    assert!(
+        !scratch
+            .0
+            .join("project/.svelte-kit/generated/dev/realm_l")
+            .exists(),
+        "{output}"
+    );
+}
+
+/// The genfile of
+/// [`a_write_flag_on_a_tool_directory_s_path_writes_it_plain_by_whole_names`]:
+/// gro's own code makes a symlink in each directory `--allow-write=` names,
+/// `VICTIM` the link's target, then moves an entry between two directories
+/// of `.svelte-kit2` and from there into `.svelte-kit/generated/dev`,
+/// printing a refused move's kind with `_by_kernel` when the kernel
+/// refused it.
+const PLAIN_BY_NAME_GENFILE: &str = "import {fs} from '@fuzdev/gro/fs.ts';
+const say = (name, what) => console.error(`probe: ${name} ${what}`);
+const failed = (error) => {
+\tconst by_kernel = String(error?.cause?.message ?? error?.cause ?? '').startsWith('the kernel refused');
+\treturn `${error?.kind ?? error?.code ?? error}${by_kernel ? '_by_kernel' : ''}`;
+};
+const link = async (name, dir) => {
+\ttry {
+\t\tconst opened = await fs.open_dir(`${fs.project.path}/${dir}`);
+\t\tsay(name, await opened.symlink('realm_l', 'VICTIM'));
+\t} catch (error) {
+\t\tsay(name, failed(error));
+\t}
+};
+const move = async (name, from, to) => {
+\ttry {
+\t\tconst project = await fs.open_dir(fs.project.path);
+\t\tawait project.rename(from, to);
+\t\tsay(name, 'moved');
+\t} catch (error) {
+\t\tsay(name, failed(error));
+\t}
+};
+export const gen = async () => {
+\tawait link('link_dev', '.svelte-kit/generated/dev');
+\tawait link('link_kit2', '.svelte-kit2');
+\tawait move('move_kit2', '.svelte-kit2/a/m', '.svelte-kit2/b/m');
+\tawait move('move_into_dev', '.svelte-kit2/a/n', '.svelte-kit/generated/dev/n');
+\treturn '// probed\\n';
+};
+";
+
+/// A tool directory's path is written plain by its name, made or not: in
+/// a project that declares nothing, so the box makes no tool directory,
+/// `--allow-write=` on `.svelte-kit/generated/dev` still writes it plain,
+/// no symlink made there and no entry moved in, while `.svelte-kit2`,
+/// which neither lies in nor holds `.svelte-kit` by whole names, keeps the
+/// whole write: a symlink, and a move between two of its directories.
+#[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "a command of Gro's runs in its box only from a snapshot build"
+)]
+fn a_write_flag_on_a_tool_directory_s_path_writes_it_plain_by_whole_names() {
+    let (output, probed, scratch) = plain_flag_gen(
+        "verb_box_flag_plain_by_name",
+        r#"{"name": "p", "type": "module"}"#,
+        &[
+            (".svelte-kit/generated/dev/.keep", ""),
+            (".svelte-kit2/a/m", "m\n"),
+            (".svelte-kit2/a/n", "n\n"),
+            (".svelte-kit2/b/.keep", ""),
+        ],
+        PLAIN_BY_NAME_GENFILE,
+        &[
+            "--allow-write=.svelte-kit/generated/dev",
+            "--allow-write=.svelte-kit2",
+        ],
+    );
+    assert_probed(
+        &probed,
+        &[
+            ("link_dev", "permission_denied"),
+            ("link_kit2", "created"),
+            ("move_kit2", "moved"),
+            ("move_into_dev", "io_error_by_kernel"),
+        ],
+        &output,
+    );
+    let project = scratch.0.join("project");
     assert!(
         !project.join(".svelte-kit/generated/dev/realm_l").exists(),
         "{output}"
     );
-    assert_eq!(std::fs::read_to_string(&victim).unwrap(), "kept\n");
+    assert!(
+        !project.join(".svelte-kit/generated/dev/n").exists(),
+        "{output}"
+    );
+    assert!(project.join(".svelte-kit2/b/m").exists(), "{output}");
+    assert!(project.join(".svelte-kit2/a/n").exists(), "{output}");
 }
