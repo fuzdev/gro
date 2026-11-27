@@ -2,12 +2,12 @@
 //! user code, then the graph a run records (`graph`), the builtins
 //! (`builtins`, the exit module in `exit`, and the grant-free ones in `observations`), import attributes (`attributes`), `import()` in code
 //! compiled from a string (`string_code`), the refusals that fail a
-//! run (`refused`), and a run from an entry the embedder generated
-//! (`generated`).
+//! run (`refused`), an entry on disk resolved before its run (`file`), and
+//! a run from an entry the embedder generated (`generated`).
 
 use std::path::PathBuf;
 
-use super::{RunError, resolve_main, run_main, run_resolved};
+use super::{RunError, file_main, resolve_file_entry, run_main, run_resolved};
 use crate::confine::Confinement;
 use crate::engine::{EngineOptions, init_engine};
 use crate::loader::graph::Recording;
@@ -18,6 +18,7 @@ mod attributes;
 mod builtins;
 mod embedded;
 mod exit;
+mod file;
 mod generated;
 mod graph;
 mod observations;
@@ -102,7 +103,8 @@ fn loader_shares(name: &str, end: fn(crate::SpentRuntime)) -> (usize, usize, boo
         .spawn(move || {
             let options = RuntimeOptions::default();
             let engine = init_engine(Confinement::Unconfined, &EngineOptions::default()).unwrap();
-            let (url, loader) = resolve_main(&options, &entry, &cwd, Recording::Off).unwrap();
+            let resolved = resolve_file_entry(&entry, &cwd).unwrap();
+            let (url, loader) = file_main(&options, resolved, Recording::Off);
             let outcome = run_resolved(
                 engine,
                 &options,

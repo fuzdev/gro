@@ -18,7 +18,7 @@
 //!
 //! The run's ends in [`run::RunConfined`], made only by
 //! [`run::RunPrepared::confine`], the box every command of Gro's runs in
-//! (`gro_cli`'s `verb::start`). [`Confinement`] names one of the two, or
+//! (`gro_cli`'s `start`). [`Confinement`] names one of the two, or
 //! [`Confinement::Unconfined`]: named by the caller, for a process that
 //! holds no box (`fgro run`, the snapshot builder, and tests).
 //!

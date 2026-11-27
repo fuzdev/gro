@@ -15,8 +15,8 @@ use thiserror::Error;
 
 use crate::cli::{ALLOW_RUN, ALLOW_RUN_WRITE, GrantListError, ListFlag, RUN};
 use crate::print::{echo_argument, escape_controls, stderr_line};
+use crate::start::BoxStartError;
 use crate::verb::prepass::{VerbError, command_line};
-use crate::verb::start::BoxStartError;
 use crate::{EXIT_FAILURE, EXIT_USAGE};
 
 /// Why `fgro` failed, outside eval's envelope.

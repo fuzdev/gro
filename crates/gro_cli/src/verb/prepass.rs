@@ -58,6 +58,7 @@ use super::fallback::{FallbackPolicy, FallbackPolicyError, FallbackReason, fallb
 use super::grant_flags::{GrantFlagsError, split_grant_flags, to_run_grant};
 use crate::cli::{FlagDirs, RunGrant};
 use crate::print::{escape_controls, shell_quote};
+use crate::start::{RunStart, StartEntry};
 use crate::{EXIT_FAILURE, EXIT_USAGE};
 
 /// The directory a project's own installs are found in, which a `local`
@@ -593,6 +594,35 @@ pub fn plan(
     })))
 }
 
+impl From<VerbRun> for RunStart {
+    /// The run's start in its box: the working directory the project's
+    /// root, and the entry generated.
+    fn from(run: VerbRun) -> Self {
+        Self {
+            cli_args: run.cli_args,
+            grant_flags: run.grant_flags,
+            cwd: run.root.clone(),
+            root: run.root,
+            grant: run.grant,
+            dirs: run.dirs,
+            flag_dirs: run.flag_dirs,
+            writes_root: run.writes_root,
+            tools: run.tools,
+            declared: run.declared,
+            programs: run.programs,
+            run_writes: run.run_writes,
+            may_start: run.may_start,
+            development: run.development,
+            policy: run.policy,
+            gro: run.gro,
+            entry: StartEntry::Generated {
+                home: run.home,
+                version: run.version,
+            },
+        }
+    }
+}
+
 /// What runs in the binary's place for `run` when the host can't hold the
 /// run's box, `reason` saying why: the project's installed Gro, run as a
 /// fallback is ([`VerbPlan::Fallback`]).
@@ -602,7 +632,7 @@ pub fn plan(
 /// Returns [`VerbError::StrictHost`] when `GRO_FALLBACK=command` refuses a
 /// fallback the host decides, and [`VerbError::NoNodeGro`] when the
 /// project installed no Gro.
-pub fn floor_fallback(run: VerbRun, reason: FallbackReason) -> Result<VerbFallback, VerbError> {
+pub fn floor_fallback(run: RunStart, reason: FallbackReason) -> Result<VerbFallback, VerbError> {
     if run.policy.refuses(std::slice::from_ref(&reason)) {
         return Err(VerbError::StrictHost {
             cli_args: run.cli_args,

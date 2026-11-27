@@ -11,7 +11,7 @@
 //! table, the project at the working directory, and `GRO_FALLBACK`,
 //! `NODE_ENV`, and `HOME`, read here once: it runs on the binary from its
 //! generated entry in the run's kernel box, which its process enters on
-//! the main thread before the run's thread starts (`verb::start`), so the
+//! the main thread before the run's thread starts (`start`), so the
 //! project's code, the tools it grants, and an exploit of the engine are
 //! held to the box's walls; or it execs the Node Gro the project installed
 //! (`verb::fallback`); or it's refused before anything runs.
@@ -54,7 +54,7 @@
 //! variables (`gro_runtime`'s module doc names them); `fgro eval` clears
 //! it, and a command of Gro's removes those and points the temporary and
 //! `XDG_*` data, cache, and state directories into the run's private
-//! directory before it reads any of the above (`verb::start`).
+//! directory before it reads any of the above (`start`).
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
@@ -88,9 +88,9 @@ use crate::embed::load_embed;
 use crate::error::{CliError, DirFault};
 use crate::print::{escape_controls, stderr_line};
 use crate::snapshot::STARTUP_SNAPSHOT;
+use crate::start::{RunStart, StartEntry, listed, run_boxed};
 use crate::verb::fallback::{GRO_FALLBACK, exec_node_gro};
-use crate::verb::prepass::{ProjectReads, VerbInputs, VerbPlan, VerbRun, plan};
-use crate::verb::start::{listed, run_boxed};
+use crate::verb::prepass::{ProjectReads, VerbInputs, VerbPlan, plan};
 use crate::version::RUNTIME_VERSION;
 use crate::version::VERSION;
 
@@ -150,8 +150,8 @@ impl RunInvocation {
     }
 }
 
-/// What a verb's plan hands the run.
-pub fn verb_spec(run: &VerbRun) -> RunSpec<'_> {
+/// What `run`, a run started in the box, hands the run: a command of Gro's when it starts from the entry one generates (`RunSpec::verb`).
+pub fn start_spec(run: &RunStart) -> RunSpec<'_> {
     RunSpec {
         grant: &run.grant,
         dirs: &run.dirs,
@@ -160,7 +160,7 @@ pub fn verb_spec(run: &VerbRun) -> RunSpec<'_> {
         conditions: Conditions {
             development: run.development,
         },
-        verb: true,
+        verb: matches!(run.entry, StartEntry::Generated { .. }),
     }
 }
 
@@ -195,7 +195,7 @@ pub fn verb(cli_args: &[String]) -> u8 {
         root: &root,
     };
     match plan(&inputs, &table, &DiskProject { root: &root }) {
-        Ok(VerbPlan::Run(run)) => run_boxed(*run, cli_args),
+        Ok(VerbPlan::Run(run)) => run_boxed(RunStart::from(*run), cli_args),
         Ok(VerbPlan::Fallback(fallback)) => exec_node_gro(
             &fallback,
             cli_args,
@@ -2165,7 +2165,7 @@ mod tests {
         };
         let options = |run: &VerbRun, environment: &TestEnvironment| {
             runtime_options(
-                &super::verb_spec(run),
+                &super::start_spec(&super::RunStart::from(run.clone())),
                 environment,
                 GrantedDirs::default(),
                 Path::new("/w"),

@@ -10,7 +10,7 @@ use gro_runtime::confine::plan::{
 use gro_runtime::resolver::InstalledPackage;
 use gro_runtime::{BINARY_NAME, RunPins};
 
-use super::{BoxStartError, TempHolder, box_inputs};
+use super::{BoxStartError, RunStart, TempHolder, box_inputs};
 use crate::cli::{FlagDirs, RunGrant};
 use crate::run::Environment;
 use crate::verb::fallback::{FallbackPolicy, FallbackReason, KernelLandlock, fallback_note};
@@ -77,10 +77,10 @@ fn run(
     temp: bool,
     policy: FallbackPolicy,
     gro: Option<InstalledPackage>,
-) -> VerbRun {
+) -> RunStart {
     let mut dirs = flags.clone();
     dirs.read.insert(".".to_owned());
-    VerbRun {
+    RunStart::from(VerbRun {
         cli_args: vec!["check".to_owned(), "--watch".to_owned()],
         grant_flags: Vec::new(),
         root: PathBuf::from("/p"),
@@ -103,7 +103,7 @@ fn run(
         development: true,
         home: None,
         version: String::new(),
-    }
+    })
 }
 
 /// The box's inputs take the grant flags' directories alone, as they
@@ -474,7 +474,7 @@ fn wall(path: &str, source: RuleSource, writes: bool) -> super::WallRule {
 fn the_wall_texts_follow_the_rules() {
     use gro_runtime::confine::run::RunNetwork;
 
-    let generating = VerbRun {
+    let generating = RunStart {
         cli_args: vec!["gen".to_owned()],
         ..run(FlagDirs::default(), false, FallbackPolicy::All, None)
     };

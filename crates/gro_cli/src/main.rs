@@ -19,7 +19,7 @@
 //!   command word, or on the Node Gro the project installed, which it execs
 //!   after one line saying why (`verb::fallback`), or neither; a run on the
 //!   binary then starts in the run's kernel box, its steps taken on the
-//!   main thread in the order `verb::start`'s module doc writes, or on a
+//!   main thread in the order `start`'s module doc writes, or on a
 //!   kernel that can't hold the box, falls back as well; the reference is
 //!   `src/docs/runtime.md` (§Gro's workflow on the runtime)
 //!
@@ -47,7 +47,7 @@
 //! installed or built Node Gro or no `node` to run it), `1` when the grants
 //! table or the working directory can't be read or `node` fails to start;
 //! and with the Node Gro's code when it falls back. Its box adds its own
-//! (`verb::start`'s module doc has them): `2` for what the caller changes
+//! (`start`'s module doc has them): `2` for what the caller changes
 //! (`-A`, a socket on stdio, a directory a grant flag lists inside the
 //! project that leads out of it through a symlink, or through one into a
 //! dot-entry or `node_modules` it doesn't name, what the box's plan
@@ -91,6 +91,7 @@ mod harden;
 mod print;
 mod run;
 mod snapshot;
+mod start;
 mod thread;
 mod verb;
 mod version;

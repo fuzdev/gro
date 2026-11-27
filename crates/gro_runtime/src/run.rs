@@ -1,6 +1,8 @@
-//! Running an entry module to completion: [`run_main`] from a file, and
-//! [`run_generated`] from an entry the embedder generated, the errors they
-//! return, and what gro's rules refused during a run, which fails it.
+//! Running an entry module to completion: [`run_main`] from a file, which it
+//! resolves itself, [`run_file`] from a file resolved before the run
+//! ([`resolve_file_entry`]), and [`run_generated`] from an entry the
+//! embedder generated, the errors they return, and what gro's rules refused
+//! during a run, which fails it.
 
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -21,7 +23,7 @@ use crate::loader::graph::Recording;
 use crate::loader::refused::Refusals;
 use crate::phases::{self, Phase};
 use crate::report::{Report, uncaught};
-use crate::resolver::{self, DiskTree, ResolveError, Roots};
+use crate::resolver::{self, DiskTree, EntryBound, Resolution, ResolveError, Roots};
 use crate::runtime::{HostState, SpentRuntime, start_runtime};
 use crate::snapshot::StartupSnapshot;
 use crate::{ConsoleOptions, RuntimeOptions};
@@ -75,6 +77,55 @@ pub struct GeneratedEntry {
     /// The project's root, a real path: its own root, whose origin, the
     /// project's, it takes.
     pub root: PathBuf,
+}
+
+/// An entry module on disk, resolved with the roots its graph starts with
+/// before its run ([`resolve_file_entry`]), for [`run_file`].
+///
+/// Only [`resolve_file_entry`] makes one, so its project root is the one
+/// the entry's own resolution found, never taken from the working directory it was
+/// resolved from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileEntry {
+    /// The entry's resolution, with the `package.json` files it read.
+    resolution: Resolution,
+    /// The roots its graph starts with, the project's among them.
+    roots: Roots,
+    /// How its project root was found.
+    bound: EntryBound,
+}
+
+impl FileEntry {
+    /// The project's root, a real path: the directory the entry's walk for a
+    /// `package.json` found, or with none the entry's own directory, or for
+    /// an entry inside `node_modules` the directory holding the first
+    /// `node_modules` segment (`resolver::resolve_entry`).
+    pub fn root(&self) -> &Path {
+        &self.roots.project().dir
+    }
+
+    /// How the project's root was found.
+    pub const fn bound(&self) -> &EntryBound {
+        &self.bound
+    }
+}
+
+/// Resolves the entry module at `path` from the disk, before any run.
+///
+/// `path` is relative to `cwd`, an absolute path, unless it's absolute itself, which ignores `cwd`. The entry
+/// comes with the roots its graph starts with and how its project root was
+/// found, by the rules of `resolver::resolve_entry`.
+///
+/// # Errors
+///
+/// Returns a [`ResolveError`] when the path names no loadable module.
+pub fn resolve_file_entry(path: &Path, cwd: &Path) -> Result<FileEntry, ResolveError> {
+    let (resolution, roots, bound) = resolver::resolve_entry_with_bound(&DiskTree, path, cwd)?;
+    Ok(FileEntry {
+        resolution,
+        roots,
+        bound,
+    })
 }
 
 /// How a run that ended on its own ended. It failed when its result is an
@@ -194,23 +245,83 @@ impl RunOutcome {
 /// runtime starts on that thread, so the size doesn't change how deep JS can
 /// go.
 pub fn run_main(engine: Engine, options: &RuntimeOptions, entry: &Path, cwd: &Path) -> RunOutcome {
-    let (entry, loader) = match resolve_main(options, entry, cwd, Recording::Off) {
-        Ok(resolved) => resolved,
-        Err(error) => return RunOutcome::unstarted(error),
+    let entry = match resolve_file_entry(entry, cwd) {
+        Ok(entry) => entry,
+        Err(error) => return RunOutcome::unstarted(error.into()),
     };
-    let pins = pins_of(options, &loader);
-    run_resolved(engine, options, &entry, cwd, &loader, pins, None)
+    let pins = pins_of(options, &entry);
+    run_file_on(engine, options, entry, pins, None, cwd)
 }
 
 /// The pins of the programs a run as `options` says grants, made once its
-/// entry has resolved into `loader`'s graph, so a name holding `/` has the
-/// project's root, and before any module evaluates ([`RunPins::pin`]).
-fn pins_of(options: &RuntimeOptions, loader: &Loader) -> RunPins {
+/// entry has resolved, so a name holding `/` has the project's root, and
+/// before any module evaluates ([`RunPins::pin`]).
+fn pins_of(options: &RuntimeOptions, entry: &FileEntry) -> RunPins {
     RunPins::pin(
         &options.authority,
         options.spawn_env.get("PATH"),
-        &loader.graph().roots().project().dir,
+        entry.root(),
     )
+}
+
+/// Runs `entry`, an entry module on disk resolved before the run
+/// ([`resolve_file_entry`]), as [`run_main`] runs one, its granted programs
+/// held by `pins`.
+///
+/// Each program it starts starts in a box of its own built from
+/// `programs`, the rules the run's box held for them, which a run that may
+/// start a program has.
+///
+/// The embedder made `pins` for the run's authority beneath
+/// [`FileEntry::root`] before the run ([`RunPins::pin`]), so a box it made
+/// for the run's process grants the same files the run launches.
+///
+/// It takes a [`RunEngine`], so the run's process is held in the run's box
+/// before any of the entry's code runs; [`run_main`]'s `# Stack` holds for
+/// it too.
+pub fn run_file(
+    engine: RunEngine,
+    options: &RuntimeOptions,
+    entry: FileEntry,
+    pins: RunPins,
+    programs: Option<ProgramRules>,
+    cwd: &Path,
+) -> RunOutcome {
+    run_file_on(engine.engine(), options, entry, pins, programs, cwd)
+}
+
+/// Runs `entry` as [`run_file`] does, on any engine: what that and
+/// [`run_main`] run.
+fn run_file_on(
+    engine: Engine,
+    options: &RuntimeOptions,
+    entry: FileEntry,
+    pins: RunPins,
+    programs: Option<ProgramRules>,
+    cwd: &Path,
+) -> RunOutcome {
+    let (url, loader) = file_main(options, entry, Recording::Off);
+    run_resolved(engine, options, &url, cwd, &loader, pins, programs)
+}
+
+/// The URL of the resolved `entry` and the loader of its graph, which
+/// checks each builtin import against the run's authority, recording as
+/// `recording` says.
+fn file_main(
+    options: &RuntimeOptions,
+    entry: FileEntry,
+    recording: Recording,
+) -> (Url, Rc<Loader>) {
+    let FileEntry {
+        resolution, roots, ..
+    } = entry;
+    let loader = Rc::new(
+        Loader::new(&resolution, roots, recording)
+            .with_authority(options.authority.clone())
+            .with_embed(options.embed)
+            .with_conditions(options.conditions),
+    );
+    (resolution.url, loader)
 }
 
 /// Runs `entry`, an entry module the embedder generated, as [`run_main`]
@@ -314,13 +425,14 @@ fn run_recorded(
     cwd: &Path,
     recording: Recording,
 ) -> (Ended, Option<Graph>) {
-    let (entry, loader) = match resolve_main(options, entry, cwd, recording) {
-        Ok(resolved) => resolved,
-        Err(error) => return (RunOutcome::unstarted(error).into(), None),
+    let entry = match resolve_file_entry(entry, cwd) {
+        Ok(entry) => entry,
+        Err(error) => return (RunOutcome::unstarted(error.into()).into(), None),
     };
+    let pins = pins_of(options, &entry);
+    let (entry, loader) = file_main(options, entry, recording);
     // the runtime is torn down here, so its share of the loader is gone
     // and the graph is taken whole
-    let pins = pins_of(options, &loader);
     let ended = Ended::from(run_resolved(
         engine, options, &entry, cwd, &loader, pins, None,
     ));
@@ -454,25 +566,6 @@ fn outcome(
         error
     });
     (result, refused, free_global)
-}
-
-/// Resolves the entry at `entry` from `cwd`, returning its URL and the
-/// loader of its graph, which checks each builtin import against the run's
-/// authority, recording as `recording` says.
-fn resolve_main(
-    options: &RuntimeOptions,
-    entry: &Path,
-    cwd: &Path,
-    recording: Recording,
-) -> Result<(Url, Rc<Loader>), RunError> {
-    let (entry, roots) = resolver::resolve_entry(&DiskTree, entry, cwd)?;
-    let loader = Rc::new(
-        Loader::new(&entry, roots, recording)
-            .with_authority(options.authority.clone())
-            .with_embed(options.embed)
-            .with_conditions(options.conditions),
-    );
-    Ok((entry.url, loader))
 }
 
 /// Runs the entry at `entry`, resolved into `loader`'s graph, on a runtime

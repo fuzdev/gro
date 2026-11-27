@@ -30,9 +30,9 @@ arm (a `cfg` on the architecture or the C library is fine).
   its `verb/` holds the verb's pre-pass (`prepass.rs`: the grant flags,
   split as `fgro run` spells them, the closure's grants joined to theirs,
   the generated entry, and why a command runs on the Node Gro, run
-  before any thread starts and holding no descriptor when it returns), the
-  fallback's exec of the project's Node Gro, and the run's start in its
-  box (`start.rs`)
+  before any thread starts and holding no descriptor when it returns) and
+  the fallback's exec of the project's Node Gro; `src/start.rs` holds a run's
+  start in its box
 - `gro_sys` - the raw system calls the safe std API lacks (descriptors, the
   environment, `RLIMIT_DATA` and `RLIMIT_NOFILE`, a hard limit lowered, the
   thread count once settled, the default thread stack, a thread's stack
@@ -194,7 +194,7 @@ and the contracts no one module doc owns.
   `Engine`, which `run_main` and `make_snapshot` require;
   `init_eval_engine` takes an `EvalConfined` and returns the `EvalEngine`
   `eval::eval` requires; and `init_run_engine` takes a `RunConfined` and
-  returns the `RunEngine` `run_generated` requires, so a command of Gro's
+  returns the `RunEngine` `run_generated` and `run_file` require, so a command of Gro's
   never runs outside the box.
   No runtime starts before the process is confined or named unconfined; an
   engine in eval's box whose JIT disagrees with the box's is
@@ -242,7 +242,7 @@ and the contracts no one module doc owns.
   thread too, in the order `confine/run.rs`'s module doc writes and its
   tokens hold, and each step that needs one thread reads the count settled;
   a command of Gro's takes them, from the pre-pass to the box, in the order
-  written once in `crates/gro_cli/src/verb/start.rs`'s module doc, every
+  written once in `crates/gro_cli/src/start.rs`'s module doc, every
   fallback an exec before the first change.
   Every other command runs its runtime on a thread of its own, not the main
   one, sized `gro_runtime::STACK_SIZE`.

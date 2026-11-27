@@ -1,6 +1,7 @@
 //! gro's JS host: a minimal web-standards runtime on V8.
 //!
-//! [`run_main`] runs an ES module from disk to completion, and
+//! [`run_main`] runs an ES module from disk to completion,
+//! or [`run_file`] one resolved before the run ([`resolve_file_entry`], [`FileEntry`]), and
 //! [`run_generated`] one the embedder generated ([`GeneratedEntry`]): it
 //! resolves the entry, evaluates it on a `deno_core` `JsRuntime` driven by a current-thread
 //! tokio runtime, and drains the event loop (timers, pending promises). An
@@ -175,7 +176,8 @@ pub use crate::loader::refused::{
 };
 pub use crate::report::Report;
 pub use crate::run::{
-    GENERATED_ENTRY_URL, GeneratedEntry, RunError, RunOutcome, StartError, run_generated, run_main,
+    FileEntry, GENERATED_ENTRY_URL, GeneratedEntry, RunError, RunOutcome, StartError,
+    resolve_file_entry, run_file, run_generated, run_main,
 };
 pub use crate::runtime::SpentRuntime;
 
