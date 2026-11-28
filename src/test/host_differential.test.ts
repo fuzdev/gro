@@ -17,9 +17,27 @@ vi.setConfig({ testTimeout: 60_000 });
 
 const ORACLE = join(paths.root, 'crates/gro_cli/tests/fixtures/host/oracle.js');
 
+// the oracle skips a case whose unix socket a kernel box refuses, naming it on stderr
+const SKIPPED_PREFIX = 'skipped the case ';
+
+let checked: { status: number | null; stdout: string; stderr: string } | undefined;
+const check = () =>
+	(checked ??= spawnSync(process.execPath, [ORACLE, '--check'], { encoding: 'utf8' }));
+
 test('the host modules print what the differential cases expect', () => {
-	const { status, stdout, stderr } = spawnSync(process.execPath, [ORACLE, '--check'], {
-		encoding: 'utf8'
-	});
+	const { status, stdout, stderr } = check();
 	assert.strictEqual(status, 0, stderr || stdout);
+});
+
+test('every case that makes a unix socket ran', (ctx) => {
+	const skipped = check().stderr
+		.split('\n')
+		.filter((line) => line.startsWith(SKIPPED_PREFIX));
+	if (skipped.length > 0) {
+		const reason = skipped.join('; ');
+		// the default reporter shows the skip's count; a verbose run names the case and why
+		// eslint-disable-next-line no-console
+		console.warn(reason);
+		ctx.skip(reason);
+	}
 });

@@ -432,12 +432,13 @@ const run_failing_task = async (
 test(
 	'output that fails even empty writes ends a failed task rather than spinning',
 	async () => {
-		const full = openSync('/dev/full', 'w');
-		onTestFinished(() => closeSync(full));
+		// `/dev/null` opened read-only, so every write fails, an empty one included
+		const unwritable = openSync('/dev/null', 'r');
+		onTestFinished(() => closeSync(unwritable));
 		const status = await run_failing_task(
 			'gro_invoke_dead_output_',
 			`export const task = {run: () => {throw new Error('x');}};\n`,
-			['ignore', full, full]
+			['ignore', unwritable, unwritable]
 		);
 		assert.strictEqual(status, 1);
 	},

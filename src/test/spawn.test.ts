@@ -14,7 +14,7 @@ import {
 import { spawnSync } from 'node:child_process';
 import { join, relative } from 'node:path';
 
-import { fs } from '#lib/fs.ts';
+import { fs, type FsReadDir } from '#lib/fs.ts';
 import { format_error_detail } from '#lib/error_detail.ts';
 import { spawn, type Spawn, type SpawnProgram } from '#lib/spawn.ts';
 import { SpawnError, is_spawn_error, type SpawnErrorKind } from '#lib/spawn_error.ts';
@@ -477,54 +477,69 @@ describe('the PATH walk skips node_modules/.bin', () => {
 describe('names containing /', () => {
 	let dir: string;
 	let abs: string;
+	let project_spawn: Spawn;
+	let elsewhere: FsReadDir;
 
-	beforeEach(() => {
-		const parent = join(process.cwd(), '.gro');
-		mkdirSync(parent, { recursive: true });
-		abs = mkdtempSync(join(parent, 'spawn-test-'));
-		dir = relative(process.cwd(), abs);
-	});
-
-	afterEach(() => {
-		rmSync(abs, { recursive: true, force: true });
+	// a name containing `/` resolves beneath the project root, the working directory when
+	// `spawn.ts` loads, so a fresh copy loads in a temp project, beside a fresh `fs` whose
+	// handles that copy accepts
+	beforeEach(async () => {
+		const project = join(sandbox.base, 'project');
+		mkdirSync(project);
+		abs = mkdtempSync(join(project, 'spawn-test-'));
+		dir = relative(project, abs);
+		const original = process.cwd();
+		process.chdir(project);
+		vi.resetModules();
+		try {
+			const [fresh_spawn, fresh_fs] = await Promise.all([
+				import('#lib/spawn.ts'),
+				import('#lib/fs.ts')
+			]);
+			project_spawn = fresh_spawn.spawn;
+			elsewhere = await fresh_fs.fs.open_dir(sandbox.root);
+		} finally {
+			process.chdir(original);
+			vi.resetModules();
+		}
 	});
 
 	test('pass the lexical project-absolute path as argv0, `name` staying as granted', async () => {
 		symlinkSync('/bin/sh', join(abs, 'granted_sh'));
 		const name = `./${dir}/skipped/../granted_sh`;
-		const program = spawn.program(name);
+		const program = project_spawn.program(name);
 		assert.strictEqual(program.name, name);
 		const args = ['-c', 'printf %s "$0"'];
 		assert.strictEqual((await program.out(args)).stdout, join(abs, 'granted_sh'));
-		const elsewhere = await program.out(args, { cwd: sandbox.dir });
-		assert.strictEqual(elsewhere.stdout, join(abs, 'granted_sh'));
+		const from_elsewhere = await program.out(args, { cwd: elsewhere });
+		assert.strictEqual(from_elsewhere.stdout, join(abs, 'granted_sh'));
 	});
 
 	test('a script through a link sees the lexical project-absolute path as `$0`', async () => {
 		write_script(join(abs, 'target'), 'printf %s "$0"');
 		symlinkSync('target', join(abs, 'link'));
-		const program = spawn.program(`./${dir}/skipped/../link`);
+		const program = project_spawn.program(`./${dir}/skipped/../link`);
 		assert.strictEqual(program.path, join(abs, 'target'));
-		const output = await program.out([], { cwd: sandbox.dir });
+		const output = await program.out([], { cwd: elsewhere });
 		assert.strictEqual(output.stdout, join(abs, 'link'));
 	});
 
 	test('a file reached with a trailing `/` or `/.` never pins', () => {
 		write_script(join(abs, 'ok'), 'exit 0');
-		assert.ok(spawn.find(`${dir}/ok`));
+		assert.ok(project_spawn.find(`${dir}/ok`));
 		for (const name of [`${dir}/ok/`, `${dir}/ok/.`, `${dir}/ok/./`, `${dir}/ok/./.`]) {
-			assert.isNull(spawn.find(name), name);
-			assert_spawn_error(() => spawn.program(name), 'not_found');
+			assert.isNull(project_spawn.find(name), name);
+			assert_spawn_error(() => project_spawn.program(name), 'not_found');
 		}
-		assert.isNull(spawn.find(`${dir}/ok/x`));
+		assert.isNull(project_spawn.find(`${dir}/ok/x`));
 		// a `..` resolves lexically, before any file is looked at
-		assert.ok(spawn.find(`${dir}/ok/../ok`));
+		assert.ok(project_spawn.find(`${dir}/ok/../ok`));
 	});
 
 	test('a file with no `#!` is refused here too', () => {
 		writeFileSync(join(abs, 'plain'), 'echo hi\n');
 		chmodSync(join(abs, 'plain'), 0o755);
-		assert_spawn_error(() => spawn.program(`${dir}/plain`), 'not_executable');
+		assert_spawn_error(() => project_spawn.program(`${dir}/plain`), 'not_executable');
 	});
 });
 

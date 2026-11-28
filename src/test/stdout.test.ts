@@ -72,9 +72,10 @@ describe('stdout and stderr', () => {
 	});
 
 	describe('a failing write leaves other writers alone', () => {
-		// stdout is `/dev/full`, so every write fails with `ENOSPC` and nothing reads it
-		const run_on_full = (body: string): { status: number | null; stderr: string } => {
-			const fd = openSync('/dev/full', 'w');
+		// stdout is `/dev/null` opened read-only, so every write fails with `EBADF`, an error
+		// that isn't a reader going away, and nothing reads it
+		const run_on_unwritable = (body: string): { status: number | null; stderr: string } => {
+			const fd = openSync('/dev/null', 'r');
 			try {
 				const { status, stderr } = spawnSync(process.execPath, [write_fixture(body)], {
 					cwd: runner.sandbox.root,
@@ -97,17 +98,17 @@ describe('stdout and stderr', () => {
 		`;
 
 		test('a later bare write still throws, with no listener left behind', () => {
-			const { status, stderr } = run_on_full(`${WRITE_FAILS} host_stdout.write('bare');`);
+			const { status, stderr } = run_on_unwritable(`${WRITE_FAILS} host_stdout.write('bare');`);
 			assert.notStrictEqual(status, 0);
 			assert.deepEqual(JSON.parse(stderr.split('\n')[0]!), {
-				kind: 'StdioError io_error ENOSPC',
+				kind: 'StdioError io_error EBADF',
 				listeners: 0
 			});
-			assert.include(stderr, 'ENOSPC');
+			assert.include(stderr, 'EBADF');
 		});
 
 		test('a listener of another writer still gets the error', () => {
-			const { status, stderr } = run_on_full(
+			const { status, stderr } = run_on_unwritable(
 				`let seen = 0;
 				 globalThis.process.stdout.on('error', () => { seen++; });
 				 ${WRITE_FAILS}
@@ -117,7 +118,7 @@ describe('stdout and stderr', () => {
 			);
 			assert.strictEqual(status, 0, stderr);
 			assert.deepEqual(stderr.split('\n'), [
-				JSON.stringify({ kind: 'StdioError io_error ENOSPC', listeners: 1 }),
+				JSON.stringify({ kind: 'StdioError io_error EBADF', listeners: 1 }),
 				'2'
 			]);
 		});

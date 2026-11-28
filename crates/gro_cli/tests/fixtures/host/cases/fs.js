@@ -887,7 +887,12 @@ const SCENARIOS = {
 			an_inherited_time: set('a.txt', Object.create({ mtime_ms: at + 12 })),
 			path_then_times: set('../x', {}),
 			a_path_that_is_none: set(/** @type {any} */ (1), {}),
-			the_latest: set('a.txt', { mtime_ms: 8.64e15 })
+			// a filesystem holds a time past its range as its latest, ext4's in 2446 and tmpfs's
+			// later, so the time read back is shown capped at ext4's
+			the_latest: async () => {
+				await dir.set_times('a.txt', { mtime_ms: 8.64e15 });
+				return Math.min((await dir.stat('a.txt'))?.mtime_ms ?? 0, 15_032_385_535_000);
+			}
 		});
 		return { ...ended, tree: await tree(dir) };
 	},

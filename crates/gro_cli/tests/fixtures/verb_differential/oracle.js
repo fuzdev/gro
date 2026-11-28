@@ -7,12 +7,13 @@
 //
 // A case runs in a fresh copy of the project, its `files` written over it, beside a
 // `node_modules` that links the checkout's, where the project's tools and Gro's peers are
-// installed, in a directory under `/tmp`, whatever `TMPDIR` says, so no `package.json` above it is
-// read and its path is short: both consoles break an inspected array whose string reaches
+// installed, in a directory under the OS temp directory, so no `package.json` above it is read
+// and its path is short: both consoles break an inspected array whose string reaches
 // `WRAP_BOUND` characters onto lines of their own, which `{root}` doesn't hide, and a root that
-// would reach it fails before anything runs. Its environment holds `PATH`, for the tools' `node`, and a `HOME` that's an empty directory
-// of its own, never the developer's. What it printed is normalized as the binary's test normalizes
-// it: the project's root as `{root}`, gro's version as `{version}`, and each duration as `{ms}`.
+// would reach it fails before anything runs, naming the fix, a shorter `TMPDIR`. Its environment
+// holds `PATH`, for the tools' `node`, and a `HOME` that's an empty directory of its own, never
+// the developer's. What it printed is normalized as the binary's test normalizes it: the
+// project's root as `{root}`, gro's version as `{version}`, and each duration as `{ms}`.
 //
 // Node 26 deprecates `module.register()`, which the Node gro's launch calls, and warns on every
 // run; that warning is Node's own about the launch, so the oracle turns it off by its code.
@@ -27,6 +28,7 @@ import {
 	symlinkSync,
 	writeFileSync
 } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -82,13 +84,16 @@ const normalize = (text, root) =>
  * @returns {Output}
  */
 const run = (test_case) => {
-	const scratch = realpathSync(mkdtempSync('/tmp/gro_vd_'));
+	const scratch = realpathSync(mkdtempSync(join(tmpdir(), 'vd')));
 	try {
 		const root = join(scratch, 'p');
+		// a printed path past `WRAP_BOUND` would break the cases' arrays onto lines `{root}` can't
+		// normalize, so a root under a long `TMPDIR` fails here, naming the variable to shorten
 		if (root.length + LONGEST_PRINTED.length >= WRAP_BOUND) {
 			throw new Error(
 				`${root}: the project's root is too long for the cases' inspected arrays, which break ` +
-					`onto lines of their own at ${WRAP_BOUND} characters, and \`{root}\` can't hide that`
+					`onto lines of their own at ${WRAP_BOUND} characters, and \`{root}\` can't hide that: ` +
+					`set \`TMPDIR\` to a shorter directory`
 			);
 		}
 		const home = join(scratch, 'home');

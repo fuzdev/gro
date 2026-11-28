@@ -1,8 +1,9 @@
 // Test script to verify the custom loader works correctly
 // This runs in a separate Node.js process with the loader active
 
-import { resolve } from 'node:path';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 
 const JSON_FIXTURE = 'src/test/fixtures/modules/some_test_json.json';
 const JSON_WITHOUT_EXTENSION_FIXTURE = 'src/test/fixtures/modules/some_test_json_without_extension';
@@ -205,11 +206,12 @@ const run_tests = async () => {
 
 	// Test 12: An ESM file inside `node_modules` that statically imports a CJS sibling and
 	// reads `default` — the `ws/wrapper.mjs` pattern that regressed in PR #586. We mint
-	// the fixture into `node_modules/` at test time so the path contains `/node_modules/`
-	// (which is what triggers the resolve hook's node_modules branch) without depending on
-	// any third-party package's internal layout. The `.` prefix keeps npm from touching it.
+	// the fixture into a `node_modules/` under the OS temp directory at test time so the path
+	// contains `/node_modules/` (which is what triggers the resolve hook's node_modules branch)
+	// without depending on any third-party package's internal layout or writing the project's.
+	const temp_dir = mkdtempSync(join(tmpdir(), 'gro_loader_test_'));
 	try {
-		const fixture_dir = resolve('node_modules/.gro_loader_test_fixture');
+		const fixture_dir = join(temp_dir, 'node_modules', 'esm_imports_cjs');
 		mkdirSync(fixture_dir, { recursive: true });
 		writeFileSync(
 			`${fixture_dir}/index.mjs`,
@@ -220,6 +222,8 @@ const run_tests = async () => {
 		assert(imported.default?.value === 'ok', 'node_modules ESM imports CJS sibling default works');
 	} catch (error) {
 		assert(false, `node_modules esm-imports-cjs default failed: ${error.message}`);
+	} finally {
+		rmSync(temp_dir, { recursive: true, force: true });
 	}
 
 	// Test 12b: `?raw` is a real URL query, as Node gives it, and the raw import loads the file's text
