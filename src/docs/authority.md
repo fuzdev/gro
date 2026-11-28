@@ -233,7 +233,7 @@ and whoever accepts the policy file.
 - A child process, whose arguments and config files are code, is bounded by its box:
   under `fgro run` and `fgro <command>` a narrower box of its own inside the run's box (both built).
 - An engine exploit is bounded by the box of the process it lands in, built for `fgro eval`, `fgro run`, and `fgro <command>`,
-  so an exploit in `fgro run` reaches what its box reads (its root whole, an entry in no project's own directory among it, which the programs the run starts read only as a flag names it) and writes.
+  so an exploit in `fgro run` reaches what its box reads (a project's root whole; of an entry in no project's directory, only what a flag names, beside the modules of its import graph held in memory) and writes.
 
 Under `gro <cmd>` on the binary (built, in the run's box), the invocation's grant set is the command's,
 the CLI's own grants, every builtin in the command's closure with its programs and variables, and the grant flags.
@@ -304,6 +304,15 @@ and the network is a private one with only loopback, or, where unprivileged user
 Inside the box the per-builtin grants are guardrails.
 [box](box.md#what-a-commands-box-admits) has the box's exact rules, and [a box for each tool](box.md#a-box-for-each-tool) each tool's.
 
+`fgro run` makes the same claim for a script, on Linux with Landlock's sixth ABI and a snapshot build:
+every `fgro run` but `-A` runs in the run's kernel box (built), which reads the entry's project root
+(for an entry in no project, none of its directory but what a flag names, its import graph read before the box goes up),
+the directories its flags name, and the system's, and nothing else under the home directory but a `node_modules` the root links to in another checkout, the programs it pins, and, when it grants git, what git reads there;
+it writes only what `--allow-write=` and `--allow-run-write=` name and its private directory, opens no internet socket,
+and each program it grants runs in a narrower box of its own (built), writing only its own temporary directory and what `--allow-run-write=` names for it.
+Inside the box the run's native checks are boundaries against the run's own code; `gro run` on the Node Gro confines nothing.
+[box](box.md#fgro-run) has its rules.
+
 The box is a boundary, the kernel's, against the project's code and tests, the tools and their children, and an engine exploit;
 the `note:` lines and refusals it prints are review signals, which the run's code can imitate.
 What the release leaves is stated with it:
@@ -342,6 +351,8 @@ What the release leaves is stated with it:
   and a `node_modules` linked from another checkout is read there, by the box and by Gro's own code alike, gets no tool directory, and is written only by what a flag names there for its subject: a tool by `--allow-run-write=`, Gro's own code by `--allow-write=`
 - `-A` after a command word is refused, so the unconfined way to run a command is the Node Gro (`node_modules/.bin/gro`), which confines nothing
 - `fgro run -A`, and `fgro run` where Landlock can't hold the box or the build has no snapshot, run in no box, the script bounded by the runtime's own checks alone and every program it's granted by nothing, which the latter says unless `GRO_FALLBACK=command` refuses it
+- an entry in no project loads only what its imports name by a string literal, an `import()` of a name built at run time, of a module no string literal names, needing `--allow-read=` naming its directory, which puts that directory in the box whole;
+  and the graph is read by Gro's parser, so a module that parser reads differently from V8 fails to load, never loads more
 - `fgro run --allow-write=.` writes the root's top-level entries as the run started, never `.git`, `node_modules`, another dot-entry, a symlink, or a new one, and an `fgro run` whose project root, found by a `package.json` or a `node_modules` at or above the entry, is or holds the home directory is refused
 - a project that pins another Gro version runs on the Node Gro, unboxed, unless `GRO_FALLBACK=command` is set
 - where Landlock is missing, off, or below its sixth ABI there's no box, and the binary runs the Node Gro, which confines nothing, and says why, unless `GRO_FALLBACK=command` is set, which refuses it
