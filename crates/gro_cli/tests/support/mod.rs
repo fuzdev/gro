@@ -12,6 +12,7 @@ use std::io::{BufRead as _, BufReader, Read, Write as _};
 use std::ops::{Deref, DerefMut};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Output, Stdio};
+use std::sync::OnceLock;
 use std::sync::mpsc::Receiver;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant, SystemTime};
@@ -159,6 +160,83 @@ pub fn spawn_with_pid(mut command: Command, stdin: &[u8]) -> (u32, Output) {
 pub const UNBOXED_NOTE: &str = "note: fgro run runs in no kernel box, since this build has no \
                                 startup snapshot (cargo xtask build makes one), so only the \
                                 runtime's own checks hold its grants";
+
+/// What an `unshare` of a user and network namespace, then its maps,
+/// does on this host with no check first, in a `python3` of its own, which
+/// holds this process's seccomp filters: `entered`, `refused` and the
+/// error's name, or `stranded at` the map file whose write failed, and
+/// the error's name.
+pub fn host_namespace_probe() -> String {
+    const SCRIPT: &str = r"
+import ctypes, errno, os
+libc = ctypes.CDLL(None, use_errno=True)
+uid, gid = os.geteuid(), os.getegid()
+if libc.unshare(0x10000000 | 0x40000000) != 0:
+    print('refused', errno.errorcode[ctypes.get_errno()])
+    raise SystemExit
+for name, text in (('setgroups', 'deny'), ('uid_map', f'{uid} {uid} 1'), ('gid_map', f'{gid} {gid} 1')):
+    try:
+        with open(f'/proc/self/{name}', 'w') as f:
+            f.write(text)
+    except OSError as e:
+        print('stranded at', name, errno.errorcode[e.errno])
+        raise SystemExit
+print('entered')
+";
+    match Command::new("python3").args(["-I", "-c", SCRIPT]).output() {
+        Ok(output) => String::from_utf8_lossy(&output.stdout).trim().to_owned(),
+        Err(error) => format!("python3 failed to start: {error}"),
+    }
+}
+
+/// Whether a run that may start a program takes a network namespace of
+/// its own here: a snapshot build's box does where an `unshare` and its
+/// maps succeed ([`host_namespace_probe`]), which is where the box's own
+/// check lets it (`run_box` holds the two to agree), whatever refuses it (`AppArmor`, a seccomp filter, a sysctl);
+/// otherwise it takes the host's network and prints [`NETWORK_NOTE`]. A
+/// build with no snapshot runs in no box, and takes neither.
+pub fn run_takes_a_network_namespace() -> bool {
+    static ENTERED: OnceLock<bool> = OnceLock::new();
+    cfg!(feature = "snapshot") && *ENTERED.get_or_init(|| host_namespace_probe() == "entered")
+}
+
+/// How the note starts that a run that may start a program prints where
+/// the host refuses its box a network namespace, before the cause.
+pub const NETWORK_NOTE: &str = "note: no network namespace here (";
+
+/// Whether `fgro run` with the grant flags `flags` may start a program in
+/// its box, so takes a network namespace or prints [`NETWORK_NOTE`]: one
+/// granted by `--allow-run=` or `--allow-run-in=`, without `-A`, which
+/// runs in no box.
+pub fn run_may_start_a_program(flags: &[&str]) -> bool {
+    !flags.contains(&"-A")
+        && flags
+            .iter()
+            .any(|flag| flag.starts_with("--allow-run=") || flag.starts_with("--allow-run-in="))
+}
+
+/// `stderr`, of a run that may start a program, without the line of
+/// [`NETWORK_NOTE`], so what a case pins holds on a host that gives the
+/// box a network namespace and on one that refuses it.
+///
+/// # Panics
+///
+/// Panics unless the note is there exactly where the box took the host's
+/// network ([`run_takes_a_network_namespace`]), once, as a whole line.
+pub fn past_network_note(stderr: &str) -> String {
+    let is_note = |line: &str| {
+        line.strip_prefix(NETWORK_NOTE).is_some_and(|rest| {
+            rest.contains("), so the box refuses every internet socket in its place: ")
+        })
+    };
+    let notes = stderr.lines().filter(|line| is_note(line)).count();
+    let expected = usize::from(cfg!(feature = "snapshot") && !run_takes_a_network_namespace());
+    assert_eq!(notes, expected, "the network notes in: {stderr}");
+    stderr
+        .split_inclusive('\n')
+        .filter(|line| !is_note(line.trim_end_matches('\n')))
+        .collect()
+}
 
 /// `stderr`, for a build with no snapshot, without the first line that
 /// is [`UNBOXED_NOTE`], with or without its programs' clause, ended by a

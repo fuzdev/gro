@@ -852,7 +852,8 @@ fn git_s_home_files_are_read_only_for_git() {
 
 /// A run that starts no program stays in the host's network, saying
 /// nothing; one that may start one takes a namespace of its own where the
-/// host allows it.
+/// host allows it, saying nothing, and otherwise stays in the host's
+/// network, saying only that.
 #[test]
 #[cfg_attr(
     not(feature = "snapshot"),
@@ -880,12 +881,12 @@ fn only_a_run_that_may_start_a_program_takes_a_network_namespace() {
         names
     };
     let own = interfaces("self");
-    let restricted =
-        std::fs::read_to_string("/proc/sys/kernel/apparmor_restrict_unprivileged_userns")
-            .is_ok_and(|value| value.trim() == "1");
     for (args, own_network) in [
         (&["run", "wait.mjs"][..], true),
-        (&["run", "--allow-run=true", "wait.mjs"], restricted),
+        (
+            &["run", "--allow-run=true", "wait.mjs"],
+            !support::run_takes_a_network_namespace(),
+        ),
     ] {
         let mut command = in_scratch(&scratch, &scratch.0.join("project"), args);
         command
@@ -905,8 +906,10 @@ fn only_a_run_that_may_start_a_program_takes_a_network_namespace() {
         let mut stderr = String::new();
         std::io::Read::read_to_string(&mut child.stderr.take().unwrap(), &mut stderr).unwrap();
         let stderr = String::from_utf8(support::without_unboxed_note(stderr.into_bytes())).unwrap();
-        if own_network && args.len() == 2 {
+        if args.len() == 2 {
             assert_eq!(stderr, "", "{args:?}");
+        } else {
+            assert_eq!(support::past_network_note(&stderr), "", "{args:?}");
         }
     }
 }
@@ -1181,13 +1184,8 @@ fn an_entry_in_no_project_reads_no_node_modules() {
         (Some(1), "[1,\"\",\"refused\"]\n"),
         "{stderr}"
     );
-    let past_network = stderr
-        .strip_prefix("note: no network namespace here (")
-        .map_or(stderr.as_str(), |note| {
-            note.split_once('\n').map_or("", |(_, rest)| rest)
-        });
     assert!(
-        past_network.starts_with("error: fs refused a read: "),
+        support::past_network_note(&stderr).starts_with("error: fs refused a read: "),
         "{stderr}"
     );
     let (code, stdout, stderr) = run(in_scratch(

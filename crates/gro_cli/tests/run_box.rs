@@ -229,10 +229,11 @@ fn expected_network(filtered: bool) -> String {
 }
 
 /// Whether the network the cases expect agrees with what an `unshare` and
-/// its maps did on this host with no check first (`host_probe`), an oracle
-/// apart from the settings both the box's check and [`expected_network`]
-/// read: the run's own namespace only where one is entered, and the
-/// host's network only where one is refused or would strand the process.
+/// its maps did on this host with no check first
+/// ([`support::host_namespace_probe`]), an oracle apart from the settings
+/// both the box's check and [`expected_network`] read: the run's own
+/// namespace only where one is entered, and the host's network only where
+/// one is refused or would strand the process.
 fn probe_agrees(expected: &str, probe: &str) -> bool {
     if expected == "namespace" {
         probe == "entered"
@@ -247,35 +248,10 @@ fn probe_agrees(expected: &str, probe: &str) -> bool {
     }
 }
 
-/// What an `unshare` of a user and network namespace, then its maps,
-/// does on this host with no check first, in a `python3` of its own.
-fn host_probe() -> String {
-    const SCRIPT: &str = r"
-import ctypes, errno, os
-libc = ctypes.CDLL(None, use_errno=True)
-uid, gid = os.geteuid(), os.getegid()
-if libc.unshare(0x10000000 | 0x40000000) != 0:
-    print('refused', errno.errorcode[ctypes.get_errno()])
-    raise SystemExit
-for name, text in (('setgroups', 'deny'), ('uid_map', f'{uid} {uid} 1'), ('gid_map', f'{gid} {gid} 1')):
-    try:
-        with open(f'/proc/self/{name}', 'w') as f:
-            f.write(text)
-    except OSError as e:
-        print('stranded at', name, errno.errorcode[e.errno])
-        raise SystemExit
-print('entered')
-";
-    match Command::new("python3").args(["-I", "-c", SCRIPT]).output() {
-        Ok(output) => String::from_utf8_lossy(&output.stdout).trim().to_owned(),
-        Err(error) => format!("python3 failed to start: {error}"),
-    }
-}
-
 /// Runs every case in a child and checks what it and the parent report.
 fn parent() {
     let scratch = scratch();
-    let probe = host_probe();
+    let probe = support::host_namespace_probe();
     println!(
         "host: apparmor_restrict_unprivileged_userns {}, unprivileged_userns_clone {}, \
          max_user_namespaces {}; an unshare with no check first: {}",

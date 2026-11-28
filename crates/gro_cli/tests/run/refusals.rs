@@ -1094,7 +1094,11 @@ fn a_host_module_the_flags_dont_grant_names_its_flag() {
     );
     let run = run_with(&fixtures, &["--allow-run=git"], "main.js", &[]);
     assert_eq!(
-        (run.code, run.stdout.as_str(), run.stderr.as_str()),
+        (
+            run.code,
+            run.stdout.as_str(),
+            support::past_network_note(&run.stderr).as_str()
+        ),
         (0, "imported\nimported\n", "")
     );
 }

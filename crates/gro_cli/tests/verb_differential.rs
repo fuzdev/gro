@@ -103,6 +103,12 @@ impl Printed {
     }
 }
 
+/// Whether `case`'s command may start a program: `check`'s and `gen`'s,
+/// whose closures grant one (svelte-kit).
+fn starts_programs(case: &Value) -> bool {
+    matches!(case["args"][0].as_str(), Some("check" | "gen"))
+}
+
 /// A declared difference of the binary from the Node gro, each a line of
 /// `src/docs/runtime.md`'s list, by the name a case's `differs` gives it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -282,8 +288,7 @@ fn apply(
                     "note: node_modules is a symlink to {}, which the box follows to read",
                     checkout_node_modules().display()
                 );
-                let spawns = matches!(case["args"][0].as_str(), Some("check" | "gen"));
-                let note = if spawns {
+                let note = if starts_programs(case) {
                     format!("{link} and execute, and no tool writes in it")
                 } else {
                     format!("{link}\n")
@@ -425,8 +430,21 @@ fn each_case_prints_what_the_node_gro_printed() {
             .flatten()
             .map(|name| Difference::parse(name.as_str().unwrap()))
             .collect();
+        // the boxed run of a command that may start a program says first,
+        // where the host refuses its box a network namespace, that it does,
+        // which is the host's, not a difference from the Node gro; every
+        // case whose run gets to its box declares the project's linked
+        // `node_modules`, which the box notes
+        let boxed = if starts_programs(case) && differs.contains(&Difference::LinkedNodeModules) {
+            Printed {
+                stderr: support::past_network_note(&printed.stderr),
+                ..printed.clone()
+            }
+        } else {
+            printed.clone()
+        };
         let node = Printed::from_json(&expected[name]);
-        let (actual, expected) = apply(&differs, &printed, case, node, &version);
+        let (actual, expected) = apply(&differs, &boxed, case, node, &version);
         let root_text = root.display().to_string();
         let actual = actual.map(|text| normalize(text, &root_text, &version));
         let expected = expected.map(|text| normalize(text, &root_text, &version));

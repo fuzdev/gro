@@ -5,7 +5,7 @@ use std::process::Stdio;
 
 use gro_runtime::BINARY_NAME;
 
-use crate::support::{fgro_command, spawn, version};
+use crate::support::{self, fgro_command, spawn, version};
 use crate::{commit, fgro, fixtures, run};
 
 #[test]
@@ -189,7 +189,10 @@ fn run_checks_a_program_s_write_flag() {
     ]);
     assert_eq!(code, Some(0), "{noted}");
     assert!(stdout.starts_with("log 1"), "{stdout}");
-    assert!(!noted.contains("note:"), "{noted}");
+    assert!(
+        !support::past_network_note(&noted).contains("note:"),
+        "{noted}"
+    );
     let (code, _, all) = stderr(&[
         "run",
         "-A",

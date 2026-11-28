@@ -56,7 +56,9 @@ use gro_runtime::BINARY_NAME;
 use gro_runtime::resolver::BUILTINS;
 use serde_json::Value;
 
-use support::{Scratch, fgro_command, spawn, without_unboxed_note};
+use support::{
+    Scratch, fgro_command, past_network_note, run_may_start_a_program, spawn, without_unboxed_note,
+};
 
 fn fixtures() -> PathBuf {
     support::fixtures("host")
@@ -327,6 +329,12 @@ fn each_case_matches_the_node_implementation_but_for_its_named_differences() {
         }
         drop(sockets);
         let stderr = String::from_utf8(without_unboxed_note(output.stderr)).unwrap();
+        let flags: Vec<&str> = case.flags.iter().map(String::as_str).collect();
+        let stderr = if run_may_start_a_program(&flags) {
+            past_network_note(&stderr)
+        } else {
+            stderr
+        };
         let stdout = String::from_utf8(output.stdout).unwrap();
         // the run's box makes its private directory in the temporary
         // directory, which it refuses in the project, where this case has it
@@ -906,7 +914,11 @@ fn run_entry(project: &Scratch, entry: &str) -> (Option<i32>, Reports, String) {
         })
         .collect();
     let stderr = String::from_utf8(without_unboxed_note(output.stderr)).unwrap();
-    (output.status.code(), Reports(reports), stderr)
+    (
+        output.status.code(),
+        Reports(reports),
+        past_network_note(&stderr),
+    )
 }
 
 /// What a run of `entry` that got to its end reported, having exited `0`
@@ -1323,6 +1335,7 @@ fn run_printing(project: &Scratch, entry: &str) -> Value {
     command.env_clear().current_dir(&project.0);
     let output = spawn(command, b"");
     let stderr = String::from_utf8(without_unboxed_note(output.stderr)).unwrap();
+    let stderr = past_network_note(&stderr);
     let stdout = String::from_utf8(output.stdout).unwrap();
     // the status first: a run a signal ended has no code, and says so
     assert_eq!(
@@ -4361,11 +4374,12 @@ fn spawn_pins_each_granted_program_as_the_run_starts() {
         let mut command = fgro_command(&args);
         command.env_clear().current_dir(&project.0);
         let output = spawn(command, b"");
-        assert_eq!(
-            String::from_utf8(without_unboxed_note(output.stderr)).unwrap(),
-            "",
-            "{flags:?}"
-        );
+        let stderr = String::from_utf8(without_unboxed_note(output.stderr)).unwrap();
+        if run_may_start_a_program(flags) {
+            assert_eq!(past_network_note(&stderr), "", "{flags:?}");
+        } else {
+            assert_eq!(stderr, "", "{flags:?}");
+        }
         assert_eq!(output.status.code(), Some(0), "{flags:?}");
         let printed: Value = serde_json::from_slice(&output.stdout).unwrap();
         (printed, project.path("bin/tool"))
@@ -4432,11 +4446,13 @@ fn spawn_program_in_needs_an_exec_root() {
         command.env_clear().current_dir(&project.0);
         let output = spawn(command, b"");
         let printed: Value = serde_json::from_slice(&output.stdout).unwrap();
-        (
-            output.status.code(),
-            String::from_utf8(without_unboxed_note(output.stderr)).unwrap(),
-            printed,
-        )
+        let stderr = String::from_utf8(without_unboxed_note(output.stderr)).unwrap();
+        let stderr = if run_may_start_a_program(flags) {
+            past_network_note(&stderr)
+        } else {
+            stderr
+        };
+        (output.status.code(), stderr, printed)
     };
     let not_granted = "SpawnError: not_granted: bin/tool";
     let type_error = "TypeError: expected an fs directory handle from this copy of Gro";
@@ -4506,7 +4522,8 @@ fn spawn_needs_its_grant_and_a_missing_grant_is_no_error() {
         "{stderr}"
     );
     let found = run(&["--allow-run=gro_no_such_program"]);
-    assert_eq!(String::from_utf8(found.stderr).unwrap(), "");
+    let stderr = String::from_utf8(without_unboxed_note(found.stderr)).unwrap();
+    assert_eq!(past_network_note(&stderr), "");
     assert_eq!(found.status.code(), Some(0));
     assert_eq!(String::from_utf8(found.stdout).unwrap(), "null\n");
 }
@@ -4566,8 +4583,9 @@ fn a_narrowed_spawn_keeps_the_run_s_pins_and_forwarding() {
             "tool"
         ])
     );
+    let stderr = String::from_utf8(without_unboxed_note(output.stderr)).unwrap();
     assert_eq!(
-        String::from_utf8(without_unboxed_note(output.stderr)).unwrap(),
+        past_network_note(&stderr),
         "error: spawn refused: not_granted: tool\n\
          error: a refusal fails the run, whether or not the program caught it\n\
          hint: add --allow-run-env=GRO_SECRET to grant what spawn refused\n"
