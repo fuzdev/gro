@@ -215,6 +215,7 @@ the condition set can pick another target than Node's, and `.ts` inside `node_mo
   The resolver takes each module file's identity, its device and inode numbers and its birth time,
   when it looks the file up, from the same open handle the kernel names its real path by,
   so the real path and the identity are one file's whatever is renamed or swapped around it.
+  That name is read from `/proc/self/fd`, so every lookup that finds an entry needs `/proc` mounted: where it isn't, each one fails naming `/proc/self/fd`, under `-A` too.
   The loader opens the path without blocking, compares the open file's identity with the one resolved,
   and reads the source from that open file, never from the path again,
   so a file, or a directory on its path, swapped between resolving and loading

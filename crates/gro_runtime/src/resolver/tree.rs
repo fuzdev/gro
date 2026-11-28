@@ -204,7 +204,9 @@ impl Stamp {
 /// the identity from the handle, so both are one file's whatever is renamed
 /// or swapped around it. The path is walked as an open walks it: through a
 /// directory the process can't search it fails with `EACCES`, even where a
-/// `..` leaves that directory again.
+/// `..` leaves that directory again. Reading that name needs `/proc`
+/// mounted: where it isn't, every lookup that finds an entry fails, naming
+/// `/proc/self/fd`.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct DiskTree;
 

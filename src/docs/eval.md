@@ -170,8 +170,9 @@ with a `TypeError` the code can catch; each `import()` in the module's graph is 
 caught or not (the driver's are refused as imports from the driver, and not listed), one with import attributes included, refused before they're read.
 A static import with an attribute under any key but `type` is a `link` naming the key, refused before anything resolves ([run](run.md#what-loads)).
 `import.meta.resolve` works as in [run](run.md),
-and it's one way an eval learns a fact of the machine despite `deny`: an absolute specifier is canonicalized before containment refuses it,
-and the refusal names the real path, so evaluated code can tell whether a path exists and where a link points.
+and it's one way an eval learns a fact of the machine despite `deny`: an absolute specifier is looked up before containment refuses it,
+the kernel walking its path to the real path, and the refusal names that real path,
+so evaluated code can tell whether a path exists, whether it's a regular file, and where a link points, and a refusal can name a sibling: one with no extension names a sibling that has one, and a missing `.js` or `.mjs` file its `.ts` or `.mts` twin.
 
 Eval imports no builtin module for now, a grant-free one included, so a host module's import is refused when the graph links,
 a `resolve` naming the grant it needs when it has one, as `@fuzdev/gro/args.ts` does, and saying only that eval imports no builtin module
