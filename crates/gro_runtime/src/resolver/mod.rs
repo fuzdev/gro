@@ -115,6 +115,7 @@ pub use error::{
     TargetFault, UrlFault,
 };
 pub use format::{ModuleFormat, module_format};
+pub use node_builtin::BuiltinImporter;
 pub use parsed::{ParsedPackages, Parsing};
 pub use project::{InstalledPackage, ProjectPackage, read_installed_package, read_project_package};
 pub use roots::{Origin, Root, Roots};
@@ -250,6 +251,11 @@ pub(crate) fn resolve_from(
     );
     let mut consulted = Consulted::default();
     match parse_specifier(specifier, importer).map_err(error)? {
+        Request::NodeBuiltin { name, bare } => Err(error(ResolveErrorKind::NodeBuiltin {
+            name: name.to_owned(),
+            bare,
+            importer: BuiltinImporter::of(importer_root, roots),
+        })),
         Request::Url(url) => {
             let path = url_to_path(&url).map_err(error)?;
             // as written too: an in-tree checkout linked into node_modules has none in its real path

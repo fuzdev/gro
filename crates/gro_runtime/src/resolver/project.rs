@@ -37,6 +37,9 @@ pub struct ProjectPackage {
     /// `"type"` or `"sideEffects"`, as the walk for a project root passes
     /// over one: such a directory is no project's root.
     pub type_marker: bool,
+    /// Whether its `"name"` is Gro's package: the project is Gro's own
+    /// checkout.
+    pub gro_checkout: bool,
 }
 
 impl ProjectPackage {
@@ -72,10 +75,12 @@ pub fn read_project_package(
         .map(|(name, _)| name.clone())
         .collect();
     let type_marker = package_json.is_type_marker(&mut Consulted::default());
+    let gro_checkout = package_json.names_gro();
     Ok(Some(ProjectPackage {
         path: package_json.path,
         declared,
         type_marker,
+        gro_checkout,
     }))
 }
 

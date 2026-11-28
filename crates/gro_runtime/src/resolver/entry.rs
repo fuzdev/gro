@@ -122,11 +122,18 @@ pub(super) fn entry_roots(
         .map(|(index, _)| index)
         .collect();
     let (Some(&first), Some(&last)) = (segments.first(), segments.last()) else {
-        let (project_dir, bound) = match find_bound(tree, dir, None, consulted)? {
-            Walk::Found((bound_dir, _)) => (bound_dir, EntryBound::Found),
-            Walk::NotFound { stopped_at } => (dir.to_owned(), EntryBound::Unbounded { stopped_at }),
+        let (project_dir, gro_checkout, bound) = match find_bound(tree, dir, None, consulted)? {
+            Walk::Found(found) => {
+                let gro_checkout = found
+                    .package_json
+                    .is_some_and(|package_json| package_json.names_gro());
+                (found.dir, gro_checkout, EntryBound::Found)
+            }
+            Walk::NotFound { stopped_at } => {
+                (dir.to_owned(), false, EntryBound::Unbounded { stopped_at })
+            }
         };
-        let roots = Roots::new(project_dir);
+        let roots = Roots::new(project_dir).with_gro_checkout(gro_checkout);
         let root = roots.project().clone();
         return Ok((roots, root, bound));
     };

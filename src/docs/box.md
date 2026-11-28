@@ -348,12 +348,15 @@ The binary takes the box's steps on its one thread, before V8 or any other threa
    Every fallback the command line or the project's files decide runs the Node Gro here, so Node gets the process the Node Gro would have,
    and what it refuses, like `-A` before the command word, or `--allow-run-write=` naming a program the command may start by no name, exits 2.
    `-A` before the command word is refused as `-A comes before the command, and the binary runs each command of Gro's in a kernel box, which -A can't lift: …`,
-   ending with the whole command on the Node Gro;
+   ending, once the project is read, with the whole command on its Node Gro, or that it installs none
+   (a project that can't be read is refused first, as for any command, `-A` before any command word but `run` included);
    before `run`, as in `fgro -A run x.ts`, the refusal says grant flags go after the command word, like `fgro run -A`.
 2. It refuses what can't run boxed, before anything changes:
    a binary built without its snapshot, which would read its own sources from its build tree, exit 1,
    and `-A` after the command word, whose unconfined spelling is the Node Gro, exit 2, as
    `error: -A would run a command of Gro's unconfined, and the binary runs each in a kernel box: the project's Node gro is the unconfined spelling (node_modules/.bin/gro format --check)`.
+   Each message naming the Node Gro names the project's: `node_modules/.bin/gro` for the Gro it installed, `gro` in Gro's own checkout (its `package.json` names `@fuzdev/gro`), whose Node CLI, the global `gro`, runs its build once built,
+   and, where it has neither, says this project installs none, most with `npm i -D @fuzdev/gro`.
 3. It probes the kernel and the standard streams, changing nothing.
    Where the kernel's Landlock is missing, off, or below its sixth ABI, or a seccomp filter the process inherited refuses its calls, there's no box, so the command runs on the Node Gro after a `note:` line saying so, a fallback the host decides.
    `GRO_FALLBACK=command` refuses that fallback, exit 2 ([authority](authority.md#what-the-first-release-is-for)), and so does a project with no Node Gro installed.

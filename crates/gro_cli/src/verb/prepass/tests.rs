@@ -8,7 +8,7 @@ use gro_runtime::verb::table::BuiltinGrantsTable;
 use gro_runtime::{EnvPattern, PassEnvGrant, ProgramGrant};
 
 use super::{
-    ProjectReads, TableFault, VerbError, VerbFallback, VerbInputs, VerbPlan, VerbRun,
+    NodeGro, ProjectReads, TableFault, VerbError, VerbFallback, VerbInputs, VerbPlan, VerbRun,
     binary_command_with, plan,
 };
 use crate::cli::{FlagDirs, GrantListError, RunGrant};
@@ -46,6 +46,7 @@ fn package(type_marker: bool) -> ProjectPackage {
         path: PathBuf::from("/p/package.json"),
         declared: BTreeSet::new(),
         type_marker,
+        gro_checkout: false,
     }
 }
 
@@ -858,4 +859,134 @@ fn a_command_with_flags_added_puts_them_after_its_grant_flags() {
             "{cli_args:?}"
         );
     }
+}
+
+/// Gro's own checkout, its `package.json` naming Gro's package, with Gro
+/// installed at `version`, or none.
+fn checkout(gro: Option<&str>) -> Project {
+    Project {
+        package: Ok(Some(ProjectPackage {
+            gro_checkout: true,
+            ..package(false)
+        })),
+        installed: Ok(gro.map(gro_at)),
+    }
+}
+
+/// Each message naming the project's Node Gro names the one it has: the
+/// Gro it installed, Gro's own checkout's CLI, or none, saying so; and the
+/// run carries which, with whether the project is Gro's checkout.
+#[test]
+fn a_message_names_the_project_s_node_gro() {
+    let table = BuiltinGrantsTable::carried().unwrap();
+    let refused = |cli_args: &[&str], project: &Project| {
+        plan_with(cli_args, Env::default(), &table, project).unwrap_err()
+    };
+    let installed = project(Some(VERSION));
+    let absent = project(None);
+    let gro = checkout(None);
+    // `-A` before the command word, once the project is read
+    let all = |project: &Project| {
+        let error = refused(&["-A", "--allow-read=.", "check", "a b"], project);
+        assert!(
+            matches!(error, VerbError::AllBeforeCommand { .. }),
+            "{error}"
+        );
+        assert_eq!(error.exit_code(), 2);
+        error.to_string()
+    };
+    let lift = "-A comes before the command, and the binary runs each command of Gro's in a \
+                kernel box, which -A can't lift";
+    assert_eq!(
+        all(&installed),
+        format!(
+            "{lift}: the project's Node gro is the unconfined spelling (node_modules/.bin/gro \
+             check 'a b')"
+        )
+    );
+    assert_eq!(
+        all(&checkout(Some(VERSION))),
+        format!(
+            "{lift}: the project's Node gro is the unconfined spelling (node_modules/.bin/gro \
+             check 'a b')"
+        )
+    );
+    assert_eq!(
+        all(&gro),
+        format!("{lift}: the project's Node gro is the unconfined spelling (gro check 'a b')")
+    );
+    assert_eq!(
+        all(&absent),
+        format!(
+            "{lift}: the Node gro is the unconfined spelling, and this project installs none: npm \
+             i -D @fuzdev/gro"
+        )
+    );
+    // a project that can't be read is refused as any command's is
+    let no_project = Project {
+        package: Ok(None),
+        installed: Ok(None),
+    };
+    assert_eq!(
+        refused(&["-A", "check"], &no_project).to_string(),
+        "fgro check runs the project at the working directory, and /p holds no package.json"
+    );
+    // `run` takes `-A` after its word, which a flag's place says
+    assert!(matches!(
+        refused(&["-A", "run", "x.ts"], &absent),
+        VerbError::GrantFlags(GrantFlagsError::BeforeCommand { .. })
+    ));
+    // a forwarded section turning a check off
+    let check_off = |project: &Project| {
+        refused(&["check", "--", "gro", "gen", "--no-check"], project).to_string()
+    };
+    let head = "fgro check runs gen in check mode, writing no source, and the forwarded `-- gro \
+                gen` turns that check off, a write it never grants: run fgro gen for the writes";
+    assert_eq!(
+        check_off(&installed),
+        format!(
+            "{head}, or node_modules/.bin/gro check -- gro gen --no-check on the project's Node \
+             gro, unconfined"
+        )
+    );
+    assert_eq!(
+        check_off(&gro),
+        format!("{head}, or gro check -- gro gen --no-check on the project's Node gro, unconfined")
+    );
+    assert_eq!(
+        check_off(&absent),
+        format!(
+            "{head}; the Node gro runs it unconfined, and this project installs none: \
+             npm i -D @fuzdev/gro"
+        )
+    );
+    // a fallback with no installed Gro to run
+    let none = refused(&["task", "src/a.task.ts"], &absent);
+    assert!(matches!(none, VerbError::NoNodeGro { .. }), "{none}");
+    assert_eq!(
+        none.to_string(),
+        "fgro task runs on the Node gro, because a project task's grants are in no table, so \
+         the Node Gro runs it, and this project installs none: npm i -D @fuzdev/gro"
+    );
+    let own = refused(&["task", "src/a.task.ts"], &gro);
+    assert!(matches!(own, VerbError::GroCheckout { .. }), "{own}");
+    assert_eq!(own.exit_code(), 2);
+    assert_eq!(
+        own.to_string(),
+        "fgro task runs on the Node gro, because a project task's grants are in no table, so \
+         the Node Gro runs it, and this is Gro's own checkout: gro task src/a.task.ts"
+    );
+    assert!(matches!(
+        plan_with(&["task"], Env::default(), &table, &checkout(Some(VERSION))),
+        Ok(VerbPlan::Fallback(_))
+    ));
+    // the run carries the project's
+    let run_in = |project: &Project| match plan_with(&["check"], Env::default(), &table, project) {
+        Ok(VerbPlan::Run(run)) => (run.node_gro, run.gro_checkout),
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(run_in(&installed), (NodeGro::Installed, false));
+    assert_eq!(run_in(&checkout(Some(VERSION))), (NodeGro::Installed, true));
+    assert_eq!(run_in(&gro), (NodeGro::Checkout, true));
+    assert_eq!(run_in(&absent), (NodeGro::Absent, false));
 }

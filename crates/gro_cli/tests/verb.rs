@@ -360,7 +360,9 @@ fn a_command_s_run_matches_the_development_condition() {
 
 /// A run that fails after a Node built-in was refused, caught or not, a
 /// bare name Node resolves as one included, says how to run the command on
-/// the Node Gro; one that fails otherwise doesn't.
+/// the Node Gro, or that the project installs none, as this one, which
+/// links a `node_modules` with no Gro, does; one that fails otherwise
+/// doesn't.
 #[test]
 #[cfg_attr(
     not(feature = "snapshot"),
@@ -379,8 +381,8 @@ fn a_refused_node_builtin_hints_at_the_node_gro() {
     assert_eq!(code, Some(1), "{stdout}{stderr}");
     assert!(
         stderr.ends_with(
-            "hint: a Node built-in's import was refused in this run; the Node gro runs it, unconfined: \
-             node_modules/.bin/gro gen 'src/lib/a b' --check\n"
+            "hint: a Node built-in's import was refused in this run; the Node gro runs it, unconfined, \
+             and this project installs none: npm i -D @fuzdev/gro\n"
         ),
         "{stdout}{stderr}"
     );
@@ -392,6 +394,54 @@ fn a_refused_node_builtin_hints_at_the_node_gro() {
     let (code, stdout, stderr) = run(fgro_in(&project.0, &["gen"]));
     assert_eq!(code, Some(1), "{stdout}{stderr}");
     assert!(!stderr.contains("hint:"), "{stderr}");
+}
+
+/// In Gro's own checkout, its `package.json` naming Gro's package, a
+/// refused Node built-in's fix says Gro's source is written for Node, and
+/// the hint names the checkout's own CLI.
+#[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "a command of Gro's runs on the binary only from a snapshot build"
+)]
+fn gro_s_own_checkout_runs_its_source_under_node() {
+    let project = Scratch::new(
+        "verb_gro_checkout",
+        &[
+            (
+                "package.json",
+                r#"{"name": "@fuzdev/gro", "type": "module"}"#,
+            ),
+            (
+                "src/lib/fs.ts",
+                "import 'node:fs/promises';\nexport const fs = 1;\n",
+            ),
+            (
+                "src/lib/n.gen.ts",
+                "import { fs } from './fs.ts';\nexport const gen = () => String(fs);\n",
+            ),
+        ],
+    );
+    std::os::unix::fs::symlink(checkout_node_modules(), project.0.join("node_modules")).unwrap();
+    let (code, stdout, stderr) = run(fgro_in(
+        &project.0,
+        &["gen", "--allow-env=HOME", "src/lib", "--check"],
+    ));
+    assert_eq!(code, Some(1), "{stdout}{stderr}");
+    assert!(
+        stderr.contains(
+            "src/lib/fs.ts: a node: specifier names a Node built-in, and there is no Node compat. \
+             Gro's own source is written for Node. Fix: run this under Node with gro\n"
+        ),
+        "{stdout}{stderr}"
+    );
+    assert!(
+        stderr.ends_with(
+            "hint: a Node built-in's import was refused in this run; the Node gro runs it, unconfined: \
+             gro gen src/lib --check\n"
+        ),
+        "{stdout}{stderr}"
+    );
 }
 
 /// A flag's directory refused under a command of gro's names no `fgro run`

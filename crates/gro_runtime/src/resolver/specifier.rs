@@ -17,10 +17,20 @@ pub(super) enum Request<'a> {
     Package(&'a str),
     /// A `#` specifier, which the nearest `package.json`'s `"imports"` map.
     Import(&'a str),
+    /// A Node built-in, refused with a fix for its importer: a `node:`
+    /// specifier, or, `bare`, a bare specifier that is exactly a name Node
+    /// resolves as one ahead of any package.
+    NodeBuiltin {
+        /// The built-in's name, without `node:`.
+        name: &'a str,
+        /// Whether the specifier was the bare name.
+        bare: bool,
+    },
 }
 
 /// Parses a specifier, refusing every form but relative and absolute `file:`
-/// ones, bare ones, and `#` ones: a `#` specifier is `#` and more, not
+/// ones, bare ones, `#` ones, and a Node built-in's, which the caller
+/// refuses knowing the importer: a `#` specifier is `#` and more, not
 /// ending in `/`, as Node reads it (`#/x` included).
 pub(super) fn parse_specifier<'a>(
     specifier: &'a str,
@@ -41,11 +51,8 @@ pub(super) fn parse_specifier<'a>(
     if let Ok(url) = Url::parse(specifier) {
         return match url.scheme() {
             "file" => Ok(Request::Url(url)),
-            "node" => Err(ResolveErrorKind::NodeBuiltin {
-                name: specifier
-                    .strip_prefix("node:")
-                    .unwrap_or(specifier)
-                    .to_owned(),
+            "node" => Ok(Request::NodeBuiltin {
+                name: specifier.strip_prefix("node:").unwrap_or(specifier),
                 bare: false,
             }),
             "npm" | "jsr" => Err(ResolveErrorKind::Registry),
@@ -64,8 +71,8 @@ pub(super) fn parse_specifier<'a>(
     }
     // Node resolves its built-ins' bare names ahead of any package
     if is_node_builtin(specifier) {
-        return Err(ResolveErrorKind::NodeBuiltin {
-            name: specifier.to_owned(),
+        return Ok(Request::NodeBuiltin {
+            name: specifier,
             bare: true,
         });
     }

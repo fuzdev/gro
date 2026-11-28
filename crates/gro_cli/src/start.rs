@@ -160,7 +160,8 @@ use crate::thread::{Joined, on_sized_thread};
 use crate::verb::entry::main_entry;
 use crate::verb::fallback::{FallbackPolicy, FallbackReason, KernelLandlock, exec_node_gro};
 use crate::verb::prepass::{
-    binary_command_with, command_line, command_of, floor_fallback, node_gro_command,
+    INSTALL_GRO, NodeGro, binary_command_with, command_line, command_of, floor_fallback,
+    unconfined_spelling,
 };
 use crate::{EXIT_FAILURE, EXIT_PANIC, EXIT_USAGE};
 
@@ -233,6 +234,11 @@ pub enum StartEntry {
         home: Option<String>,
         /// The binary's version.
         version: String,
+        /// The project's Node Gro, which a message and the entry name.
+        node_gro: NodeGro,
+        /// Whether the project is Gro's own checkout, which the entry's
+        /// roots say.
+        gro_checkout: bool,
     },
     /// `fgro run`'s file, resolved before the box, with the roots its
     /// graph starts with.
@@ -243,6 +249,24 @@ pub enum StartEntry {
 const RUN_CODE: &str = "the run's own code";
 
 impl RunStart {
+    /// The project's Node Gro, a command of Gro's names: `fgro run`'s is
+    /// none, since it starts no command of Gro's.
+    pub const fn node_gro(&self) -> NodeGro {
+        match self.entry {
+            StartEntry::Generated { node_gro, .. } => node_gro,
+            StartEntry::File(_) => NodeGro::Absent,
+        }
+    }
+
+    /// Whether the project of a command of Gro's is Gro's own checkout;
+    /// `fgro run`'s entry's roots say so for its own.
+    pub const fn gro_checkout(&self) -> bool {
+        match self.entry {
+            StartEntry::Generated { gro_checkout, .. } => gro_checkout,
+            StartEntry::File(_) => false,
+        }
+    }
+
     /// Whether it's `fgro run`'s.
     const fn is_file(&self) -> bool {
         matches!(self.entry, StartEntry::File(_))
@@ -324,10 +348,12 @@ pub enum BoxStartError {
         command: Option<String>,
     },
     /// `-A` after the command word.
-    #[error("{} ({})", PlanRefusal::Unconfined, node_gro_command(.cli_args))]
+    #[error("{}: {}", PlanRefusal::Unconfined, unconfined_spelling(*.node_gro, .cli_args))]
     Unconfined {
         /// The command line, its grant flags split off.
         cli_args: Vec<String>,
+        /// The project's Node Gro.
+        node_gro: NodeGro,
     },
     /// A step of the box refused, or failed, before it went up.
     #[error("{}", with_causes(.0))]
@@ -688,6 +714,7 @@ fn probed(run: &RunStart) -> Result<LandlockFloor, Probed> {
     if matches!(run.grant, RunGrant::All) {
         return Err(Probed::Refused(BoxStartError::Unconfined {
             cli_args: run.cli_args.clone(),
+            node_gro: run.node_gro(),
         }));
     }
     let floor = probe_floor().map_err(|error| {
@@ -801,7 +828,12 @@ fn boxed(
     // reads nothing of that directory
     let entry = match &run.entry {
         StartEntry::File(entry) => Ok(prepared(entry, &authority, spec.conditions)?),
-        StartEntry::Generated { home, version } => Err((home, version)),
+        StartEntry::Generated {
+            home,
+            version,
+            node_gro,
+            ..
+        } => Err((home, version, *node_gro)),
     };
     let inputs = box_inputs(
         run,
@@ -916,10 +948,12 @@ fn boxed(
     let walls = walls_note(run, &wall_rules(&confined), &plan, confined.network());
     let entry = match entry {
         Ok(file) => BoxedEntry::File(Box::new(file)),
-        Err((home, version)) => BoxedEntry::Generated(main_entry(
+        Err((home, version, node_gro)) => BoxedEntry::Generated(main_entry(
             home.as_deref(),
             version,
             plan.vitest_module_cache().as_deref(),
+            node_gro,
+            &run.cli_args,
         )),
     };
     Ok(Boxed {
@@ -1368,15 +1402,12 @@ fn run_on_thread(run: &RunStart, boxed: Boxed) -> u8 {
     } = boxed;
     let root = run.root.clone();
     let cwd = run.cwd.clone();
+    let gro_checkout = run.gro_checkout();
     // a command of Gro's names the Node Gro for a Node built-in, and `fgro
     // run` the flag naming an entry's own directory with no project
     let ending = match &entry {
         BoxedEntry::Generated(_) => Ending {
-            node_hint: Some(format!(
-                "hint: a Node built-in's import was refused in this run; the Node gro runs it, \
-                 unconfined: {}",
-                node_gro_command(&run.cli_args)
-            )),
+            node_hint: Some(node_builtin_hint(run.node_gro(), &run.cli_args)),
             entry_dir: None,
             walls: Some(walls),
         },
@@ -1395,7 +1426,11 @@ fn run_on_thread(run: &RunStart, boxed: Boxed) -> u8 {
                     BoxedEntry::Generated(source) => gro_runtime::run_generated(
                         engine,
                         &options,
-                        &GeneratedEntry { source, root },
+                        &GeneratedEntry {
+                            source,
+                            root,
+                            gro_checkout,
+                        },
                         pins,
                         programs,
                         &cwd,
@@ -1412,6 +1447,18 @@ fn run_on_thread(run: &RunStart, boxed: Boxed) -> u8 {
         Joined::Unstarted(error) => CliError::from(BoxStartError::Thread(error)).report(),
         Joined::Panicked => EXIT_PANIC,
     }
+}
+
+/// The hint a command of Gro's prints when it failed after the resolver
+/// refused a Node built-in in it: the command line `cli_args` on the
+/// project's Node Gro, `node_gro`, or that the project installs none.
+fn node_builtin_hint(node_gro: NodeGro, cli_args: &[String]) -> String {
+    let hint = "hint: a Node built-in's import was refused in this run; the Node gro runs it, \
+                unconfined";
+    node_gro.command(cli_args).map_or_else(
+        || format!("{hint}, and this project installs none: {INSTALL_GRO}"),
+        |command| format!("{hint}: {command}"),
+    )
 }
 
 #[cfg(test)]

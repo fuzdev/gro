@@ -10,11 +10,11 @@ use gro_runtime::confine::plan::{
 use gro_runtime::resolver::InstalledPackage;
 use gro_runtime::{BINARY_NAME, RunPins};
 
-use super::{BoxStartError, RunStart, TempHolder, box_inputs};
+use super::{BoxStartError, RunStart, StartEntry, TempHolder, box_inputs, node_builtin_hint};
 use crate::cli::{FlagDirs, RunGrant};
 use crate::run::Environment;
 use crate::verb::fallback::{FallbackPolicy, FallbackReason, KernelLandlock, fallback_note};
-use crate::verb::prepass::{VerbError, VerbRun, floor_fallback};
+use crate::verb::prepass::{NodeGro, VerbError, VerbRun, floor_fallback};
 use crate::{EXIT_FAILURE, EXIT_USAGE};
 
 /// An environment of the test's own.
@@ -96,6 +96,8 @@ fn run(
         tools: tools(&[("vitest", &[ToolDir::Vitest])]),
         declared: set(&["vitest"]),
         policy,
+        node_gro: NodeGro::of(false, gro.is_some()),
+        gro_checkout: false,
         gro,
         programs: BTreeMap::new(),
         run_writes: BTreeMap::new(),
@@ -270,7 +272,7 @@ fn a_kernel_below_the_floor_falls_back_unless_the_policy_refuses() {
     );
     let none = floor_fallback(
         run(FlagDirs::default(), false, FallbackPolicy::All, None),
-        reason,
+        reason.clone(),
     )
     .unwrap_err();
     assert_eq!(none.exit_code(), EXIT_USAGE);
@@ -282,6 +284,83 @@ fn a_kernel_below_the_floor_falls_back_unless_the_policy_refuses() {
              -D @fuzdev/gro"
         )
     );
+    // no Node Gro to name, strict or not
+    let strict_none = floor_fallback(
+        run(FlagDirs::default(), false, FallbackPolicy::Command, None),
+        reason.clone(),
+    )
+    .unwrap_err();
+    assert!(
+        matches!(strict_none, VerbError::StrictHost { .. }),
+        "{strict_none}"
+    );
+    assert_eq!(
+        strict_none.to_string(),
+        "GRO_FALLBACK=command refuses running a Node gro, which confines nothing, in the kernel \
+         box's place: the kernel's Landlock is ABI 5, below the ABI 6 (Linux 6.12) the kernel box \
+         needs, and this project installs none"
+    );
+    // Gro's own checkout names its CLI
+    let strict_checkout =
+        floor_fallback(checkout_run(FallbackPolicy::Command), reason.clone()).unwrap_err();
+    assert_eq!(
+        strict_checkout.to_string(),
+        "GRO_FALLBACK=command refuses running the project's own gro, which confines nothing, in \
+         the kernel box's place: the kernel's Landlock is ABI 5, below the ABI 6 (Linux 6.12) \
+         the kernel box needs. Run gro check --watch for the project's, unconfined"
+    );
+    let checkout = floor_fallback(checkout_run(FallbackPolicy::All), reason).unwrap_err();
+    assert!(
+        matches!(checkout, VerbError::GroCheckout { .. }),
+        "{checkout}"
+    );
+    assert_eq!(checkout.exit_code(), EXIT_USAGE);
+    assert_eq!(
+        checkout.to_string(),
+        format!(
+            "{BINARY_NAME} check runs on the Node gro, because the kernel's Landlock is ABI 5, \
+             below the ABI 6 (Linux 6.12) the kernel box needs, and this is Gro's own checkout: \
+             gro check --watch"
+        )
+    );
+}
+
+/// A run of `check --watch` in Gro's own checkout, which installs no Gro,
+/// under `policy`.
+fn checkout_run(policy: FallbackPolicy) -> RunStart {
+    let mut start = run(FlagDirs::default(), false, policy, None);
+    let StartEntry::Generated {
+        node_gro,
+        gro_checkout,
+        ..
+    } = &mut start.entry
+    else {
+        panic!("a command of Gro's");
+    };
+    *node_gro = NodeGro::Checkout;
+    *gro_checkout = true;
+    start
+}
+
+/// The hint after a refused Node built-in names the command on the
+/// project's Node Gro, or says the project installs none.
+#[test]
+fn the_node_builtin_hint_names_the_project_s_node_gro() {
+    let cli_args = ["gen".to_owned(), "src/a b".to_owned(), "--check".to_owned()];
+    let hint = "hint: a Node built-in's import was refused in this run; the Node gro runs it, \
+                unconfined";
+    assert_eq!(
+        node_builtin_hint(NodeGro::Installed, &cli_args),
+        format!("{hint}: node_modules/.bin/gro gen 'src/a b' --check")
+    );
+    assert_eq!(
+        node_builtin_hint(NodeGro::Checkout, &cli_args),
+        format!("{hint}: gro gen 'src/a b' --check")
+    );
+    assert_eq!(
+        node_builtin_hint(NodeGro::Absent, &cli_args),
+        format!("{hint}, and this project installs none: npm i -D @fuzdev/gro")
+    );
 }
 
 /// The refusals before the box: `-A` names the Node Gro's command, a build
@@ -291,12 +370,31 @@ fn a_kernel_below_the_floor_falls_back_unless_the_policy_refuses() {
 fn the_refusals_before_the_box_print_their_texts_and_codes() {
     let unconfined = BoxStartError::Unconfined {
         cli_args: vec!["check".to_owned(), "a b".to_owned()],
+        node_gro: NodeGro::Installed,
     };
     assert_eq!(unconfined.exit_code(), EXIT_USAGE);
     assert_eq!(
         unconfined.to_string(),
         "-A would run a command of Gro's unconfined, and the binary runs each in a kernel box: \
          the project's Node gro is the unconfined spelling (node_modules/.bin/gro check 'a b')"
+    );
+    let unconfined = |node_gro| {
+        BoxStartError::Unconfined {
+            cli_args: vec!["check".to_owned()],
+            node_gro,
+        }
+        .to_string()
+    };
+    assert_eq!(
+        unconfined(NodeGro::Checkout),
+        "-A would run a command of Gro's unconfined, and the binary runs each in a kernel box: \
+         the project's Node gro is the unconfined spelling (gro check)"
+    );
+    assert_eq!(
+        unconfined(NodeGro::Absent),
+        "-A would run a command of Gro's unconfined, and the binary runs each in a kernel box: \
+         the Node gro is the unconfined spelling, and this project installs none: npm i -D \
+         @fuzdev/gro"
     );
     let unbuilt = BoxStartError::NoSnapshot {
         command: Some("check".to_owned()),
@@ -374,6 +472,7 @@ fn a_planted_path_exits_2_and_a_failed_step_1() {
     let usage = [
         BoxStartError::Unconfined {
             cli_args: Vec::new(),
+            node_gro: NodeGro::Absent,
         },
         BoxStartError::Confine(ConfineError::StdioSocket { fds: vec![0] }),
         BoxStartError::Plan {
@@ -886,7 +985,7 @@ fn a_file_s_run_names_fgro_run_and_reads_git_s_files_only_for_git() {
         development: false,
         policy: FallbackPolicy::All,
         gro: None,
-        entry: super::StartEntry::File(Box::new(entry.clone())),
+        entry: StartEntry::File(Box::new(entry.clone())),
     };
     let inputs = |start: &RunStart| {
         box_inputs(

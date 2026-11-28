@@ -7,13 +7,17 @@
 //!
 //! 1. `GRO_FALLBACK`'s policy ([`FallbackPolicy`]), refused before anything
 //!    else when it names none;
-//! 2. the grant flags split off ([`split_grant_flags`]);
+//! 2. the grant flags split off ([`split_grant_flags`]), but for `-A`
+//!    before the command word, refused once the project is read, naming
+//!    its Node Gro ([`VerbError::AllBeforeCommand`]);
 //! 3. the project's root, the working directory, which must hold a
-//!    `package.json` that isn't a type marker;
+//!    `package.json` that isn't a type marker, and the Gro it installed,
+//!    which with its name gives its Node Gro ([`NodeGro`]);
 //! 4. the command's closure (`gro_runtime::verb::closure`), and why it runs
 //!    on the Node Gro, if it does ([`fallback_reasons`]), with the project's
 //!    installed Gro: a fallback the policy refuses is refused, one with no
-//!    installed Gro to run is too, and any other is the plan
+//!    installed Gro to run is too, Gro's own checkout's naming its Node
+//!    CLI, and any other is the plan
 //!    ([`VerbPlan::Fallback`]);
 //! 5. else a forwarded section that turns off the check of a builtin an
 //!    invoke marked `check` runs is refused
@@ -39,7 +43,8 @@
 //! forwarded section turning a check off, which keeps the command from
 //! failing at its first write where Node writes (the closure's reads bound
 //! it either way); `GRO_FALLBACK`'s policy is
-//! [`FallbackPolicy`]'s.
+//! [`FallbackPolicy`]'s. Each message naming the project's Node Gro is a
+//! review signal, spelled by [`NodeGro`] from what the project's files say.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsStr;
@@ -155,6 +160,11 @@ pub struct VerbRun {
     /// installed one: what runs in the binary's place on a host that can't
     /// hold the box.
     pub gro: Option<InstalledPackage>,
+    /// The project's Node Gro, which a message names.
+    pub node_gro: NodeGro,
+    /// Whether the project is Gro's own checkout, which the entry's roots
+    /// say.
+    pub gro_checkout: bool,
     /// The policy of each program the closure grants, by the name it's
     /// granted as; a program only a flag grants is in none.
     pub programs: BTreeMap<String, ProgramGrant>,
@@ -194,6 +204,18 @@ pub enum VerbError {
     /// The grant flags are refused.
     #[error(transparent)]
     GrantFlags(#[from] GrantFlagsError),
+    /// `-A` before the command word of a command the binary runs in its
+    /// box, refused with the spelling that runs it unconfined.
+    #[error("{refused}: {}", unconfined_spelling(*.node_gro, .cli_args))]
+    AllBeforeCommand {
+        /// The refusal of the flag.
+        refused: GrantFlagsError,
+        /// The command line without the grant flags before the command
+        /// word.
+        cli_args: Vec<String>,
+        /// The project's Node Gro.
+        node_gro: NodeGro,
+    },
     /// The working directory holds no `package.json`.
     #[error(
         "{} runs the project at the working directory, and {} holds no package.json{}",
@@ -236,7 +258,7 @@ pub enum VerbError {
          Install {GRO_PACKAGE}@{binary} to run this one, or run {} for the project's, \
          unconfined",
         joined_reasons(.reasons),
-        node_gro_command(.cli_args)
+        installed_gro_command(.cli_args)
     )]
     Strict {
         /// The command line, its grant flags split off.
@@ -247,21 +269,18 @@ pub enum VerbError {
         binary: String,
     },
     /// `GRO_FALLBACK=command` refuses a fallback the host decides.
-    #[error(
-        "GRO_FALLBACK=command refuses running the project's own gro, which confines nothing, in \
-         the kernel box's place: {reason}. Run {} for the project's, unconfined",
-        node_gro_command(.cli_args)
-    )]
+    #[error("{}", strict_host(.reason, *.node_gro, .cli_args))]
     StrictHost {
         /// The command line, its grant flags split off.
         cli_args: Vec<String>,
         /// Why the box can't go up.
         reason: FallbackReason,
+        /// The project's Node Gro.
+        node_gro: NodeGro,
     },
     /// The command runs on the Node Gro, and the project installed none.
     #[error(
-        "{} runs on the Node gro, because {}, and this project installs none: npm i -D \
-         {GRO_PACKAGE}",
+        "{} runs on the Node gro, because {}, and this project installs none: {INSTALL_GRO}",
         command_line(.command.as_deref()),
         joined_reasons(.reasons)
     )]
@@ -271,18 +290,33 @@ pub enum VerbError {
         /// Why it would run on the Node Gro.
         reasons: Vec<FallbackReason>,
     },
+    /// The command runs on the Node Gro, and the project is Gro's own
+    /// checkout, which installs none: its Node CLI runs it.
+    #[error(
+        "{} runs on the Node gro, because {}, and this is Gro's own checkout: {}",
+        command_line(.command.as_deref()),
+        joined_reasons(.reasons),
+        checkout_gro_command(.cli_args)
+    )]
+    GroCheckout {
+        /// The command word, none for the listing.
+        command: Option<String>,
+        /// Why it would run on the Node Gro.
+        reasons: Vec<FallbackReason>,
+        /// The command line, its grant flags split off.
+        cli_args: Vec<String>,
+    },
     /// A forwarded section turns off the check of a builtin an invoke
     /// marked `check` runs, a write the command's closure never grants.
     #[error(
         "{} runs {} in check mode, writing no source, and the forwarded {} {} that check off, a \
-         write it never grants: run {} for the writes, or {} on the project's Node gro, \
-         unconfined",
+         write it never grants: run {} for the writes{}",
         command_line(.command.as_deref()),
         and_list(.builtins.iter().cloned()),
         and_list(.builtins.iter().map(|name| format!("`-- gro {name}`"))),
         if .builtins.len() == 1 { "turns" } else { "turn" },
         and_list(.builtins.iter().map(|name| command_line(Some(name)))),
-        node_gro_command(.cli_args)
+        check_turned_off_spelling(*.node_gro, .cli_args)
     )]
     CheckTurnedOff {
         /// The command word.
@@ -292,6 +326,8 @@ pub enum VerbError {
         builtins: Vec<String>,
         /// The command line, its grant flags split off.
         cli_args: Vec<String>,
+        /// The project's Node Gro.
+        node_gro: NodeGro,
     },
     /// `--allow-run-write=` names a program the command may start by no
     /// name, the program echoed, escaped: a program's name, never a value.
@@ -362,6 +398,7 @@ impl VerbError {
             Self::Table { .. } => EXIT_FAILURE,
             Self::FallbackPolicy(_)
             | Self::GrantFlags(_)
+            | Self::AllBeforeCommand { .. }
             | Self::NoPackageJson { .. }
             | Self::TypeMarker { .. }
             | Self::Project { .. }
@@ -370,20 +407,127 @@ impl VerbError {
             | Self::CheckTurnedOff { .. }
             | Self::RunWriteNoProgram { .. }
             | Self::RunWriteAmbiguous { .. }
-            | Self::NoNodeGro { .. } => EXIT_USAGE,
+            | Self::NoNodeGro { .. }
+            | Self::GroCheckout { .. } => EXIT_USAGE,
         }
     }
 }
 
-/// The command that runs the command line `cli_args`, its grant flags split
-/// off, on the project's own Node Gro: `node_modules/.bin/gro` and each
-/// argument as a shell reads it back ([`shell_quote`]), so a message names
-/// the whole command, a check's `--check` included, and never another.
-pub fn node_gro_command(cli_args: &[String]) -> String {
-    std::iter::once(NODE_GRO.to_owned())
+/// The project's own Node Gro, which runs a command of Gro's unconfined,
+/// as a message names it, decided by the project's files: the Gro it
+/// installed first, as the Node Gro picks one.
+///
+/// Kind: what each message names is a review signal. The project's files
+/// decide it, and every spelling runs the project's own code, unconfined.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NodeGro {
+    /// The Gro the project installed, `node_modules/.bin/gro`, its real
+    /// directory or a link.
+    Installed,
+    /// Gro's own checkout, its `package.json` naming Gro's package, which
+    /// installs none: its Node CLI is `gro`, the global one, which runs
+    /// the checkout's build once built.
+    Checkout,
+    /// None: the project installs no Gro and isn't Gro's checkout.
+    Absent,
+}
+
+impl NodeGro {
+    /// The project's, Gro's own checkout when `gro_checkout`, with a Gro
+    /// installed when `installed`.
+    pub const fn of(gro_checkout: bool, installed: bool) -> Self {
+        match (installed, gro_checkout) {
+            (true, _) => Self::Installed,
+            (false, true) => Self::Checkout,
+            (false, false) => Self::Absent,
+        }
+    }
+
+    /// The program a command names it by, none when there's none.
+    pub const fn program(self) -> Option<&'static str> {
+        match self {
+            Self::Installed => Some(NODE_GRO),
+            Self::Checkout => Some(CHECKOUT_GRO),
+            Self::Absent => None,
+        }
+    }
+
+    /// The command that runs the command line `cli_args`, its grant flags
+    /// split off, on it: its program and each argument as a shell reads it
+    /// back ([`shell_quote`]), so a message names the whole command, a
+    /// check's `--check` included, and never another. None when there's
+    /// none.
+    pub fn command(self, cli_args: &[String]) -> Option<String> {
+        self.program().map(|program| gro_command(program, cli_args))
+    }
+}
+
+/// `program` and each of `cli_args` as a shell reads it back.
+fn gro_command(program: &str, cli_args: &[String]) -> String {
+    std::iter::once(program.to_owned())
         .chain(cli_args.iter().map(|arg| shell_quote(arg)))
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+/// The command that runs `cli_args` on the Gro the project installed
+/// ([`NodeGro::Installed`]), which a refusal of a version mismatch names.
+fn installed_gro_command(cli_args: &[String]) -> String {
+    gro_command(NODE_GRO, cli_args)
+}
+
+/// The command that runs `cli_args` on Gro's own checkout's Node CLI
+/// ([`NodeGro::Checkout`]).
+fn checkout_gro_command(cli_args: &[String]) -> String {
+    gro_command(CHECKOUT_GRO, cli_args)
+}
+
+/// What a refusal of `-A` names as the way to run `cli_args` unconfined:
+/// the command on `node_gro`, or that the project installs none.
+pub fn unconfined_spelling(node_gro: NodeGro, cli_args: &[String]) -> String {
+    node_gro.command(cli_args).map_or_else(
+        || {
+            format!(
+                "the Node gro is the unconfined spelling, and this project installs none: \
+                 {INSTALL_GRO}"
+            )
+        },
+        |command| format!("the project's Node gro is the unconfined spelling ({command})"),
+    )
+}
+
+/// What [`VerbError::CheckTurnedOff`] names after the writing commands:
+/// `cli_args` on `node_gro`, or that the project installs none.
+fn check_turned_off_spelling(node_gro: NodeGro, cli_args: &[String]) -> String {
+    node_gro.command(cli_args).map_or_else(
+        || {
+            format!(
+                "; the Node gro runs it unconfined, and this project installs none: \
+                 {INSTALL_GRO}"
+            )
+        },
+        |command| format!(", or {command} on the project's Node gro, unconfined"),
+    )
+}
+
+/// The refusal by `GRO_FALLBACK=command` of the fallback the host decides,
+/// `reason`, naming `cli_args` on `node_gro`.
+fn strict_host(reason: &FallbackReason, node_gro: NodeGro, cli_args: &[String]) -> String {
+    node_gro.command(cli_args).map_or_else(
+        || {
+            format!(
+                "GRO_FALLBACK=command refuses running a Node gro, which confines nothing, in the \
+                 kernel box's place: {reason}, and this project installs none"
+            )
+        },
+        |command| {
+            format!(
+                "GRO_FALLBACK=command refuses running the project's own gro, which confines \
+                 nothing, in the kernel box's place: {reason}. Run {command} for the project's, \
+                 unconfined"
+            )
+        },
+    )
 }
 
 /// The command line `cli_args` on the binary with its grant flags
@@ -413,6 +557,12 @@ pub fn binary_command_with(
 
 /// The project's own Node Gro, as a command names it.
 const NODE_GRO: &str = "node_modules/.bin/gro";
+
+/// Gro's own checkout's Node CLI, as a command names it.
+const CHECKOUT_GRO: &str = "gro";
+
+/// The install of Gro a project with no Node Gro is told to run.
+pub const INSTALL_GRO: &str = "npm i -D @fuzdev/gro";
 
 /// What a refusal adds when there's no command word, the listing, which
 /// the bare binary runs: a pointer to the binary's own commands.
@@ -483,28 +633,28 @@ pub fn plan(
     reads: &impl ProjectReads,
 ) -> Result<VerbPlan, VerbError> {
     let policy = FallbackPolicy::read(inputs.fallback)?;
-    let split = split_grant_flags(inputs.cli_args)?;
+    let split = match split_grant_flags(inputs.cli_args) {
+        Ok(split) => split,
+        Err(refused) => {
+            let Some(cli_args) = refused.all_before_command().map(<[String]>::to_vec) else {
+                return Err(refused.into());
+            };
+            let project = read_project(inputs.root, reads, command_of(&cli_args))?;
+            return Err(VerbError::AllBeforeCommand {
+                refused,
+                cli_args,
+                node_gro: project.node_gro(),
+            });
+        }
+    };
     let command = command_of(&split.cli_args);
-    let project_error = |kind| VerbError::Project {
-        command: command.clone(),
-        kind,
-    };
-    let declared = match reads.package().map_err(project_error)? {
-        None => {
-            return Err(VerbError::NoPackageJson {
-                command,
-                root: inputs.root.to_owned(),
-            });
-        }
-        Some(package) if package.type_marker => {
-            return Err(VerbError::TypeMarker {
-                command,
-                path: package.path,
-            });
-        }
-        Some(package) => package.declared,
-    };
-    let installed = reads.installed_gro().map_err(project_error)?;
+    let project = read_project(inputs.root, reads, command.clone())?;
+    let node_gro = project.node_gro();
+    let Project {
+        declared,
+        gro_checkout,
+        installed,
+    } = project;
     let closure = command_closure(table, &split.cli_args);
     let mut reasons = fallback_reasons(&closure, installed.as_ref(), inputs.binary_version);
     if command.as_deref() == Some(TASK_VERB)
@@ -522,7 +672,7 @@ pub fn plan(
             });
         }
         let Some(gro) = installed else {
-            return Err(VerbError::NoNodeGro { command, reasons });
+            return Err(no_node_gro(command, reasons, gro_checkout, split.cli_args));
         };
         return Ok(VerbPlan::Fallback(VerbFallback {
             command,
@@ -535,6 +685,7 @@ pub fn plan(
             command,
             builtins: closure.check_turned_off.into_iter().collect(),
             cli_args: split.cli_args,
+            node_gro,
         });
     }
     let (grant, flags) = to_run_grant(&split.grant_flags)?;
@@ -585,6 +736,8 @@ pub fn plan(
         declared,
         policy,
         gro: installed,
+        node_gro,
+        gro_checkout,
         programs,
         run_writes,
         may_start,
@@ -592,6 +745,86 @@ pub fn plan(
         home,
         version: inputs.binary_version.to_owned(),
     })))
+}
+
+/// The project at the working directory, as [`plan`] reads it.
+struct Project {
+    /// The packages its `package.json` declares in `dependencies` or
+    /// `devDependencies`, by name.
+    declared: BTreeSet<String>,
+    /// Whether it's Gro's own checkout, its `package.json` naming Gro's
+    /// package.
+    gro_checkout: bool,
+    /// The Gro it installed, if any.
+    installed: Option<InstalledPackage>,
+}
+
+impl Project {
+    /// Its Node Gro.
+    const fn node_gro(&self) -> NodeGro {
+        NodeGro::of(self.gro_checkout, self.installed.is_some())
+    }
+}
+
+/// Reads the project at `root`, the working directory, through `reads`,
+/// for the command word `command`, which a refusal names.
+///
+/// # Errors
+///
+/// Returns [`VerbError::NoPackageJson`] when `root` holds no
+/// `package.json`, [`VerbError::TypeMarker`] when that only marks a module
+/// type, and [`VerbError::Project`] when it or the installed Gro's can't be
+/// read.
+fn read_project(
+    root: &Path,
+    reads: &impl ProjectReads,
+    command: Option<String>,
+) -> Result<Project, VerbError> {
+    let package = match reads.package() {
+        Ok(Some(package)) if package.type_marker => {
+            return Err(VerbError::TypeMarker {
+                command,
+                path: package.path,
+            });
+        }
+        Ok(Some(package)) => package,
+        Ok(None) => {
+            return Err(VerbError::NoPackageJson {
+                command,
+                root: root.to_owned(),
+            });
+        }
+        Err(kind) => return Err(VerbError::Project { command, kind }),
+    };
+    let installed = match reads.installed_gro() {
+        Ok(installed) => installed,
+        Err(kind) => return Err(VerbError::Project { command, kind }),
+    };
+    Ok(Project {
+        declared: package.declared,
+        gro_checkout: package.gro_checkout,
+        installed,
+    })
+}
+
+/// The refusal of a command that runs on the Node Gro, for `reasons`, in a
+/// project that installed none: Gro's own checkout, when `gro_checkout`,
+/// names its Node CLI over `cli_args`; any other, the install.
+fn no_node_gro(
+    command: Option<String>,
+    reasons: Vec<FallbackReason>,
+    gro_checkout: bool,
+    cli_args: Vec<String>,
+) -> VerbError {
+    if gro_checkout {
+        VerbError::GroCheckout {
+            command,
+            reasons,
+            cli_args,
+        }
+    } else {
+        VerbError::NoNodeGro { command, reasons }
+    }
 }
 
 impl From<VerbRun> for RunStart {
@@ -618,6 +851,8 @@ impl From<VerbRun> for RunStart {
             entry: StartEntry::Generated {
                 home: run.home,
                 version: run.version,
+                node_gro: run.node_gro,
+                gro_checkout: run.gro_checkout,
             },
         }
     }
@@ -631,18 +866,21 @@ impl From<VerbRun> for RunStart {
 ///
 /// Returns [`VerbError::StrictHost`] when `GRO_FALLBACK=command` refuses a
 /// fallback the host decides, and [`VerbError::NoNodeGro`] when the
-/// project installed no Gro.
+/// project installed no Gro, [`VerbError::GroCheckout`] in Gro's own
+/// checkout.
 pub fn floor_fallback(run: RunStart, reason: FallbackReason) -> Result<VerbFallback, VerbError> {
     if run.policy.refuses(std::slice::from_ref(&reason)) {
         return Err(VerbError::StrictHost {
+            node_gro: run.node_gro(),
             cli_args: run.cli_args,
             reason,
         });
     }
     let command = command_of(&run.cli_args);
     let reasons = vec![reason];
+    let gro_checkout = run.gro_checkout();
     let Some(gro) = run.gro else {
-        return Err(VerbError::NoNodeGro { command, reasons });
+        return Err(no_node_gro(command, reasons, gro_checkout, run.cli_args));
     };
     Ok(VerbFallback {
         command,

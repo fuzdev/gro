@@ -40,6 +40,7 @@ fn run_flagged(
     let entry = GeneratedEntry {
         source: source.to_owned(),
         root: root.to_owned(),
+        gro_checkout: false,
     };
     let cwd = cwd.to_owned();
     std::thread::Builder::new()

@@ -6,7 +6,7 @@ use std::path::PathBuf;
 
 use super::CONDITIONS;
 use super::builtin::{GRO_PACKAGE, Reserved, UNBUILT_HOST_MODULES};
-use super::node_builtin::write_refusal;
+use super::node_builtin::{BuiltinImporter, write_refusal};
 use super::roots::{Origin, Root};
 use super::tree::ReadRefusal;
 use crate::BINARY_NAME;
@@ -35,6 +35,8 @@ pub enum ResolveErrorKind {
         name: String,
         /// Whether the specifier was the bare name.
         bare: bool,
+        /// Who imports it, which the fix is for.
+        importer: BuiltinImporter,
     },
     /// A registry specifier: `npm:`, `jsr:`.
     Registry,
@@ -626,7 +628,11 @@ impl fmt::Display for ResolveErrorKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // the specifier is quoted by `ResolveError`, so these restate it only where the spec's wording does
         match self {
-            Self::NodeBuiltin { name, bare } => write_refusal(f, name, *bare, BINARY_NAME),
+            Self::NodeBuiltin {
+                name,
+                bare,
+                importer,
+            } => write_refusal(f, name, *bare, importer, BINARY_NAME),
             Self::Registry => f.write_str(
                 "it is a registry specifier; only files on disk load. \
                  Fix: install the package into node_modules and import it by name \

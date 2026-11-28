@@ -6,13 +6,15 @@
 //! grant-free `cwd`, and Gro's `binary_main`, and makes one call, handing it
 //! those, an `import_url` written here so a project module's `import()`
 //! runs from the entry, whose origin is the project's, `HOME` and the
-//! binary's version as string literals the binary read natively, and where
-//! the run's box gives Vitest its module cache, from the run's plan, a
-//! string literal or `null`. It awaits the call at its top level, so a
+//! binary's version as string literals the binary read natively, the
+//! command line and its command on the project's Node Gro as a refusal
+//! names them, spelled here as the binary's own messages spell them, and
+//! where the run's box gives Vitest its module cache, from the run's plan,
+//! each a string literal or `null`. It awaits the call at its top level, so a
 //! rejection of `binary_main` fails the run.
 //!
 //! `tests/fixtures/verb/main_entry.ts` holds its text for a fixed `HOME`,
-//! version, and module cache, which `cargo xtask check-js` typechecks
+//! version, command line, Node Gro, and module cache, which `cargo xtask check-js` typechecks
 //! against Gro's types (`js/tsconfig.json`), so a change to
 //! `BinaryMainDeps` fails there until the text follows.
 
@@ -21,14 +23,31 @@ use std::path::Path;
 
 use gro_runtime::BINARY_NAME;
 
+use super::prepass::{NodeGro, command_line, command_of};
+
 /// The entry's text: `home`, the `HOME` the binary read, `undefined` when
 /// it's unset, `version`, the binary's, the binary's name
-/// ([`BINARY_NAME`]), and `vitest_module_cache`, where the run's box gives
-/// Vitest its module cache (`BoxPlan::vitest_module_cache`), `null` when
-/// it gives none or the path isn't UTF-8, which leaves the cache off, each
-/// written as a string literal ([`js_string`]).
-pub fn main_entry(home: Option<&str>, version: &str, vitest_module_cache: Option<&Path>) -> String {
+/// ([`BINARY_NAME`]), the command line `cli_args`, its grant flags split
+/// off, as a message names it ([`command_line`]), the command that runs it
+/// on `node_gro` ([`NodeGro::command`]), `null` when the project has none,
+/// and `vitest_module_cache`, where the run's box gives Vitest its module
+/// cache (`BoxPlan::vitest_module_cache`), `null` when it gives none or the
+/// path isn't UTF-8, which leaves the cache off, each written as a string
+/// literal ([`js_string`]). The two spellings are the binary's own, quoted
+/// and escaped ([`crate::print::shell_quote`]), so Gro's code prints them
+/// as it's handed them and spells nothing itself.
+pub fn main_entry(
+    home: Option<&str>,
+    version: &str,
+    vitest_module_cache: Option<&Path>,
+    node_gro: NodeGro,
+    cli_args: &[String],
+) -> String {
     let home = home.map_or_else(|| "undefined".to_owned(), js_string);
+    let command_line = js_string(&command_line(command_of(cli_args).as_deref()));
+    let node_command = node_gro
+        .command(cli_args)
+        .map_or_else(|| "null".to_owned(), |command| js_string(&command));
     let vitest_module_cache = vitest_module_cache
         .and_then(Path::to_str)
         .map_or_else(|| "null".to_owned(), js_string);
@@ -56,6 +75,8 @@ await binary_main({{
 \thome: {home},
 \tversion: {version},
 \tcli_name: {cli_name},
+\tcommand_line: {command_line},
+\tnode_command: {node_command},
 \tvitest_module_cache: {vitest_module_cache}
 }});
 ",
@@ -96,12 +117,18 @@ mod tests {
     use std::path::Path;
 
     use super::{js_string, main_entry};
+    use crate::verb::prepass::NodeGro;
 
     /// The fixture's `HOME`, version, and module cache, which no machine's
-    /// are.
+    /// are, and its command line.
     const FIXTURE_HOME: &str = "/home/fixture";
     const FIXTURE_VERSION: &str = "0.0.0-fixture";
     const FIXTURE_CACHE: &str = "/home/fixture/p/node_modules/.vite/vitest/boxed-module-cache";
+    const FIXTURE_ARGS: [&str; 2] = ["gen", "src/lib/x.gen.ts"];
+
+    fn args(args: &[&str]) -> Vec<String> {
+        args.iter().map(|&arg| arg.to_owned()).collect()
+    }
 
     #[test]
     fn the_entry_is_the_fixture_check_js_typechecks() {
@@ -114,13 +141,15 @@ mod tests {
             Some(FIXTURE_HOME),
             FIXTURE_VERSION,
             Some(Path::new(FIXTURE_CACHE)),
+            NodeGro::Installed,
+            &args(&FIXTURE_ARGS),
         );
         assert_eq!(entry, fixture, "{path} differs from the entry:\n{entry}");
     }
 
     #[test]
     fn an_unset_home_is_undefined() {
-        let entry = main_entry(None, "1.2.3", None);
+        let entry = main_entry(None, "1.2.3", None, NodeGro::Installed, &[]);
         assert!(entry.contains("\thome: undefined,\n"), "{entry}");
         assert!(entry.contains("\tversion: '1.2.3',\n"), "{entry}");
         assert!(entry.contains("\tcli_name: 'fgro',\n"), "{entry}");
@@ -132,7 +161,7 @@ mod tests {
     fn no_module_cache_is_null() {
         let not_utf8 = Path::new(OsStr::from_bytes(b"/p/\xff/boxed-module-cache"));
         for cache in [None, Some(not_utf8)] {
-            let entry = main_entry(None, "1.2.3", cache);
+            let entry = main_entry(None, "1.2.3", cache, NodeGro::Installed, &[]);
             assert!(
                 entry.contains("\tvitest_module_cache: null\n});"),
                 "{entry}"
@@ -145,11 +174,60 @@ mod tests {
     #[test]
     fn the_module_cache_is_one_string_literal() {
         let cache = Path::new("/p/it's\n/boxed-module-cache");
-        let entry = main_entry(None, "1.2.3", Some(cache));
+        let entry = main_entry(None, "1.2.3", Some(cache), NodeGro::Installed, &[]);
         assert!(
             entry.contains("\tvitest_module_cache: '/p/it\\'s\\u000a/boxed-module-cache'\n});"),
             "{entry}"
         );
+    }
+
+    /// The command a refusal names is the command line on the project's
+    /// Node Gro, `null` where the project has none.
+    #[test]
+    fn the_node_command_is_the_command_line_on_the_node_gro_or_null() {
+        for (node_gro, literal) in [
+            (
+                NodeGro::Installed,
+                "'node_modules/.bin/gro gen src/lib/x.gen.ts'",
+            ),
+            (NodeGro::Checkout, "'gro gen src/lib/x.gen.ts'"),
+            (NodeGro::Absent, "null"),
+        ] {
+            let entry = main_entry(None, "1.2.3", None, node_gro, &args(&FIXTURE_ARGS));
+            assert!(entry.contains("\tcommand_line: 'fgro gen',\n"), "{entry}");
+            assert!(
+                entry.contains(&format!("\tnode_command: {literal},\n")),
+                "{entry}"
+            );
+        }
+    }
+
+    /// The command line is spelled as the binary's own messages spell it:
+    /// an arg that isn't plain single-quoted, its `'` written `'\''`, and a
+    /// control character, in the command word or an arg, escaped, so none
+    /// reaches the terminal; the listing is the binary's name alone.
+    #[test]
+    fn the_command_line_is_quoted_and_escaped_as_the_binary_spells_it() {
+        let entry = main_entry(
+            None,
+            "1.2.3",
+            None,
+            NodeGro::Installed,
+            &args(&["g\u{7}en", "it's a\u{1b}b"]),
+        );
+        let command_line = r"'fgro g\\u{7}en'";
+        assert!(
+            entry.contains(&format!("\tcommand_line: {command_line},\n")),
+            "{entry}"
+        );
+        let node_command = r"'node_modules/.bin/gro \'g\\u{7}en\' \'it\'\\\'\'s a\\u{1b}b\''";
+        assert!(
+            entry.contains(&format!("\tnode_command: {node_command},\n")),
+            "{entry}"
+        );
+        let listing = main_entry(None, "1.2.3", None, NodeGro::Checkout, &[]);
+        assert!(listing.contains("\tcommand_line: 'fgro',\n"), "{listing}");
+        assert!(listing.contains("\tnode_command: 'gro',\n"), "{listing}");
     }
 
     /// A value read from the environment stays one literal on one line,

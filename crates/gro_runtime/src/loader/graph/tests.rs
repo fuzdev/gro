@@ -4,8 +4,8 @@
 
 use super::*;
 use crate::resolver::{
-    BUILTINS, MapField, Origin, PackageField, PackageFields, Reserved, SPLIT_MODULES, TargetFault,
-    UrlFault,
+    BUILTINS, BuiltinImporter, MapField, Origin, PackageField, PackageFields, Reserved,
+    SPLIT_MODULES, TargetFault, UrlFault,
 };
 
 fn package(dir: &str, name: &str) -> Root {
@@ -522,6 +522,7 @@ fn the_refusals_by_rule_are_the_ones_that_guard_the_run() {
         FailureReason::Resolve(ResolveErrorKind::NodeBuiltin {
             name: "fs".to_owned(),
             bare: true,
+            importer: BuiltinImporter::Project,
         }),
         FailureReason::Resolve(ResolveErrorKind::Registry),
         FailureReason::Resolve(ResolveErrorKind::InvalidImportSpecifier),

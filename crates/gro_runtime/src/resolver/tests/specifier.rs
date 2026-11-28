@@ -4,8 +4,8 @@ use url::Url;
 
 use super::{from_entry, importer, kind, ok, resolve, tree};
 use crate::resolver::{
-    ConsultedFile, ModuleFormat, Origin, PackageField, PackageFields, ResolveErrorKind, Root,
-    Roots, UrlFault, module_format, resolve_entry,
+    BuiltinImporter, ConsultedFile, ModuleFormat, Origin, PackageField, PackageFields,
+    ResolveErrorKind, Root, Roots, UrlFault, module_format, resolve_entry,
 };
 
 #[test]
@@ -263,6 +263,7 @@ fn schemes() {
         ResolveErrorKind::NodeBuiltin {
             name: "fs".to_owned(),
             bare: false,
+            importer: BuiltinImporter::Project,
         }
     );
     for specifier in ["npm:svelte", "jsr:@std/toml@^1"] {
@@ -294,6 +295,7 @@ fn bare_node_builtin_names() {
     let builtin = |name: &str| ResolveErrorKind::NodeBuiltin {
         name: name.to_owned(),
         bare: true,
+        importer: BuiltinImporter::Project,
     };
     for name in crate::resolver::node_builtin::NODE_BUILTINS {
         assert_eq!(kind(name), builtin(name), "{name}");
@@ -498,4 +500,116 @@ fn messages() {
         "cannot resolve './..%2Fa.js' from file:///p/main.js: not a valid file URL: the path \
          /p/..%2Fa.js has an encoded '/' or '\\' (%2F or %5C), which never names a separator"
     );
+}
+
+/// A Node built-in's fix is for who imports it: Gro's own source, in a
+/// project whose `package.json` names Gro's package, found by the entry's
+/// walk or said by the roots, is written for Node; a package's module is
+/// the package's to change; the project's own gets Gro's host module.
+#[test]
+fn a_node_builtin_s_fix_is_for_its_importer() {
+    let node = "a node: specifier names a Node built-in, and there is no Node compat";
+    let gro_source = ". Gro's own source is written for Node. Fix: run this under Node with gro";
+    let mut gro = tree();
+    gro.files.insert(
+        "/p/package.json",
+        r#"{"name": "@fuzdev/gro", "type": "module"}"#,
+    );
+    for specifier in ["node:fs", "node:util", "node:https", "node:process"] {
+        let error = from_entry(&gro, specifier, &importer()).unwrap_err();
+        assert!(
+            matches!(
+                &error.kind,
+                ResolveErrorKind::NodeBuiltin {
+                    importer: BuiltinImporter::GroSource,
+                    ..
+                }
+            ),
+            "{specifier}: {error:?}"
+        );
+        assert_eq!(
+            error.to_string(),
+            format!("cannot resolve '{specifier}' from file:///p/main.js: {node}{gro_source}"),
+        );
+    }
+    assert_eq!(
+        from_entry(&gro, "fs", &importer()).unwrap_err().to_string(),
+        format!(
+            "cannot resolve 'fs' from file:///p/main.js: it names the Node built-in 'node:fs', \
+             which Node resolves ahead of any package named 'fs', and there is no Node \
+             compat{gro_source}"
+        ),
+    );
+    // the roots say so for an entry no walk found, as a command's generated one
+    let roots = Roots::new(PathBuf::from("/p")).with_gro_checkout(true);
+    assert_eq!(
+        resolve(&tree(), "node:fs", &importer(), &roots)
+            .unwrap_err()
+            .to_string(),
+        format!("cannot resolve 'node:fs' from file:///p/main.js: {node}{gro_source}"),
+    );
+    // a package's module, linked or installed, by the name it was imported by
+    for linked in [false, true] {
+        let mut roots = Roots::new(PathBuf::from("/"));
+        roots.admit(Root {
+            dir: PathBuf::from("/p"),
+            origin: Origin::Package {
+                name: "@scope/uses_fs".to_owned(),
+                version: None,
+                linked,
+            },
+        });
+        let error = resolve(&tree(), "node:fs", &importer(), &roots).unwrap_err();
+        assert_eq!(
+            error.kind,
+            ResolveErrorKind::NodeBuiltin {
+                name: "fs".to_owned(),
+                bare: false,
+                importer: BuiltinImporter::Package("@scope/uses_fs".to_owned()),
+            }
+        );
+        assert_eq!(
+            error.to_string(),
+            format!(
+                "cannot resolve 'node:fs' from file:///p/main.js: {node}. Fix: use a version of \
+                 '@scope/uses_fs' that doesn't import it, or run this under Node"
+            ),
+        );
+    }
+    // the project's own, its name another package's
+    assert!(matches!(
+        kind("node:fs"),
+        ResolveErrorKind::NodeBuiltin {
+            importer: BuiltinImporter::Project,
+            ..
+        }
+    ));
+}
+
+/// In Gro's own checkout, a package's module still gets the package's fix:
+/// the checkout's flag speaks only for the project's own modules.
+#[test]
+fn a_package_s_node_builtin_in_gro_s_checkout_is_the_package_s() {
+    let mut roots = Roots::new(PathBuf::from("/")).with_gro_checkout(true);
+    roots.admit(Root {
+        dir: PathBuf::from("/p"),
+        origin: Origin::Package {
+            name: "uses_fs".to_owned(),
+            version: None,
+            linked: false,
+        },
+    });
+    for specifier in ["node:fs", "fs"] {
+        let error = resolve(&tree(), specifier, &importer(), &roots).unwrap_err();
+        assert!(
+            matches!(
+                &error.kind,
+                ResolveErrorKind::NodeBuiltin {
+                    importer: BuiltinImporter::Package(name),
+                    ..
+                } if name == "uses_fs"
+            ),
+            "{specifier}: {error:?}"
+        );
+    }
 }

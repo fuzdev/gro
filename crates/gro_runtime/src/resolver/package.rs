@@ -1,5 +1,6 @@
 //! Resolving a bare specifier through the package it names.
 
+use std::borrow::Cow;
 use std::path::{Path, PathBuf};
 
 use url::Url;
@@ -144,7 +145,13 @@ pub(super) fn resolve_package(
 
     // the bound first, so no node_modules is consulted outside the project
     let (bound_dir, bound_package_json) = match find_bound(tree, importer_dir, scope, consulted)? {
-        Walk::Found(bound) => bound,
+        Walk::Found(bound) => (
+            bound.dir,
+            bound.package_json.map(|package_json| match package_json {
+                Cow::Borrowed(package_json) => package_json.path.clone(),
+                Cow::Owned(package_json) => package_json.path,
+            }),
+        ),
         Walk::NotFound { stopped_at } => {
             return Err(ResolveErrorKind::NoProjectRoot {
                 dir: importer_dir.to_owned(),

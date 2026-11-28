@@ -668,10 +668,7 @@ pub enum Skip {
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum PlanRefusal {
     /// `-A`, which no box holds.
-    #[error(
-        "-A would run a command of Gro's unconfined, and the binary runs each in a kernel box: \
-         the project's Node gro is the unconfined spelling"
-    )]
+    #[error("-A would run a command of Gro's unconfined, and the binary runs each in a kernel box")]
     Unconfined,
     /// A write flag, or a directory `--allow-run-write=` lists, names a
     /// directory that holds the project's root.

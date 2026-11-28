@@ -81,6 +81,18 @@ export interface BinaryMainDeps {
 	 */
 	readonly cli_name: string;
 	/**
+	 * The command line as a refusal of what only the Node Gro has names it, the binary's name and
+	 * its command word, spelled and escaped by the binary.
+	 */
+	readonly command_line: string;
+	/**
+	 * The command that runs the command line on the project's Node Gro, which such a refusal tells
+	 * a user to run: its program, `node_modules/.bin/gro` for the Gro the project installed or `gro`
+	 * in Gro's own checkout, and each arg, quoted and escaped by the binary as its own messages
+	 * spell a command, so this module spells nothing; `null` when the project has none.
+	 */
+	readonly node_command: string | null;
+	/**
 	 * Where the run's box gives Vitest its module cache, an absolute path in Vitest's own tool
 	 * directory, `null` when Vitest's box is wider than the grants table's or the run made no
 	 * such directory, the platform's `vitest_module_cache`.
@@ -103,9 +115,10 @@ export const binary_main = async (deps: BinaryMainDeps): Promise<void> => {
 			host_root: { env, spawn, stdout, stderr },
 			import_module: (id) => import_url(to_file_url(id)),
 			platform: create_binary_platform(
-				to_command_word(args),
 				deps.version,
 				deps.cli_name,
+				deps.command_line,
+				deps.node_command,
 				deps.vitest_module_cache
 			)
 		});
@@ -117,25 +130,28 @@ export const binary_main = async (deps: BinaryMainDeps): Promise<void> => {
 
 /**
  * The binary's platform: the running Gro has no package directory, and the module graph and the
- * Svelte config, read through Node's machinery, refuse naming the command and its Node run.
- * @param command - the command word, which the refusals name
+ * Svelte config, read through Node's machinery, refuse naming the command and its Node run, each
+ * as the binary spelled it.
  * @param version - the binary's version
  * @param cli_name - the binary's name
+ * @param command_line - the command line as the refusals name it
+ * @param node_command - the command that runs it on the project's Node Gro, `null` when it has none
  * @param vitest_module_cache - where the run's box gives Vitest its module cache, if anywhere
  */
 const create_binary_platform = (
-	command: string | undefined,
 	version: string,
 	cli_name: string,
+	command_line: string,
+	node_command: string | null,
 	vitest_module_cache: string | null
 ): GroPlatform => {
 	const refuse = (what: string): Promise<never> => {
-		const gro_command = command === undefined ? 'gro' : `gro ${command}`;
+		const node_run =
+			node_command === null
+				? ', and this project installs none: npm i -D @fuzdev/gro'
+				: `: run \`${node_command}\``;
 		return Promise.reject(
-			new TaskError(
-				`\`${gro_command}\` needs ${what}, which only the Node gro has: ` +
-					`run \`node_modules/.bin/${gro_command}\``
-			)
+			new TaskError(`\`${command_line}\` needs ${what}, which only the Node gro has${node_run}`)
 		);
 	};
 	const graph: ModuleGraph = {
@@ -152,13 +168,4 @@ const create_binary_platform = (
 		cli_name,
 		vitest_module_cache
 	};
-};
-
-// the command word, the first positional arg before any `--`, none for the listing
-const to_command_word = (args: ReadonlyArray<string>): string | undefined => {
-	for (const arg of args) {
-		if (arg === '--') return undefined;
-		if (!arg.startsWith('-')) return arg;
-	}
-	return undefined;
 };

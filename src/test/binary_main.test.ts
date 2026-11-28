@@ -26,12 +26,16 @@ interface BinaryRun {
  * @param project - the project's files by path, written before the run
  * @param import_url - stands in for the entry's `import()`
  * @param dir_name - the project directory's name, beneath a temp directory
+ * @param node_command - the command on the project's Node Gro the binary spelled, `null` for none
+ * @param command_line - the command line as the binary spelled it
  */
 const run = async (
 	args: Array<string>,
 	project: Record<string, string>,
 	import_url: (url: string) => Promise<Record<string, any>>,
-	dir_name = 'project'
+	dir_name = 'project',
+	node_command: string | null = 'node_modules/.bin/gro',
+	command_line = 'xgro'
 ): Promise<BinaryRun & { dir: string }> => {
 	const temp = realpathSync(mkdtempSync(join(tmpdir(), 'binary_main_')));
 	const dir = join(temp, dir_name);
@@ -61,6 +65,8 @@ const run = async (
 			home: undefined,
 			version: '1.2.3-binary',
 			cli_name: 'xgro',
+			command_line,
+			node_command,
 			vitest_module_cache: null
 		});
 	} finally {
@@ -115,45 +121,68 @@ test("the project loader imports a module by its file URL, a path's `#`, `?`, an
 	assert.deepEqual(urls, [expected]);
 });
 
-test('the module graph and the Svelte config refuse, naming the command and its Node run', async () => {
-	silence_logs();
-	const failures: Array<unknown> = [];
-	const contexts: Array<TaskContext> = [];
-	const settle = async (promise: Promise<unknown>): Promise<void> => {
-		try {
-			await promise;
-			failures.push('resolved');
-		} catch (error) {
-			failures.push(error);
-		}
-	};
-	const task_module = {
-		task: {
-			summary: 'reads what the binary has none of',
-			run: async (ctx: TaskContext) => {
-				contexts.push(ctx);
-				await settle(ctx.graph.modules());
-				await settle(ctx.graph.dependents('/x.ts'));
-				await settle(ctx.graph.watch(() => undefined));
-				await settle(ctx.svelte_config);
+// the binary spells the command line, quoting each arg and escaping its control characters, and
+// the refusal prints what it's handed, never its own spelling: neither the args' raw ESC nor
+// `cli_name`, which the handed command line doesn't hold
+const node_runs: Array<[string | null, string]> = [
+	[
+		"node_modules/.bin/gro task src/x.task.ts -- 'it'\\''s a\\u{1b}b'",
+		": run `node_modules/.bin/gro task src/x.task.ts -- 'it'\\''s a\\u{1b}b'`"
+	],
+	[
+		"gro task src/x.task.ts -- 'it'\\''s a\\u{1b}b'",
+		": run `gro task src/x.task.ts -- 'it'\\''s a\\u{1b}b'`"
+	],
+	[null, ', and this project installs none: npm i -D @fuzdev/gro']
+];
+
+for (const [node_command, node_run] of node_runs) {
+	test(`the module graph and the Svelte config refuse, naming the command and its Node run as handed, ${node_command}`, async () => {
+		silence_logs();
+		const failures: Array<unknown> = [];
+		const contexts: Array<TaskContext> = [];
+		const settle = async (promise: Promise<unknown>): Promise<void> => {
+			try {
+				await promise;
+				failures.push('resolved');
+			} catch (error) {
+				failures.push(error);
 			}
-		}
-	};
-	const { exit_codes } = await run(['task', 'src/x.task.ts'], { 'src/x.task.ts': '' }, (url) =>
-		url.endsWith('/src/x.task.ts')
-			? Promise.resolve(task_module)
-			: Promise.reject(Error('unexpected import: ' + url))
-	);
-	assert.deepEqual(exit_codes, []);
-	assert.strictEqual(contexts.length, 1);
-	assert.deepEqual(contexts[0]!.gro, { version: '1.2.3-binary', dir: null });
-	assert.strictEqual(failures.length, 4);
-	for (const [i, failure] of failures.entries()) {
-		assert.ok(is_task_error(failure), `failure ${i} is a task error`);
-		const what = i < 3 ? 'the module graph' : 'the Svelte config';
-		assert.strictEqual(
-			failure.message,
-			`\`gro task\` needs ${what}, which only the Node gro has: run \`node_modules/.bin/gro task\``
+		};
+		const task_module = {
+			task: {
+				summary: 'reads what the binary has none of',
+				run: async (ctx: TaskContext) => {
+					contexts.push(ctx);
+					await settle(ctx.graph.modules());
+					await settle(ctx.graph.dependents('/x.ts'));
+					await settle(ctx.graph.watch(() => undefined));
+					await settle(ctx.svelte_config);
+				}
+			}
+		};
+		const { exit_codes } = await run(
+			['task', 'src/x.task.ts', '--', "it's a\x1bb"],
+			{ 'src/x.task.ts': '' },
+			(url) =>
+				url.endsWith('/src/x.task.ts')
+					? Promise.resolve(task_module)
+					: Promise.reject(Error('unexpected import: ' + url)),
+			'project',
+			node_command,
+			'fgro task'
 		);
-	}
-});
+		assert.deepEqual(exit_codes, []);
+		assert.strictEqual(contexts.length, 1);
+		assert.deepEqual(contexts[0]!.gro, { version: '1.2.3-binary', dir: null });
+		assert.strictEqual(failures.length, 4);
+		for (const [i, failure] of failures.entries()) {
+			assert.ok(is_task_error(failure), `failure ${i} is a task error`);
+			const what = i < 3 ? 'the module graph' : 'the Svelte config';
+			assert.strictEqual(
+				failure.message,
+				`\`fgro task\` needs ${what}, which only the Node gro has${node_run}`
+			);
+		}
+	});
+}

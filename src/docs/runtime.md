@@ -379,7 +379,8 @@ As designed, except where marked built:
   Another installed version falls back, so the two can differ when the installed Gro has the binary's version but not its code,
   like a build of a later commit before the version moves, or when the project installed no Gro, whose typecheck then finds no Gro types.
   A run that fails after the resolver refused a Node built-in, by a `node:` specifier or a bare name Node resolves as one, caught or not, ends with a hint naming the cause
-  and the whole command on the Node Gro, which confines nothing (`node_modules/.bin/gro` and the command line, its grant flags stripped),
+  and the whole command on the project's Node Gro, which confines nothing (`node_modules/.bin/gro`, or `gro` in Gro's own checkout, and the command line, its grant flags stripped),
+  or, where the project has neither, that it installs none,
   a [review signal](glossary.md#review-signal) the run's code controls: project code can print it at will by catching a Node built-in's import and failing.
   The box adds its own differences, each a cost of holding the tools where it holds them.
   A tool reaches no network but the run's own loopback, reads nothing under the home directory but the project's own trees, what git reads there, the programs the run pins, and what a grant flag names,

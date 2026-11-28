@@ -78,6 +78,9 @@ pub struct GeneratedEntry {
     /// The project's root, a real path: its own root, whose origin, the
     /// project's, it takes.
     pub root: PathBuf,
+    /// Whether the project is Gro's own checkout, which a refusal of a Node
+    /// built-in in it says ([`Roots::gro_checkout`]).
+    pub gro_checkout: bool,
 }
 
 /// An entry module on disk, resolved with the roots its graph starts with
@@ -487,7 +490,7 @@ fn generated_main(
     // a constant, which the module's tests parse
     #[expect(clippy::expect_used, reason = "a constant URL")]
     let url = Url::parse(GENERATED_ENTRY_URL).expect("the generated entry's URL parses");
-    let roots = Roots::new(entry.root.clone());
+    let roots = Roots::new(entry.root.clone()).with_gro_checkout(entry.gro_checkout);
     let loader = Rc::new(
         Loader::generated(&url, entry.source.clone(), roots, recording)
             .with_authority(options.authority.clone())

@@ -657,7 +657,8 @@ fn below_the_floor_the_host_decides_the_fallback() {
 }
 
 /// `-A` after a command word is refused before anything runs, naming the
-/// Node Gro's command, the unconfined spelling.
+/// Node Gro's command, the unconfined spelling, or that the project, which
+/// links a `node_modules` with no Gro, installs none.
 #[test]
 #[cfg_attr(
     not(feature = "snapshot"),
@@ -673,8 +674,8 @@ fn a_command_s_minus_a_is_refused() {
     assert_eq!(
         stderr,
         "error: -A would run a command of Gro's unconfined, and the binary runs each in a kernel \
-         box: the project's Node gro is the unconfined spelling (node_modules/.bin/gro format \
-         --check)\n"
+         box: the Node gro is the unconfined spelling, and this project installs none: npm i -D \
+         @fuzdev/gro\n"
     );
 }
 

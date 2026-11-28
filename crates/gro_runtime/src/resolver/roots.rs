@@ -99,6 +99,8 @@ pub struct Roots {
     /// The packages' roots, by real directory, which `Path`'s ordering
     /// compares by component. None is at the project's directory.
     packages: BTreeMap<PathBuf, Root>,
+    /// See [`Roots::gro_checkout`].
+    gro_checkout: bool,
 }
 
 impl Roots {
@@ -111,12 +113,28 @@ impl Roots {
                 origin: Origin::Project,
             },
             packages: BTreeMap::new(),
+            gro_checkout: false,
         }
+    }
+
+    /// These roots, the project marked Gro's own checkout when
+    /// `gro_checkout` ([`Roots::gro_checkout`]).
+    #[must_use]
+    pub(crate) const fn with_gro_checkout(mut self, gro_checkout: bool) -> Self {
+        self.gro_checkout = gro_checkout;
+        self
     }
 
     /// The project's root.
     pub const fn project(&self) -> &Root {
         &self.project
+    }
+
+    /// Whether the project is Gro's own checkout, its `package.json` naming
+    /// Gro's package: its modules are Gro's source, written for Node, which
+    /// a refusal of a Node built-in says. It decides no resolution.
+    pub const fn gro_checkout(&self) -> bool {
+        self.gro_checkout
     }
 
     /// Every admitted root, the project's first, then the packages' by

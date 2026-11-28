@@ -2467,6 +2467,8 @@ mod tests {
             declared: BTreeSet::new(),
             policy: crate::verb::fallback::FallbackPolicy::All,
             gro: None,
+            node_gro: crate::verb::prepass::NodeGro::Absent,
+            gro_checkout: false,
             programs: programs
                 .iter()
                 .map(|(name, program)| ((*name).to_owned(), (*program).clone()))

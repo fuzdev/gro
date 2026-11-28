@@ -1,5 +1,6 @@
 //! The upward walks over `package.json` files: the package scope and the project root.
 
+use std::borrow::Cow;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -7,6 +8,7 @@ use std::time::SystemTime;
 
 use serde_json::{Map, Value};
 
+use super::builtin::GRO_PACKAGE;
 use super::error::ResolveErrorKind;
 use super::tree::{Entry, MAX_PACKAGE_JSON_SIZE, ReadRefusal, SourceTree};
 
@@ -109,6 +111,7 @@ impl Consulted {
 }
 
 /// A parsed `package.json`.
+#[derive(Clone)]
 pub(super) struct PackageJson {
     /// The directory it was looked up in, which a symlinked `package.json`
     /// isn't in.
@@ -158,6 +161,14 @@ impl PackageJson {
     /// ([`super::project`]).
     pub(super) fn object(&self, key: &str) -> Option<&Map<String, Value>> {
         self.fields.get(key).and_then(Value::as_object)
+    }
+
+    /// Whether its `"name"` is Gro's package, which makes its directory
+    /// Gro's own checkout. No resolution reads it, so it records nothing:
+    /// it decides only what a refusal of a Node built-in says
+    /// ([`super::Roots::gro_checkout`]).
+    pub(super) fn names_gro(&self) -> bool {
+        self.fields.get("name").and_then(Value::as_str) == Some(GRO_PACKAGE)
     }
 
     /// Whether it only marks its directory's module type: every key is
@@ -349,15 +360,13 @@ pub(super) fn package_scope(
 /// package resolves its own imports within the `node_modules` it was
 /// installed into, whether that is the project's or another checkout's a
 /// symlink leads to. The walk stops at a world-writable directory. `scope`
-/// is `dir`'s package scope, already read, so it isn't read again. Returns
-/// the root's directory and the `package.json` that bounds it, none for a
-/// `node_modules`'s holder.
-pub(super) fn find_bound(
+/// is `dir`'s package scope, already read, so it isn't read again.
+pub(super) fn find_bound<'s>(
     tree: &impl SourceTree,
     dir: &Path,
-    scope: Option<&PackageJson>,
+    scope: Option<&'s PackageJson>,
     consulted: &mut Consulted,
-) -> Result<Walk<(PathBuf, Option<PathBuf>)>, ResolveErrorKind> {
+) -> Result<Walk<Bound<'s>>, ResolveErrorKind> {
     let inside = in_node_modules(dir);
     for dir in dir.ancestors() {
         // checked inside node_modules too, since the search looks there
@@ -371,22 +380,37 @@ pub(super) fn find_bound(
         }
         // the first directory outside node_modules holds the outermost one
         if inside {
-            return Ok(Walk::Found((dir.to_owned(), None)));
+            return Ok(Walk::Found(Bound {
+                dir: dir.to_owned(),
+                package_json: None,
+            }));
         }
         // any package.json but a type marker ends the walk, the scope's read once
         let package_json = match scope {
             Some(scope) if scope.dir == dir => {
-                (!scope.is_type_marker(consulted)).then(|| scope.path.clone())
+                (!scope.is_type_marker(consulted)).then_some(Cow::Borrowed(scope))
             }
             _ => read_package_json(tree, dir)?
                 .filter(|package_json| !package_json.is_type_marker(consulted))
-                .map(|package_json| package_json.path),
+                .map(Cow::Owned),
         };
-        if let Some(package_json) = package_json {
-            return Ok(Walk::Found((dir.to_owned(), Some(package_json))));
+        if package_json.is_some() {
+            return Ok(Walk::Found(Bound {
+                dir: dir.to_owned(),
+                package_json,
+            }));
         }
     }
     Ok(Walk::NotFound { stopped_at: None })
+}
+
+/// A project root, as [`find_bound`] finds it.
+pub(super) struct Bound<'s> {
+    /// Its directory.
+    pub(super) dir: PathBuf,
+    /// The `package.json` that bounds it, the scope's when the scope's is
+    /// the one, none for a `node_modules`'s holder.
+    pub(super) package_json: Option<Cow<'s, PackageJson>>,
 }
 
 /// Whether `path` has a `node_modules` component.

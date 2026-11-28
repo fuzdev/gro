@@ -117,7 +117,7 @@
 			"binary": {
 				"code": 2,
 				"stdout": "",
-				"stderr": "error: {binary} check runs gen in check mode, writing no source, and the forwarded `-- gro gen` turns that check off, a write it never grants: run {binary} gen for the writes, or node_modules/.bin/gro check -- gro gen --no-check on the project's Node gro, unconfined\n"
+				"stderr": "error: {binary} check runs gen in check mode, writing no source, and the forwarded `-- gro gen` turns that check off, a write it never grants: run {binary} gen for the writes; the Node gro runs it unconfined, and this project installs none: npm i -D @fuzdev/gro\n"
 			}
 		},
 		{
@@ -169,7 +169,7 @@
 			"binary": {
 				"code": 2,
 				"stdout": "",
-				"stderr": "error: -A would run a command of Gro's unconfined, and the binary runs each in a kernel box: the project's Node gro is the unconfined spelling (node_modules/.bin/gro format --check)\n"
+				"stderr": "error: -A would run a command of Gro's unconfined, and the binary runs each in a kernel box: the Node gro is the unconfined spelling, and this project installs none: npm i -D @fuzdev/gro\n"
 			}
 		},
 		{
@@ -185,7 +185,7 @@
 			"binary": {
 				"code": 2,
 				"stdout": "",
-				"stderr": "error: -A comes before the command, and the binary runs each command of Gro's in a kernel box, which -A can't lift: the project's Node gro is the unconfined spelling (node_modules/.bin/gro format --check)\n"
+				"stderr": "error: -A comes before the command, and the binary runs each command of Gro's in a kernel box, which -A can't lift: the Node gro is the unconfined spelling, and this project installs none: npm i -D @fuzdev/gro\n"
 			}
 		}
 	]

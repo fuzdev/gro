@@ -21,5 +21,7 @@ await binary_main({
 	home: '/home/fixture',
 	version: '0.0.0-fixture',
 	cli_name: 'fgro',
+	command_line: 'fgro gen',
+	node_command: 'node_modules/.bin/gro gen src/lib/x.gen.ts',
 	vitest_module_cache: '/home/fixture/p/node_modules/.vite/vitest/boxed-module-cache'
 });

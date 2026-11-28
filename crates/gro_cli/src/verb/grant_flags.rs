@@ -21,7 +21,6 @@ use gro_runtime::BINARY_NAME;
 use gro_runtime::verb::closure::{RUN_TASK_NAME, is_task_path_input};
 use thiserror::Error;
 
-use super::prepass::node_gro_command;
 use crate::cli::{
     ALLOW_ALL, ALLOW_RUN, ALLOW_RUN_ENV, ALLOW_RUN_IN, ALLOW_RUN_WRITE, ALLOW_TEMP, FlagDirs,
     GrantFlag, GrantListError, ListFlag, RUN, RunGrant, RunGrantBuilder,
@@ -40,16 +39,15 @@ pub struct GrantFlagsSplit {
 
 /// The refusal of `flag` before the command word `command` (none when no
 /// argument names one): where grant flags go, and for `-A` before a
-/// command of Gro's, the spelling that runs unconfined, the whole command
-/// line `rest` on the Node Gro; `run` takes `-A` after its word.
-fn before_command(flag: &str, command: Option<&str>, rest: &[String]) -> String {
-    let boxed = flag == "-A" && command != Some(RUN);
-    if boxed {
-        format!(
-            "-A comes before the command, and the binary runs each command of Gro's in a kernel \
-             box, which -A can't lift: the project's Node gro is the unconfined spelling ({})",
-            node_gro_command(rest)
-        )
+/// command of Gro's, that the box can't lift it, which the pre-pass
+/// follows with the spelling that runs unconfined, once it has read the
+/// project (`super::prepass::VerbError::AllBeforeCommand`); `run` takes
+/// `-A` after its word.
+fn before_command(flag: &str, command: Option<&str>) -> String {
+    if refuses_all(flag, command) {
+        "-A comes before the command, and the binary runs each command of Gro's in a kernel box, \
+         which -A can't lift"
+            .to_owned()
     } else {
         let command = command.map_or_else(|| "<command>".into(), escape_controls);
         format!(
@@ -59,6 +57,12 @@ fn before_command(flag: &str, command: Option<&str>, rest: &[String]) -> String 
             echo_argument(flag)
         )
     }
+}
+
+/// Whether `flag` before the command word `command` is `-A` before a
+/// command of Gro's, which no flag's place lifts.
+fn refuses_all(flag: &str, command: Option<&str>) -> bool {
+    flag == ALLOW_ALL && command != Some(RUN)
 }
 
 /// Why a command line's grant flags are refused. Each names the flag as
@@ -71,7 +75,7 @@ pub enum GrantFlagsError {
     /// project's Node Gro being the unconfined spelling.
     #[error(
         "{}",
-        before_command(.flag, .command.as_deref(), .rest)
+        before_command(.flag, .command.as_deref())
     )]
     BeforeCommand {
         /// The flag, as written.
@@ -80,7 +84,7 @@ pub enum GrantFlagsError {
         /// hint puts first, or none.
         command: Option<String>,
         /// The command line without the grant flags before the command
-        /// word, which the hint for `-A` names on the Node Gro.
+        /// word, which the refusal of `-A` names on the Node Gro.
         rest: Vec<String>,
     },
     /// `--allow-temp` given a value.
@@ -126,6 +130,22 @@ pub enum GrantFlagsError {
     /// hint.
     #[error(transparent)]
     List(#[from] GrantListError),
+}
+
+impl GrantFlagsError {
+    /// The command line without the grant flags before the command word,
+    /// when this refuses `-A` before a command of Gro's, which the
+    /// refusal names on the Node Gro.
+    pub fn all_before_command(&self) -> Option<&[String]> {
+        match self {
+            Self::BeforeCommand {
+                flag,
+                command,
+                rest,
+            } if refuses_all(flag, command.as_deref()) => Some(rest),
+            _ => None,
+        }
+    }
 }
 
 /// Every grant flag's name, as [`GrantFlagsError::NoGrantFlag`] lists them.
@@ -347,25 +367,31 @@ mod tests {
                  word, like `{BINARY_NAME} check --allow-env=…`"
             )
         );
-        assert_eq!(
-            refused(&["-A"]),
-            "-A comes before the command, and the binary runs each command of Gro's in a kernel \
-             box, which -A can't lift: the project's Node gro is the unconfined spelling \
-             (node_modules/.bin/gro)"
-        );
+        // the pre-pass names the spelling that runs unconfined, once it has
+        // read the project
+        let lift = "-A comes before the command, and the binary runs each command of Gro's in a \
+                    kernel box, which -A can't lift";
+        assert_eq!(refused(&["-A"]), lift);
+        assert_eq!(refused(&["-A", "check"]), lift);
         // the whole command line, the grant flags before the command word dropped
+        let all = |argv: &[&str]| {
+            let argv: Vec<String> = argv.iter().map(|&arg| arg.to_owned()).collect();
+            split_grant_flags(&argv)
+                .unwrap_err()
+                .all_before_command()
+                .map(<[String]>::to_vec)
+        };
         assert_eq!(
-            refused(&["-A", "--allow-read=.", "format", "--check", "--", "-A"]),
-            "-A comes before the command, and the binary runs each command of Gro's in a kernel \
-             box, which -A can't lift: the project's Node gro is the unconfined spelling \
-             (node_modules/.bin/gro format --check -- -A)"
+            all(&["-A", "--allow-read=.", "format", "--check", "--", "-A"]),
+            Some(
+                ["format", "--check", "--", "-A"]
+                    .map(str::to_owned)
+                    .to_vec()
+            )
         );
-        assert_eq!(
-            refused(&["-A", "check"]),
-            "-A comes before the command, and the binary runs each command of Gro's in a kernel \
-             box, which -A can't lift: the project's Node gro is the unconfined spelling \
-             (node_modules/.bin/gro check)"
-        );
+        assert_eq!(all(&["-A"]), Some(Vec::new()));
+        assert_eq!(all(&["-A", "run", "x.ts"]), None);
+        assert_eq!(all(&["--allow-read=.", "check"]), None);
         assert_eq!(
             refused(&["-A", "run", "x.ts"]),
             format!(
