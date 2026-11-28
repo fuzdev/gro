@@ -378,6 +378,10 @@ pub enum ResolveErrorKind {
     /// A file a resolution read lies outside the box the reads are confined
     /// to ([`ReadRefusal::OutsideBox`]).
     ReadOutsideBox(PathBuf),
+    /// A file a resolution read is none the run read before it started for
+    /// an entry in no project, and no directory its loader reads from disk
+    /// holds it ([`ReadRefusal::OutsideGraph`]).
+    ReadOutsideGraph(PathBuf),
 }
 
 /// Why a package Gro's library imports isn't one it may load.
@@ -520,6 +524,7 @@ impl ResolveErrorKind {
                 | Self::ReadReplacedSinceFirstRead(_)
                 | Self::ReadReplacedSinceLookup(_)
                 | Self::ReadOutsideBox(_)
+                | Self::ReadOutsideGraph(_)
                 | Self::InvalidUrl(UrlFault::ImporterNoLocalPath)
         )
     }
@@ -532,7 +537,8 @@ impl ResolveErrorKind {
     /// world-writable directory, a path or `"exports"` target that leaves its
     /// root or crosses into another's, a package's import of the project, a
     /// module of Gro's library reaching outside it or importing the project
-    /// by name, a module whose origin is unclear, or a read outside the box.
+    /// by name, a module whose origin is unclear, or a read outside the box or
+    /// outside the files an entry in no project's run read before it started.
     /// Nothing there is a missing file or package, a module of Gro's the run
     /// doesn't serve, a peer of Gro's missing or out of its range, a
     /// malformed specifier or package,
@@ -559,7 +565,8 @@ impl ResolveErrorKind {
             | Self::GroImportsProject { .. }
             | Self::InNoPackage(_)
             | Self::RootConflict { .. }
-            | Self::ReadOutsideBox(_) => true,
+            | Self::ReadOutsideBox(_)
+            | Self::ReadOutsideGraph(_) => true,
             Self::Target { error, .. } | Self::ImportTarget { error, .. } => {
                 error.guards_a_boundary()
             }
@@ -1318,6 +1325,13 @@ impl fmt::Display for ResolveErrorKind {
             Self::ReadOutsideBox(path) => write!(
                 f,
                 "cannot read {}: it lies outside the box's roots",
+                path.display(),
+            ),
+            Self::ReadOutsideGraph(path) => write!(
+                f,
+                "cannot read {}: the entry is in no project, so the run reads only the \
+                 package.json files its import graph's resolution read before it started, and \
+                 this isn't one. Fix: add --allow-read= naming its directory",
                 path.display(),
             ),
         }

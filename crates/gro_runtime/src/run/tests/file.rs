@@ -111,19 +111,46 @@ fn a_file_entry_moves_to_another_thread() {
     assert_eq!(moved.root(), root);
 }
 
-/// An entry with no project's `package.json` at or above it is unbounded,
-/// and its type markers above its root are the `package.json` files its
-/// walk read there, by their real paths; any other entry has none.
+/// An entry with no project's `package.json` at or above it, in a confined
+/// run, is prepared with its import graph read, the `package.json` files
+/// its walk read above its root among what's read; an unconfined run's,
+/// and any other entry, read nothing.
 #[test]
-fn only_an_unbounded_entry_has_markers_above_its_root() {
+fn only_a_confined_unbounded_entry_reads_its_graph() {
     let dir = tree("markers");
     let real = dir.path().canonicalize().unwrap();
+    let confined = crate::Authority::Confined(crate::Grants::default());
+    let conditions = crate::resolver::Conditions::default();
     let loose = resolve_file_entry(Path::new("loose/sub/x.mjs"), dir.path()).unwrap();
     assert!(loose.is_unbounded());
-    assert_eq!(loose.markers(), [real.join("loose/package.json")]);
+    let prepared = tsv_ts::run_with_stack(move || loose.prepare(&confined, conditions)).unwrap();
+    let graph = prepared.graph().unwrap();
+    assert!(
+        graph
+            .files()
+            .any(|file| file == real.join("loose/package.json")),
+        "{graph:?}"
+    );
+    assert!(
+        graph
+            .modules()
+            .any(|module| module == real.join("loose/sub/x.mjs")),
+        "{graph:?}"
+    );
+    let loose = resolve_file_entry(Path::new("loose/sub/x.mjs"), dir.path()).unwrap();
+    assert!(
+        loose
+            .prepare(&crate::Authority::Unconfined, conditions)
+            .graph()
+            .is_none()
+    );
     for path in ["p/src/main.mjs", "p/node_modules/q/index.mjs"] {
         let entry = resolve_file_entry(Path::new(path), dir.path()).unwrap();
         assert!(!entry.is_unbounded(), "{path}");
-        assert_eq!(entry.markers(), Vec::<std::path::PathBuf>::new(), "{path}");
+        let confined = crate::Authority::Confined(crate::Grants::default());
+        assert!(
+            entry.prepare(&confined, conditions).graph().is_none(),
+            "{path}"
+        );
     }
 }

@@ -18,12 +18,12 @@
 //!   never writing, so a program reads the project, the system, and
 //!   `node_modules` as the run does, and nothing of the private directory,
 //!   where its siblings' temporary directories and the run's own lie. The
-//!   root of an entry in no project (`RuleSource::UnboundedRoot`) is the
-//!   run's loader's alone, taken only by a program whose
-//!   `--allow-run-write=` names the root, so a program reads that directory
-//!   (the home directory for `~/x.ts`, a world-writable one for
-//!   `/var/tmp/x.ts`) only as a grant flag names it. A
-//!   rule holding the private directory would grant all of it, since
+//!   root of an entry in no project (`RuleSource::UnboundedRoot`), which
+//!   the run's box reads only where a write flag names it, is taken only by
+//!   a program whose `--allow-run-write=` names the root, so a program
+//!   reads that directory (the home directory for `~/x.ts`, a
+//!   world-writable one for `/var/tmp/x.ts`) only as a grant flag names
+//!   it. A rule holding the private directory would grant all of it, since
 //!   Landlock grants beneath a rule whatever the rule's directory holds:
 //!   the verb refuses a spawning run planned with one before its box
 //!   (`BoxPlan::holding`), and the held rules leave one out besides;

@@ -27,7 +27,8 @@ impl BoxFacts {
     /// top-level entries, each a symlink not followed, with a regular
     /// file's link count; its `node_modules`, a symlink followed to its real
     /// path when that is a directory; the merged system directories' kinds;
-    /// the link closure from the root and where `node_modules` leads; and
+    /// the link closure from the root and where `node_modules` leads, none
+    /// for an entry in no project ([`BoxInputs::unbounded`]); and
     /// for a run that may start git ([`BoxInputs::git`]), what git reads
     /// outside the project (`git::home_files`, `git::git_dirs`), or
     /// why that can't be read.
@@ -69,6 +70,7 @@ impl BoxFacts {
             .collect();
         let mut seeds = vec![(root.clone(), open_real_dir(root)?)];
         if let NodeModules::Link { real, .. } = &node_modules
+            && !inputs.unbounded
             && !real.starts_with(root)
             && let Ok(pinned) = open_real_dir(real)
         {
@@ -80,7 +82,15 @@ impl BoxFacts {
             (Vec::new(), Vec::new(), None)
         };
         let seeded = seeds.len();
-        let (roots, _handles) = link_closure(seeds);
+        // the run reads an entry in no project's modules, a project nested
+        // in its directory and that project's packages included, before the
+        // box goes up, and only beneath that directory or one
+        // `--allow-read=` names, so its box reads no package
+        let (roots, _handles) = if inputs.unbounded {
+            (Vec::new(), Vec::new())
+        } else {
+            link_closure(seeds)
+        };
         Ok(Self {
             entries,
             node_modules,

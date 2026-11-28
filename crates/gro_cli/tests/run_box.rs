@@ -42,7 +42,9 @@
 //! `/dev/null`, `/proc`, a linked package, git's home config, `/bin/sh` on
 //! a merged `/usr`, the `node` on `PATH` under a rule on its file alone)
 //! and refused the rest (`.git`, `node_modules`, a new top-level file, the
-//! home directory).
+//! home directory); and a run of an entry in no project, its box holding
+//! no rule on the root, refused a file there but its metadata, and reading
+//! what `--allow-read=` names.
 //!
 //! A program's own box, nested in the run's (`gro_runtime::confine::program`):
 //! the run's box up for a run that may start a program, writing its root
@@ -136,6 +138,7 @@ const CASES: &[&str] = &[
     "tool_dirs_planted",
     "planned",
     "planned_check",
+    "unbounded",
     "private_dir_reused",
     "program_box",
     "program_box_inet_refused",
@@ -548,6 +551,14 @@ fn expected(case: &str) -> String {
         "linked_named" | "linked_marker" | "linked_absent" => {
             line("confined");
             line("ran: ok");
+        }
+        "unbounded" => {
+            line(&format!("network: {network}"));
+            line("confined");
+            line("read a file of the root: denied");
+            line("its metadata: ok");
+            line("list the root: denied");
+            line("read a file in what --allow-read= names: ok");
         }
         "v8" => {
             line(&format!("network: {network}"));
@@ -1081,6 +1092,7 @@ fn child(case: &str, scratch: &Path, port: u16) {
         "program_box" | "program_box_inet_refused" => program_box(scratch, case),
         "program_box_umask" => program_box_umask(scratch),
         "planned_check" => planned(scratch, false),
+        "unbounded" => unbounded(scratch),
         #[cfg(feature = "snapshot")]
         "v8" => v8::run(&project, &outside),
         #[cfg(feature = "snapshot")]
@@ -1145,6 +1157,49 @@ fn hardened() -> RunHardened {
         .unwrap();
     say(&network_line(networked.network()));
     networked.harden().unwrap()
+}
+
+/// The box of a run of an entry in no project, `--allow-read=` naming a
+/// directory beneath its root, up: it holds no rule on the root, whose
+/// modules the run read before the box went up, so a file there isn't
+/// read, its metadata open as Landlock leaves it, while what the flag
+/// names is read.
+fn unbounded(scratch: &Path) {
+    let root = scratch.join("unbounded");
+    std::fs::create_dir_all(root.join("sub")).unwrap();
+    std::fs::write(root.join("x.ts"), "").unwrap();
+    std::fs::write(root.join("sub/y.txt"), "").unwrap();
+    let root = std::fs::canonicalize(root).unwrap();
+    let inputs = BoxInputs {
+        root: root.clone(),
+        unbounded: true,
+        flags: vec![GrantedFlagDir {
+            flag: DirFlag::Read,
+            dir: "sub".to_owned(),
+            real: root.join("sub"),
+        }],
+        ..BoxInputs::default()
+    };
+    let plan = BoxPlan::for_run(&inputs, &BoxFacts::read(&inputs).unwrap()).unwrap();
+    hardened().prepare(&plan, None).unwrap().confine().unwrap();
+    say("confined");
+    let file = root.join("x.ts");
+    say(&format!(
+        "read a file of the root: {}",
+        outcome(std::fs::read(&file))
+    ));
+    say(&format!(
+        "its metadata: {}",
+        outcome(std::fs::metadata(&file))
+    ));
+    say(&format!(
+        "list the root: {}",
+        outcome(std::fs::read_dir(&root))
+    ));
+    say(&format!(
+        "read a file in what --allow-read= names: {}",
+        outcome(std::fs::read(root.join("sub/y.txt")))
+    ));
 }
 
 /// What a make of tool directories refused, by kind.

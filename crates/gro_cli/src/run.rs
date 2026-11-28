@@ -132,7 +132,7 @@ pub struct RunSpec<'a> {
     /// The script's arguments, or the command line without its grant flags.
     args: &'a [String],
     /// The conditions its packages match.
-    conditions: Conditions,
+    pub(crate) conditions: Conditions,
     /// Whether it's a verb's run: it grants the env and spawn host modules
     /// whatever names they hold, none included, since its entry imports
     /// both, and a refusal of its flags names no `fgro run` help.
@@ -296,8 +296,9 @@ pub fn run_file(run: RunInvocation) -> u8 {
 /// `~/package.json` would hand every script beneath it the whole home
 /// directory. An entry with no project's `package.json` at or above it,
 /// whose root is its own directory, is never refused: the realm and every
-/// program the run starts read that only as a flag naming it grants, while
-/// the box's rule on it, the run's own for its loader, reads it whole.
+/// program the run starts read that only as a flag naming it grants, and
+/// its loader loads only the modules of its import graph, read before the
+/// box (`gro_runtime::FileEntry::prepare`), so the box holds no rule on it.
 ///
 /// Kind: a native check before anything runs, of what the project's tree
 /// makes the root (adversary: a stray or planted `package.json` above the
@@ -883,7 +884,7 @@ fn grant_hints(refused: &Refusals, entry_dir: Option<&EntryDir>) -> Vec<String> 
     );
     let (mut read, mut link, mut write, mut open_dir, mut temp, mut run_in) =
         (false, false, false, false, false, false);
-    let (mut entry_read, mut entry_write) = (false, false);
+    let (mut entry_read, mut entry_write, mut entry_import) = (false, false, false);
     let mut hints: Vec<String> = refused
         .needed
         .iter()
@@ -909,6 +910,7 @@ fn grant_hints(refused: &Refusals, entry_dir: Option<&EntryDir>) -> Vec<String> 
             NeededGrant::Fs(FsNeed::EntryDirRead) => entry_read = true,
             NeededGrant::Fs(FsNeed::EntryDirWrite) => entry_write = true,
             NeededGrant::RunIn => run_in = true,
+            NeededGrant::EntryDirImport => entry_import = true,
         }
     }
     for (flag, listed, some, refused_by) in [
@@ -938,6 +940,9 @@ fn grant_hints(refused: &Refusals, entry_dir: Option<&EntryDir>) -> Vec<String> 
         .filter(|_| entry_write)
         .map(|dir| entry_dir_hint(true, dir));
     hints.extend(named_read);
+    if entry_import {
+        hints.push(entry_dir_import_hint(named));
+    }
     if read {
         hints.push(format!(
             "hint: add {ALLOW_READ} naming the directory to grant what fs refused"
@@ -1001,6 +1006,31 @@ fn entry_dir_hint(write: bool, dir: &EntryDir) -> String {
          grant what fs refused{rest}",
         escape_controls(&dir.root),
         shell_quote(&format!("{flag}={}", dir.flag))
+    )
+}
+
+/// The hint for a module the loader refused, or a `package.json` it didn't
+/// read, past the import graph an entry in no project's run read before it
+/// started, or a JS module there whose imports tsv couldn't read: the read
+/// flag naming its directory, `dir`, as [`entry_dir_hint`] names it, or,
+/// where the run can't name it, the fixed line.
+fn entry_dir_import_hint(dir: Option<&EntryDir>) -> String {
+    dir.map_or_else(
+        || {
+            format!(
+                "hint: add {ALLOW_READ} naming the entry's directory to load its modules from \
+                 disk"
+            )
+        },
+        |dir| {
+            format!(
+                "hint: {} is in no project (no package.json at or above the entry holds more \
+                 than \"type\" or \"sideEffects\"), so the run loads only the import graph it \
+                 read before it started: add {} to load from disk there",
+                escape_controls(&dir.root),
+                shell_quote(&format!("{ALLOW_READ}={}", dir.flag))
+            )
+        },
     )
 }
 
@@ -1916,6 +1946,37 @@ mod tests {
                 "hint: add --allow-env naming each variable the run reads to grant the import of \
                  '@fuzdev/gro/env.ts'",
                 "hint: add --allow-env=HOME to grant what env refused",
+            ]
+        );
+    }
+
+    /// A refusal past an entry in no project's import graph hints the read
+    /// flag naming the entry's directory, quoted for a shell, or the fixed
+    /// line where the run can't name it as one directory.
+    #[test]
+    fn the_import_graph_hint_names_the_entry_s_directory() {
+        use gro_runtime::{NeededGrant, Refusals};
+
+        use super::{EntryDir, grant_hints};
+
+        let refused = Refusals {
+            needed: vec![NeededGrant::EntryDirImport],
+            ..Refusals::default()
+        };
+        let fixed =
+            "hint: add --allow-read naming the entry's directory to load its modules from disk";
+        assert_eq!(grant_hints(&refused, None), [fixed]);
+        let dir = |flag: &str| EntryDir {
+            root: "/s/a b".to_owned(),
+            flag: flag.to_owned(),
+        };
+        assert_eq!(grant_hints(&refused, Some(&dir("a,b"))), [fixed]);
+        assert_eq!(
+            grant_hints(&refused, Some(&dir("/s/a b"))),
+            [
+                "hint: /s/a b is in no project (no package.json at or above the entry holds more \
+                 than \"type\" or \"sideEffects\"), so the run loads only the import graph it \
+                 read before it started: add '--allow-read=/s/a b' to load from disk there"
             ]
         );
     }

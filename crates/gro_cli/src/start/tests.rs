@@ -850,9 +850,9 @@ fn a_held_temporary_directory_names_the_flag_that_holds_it() {
 /// `fgro run`'s file names the command `fgro run` in what the box says,
 /// its programs and the run's modules where a command of Gro's names its
 /// tools and gro's own code; its box reads git's files only where
-/// `--allow-run=` grants git, and the type markers above an entry's own
-/// directory with no project's `package.json` at or above it, a root its
-/// programs read only as a flag names it.
+/// `--allow-run=` grants git, beside an entry's own directory with no
+/// project's `package.json` at or above it, a root its programs read only
+/// as a flag names it.
 #[test]
 fn a_file_s_run_names_fgro_run_and_reads_git_s_files_only_for_git() {
     use gro_runtime::confine::run::RunNetwork;
@@ -863,7 +863,6 @@ fn a_file_s_run_names_fgro_run_and_reads_git_s_files_only_for_git() {
     std::fs::write(dir.join("marker/package.json"), "{\"type\": \"module\"}\n").unwrap();
     std::fs::write(dir.join("marker/b/x.mjs"), "").unwrap();
     let entry = gro_runtime::resolve_file_entry(Path::new("b/x.mjs"), &dir.join("marker")).unwrap();
-    let marker = dir.join("marker/package.json").canonicalize().unwrap();
     std::fs::remove_dir_all(&dir).unwrap();
     let file = |run: &[&str]| RunStart {
         cli_args: vec!["--watch".to_owned()],
@@ -900,7 +899,6 @@ fn a_file_s_run_names_fgro_run_and_reads_git_s_files_only_for_git() {
     };
     let cargo = file(&["cargo"]);
     assert!(!inputs(&cargo).git);
-    assert_eq!(inputs(&cargo).markers, [marker]);
     assert!(inputs(&cargo).unbounded);
     assert!(inputs(&file(&["cargo", "git"])).git);
     let plan = spawning_plan(

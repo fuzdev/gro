@@ -1705,11 +1705,9 @@ fn a_run_write_flag_holding_the_temporary_directory_is_found() {
 }
 
 /// A spawning run that may not start git reads none of git's files outside
-/// the project and isn't refused when they can't be read; type markers
-/// above the root are read, file-only, by their real paths, after the
-/// link closure.
+/// the project and isn't refused when they can't be read.
 #[test]
-fn git_s_files_hang_on_git_and_markers_are_read_file_only() {
+fn git_s_files_hang_on_git() {
     let mut cargo = inputs(
         false,
         &[],
@@ -1719,7 +1717,6 @@ fn git_s_files_hang_on_git_and_markers_are_read_file_only() {
         }],
     );
     cargo.git = false;
-    cargo.markers = vec!["/m/package.json".into()];
     let plan = BoxPlan::for_run(&cargo, &facts()).unwrap();
     let lines = render(&plan);
     assert!(
@@ -1728,15 +1725,6 @@ fn git_s_files_hang_on_git_and_markers_are_read_file_only() {
             .any(|line| line.contains("GitHome") || line.contains("GitDir")),
         "{lines:#?}"
     );
-    let marker = lines
-        .iter()
-        .position(|line| line == "real /m/package.json r opt Marker")
-        .unwrap_or_else(|| panic!("{lines:#?}"));
-    let linked = lines
-        .iter()
-        .position(|line| line.starts_with("real /elsewhere/pkg"))
-        .unwrap();
-    assert_eq!(marker, linked + 1, "{lines:#?}");
     let faulty = BoxFacts {
         git_fault: Some(crate::confine::git::GitFault {
             path: "/h/.gitconfig".into(),
@@ -1752,11 +1740,12 @@ fn git_s_files_hang_on_git_and_markers_are_read_file_only() {
     ));
 }
 
-/// The root of an entry in no project is the run's loader's: its rule
-/// reaches no program's box, so nothing a spawning run starts reads it,
-/// unless a read or run-in flag names it, or `--allow-run-write=` names it
-/// for that program, which reads it then; a project's root reaches every
-/// program's box.
+/// The root of an entry in no project gets no rule of its own, its
+/// loader's reads served from before the box, so nothing a spawning run
+/// starts reads it, unless a read or run-in flag names it, or
+/// `--allow-run-write=` names it for that program, which reads it then; a
+/// write flag naming it reads the root itself for the run alone; a
+/// project's root reaches every program's box.
 #[test]
 fn an_unbounded_root_reaches_no_program_unless_a_flag_names_it() {
     let loose = |flags: &[(DirFlag, &str, &str)]| BoxInputs {
@@ -1774,9 +1763,17 @@ fn an_unbounded_root_reaches_no_program_unless_a_flag_names_it() {
     };
     let plan = BoxPlan::for_run(&loose(&[]), &facts()).unwrap();
     assert!(
-        render(&plan).contains(&"project . r req UnboundedRoot".to_owned()),
+        !render(&plan)
+            .iter()
+            .any(|line| line.starts_with("project . ")),
         "{:#?}",
         render(&plan)
+    );
+    let written = BoxPlan::for_run(&loose(&[(DirFlag::Write, ".", "/p")]), &facts()).unwrap();
+    assert!(
+        render(&written).contains(&"project . r req UnboundedRoot".to_owned()),
+        "{:#?}",
+        render(&written)
     );
     assert_eq!(holding(&loose(&[])), None);
     for flag in [DirFlag::Read, DirFlag::RunIn] {
@@ -1811,4 +1808,58 @@ fn an_unbounded_root_reaches_no_program_unless_a_flag_names_it() {
         holding(&bounded),
         Some((PathBuf::from("/p/."), RuleSource::Project))
     );
+}
+
+/// Beside an entry in no project, which resolves no package, the box reads
+/// no `node_modules`: not where a symlinked one leads, which it neither
+/// notes nor refuses whatever it leads to, nor the link closure, nor the
+/// directory a run that may start a program reads; a project's are read.
+#[test]
+fn an_unbounded_root_s_node_modules_gets_no_rule() {
+    let spawning = |unbounded| BoxInputs {
+        unbounded,
+        ..inputs(
+            false,
+            &[],
+            &[],
+            vec![ProgramFile::Direct {
+                real: "/usr/bin/cat".into(),
+            }],
+        )
+    };
+    let reads_node_modules = |lines: &[String]| {
+        lines.iter().any(|line| {
+            line.contains("NodeModules") || line.contains("Linked") || line.contains("/elsewhere")
+        })
+    };
+    let plan = BoxPlan::for_run(&spawning(true), &facts()).unwrap();
+    assert!(!reads_node_modules(&render(&plan)), "{:#?}", render(&plan));
+    let plan = BoxPlan::for_run(&spawning(false), &facts()).unwrap();
+    assert!(reads_node_modules(&render(&plan)), "{:#?}", render(&plan));
+    for real in ["/c/node_modules", "/h/.ssh"] {
+        let linked = BoxFacts {
+            node_modules: NodeModules::Link {
+                real: real.into(),
+                present: ToolDirs::EMPTY,
+                checkout: true,
+            },
+            ..facts()
+        };
+        let plan = BoxPlan::for_run(&spawning(true), &linked).unwrap();
+        assert!(!reads_node_modules(&render(&plan)), "{:#?}", render(&plan));
+        assert_eq!(plan.node_modules_link(), None);
+        assert_eq!(plan.note(|_| None), None);
+    }
+    let odd = BoxFacts {
+        node_modules: NodeModules::Link {
+            real: "/h/.ssh".into(),
+            present: ToolDirs::EMPTY,
+            checkout: false,
+        },
+        ..facts()
+    };
+    assert!(matches!(
+        BoxPlan::for_run(&spawning(false), &odd),
+        Err(PlanRefusal::NodeModulesLink { .. })
+    ));
 }

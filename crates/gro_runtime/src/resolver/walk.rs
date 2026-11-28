@@ -199,6 +199,7 @@ fn read_error(path: &Path, error: &io::Error) -> ResolveErrorKind {
             ResolveErrorKind::ReadReplacedSinceLookup(path.to_owned())
         }
         Some(ReadRefusal::OutsideBox(_)) => ResolveErrorKind::ReadOutsideBox(path.to_owned()),
+        Some(ReadRefusal::OutsideGraph(_)) => ResolveErrorKind::ReadOutsideGraph(path.to_owned()),
         None => ResolveErrorKind::Io {
             path: path.to_owned(),
             kind: error.kind(),

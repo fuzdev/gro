@@ -19,7 +19,8 @@ for Linux x86_64 only, built from source ([install](../src/docs/runtime.md#insta
   `fs.temp_dir` makes its directories in the run's private directory, which `TMPDIR` names to the run.
   An entry in no project (no `package.json` at or above it but [type markers](../src/docs/glossary.md#type-marker)) reads and writes its own directory only as a flag names it, a refusal there hinting `--allow-read=.` or its path,
   and the programs it starts read that directory only as a flag names it too;
-  and the box reads each type marker above it, file-only; a project root that is or holds the home directory, found by a `package.json` or a `node_modules` at or above the entry, is refused, exit 2.
+  its modules load from the import graph the run reads before it starts, every module an import names by a string literal, so the box reads nothing of that directory, its type markers, or a `node_modules` there, and an `import()` of a module no string literal names is refused, hinting `--allow-read=.`; a `.js` module there that tsv can't parse, past its depth limits, fails to load, naming `--allow-read=`;
+  a project root that is or holds the home directory, found by a `package.json` or a `node_modules` at or above the entry, is refused, exit 2.
   `-A` runs in no box and says nothing; where Landlock is below the box's floor, or the build has no snapshot, it runs in no box after a note saying so,
   which `GRO_FALLBACK=command` refuses, exit 2, and a `GRO_FALLBACK` naming no policy is refused, exit 2.
   There are no resource limits, the JIT is on, and console output reaches the terminal unescaped.

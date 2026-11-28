@@ -124,15 +124,19 @@ pub mod tool_dirs;
 use closure::link_closure;
 use rules::{BoxRules, open_real_dir};
 
-/// The directories a confined run may read: the project's real directory
-/// first, then each link closure root, every one a real path.
+/// What a confined read may reach, each a real path, a directory beneath
+/// it and a file only itself.
+///
+/// Eval's box: the project's directory first, then each link closure root.
+/// The reads made before an `fgro run` entry in no project's box goes up
+/// (`loader::prepass`): its directory, the type markers above it, and the
+/// directories `--allow-read=` names.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BoxRoots(Vec<PathBuf>);
 
 impl BoxRoots {
-    /// Roots as given, for a test of what reads them.
-    #[cfg(test)]
-    pub(crate) const fn for_test(roots: Vec<PathBuf>) -> Self {
+    /// Roots as given, each a real path.
+    pub(crate) const fn new(roots: Vec<PathBuf>) -> Self {
         Self(roots)
     }
 

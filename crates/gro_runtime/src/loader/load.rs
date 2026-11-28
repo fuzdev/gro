@@ -9,9 +9,19 @@ use deno_core::{
 
 use super::Refused;
 use super::graph::{FailureReason, LoadFailure, Loaded, Recording};
-use super::strip::strip_module;
+use super::strip::{StripRefusal, strip_module};
 use crate::file_id::FileId;
 use crate::resolver::{self, EmbeddedModule, MAX_MODULE_SIZE, ModuleFormat, ReadRefusal};
+
+/// A module's code, as V8 runs it: a JS module's bytes as read, or a
+/// TypeScript module's JS, its types stripped.
+#[derive(Debug, Clone)]
+pub(super) enum Code {
+    /// A JS module's bytes, which V8 decodes.
+    Bytes(Vec<u8>),
+    /// A TypeScript module, its types stripped.
+    Stripped(String),
+}
 
 /// Reads the module at `specifier`, a URL the resolver produced for the file
 /// `file_id` names, once `check` allows its path, stripping a TypeScript
@@ -24,14 +34,47 @@ pub(super) fn load(
     recording: Recording,
     check: impl FnOnce(&Path) -> io::Result<()>,
 ) -> Result<(ModuleSource, Option<Loaded>), Refused> {
-    let refused = |failure, message| Refused::new(FailureReason::Load(failure), message);
+    check_requested(specifier, requested)?;
+    let (format, bytes) = read_module(specifier, file_id, check)?;
+    // the bytes read, which V8 runs as is or stripped
+    let loaded = recording.is_full().then(|| Loaded {
+        format,
+        hash: blake3::hash(&bytes),
+    });
+    let code = match format {
+        ModuleFormat::JavaScript => Code::Bytes(bytes),
+        ModuleFormat::TypeScript => {
+            Code::Stripped(strip_module(&decoded(bytes), specifier).map_err(strip_refused)?)
+        }
+    };
+    Ok((module_source(specifier, code), loaded))
+}
+
+/// Refuses a module imported with a `type`: no module type past JS loads
+/// yet.
+pub(super) fn check_requested(
+    specifier: &ModuleSpecifier,
+    requested: &RequestedModuleType,
+) -> Result<(), Refused> {
     // TODO: JSON modules (`with {type: 'json'}`) join with the module formats past JS
-    if *requested != RequestedModuleType::None {
-        return Err(refused(
-            LoadFailure::ModuleType,
-            format!("cannot load {specifier}: import attributes are not supported yet"),
-        ));
+    if *requested == RequestedModuleType::None {
+        return Ok(());
     }
+    Err(Refused::new(
+        FailureReason::Load(LoadFailure::ModuleType),
+        format!("cannot load {specifier}: import attributes are not supported yet"),
+    ))
+}
+
+/// Reads the module at `specifier`, the file `file_id` names, once `check`
+/// allows its path, returning its format and the bytes read, never past
+/// [`MAX_MODULE_SIZE`].
+pub(super) fn read_module(
+    specifier: &ModuleSpecifier,
+    file_id: FileId,
+    check: impl FnOnce(&Path) -> io::Result<()>,
+) -> Result<(ModuleFormat, Vec<u8>), Refused> {
+    let refused = |failure, message| Refused::new(FailureReason::Load(failure), message);
     let path = specifier.to_file_path().map_err(|()| {
         refused(
             LoadFailure::NoLocalPath,
@@ -55,8 +98,9 @@ pub(super) fn load(
                  isn't loaded"
             ),
         ),
-        // never a load's: only the record of a run's `package.json` reads refuses it
-        Some(ReadRefusal::ReplacedSinceFirstRead) | None => refused(
+        // never a load's: only the record of a run's `package.json` reads
+        // refuses the first, and only a read graph's tree the second
+        Some(ReadRefusal::ReplacedSinceFirstRead | ReadRefusal::OutsideGraph(_)) | None => refused(
             LoadFailure::Read(error.kind()),
             format!("failed to load {specifier}: {error}"),
         ),
@@ -64,7 +108,7 @@ pub(super) fn load(
     check(&path).map_err(io_error)?;
     // read from the file checked, never the path again, which can change in
     // between, and never past the cap, so a huge file or a FIFO isn't read whole
-    let code = resolver::read_checked(&path, file_id, Some(MAX_MODULE_SIZE)).map_err(|error| {
+    let bytes = resolver::read_checked(&path, file_id, Some(MAX_MODULE_SIZE)).map_err(|error| {
         if error.kind() != io::ErrorKind::FileTooLarge {
             return io_error(error);
         }
@@ -77,31 +121,32 @@ pub(super) fn load(
             ),
         )
     })?;
-    // the bytes read, which V8 runs as is or stripped
-    let loaded = recording.is_full().then(|| Loaded {
-        format,
-        hash: blake3::hash(&code),
-    });
-    let code = match format {
-        ModuleFormat::JavaScript => ModuleSourceCode::Bytes(code.into_boxed_slice().into()),
-        ModuleFormat::TypeScript => {
-            // invalid UTF-8 reads as U+FFFD, as V8 decodes a JS module's bytes
-            let source = String::from_utf8(code)
-                .unwrap_or_else(|error| String::from_utf8_lossy(error.as_bytes()).into_owned());
-            let code = strip_module(&source, specifier).map_err(|refusal| {
-                let failure = LoadFailure::Strip {
-                    failure: refusal.failure,
-                    at: refusal.at,
-                };
-                refused(failure, refusal.message)
-            })?;
-            ModuleSourceCode::String(code.into())
-        }
+    Ok((format, bytes))
+}
+
+/// `bytes` as text, invalid UTF-8 read as U+FFFD, as V8 decodes a JS
+/// module's bytes.
+pub(super) fn decoded(bytes: Vec<u8>) -> String {
+    String::from_utf8(bytes)
+        .unwrap_or_else(|error| String::from_utf8_lossy(error.as_bytes()).into_owned())
+}
+
+/// The refusal a strip's `refusal` fails the load with.
+pub(super) fn strip_refused(refusal: StripRefusal) -> Refused {
+    let failure = LoadFailure::Strip {
+        failure: refusal.failure,
+        at: refusal.at,
     };
-    Ok((
-        ModuleSource::new(ModuleType::JavaScript, code, specifier, None),
-        loaded,
-    ))
+    Refused::new(FailureReason::Load(failure), refusal.message)
+}
+
+/// The module V8 runs at `specifier` from `code`.
+pub(super) fn module_source(specifier: &ModuleSpecifier, code: Code) -> ModuleSource {
+    let code = match code {
+        Code::Bytes(bytes) => ModuleSourceCode::Bytes(bytes.into_boxed_slice().into()),
+        Code::Stripped(code) => ModuleSourceCode::String(code.into()),
+    };
+    ModuleSource::new(ModuleType::JavaScript, code, specifier, None)
 }
 
 /// Serves the entry the embedder generated at `specifier` from `source` as

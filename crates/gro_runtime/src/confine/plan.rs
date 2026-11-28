@@ -13,7 +13,8 @@
 //!
 //! What every boxed run gets:
 //!
-//! - the project read, beneath its root; a `node_modules` that is a symlink
+//! - the project read, beneath its root (but an entry's in no project,
+//!   below); a `node_modules` that is a symlink
 //!   read at its real path, and each root of the link closure, a package
 //!   linked from outside the project, read by its real path, each with
 //!   execute too when the run may start a program;
@@ -31,16 +32,27 @@
 //!
 //! A run that may start a program also gets each pinned program's real
 //! file read and executed (for a `node_modules/.bin` script, the `node` it
-//! runs under), `node_modules` read and executed, and a directory private
+//! runs under), `node_modules` read and executed (but beside an entry in
+//! no project), and a directory private
 //! to the run, read, written, and executed, which `--allow-temp` alone
 //! grants too. A run that may start git ([`BoxInputs::git`]) gets what git
 //! reads from its home config and the project's git directories outside
 //! the root, each by its real path (`git.rs`, which refuses what it can't
-//! read). A root with no project's `package.json` at or above it
-//! ([`BoxInputs::unbounded`]) gets each type marker above it read,
-//! file-only, by its real path ([`BoxInputs::markers`]), and its own rule
-//! is the run's loader's ([`RuleSource::UnboundedRoot`]), which no
-//! program's box takes unless a flag names the root.
+//! read).
+//!
+//! A root with no project's `package.json` at or above it
+//! ([`BoxInputs::unbounded`]) gets none of the project's rules, since the
+//! run's loader serves its modules and `package.json` files from what it
+//! read before the box went up (`loader::prepass`), a project nested in
+//! that directory and that project's packages included, reading only
+//! beneath that directory, the type markers above it, and what
+//! `--allow-read=` names: nothing of the root, the type markers above it, or
+//! a `node_modules` there (a symlinked one, the link closure, the directory
+//! a run that may start a program reads) but what a flag names, and a
+//! `node_modules` symlink there is refused for nothing it leads to; where a
+//! write flag names the root, whose per-entry rules leave the root's own
+//! directory out, the root is read ([`RuleSource::UnboundedRoot`]), which
+//! no program's box takes unless its `--allow-run-write=` names the root.
 //!
 //! A run whose closure grants a program of the grants table that writes
 //! tool directories gets each its `write` names that the project's declared
@@ -86,7 +98,8 @@
 //! for a run that may start git, git's files `git.rs` can't read
 //! (a [`GitFault`]); and a `node_modules` symlink to anything but a
 //! directory named `node_modules` outside the project, neither in it nor
-//! holding it, so a committed link to `~/.ssh` or to `.git` gets no rule.
+//! holding it, so a committed link to `~/.ssh` or to `.git` gets no rule;
+//! beside an entry in no project none is refused, since none gets a rule.
 //! Another checkout's `node_modules` is followed, read, and executed for a
 //! run that may start a program, and the plan carries a note naming where
 //! it leads and which programs `--allow-run-write=` lets write in it
@@ -127,10 +140,13 @@ pub struct BoxInputs {
     /// The project's root, a real path.
     pub root: PathBuf,
     /// Whether the root is the directory of an entry with no project's
-    /// `package.json` at or above it, which the run reads for its loader
-    /// alone: its rule is [`RuleSource::UnboundedRoot`], which a program's
-    /// box takes only where the program's `--allow-run-write=` names the
-    /// root, so a program reads it only as a grant flag names it.
+    /// `package.json` at or above it, whose modules the run read before its
+    /// box went up and its loader serves from those reads: the box reads
+    /// nothing of it, its type markers, or a `node_modules` there, but what
+    /// a flag names, and where a write flag names the root, whose per-entry
+    /// rules leave the root's own directory out, the root itself, read
+    /// ([`RuleSource::UnboundedRoot`]), which a program's box takes only
+    /// where the program's `--allow-run-write=` names the root.
     pub unbounded: bool,
     /// Whether the run is unconfined (`-A`), which no box holds.
     pub unconfined: bool,
@@ -171,12 +187,6 @@ pub struct BoxInputs {
     /// command of Gro's that may start a program, whose tools run git, and
     /// an `fgro run` whose `--allow-run=` names `git`.
     pub git: bool,
-    /// The type markers above the root, each a `package.json` by its real
-    /// path, read file-only: an entry with no project's `package.json` at
-    /// or above it has its own directory as its root, and a `.js` module's
-    /// type is read from the nearest marker above it as each module loads,
-    /// after the box is up.
-    pub markers: Vec<PathBuf>,
 }
 
 /// The file a pinned program executes, as the box grants it.
@@ -448,7 +458,7 @@ pub enum RuleSource {
     /// The project's tree, read.
     Project,
     /// The root of an entry in no project ([`BoxInputs::unbounded`]), read
-    /// for the run's own loader.
+    /// where a write flag names it.
     UnboundedRoot,
     /// A top-level entry of the project, written.
     Entry,
@@ -472,8 +482,6 @@ pub enum RuleSource {
     GitHome,
     /// The project's git directory outside its root.
     GitDir,
-    /// A type marker above the root ([`BoxInputs::markers`]).
-    Marker,
     /// The run's private directory.
     PrivateTemp,
     /// A grant flag.
@@ -849,18 +857,21 @@ impl BoxPlan {
             spawns: inputs.spawns,
             skipped: Vec::new(),
             node_modules_link: match &facts.node_modules {
-                NodeModules::Link { real, .. } => Some(real.clone()),
-                NodeModules::Absent | NodeModules::Directory => None,
+                NodeModules::Link { real, .. } if !inputs.unbounded => Some(real.clone()),
+                NodeModules::Link { .. } | NodeModules::Absent | NodeModules::Directory => None,
             },
             run_writes: inputs.run_writes.clone(),
             tools: inputs.tools.clone(),
             flag_programs: inputs.flag_programs,
             declared_in_node_modules: declared_in_node_modules(inputs),
             linked_present: match &facts.node_modules {
-                NodeModules::Link { present, .. } => *present,
-                NodeModules::Absent | NodeModules::Directory => ToolDirs::EMPTY,
+                NodeModules::Link { present, .. } if !inputs.unbounded => *present,
+                NodeModules::Link { .. } | NodeModules::Absent | NodeModules::Directory => {
+                    ToolDirs::EMPTY
+                }
             },
-            linked_checkout: matches!(facts.node_modules, NodeModules::Link { checkout: true, .. }),
+            linked_checkout: !inputs.unbounded
+                && matches!(facts.node_modules, NodeModules::Link { checkout: true, .. }),
         };
         let read_maybe_execute = if inputs.spawns {
             RealRights::ReadExecute
@@ -872,7 +883,11 @@ impl BoxPlan {
         } else {
             RuleSource::Project
         };
-        plan.beneath(Anchor::Project, ".", Rights::READ, root_source);
+        // an entry in no project's modules are served from the reads made
+        // before the box, its nested projects' packages among them
+        if !inputs.unbounded || writes_root_by_flag(inputs) || run_writes_root(inputs) {
+            plan.beneath(Anchor::Project, ".", Rights::READ, root_source);
+        }
         if let Some(real) = plan.node_modules_link.clone() {
             plan.real(
                 &real,
@@ -881,16 +896,15 @@ impl BoxPlan {
                 RuleSource::NodeModules,
             );
         }
-        for linked in &facts.linked {
-            plan.real(
-                linked,
-                read_maybe_execute,
-                Need::Optional,
-                RuleSource::Linked,
-            );
-        }
-        for marker in &inputs.markers {
-            plan.real(marker, RealRights::Read, Need::Optional, RuleSource::Marker);
+        if !inputs.unbounded {
+            for linked in &facts.linked {
+                plan.real(
+                    linked,
+                    read_maybe_execute,
+                    Need::Optional,
+                    RuleSource::Linked,
+                );
+            }
         }
         plan.system(facts);
         if inputs.writes_root || writes_root_by_flag(inputs) || run_writes_root(inputs) {
@@ -1358,7 +1372,7 @@ impl BoxPlan {
             };
             self.real(path, RealRights::ReadExecute, Need::Required, source);
         }
-        if facts.node_modules == NodeModules::Directory {
+        if facts.node_modules == NodeModules::Directory && !inputs.unbounded {
             self.rules.push(PlannedRule {
                 opening: Opening::Beneath {
                     anchor: Anchor::Project,
@@ -1582,6 +1596,7 @@ fn refuse(inputs: &BoxInputs, facts: &BoxFacts) -> Result<(), PlanRefusal> {
         });
     }
     if let NodeModules::Link { real, .. } = &facts.node_modules
+        && !inputs.unbounded
         && !(real.file_name() == Some(OsStr::new("node_modules"))
             && !real.starts_with(&inputs.root)
             && !inputs.root.starts_with(real))

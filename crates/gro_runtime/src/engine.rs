@@ -429,7 +429,7 @@ mod tests {
     #[test]
     fn a_box_for_another_jit_is_refused() {
         for (box_jit, jit) in [(Jit::Off, Jit::On), (Jit::On, Jit::Off)] {
-            let confined = EvalConfined::for_test(BoxRoots::for_test(Vec::new()), box_jit);
+            let confined = EvalConfined::for_test(BoxRoots::new(Vec::new()), box_jit);
             let options = EngineOptions {
                 jit,
                 ..EngineOptions::default()

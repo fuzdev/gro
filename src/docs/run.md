@@ -45,7 +45,9 @@ the first 16 arguments each printed by that rule and cut past 80 characters, the
 a file whose name starts with `-` goes after `--`.
 A run grants the project's own modules `args`, `exit`, `stdout`, `stderr`, and `fs`, whose root reads the project's tree and writes nothing,
 but for an entry in no project (no `package.json` at or above it but [type markers](glossary.md#type-marker), which only mark a module type), whose own directory is its root and which reads and writes it only as a flag names it
-(`--allow-read=.` from that directory, which a refusal there hints), its imports loading from it all the same;
+(`--allow-read=.` from that directory, which a refusal there hints);
+its modules load from the import graph the run reads before it starts, each module an import names by a string literal, static or `import()`,
+so an `import()` of a name built at run time, of a module no string literal names, loads only from a directory `--allow-read=` names, and is refused otherwise, failing the run, with that hint;
 and these widen it, for that run only:
 
 - `--allow-env=A,B` grants `@fuzdev/gro/env.ts` to the project's modules, its root handle reading exactly those variables.
@@ -129,8 +131,8 @@ it reads the filesystem only through `@fuzdev/gro/fs.ts`, beneath the project's 
 and writes only beneath the directories `--allow-write=` names and those `fs.temp_dir` makes under `--allow-temp`;
 it starts only the programs `--allow-run=` names and those found beneath what `--allow-run-in=` names, through `@fuzdev/gro/spawn.ts` (any under `-A`), and no module gives it the network.
 Those are the runtime's native checks. Under them the run's process runs in the run's kernel box ([box](box.md#fgro-run)), on Linux with Landlock at ABI 6 (Linux 6.12) or later and a snapshot build:
-it reads the project's root, or an entry's own directory in no project and each type marker above it, file-only, the directories the flags name, and the system's;
-it writes only what `--allow-write=` names and its private directory, a flag naming the root writing the root's top-level entries as the run started but `.git`, `node_modules`, the dot-entries, and symlinks,
+it reads the project's root (of an entry's own directory in no project, only what a flag names), the directories the flags name, and the system's;
+it writes only what `--allow-write=` and `--allow-run-write=` name and its private directory, a flag naming the root writing the root's top-level entries as the run started but `.git`, `node_modules`, the dot-entries, and symlinks,
 so `--allow-write=.` writes neither `.git` nor a new top-level entry, and a write the box refuses names where it lets the run write;
 a run that starts no program stays in the host's network with every internet socket refused, and one that may start one takes a network namespace of its own, its loopback only;
 the process isn't dumpable, its `core` limit 0, and a run that fails after a program it started failed ends with a note naming the box's walls.

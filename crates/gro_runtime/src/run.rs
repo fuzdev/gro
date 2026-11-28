@@ -20,13 +20,14 @@ use crate::loader::Loader;
 #[cfg(test)]
 use crate::loader::graph::Graph;
 use crate::loader::graph::Recording;
+use crate::loader::prepass::{ReadGraph, read_graph};
 use crate::loader::refused::Refusals;
 use crate::phases::{self, Phase};
 use crate::report::{Report, uncaught};
-use crate::resolver::{self, DiskTree, EntryBound, Resolution, ResolveError, Roots};
+use crate::resolver::{self, Conditions, DiskTree, EntryBound, Resolution, ResolveError, Roots};
 use crate::runtime::{HostState, SpentRuntime, start_runtime};
 use crate::snapshot::StartupSnapshot;
-use crate::{ConsoleOptions, RuntimeOptions};
+use crate::{Authority, ConsoleOptions, Grants, RuntimeOptions};
 
 /// Why a run failed.
 #[derive(Debug, thiserror::Error)]
@@ -116,24 +117,43 @@ impl FileEntry {
         matches!(self.bound, EntryBound::Unbounded { .. })
     }
 
-    /// The type markers above the root its resolution read, each a
-    /// `package.json` by its real path, for an entry whose root is its own
-    /// directory ([`FileEntry::is_unbounded`]): a `.js` module's type comes
-    /// from the nearest one above it as each module loads, so a box that
-    /// goes up before then reads each, file-only. None for any other
-    /// entry, whose root's own `package.json` ends every walk at or below
-    /// it.
-    pub fn markers(&self) -> Vec<PathBuf> {
-        if !self.is_unbounded() {
-            return Vec::new();
-        }
-        let root = self.root();
-        self.resolution
-            .files_consulted
-            .iter()
-            .filter(|file| !file.path.starts_with(root))
-            .map(|file| file.path.clone())
-            .collect()
+    /// The entry, made ready to run under `authority`, its packages
+    /// matching `conditions`: an entry in no project ([`FileEntry::is_unbounded`])
+    /// in a confined run has its import graph read now
+    /// (`loader::prepass::read_graph`), which its loader serves, loading
+    /// any other module only from a directory `--allow-read=` names, so an
+    /// embedder that boxes the run prepares it before the box goes up, its
+    /// box holding no rule on the entry's directory. The read reaches no
+    /// further than that directory, the type markers above it, and the
+    /// directories `--allow-read=` names, as the box would. An unconfined
+    /// run's entry, and one in a project, reads nothing now.
+    ///
+    /// It reads and strips each module of the graph on the calling thread,
+    /// which must hold tsv's contract, as [`run_main`]'s `# Stack` says.
+    #[must_use]
+    pub fn prepare(self, authority: &Authority, conditions: Conditions) -> PreparedEntry {
+        self.prepare_recording(authority, conditions, Recording::Off)
+    }
+
+    /// As [`FileEntry::prepare`], hashing what the graph reads when
+    /// `recording` is full.
+    fn prepare_recording(
+        self,
+        authority: &Authority,
+        conditions: Conditions,
+        recording: Recording,
+    ) -> PreparedEntry {
+        let graph =
+            (self.is_unbounded() && matches!(authority, Authority::Confined(_))).then(|| {
+                read_graph(
+                    &self.resolution,
+                    self.roots.clone(),
+                    conditions,
+                    recording,
+                    &read_dirs(authority),
+                )
+            });
+        PreparedEntry { entry: self, graph }
     }
 }
 
@@ -153,6 +173,31 @@ pub fn resolve_file_entry(path: &Path, cwd: &Path) -> Result<FileEntry, ResolveE
         roots,
         bound,
     })
+}
+
+/// An entry module on disk ready to run ([`FileEntry::prepare`]): with its
+/// import graph, read before the run, where it's in no project and the run
+/// is confined.
+#[derive(Debug)]
+pub struct PreparedEntry {
+    /// The entry.
+    entry: FileEntry,
+    /// Its import graph, read before the run, which its loader serves
+    /// (`loader::prepass`).
+    graph: Option<ReadGraph>,
+}
+
+impl PreparedEntry {
+    /// The entry.
+    pub const fn entry(&self) -> &FileEntry {
+        &self.entry
+    }
+
+    /// Its import graph, read before the run, where it has one.
+    #[cfg(test)]
+    pub(crate) const fn graph(&self) -> Option<&ReadGraph> {
+        self.graph.as_ref()
+    }
 }
 
 /// How a run that ended on its own ended. It failed when its result is an
@@ -292,6 +337,7 @@ pub fn run_file_unboxed(
     cwd: &Path,
 ) -> RunOutcome {
     let pins = pins_of(options, &entry);
+    let entry = entry.prepare(&options.authority, options.conditions);
     run_file_on(engine, options, entry, pins, None, cwd)
 }
 
@@ -324,7 +370,7 @@ fn pins_of(options: &RuntimeOptions, entry: &FileEntry) -> RunPins {
 pub fn run_file(
     engine: RunEngine,
     options: &RuntimeOptions,
-    entry: FileEntry,
+    entry: PreparedEntry,
     pins: RunPins,
     programs: Option<ProgramRules>,
     cwd: &Path,
@@ -337,36 +383,54 @@ pub fn run_file(
 fn run_file_on(
     engine: Engine,
     options: &RuntimeOptions,
-    entry: FileEntry,
+    entry: PreparedEntry,
     pins: RunPins,
     programs: Option<ProgramRules>,
     cwd: &Path,
 ) -> RunOutcome {
-    let unbounded = entry.is_unbounded();
+    let unbounded = entry.entry.is_unbounded();
     let (url, loader) = file_main(options, entry, Recording::Off);
     run_resolved(
         engine, options, &url, cwd, &loader, pins, programs, unbounded,
     )
 }
 
-/// The URL of the resolved `entry` and the loader of its graph, which
+/// The URL of the prepared `entry` and the loader of its graph, which
 /// checks each builtin import against the run's authority, recording as
-/// `recording` says.
+/// `recording` says, and serves the entry's import graph read before the
+/// run where it has one, reading from disk beneath the directories the fs
+/// grant reads.
 fn file_main(
     options: &RuntimeOptions,
-    entry: FileEntry,
+    entry: PreparedEntry,
     recording: Recording,
 ) -> (Url, Rc<Loader>) {
-    let FileEntry {
-        resolution, roots, ..
+    let PreparedEntry {
+        entry: FileEntry {
+            resolution, roots, ..
+        },
+        graph,
     } = entry;
-    let loader = Rc::new(
-        Loader::new(&resolution, roots, recording)
-            .with_authority(options.authority.clone())
-            .with_embed(options.embed)
-            .with_conditions(options.conditions),
-    );
-    (resolution.url, loader)
+    let loader = Loader::new(&resolution, roots, recording)
+        .with_authority(options.authority.clone())
+        .with_embed(options.embed)
+        .with_conditions(options.conditions);
+    let loader = match graph {
+        Some(graph) => loader.with_read_graph(graph, read_dirs(&options.authority)),
+        None => loader,
+    };
+    (resolution.url, Rc::new(loader))
+}
+
+/// The real paths of the directories `authority`'s fs grant reads, which
+/// `--allow-read=` names.
+fn read_dirs(authority: &Authority) -> Vec<PathBuf> {
+    match authority {
+        Authority::Confined(Grants { fs: Some(fs), .. }) => {
+            fs.read.values().map(|dir| dir.real.clone()).collect()
+        }
+        Authority::Confined(_) | Authority::Unconfined => Vec::new(),
+    }
 }
 
 /// Runs `entry`, an entry module the embedder generated, as [`run_main`]
@@ -476,6 +540,7 @@ fn run_recorded(
     };
     let pins = pins_of(options, &entry);
     let unbounded = entry.is_unbounded();
+    let entry = entry.prepare_recording(&options.authority, options.conditions, recording);
     let (entry, loader) = file_main(options, entry, recording);
     // the runtime is torn down here, so its share of the loader is gone
     // and the graph is taken whole

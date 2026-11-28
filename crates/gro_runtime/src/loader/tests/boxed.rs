@@ -9,7 +9,7 @@ use crate::resolver::ResolveErrorKind;
 fn boxed_loader(tree: &MemoryTree, roots: &[&str]) -> Loader {
     let roots = roots.iter().map(PathBuf::from).collect();
     new_loader(tree).with_rules(Rules {
-        box_roots: Some(BoxRoots::for_test(roots)),
+        box_roots: Some(BoxRoots::new(roots)),
         ..Rules::default()
     })
 }
@@ -75,7 +75,7 @@ fn a_read_the_prepass_kept_is_checked_against_the_box() {
     let loader = Loader::new(&entry, roots, Recording::Full)
         .with_reads(reads)
         .with_rules(Rules {
-            box_roots: Some(BoxRoots::for_test(vec![PathBuf::from("/p")])),
+            box_roots: Some(BoxRoots::new(vec![PathBuf::from("/p")])),
             ..Rules::default()
         });
     let boxed = Boxed {
@@ -103,14 +103,14 @@ fn a_module_outside_the_box_is_not_read() {
     assert_eq!(load_disk(&unboxed, &url).as_deref(), Ok(SOURCE));
     assert_eq!(unboxed.breach(), None);
     let inside = fixtures.loader("main.js").with_rules(Rules {
-        box_roots: Some(BoxRoots::for_test(vec![fixtures.dir().to_owned()])),
+        box_roots: Some(BoxRoots::new(vec![fixtures.dir().to_owned()])),
         ..Rules::default()
     });
     assert_eq!(load_disk(&inside, &url).as_deref(), Ok(SOURCE));
     assert_eq!(inside.breach(), None);
     let elsewhere = fixtures.dir().with_file_name("elsewhere");
     let outside = fixtures.loader("main.js").with_rules(Rules {
-        box_roots: Some(BoxRoots::for_test(vec![elsewhere])),
+        box_roots: Some(BoxRoots::new(vec![elsewhere])),
         ..Rules::default()
     });
     load_disk(&outside, &url).unwrap_err();

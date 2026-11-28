@@ -302,6 +302,23 @@ pub enum LoadFailure {
     /// ([`ReadRefusal::OutsideBox`](crate::resolver::ReadRefusal::OutsideBox)),
     /// so it wasn't read.
     OutsideBox,
+    /// The file is no module of the import graph the run read before it
+    /// started for an entry in no project, and no directory the run's
+    /// loader reads from disk holds it (`prepass`).
+    OutsideGraph,
+    /// The file at its path isn't the one the run read before it started
+    /// for an entry in no project (`prepass`): replaced since, so it isn't
+    /// loaded.
+    ChangedSinceGraph,
+    /// A JS module the run read before it started for an entry in no
+    /// project whose imports tsv couldn't read (`prepass`), at a position in
+    /// its own source when tsv reports one.
+    ImportsUnread {
+        /// Why the parse failed.
+        failure: StripFailure,
+        /// Where in the module's source.
+        at: Option<Position>,
+    },
     /// The file holds more than [`MAX_MODULE_SIZE`](crate::resolver::MAX_MODULE_SIZE)
     /// bytes, so it wasn't read whole.
     TooLarge,
@@ -342,25 +359,31 @@ pub enum StripFailure {
 
 impl LoadFailure {
     /// Whether this refuses by one of gro's rules: import attributes on a
-    /// builtin module, which names authority, a read outside the box, or one
+    /// builtin module, which names authority, a read outside the box, a
+    /// module outside the import graph an entry in no project's run read
+    /// before it started or one whose imports it couldn't read there, each
+    /// loading from a directory `--allow-read=` names, or one
     /// of the loads that can't happen (a URL never resolved here or naming
     /// no file, a name the resolver's table refuses), each a load that
     /// skipped resolution. An unsupported attribute's key and a module type
     /// are features that don't exist, the same for every importer and every
     /// specifier, so `try { await import('./x.json', {with: {type: 'json'}}) }`
     /// detects a feature as probing for an optional dependency does; a
-    /// failed or raced read, a module too large, and a strip's refusal are
-    /// not rules either.
+    /// failed or raced read, a file changed since that pre-pass read it, a
+    /// module too large, and a strip's refusal are not rules either.
     pub fn guards_a_boundary(&self) -> bool {
         match self {
             Self::NeverResolved
             | Self::BuiltinAttributes(_)
             | Self::NoLocalPath
-            | Self::OutsideBox => true,
+            | Self::OutsideBox
+            | Self::OutsideGraph
+            | Self::ImportsUnread { .. } => true,
             Self::Format(kind) => kind.guards_a_boundary(),
             Self::UnsupportedAttribute
             | Self::ModuleType
             | Self::ReplacedSinceLookup
+            | Self::ChangedSinceGraph
             | Self::Read(_)
             | Self::TooLarge
             | Self::Strip { .. } => false,

@@ -16,6 +16,7 @@ use crate::test_support::TestDir;
 mod boxed;
 mod builtins;
 mod identity;
+mod prepass;
 mod recording;
 mod roots;
 

@@ -304,6 +304,9 @@ fn load_error(message: String, failure: Option<(&FailureSite, &Failure)>) -> Eva
             | LoadFailure::ReplacedSinceLookup
             | LoadFailure::Read(_)
             | LoadFailure::OutsideBox
+            | LoadFailure::OutsideGraph
+            | LoadFailure::ChangedSinceGraph
+            | LoadFailure::ImportsUnread { .. }
             | LoadFailure::NoLocalPath
             | LoadFailure::Format(_),
         )

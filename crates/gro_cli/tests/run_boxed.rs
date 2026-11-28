@@ -5,10 +5,12 @@
 //! makes its directories, an entry with no project's `package.json` at or
 //! above it (its type marker read, its directory granted to its code and
 //! its programs only by a flag, a world-writable one that is the temporary
-//! directory), a project root that
-//! is or holds the home directory, the run's network, a working directory
-//! below the root, and where the box can't go up: below the kernel's floor,
-//! a socket on stdin, and a build with no snapshot.
+//! directory, its import graph read before the box and served from those
+//! reads, a module outside it refused, a package a project nested there
+//! links from outside refused, a `node_modules` beside it read by nothing),
+//! a project root that is or holds the home directory, the run's network, a
+//! working directory below the root, and where the box can't go up: below
+//! the kernel's floor, a socket on stdin, and a build with no snapshot.
 //!
 //! `fgro run` runs in its box only from a snapshot build, so these run from
 //! `cargo xtask build --verify` and are ignored in a plain `cargo test`, but
@@ -332,8 +334,8 @@ console.log(env.get('TMPDIR'));
 }
 
 /// A `.js` module's type marker above an entry with no project's
-/// `package.json` at or above it is read inside the box, as each module
-/// loads.
+/// `package.json` at or above it, read before the box with the entry's
+/// import graph, is served to each module's load inside it.
 #[test]
 #[cfg_attr(
     not(feature = "snapshot"),
@@ -951,5 +953,433 @@ fn a_build_with_no_snapshot_runs_in_no_box_saying_so() {
         "error: GRO_FALLBACK=command refuses running fgro run in no kernel box, where only the \
          runtime's own checks hold its grants: this build has no startup snapshot (cargo xtask \
          build makes one)\n"
+    );
+}
+
+/// What a run refused, then why that fails it, as stderr ends.
+const REFUSALS_FAIL: &str =
+    "error: a refusal fails the run, whether or not the program caught it\n";
+
+/// The listed refusal of an `import()` of `module`, outside an entry in no
+/// project's import graph, as `fgro run` prints it.
+fn outside_graph(module: &Path) -> String {
+    format!(
+        "error: import() refused: cannot load file://{}: the entry is in no project, so the run \
+         loads only the modules its imports name by a string literal, read before it started, \
+         and this isn't one. Fix: add --allow-read= naming its directory\n",
+        module.display()
+    )
+}
+
+/// The hint for a module outside the import graph of an entry in no
+/// project whose directory is `dir`, the read flag naming it as `flag`.
+fn graph_hint(dir: &Path, flag: &str) -> String {
+    format!(
+        "hint: {} is in no project (no package.json at or above the entry holds more than \
+         \"type\" or \"sideEffects\"), so the run loads only the import graph it read before \
+         it started: add --allow-read={flag} to load from disk there\n",
+        dir.display()
+    )
+}
+
+/// An entry in no project loads the modules its imports name as string
+/// literals, read before the box: a static import, a re-export's module, one
+/// whose every specifier is a type (which the strip keeps), and a literal
+/// `import()`, while an import only of types names a missing file freely
+/// and `import.meta.resolve` reads nothing; an `import()` of a name built at
+/// run time is refused, failing the run though caught, hinting the read flag
+/// (`.` from the directory, else its path), which loads it, as `-A` does, and
+/// as a run in no box below the floor refuses it too. A module only an
+/// import of types names isn't read, so an `import()` of it is refused.
+#[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "fgro run runs in its box only from a snapshot build"
+)]
+fn an_entry_in_no_project_loads_only_its_import_graph() {
+    let scratch = Scratch::in_system_temp(
+        "run_boxed_graph",
+        &[
+            (
+                "loose/x.ts",
+                "import {lib} from './lib.ts';\nimport type {Nope} from './missing.ts';\n\
+                 import {type Spec} from './spec.ts';\nexport {deep} from './sub/deep.mjs';\n\
+                 import {deep} from './sub/deep.mjs';\nconsole.log('static', lib, deep);\n\
+                 const dyn = await import('./dyn.ts');\nconsole.log('literal', dyn.dyn);\n\
+                 console.log('resolve', import.meta.resolve('./unreached.ts').endsWith('.ts'));\n\
+                 try { await import(['./unreached', '.ts'].join('')); console.log('computed ok'); \
+                 } catch { console.log('computed refused'); }\n",
+            ),
+            ("loose/lib.ts", "export const lib = 'lib';\n"),
+            (
+                "loose/spec.ts",
+                "console.log('spec ran');\nexport type Spec = 1;\n",
+            ),
+            ("loose/sub/deep.mjs", "export const deep = 'deep';\n"),
+            ("loose/dyn.ts", "export const dyn = 'dyn';\n"),
+            ("loose/unreached.ts", "console.log('unreached ran');\n"),
+            (
+                "loose/t.ts",
+                "import type {T} from './types.ts';\n\
+                 try { await import(['./types', '.ts'].join('')); console.log('types loaded'); \
+                 } catch { console.log('types refused'); }\n",
+            ),
+            ("loose/types.ts", "export type T = 1;\n"),
+            ("home/.keep", ""),
+            ("tmp/.keep", ""),
+        ],
+    );
+    let loose = scratch.0.join("loose");
+    let ran = "spec ran\nstatic lib deep\nliteral dyn\nresolve true\n";
+    let refused = format!(
+        "{}{REFUSALS_FAIL}{}",
+        outside_graph(&loose.join("unreached.ts")),
+        graph_hint(&loose, ".")
+    );
+    let (code, stdout, stderr) = run(in_scratch(&scratch, &loose, &["run", "x.ts"]));
+    assert_eq!(
+        (code, stdout, stderr),
+        (Some(1), format!("{ran}computed refused\n"), refused.clone())
+    );
+    let (code, _, stderr) = run(in_scratch(&scratch, &scratch.0, &["run", "loose/x.ts"]));
+    assert_eq!(code, Some(1), "{stderr}");
+    assert!(
+        stderr.ends_with(&graph_hint(&loose, &loose.display().to_string())),
+        "{stderr}"
+    );
+    for flags in [&["--allow-read=."][..], &["-A"]] {
+        let args = [&["run"], flags, &["x.ts"]].concat();
+        let (code, stdout, stderr) = run(in_scratch(&scratch, &loose, &args));
+        assert_eq!(
+            (code, stdout),
+            (Some(0), format!("{ran}unreached ran\ncomputed ok\n")),
+            "{flags:?} {stderr}"
+        );
+    }
+    let (code, stdout, stderr) = run(in_scratch(&scratch, &loose, &["run", "t.ts"]));
+    assert_eq!(
+        (code, stdout.as_str()),
+        (Some(1), "types refused\n"),
+        "{stderr}"
+    );
+    // below the floor, in no box, the run's loader refuses it all the same
+    let mut command = Command::new(python3());
+    command
+        .args(["-I", "-c", FILTER])
+        .args([LANDLOCK_CREATE_RULESET.to_string(), ENOSYS.to_string()]);
+    let mut command = support::wrapped_fgro_command(command, &["run", "x.ts"]);
+    in_env(&mut command, &scratch, &loose);
+    let (code, stdout, stderr) = run(command);
+    assert_eq!(
+        (code, stdout),
+        (Some(1), format!("{ran}computed refused\n")),
+        "{stderr}"
+    );
+    assert!(
+        stderr.starts_with("note: fgro run runs in no kernel box here")
+            && stderr.ends_with(&refused),
+        "{stderr}"
+    );
+}
+
+/// An entry in no project's loader serves each module the bytes read
+/// before the box: one rewritten in place since runs as it was read, and
+/// one replaced by a rename since isn't loaded.
+#[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "fgro run runs in its box only from a snapshot build"
+)]
+fn an_entry_in_no_project_runs_the_modules_as_read_before_the_box() {
+    let scratch = Scratch::in_system_temp(
+        "run_boxed_graph_changed",
+        &[
+            (
+                "loose/x.ts",
+                "import {fs} from '@fuzdev/gro/fs.ts';\n\
+                 const sub = await fs.open_dir(`${import.meta.dirname}/sub`);\n\
+                 await sub.write('inplace.ts', \"console.log('rewritten');\\n\");\n\
+                 await sub.rename('fresh.ts', 'renamed.ts');\n\
+                 await import('./sub/inplace.ts');\n\
+                 try { await import('./sub/renamed.ts'); } catch (error) { \
+                 console.log(String(error)); }\n",
+            ),
+            ("loose/sub/inplace.ts", "console.log('as read');\n"),
+            ("loose/sub/renamed.ts", "console.log('renamed as read');\n"),
+            ("loose/sub/fresh.ts", "console.log('fresh');\n"),
+            ("home/.keep", ""),
+            ("tmp/.keep", ""),
+        ],
+    );
+    let loose = scratch.0.join("loose");
+    let (code, stdout, stderr) = run(in_scratch(
+        &scratch,
+        &loose,
+        &["run", "--allow-write=.", "x.ts"],
+    ));
+    assert_eq!(
+        (code, stdout),
+        (
+            Some(0),
+            format!(
+                "as read\nTypeError: cannot load file://{}: the file at its path isn't the one \
+                 the run read before it started, so it isn't loaded\n",
+                loose.join("sub/renamed.ts").display()
+            )
+        ),
+        "{stderr}"
+    );
+}
+
+/// Beside an entry in no project, whose modules, a project nested in its
+/// directory and that project's packages included, the run reads before
+/// the box goes up and only beneath that directory or one `--allow-read=`
+/// names, neither the run nor a program it starts reads a `node_modules`, a
+/// symlink to another checkout's included, which the box neither notes nor
+/// refuses whatever it leads to.
+#[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "fgro run runs in its box only from a snapshot build"
+)]
+fn an_entry_in_no_project_reads_no_node_modules() {
+    let scratch = Scratch::in_system_temp(
+        "run_boxed_graph_modules",
+        &[
+            (
+                "loose/x.mjs",
+                "import {fs} from '@fuzdev/gro/fs.ts';\nimport {spawn} from '@fuzdev/gro/spawn.ts';\n\
+                 const cat = await spawn.program('cat').out(['node_modules/pkg/secret.txt']);\n\
+                 let realm = 'read';\n\
+                 try { await (await fs.open_dir(`${import.meta.dirname}/node_modules`))\
+                 .read_text('pkg/secret.txt'); } catch { realm = 'refused'; }\n\
+                 console.log(JSON.stringify([cat.code, cat.stdout, realm]));\n",
+            ),
+            ("other/package.json", "{\"name\": \"other\"}\n"),
+            ("other/node_modules/pkg/secret.txt", "secret"),
+            ("odd/x.mjs", "console.log('ran');\n"),
+            ("odd/target/.keep", ""),
+            ("home/.keep", ""),
+            ("tmp/.keep", ""),
+        ],
+    );
+    std::os::unix::fs::symlink(
+        "../other/node_modules",
+        scratch.0.join("loose/node_modules"),
+    )
+    .unwrap();
+    std::os::unix::fs::symlink("target", scratch.0.join("odd/node_modules")).unwrap();
+    let (code, stdout, stderr) = run(in_scratch(
+        &scratch,
+        &scratch.0.join("loose"),
+        &["run", "--allow-run=cat", "x.mjs"],
+    ));
+    // the realm's refusal fails the run, and the box notes nothing
+    assert_eq!(
+        (code, stdout.as_str()),
+        (Some(1), "[1,\"\",\"refused\"]\n"),
+        "{stderr}"
+    );
+    assert!(stderr.starts_with("error: fs refused a read: "), "{stderr}");
+    let (code, stdout, stderr) = run(in_scratch(
+        &scratch,
+        &scratch.0.join("odd"),
+        &["run", "x.mjs"],
+    ));
+    assert_eq!(
+        (code, stdout.as_str(), stderr.as_str()),
+        (Some(0), "ran\n", "")
+    );
+}
+
+/// A JS module tsv can't parse to read its imports, past its depth limits,
+/// isn't loaded, naming the read flag, which loads it from disk; a
+/// symlinked sibling, a hashbang, and a byte order mark load as read, from
+/// a working directory reached through a symlink too, whose hint is `.`.
+#[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "fgro run runs in its box only from a snapshot build"
+)]
+fn an_entry_in_no_project_s_graph_reads_what_v8_runs() {
+    let deep = format!(
+        "export const d = {}1{};\n",
+        "[".repeat(300),
+        "]".repeat(300)
+    );
+    let scratch = Scratch::in_system_temp(
+        "run_boxed_graph_parse",
+        &[
+            (
+                "loose/x.mjs",
+                "#!/usr/bin/env fgro\nimport {lib} from './link.mjs';\nimport './bom.mjs';\n\
+                 console.log('lib', lib);\nawait import('./deep.mjs');\nconsole.log('deep');\n",
+            ),
+            ("loose/lib.mjs", "export const lib = 'lib';\n"),
+            ("loose/bom.mjs", "\u{feff}console.log('bom');\n"),
+            ("loose/deep.mjs", &deep),
+            ("home/.keep", ""),
+            ("tmp/.keep", ""),
+        ],
+    );
+    let loose = scratch.0.join("loose");
+    std::os::unix::fs::symlink("lib.mjs", loose.join("link.mjs")).unwrap();
+    std::os::unix::fs::symlink("loose", scratch.0.join("alias")).unwrap();
+    let alias = scratch.0.join("alias");
+    let (code, stdout, stderr) = run(in_scratch(&scratch, &alias, &["run", "x.mjs"]));
+    assert_eq!(
+        (code, stdout.as_str()),
+        (Some(1), "bom\nlib lib\n"),
+        "{stderr}"
+    );
+    assert!(
+        stderr.starts_with(&format!(
+            "error: Uncaught (in promise) TypeError: cannot parse the JS for its imports: \
+             Nesting exceeds tsv's depth limit of 256 wire levels. Fix: add --allow-read= naming \
+             the entry's directory, which loads it and what it imports from disk without that \
+             parse\n    at file://{}:1:",
+            loose.join("deep.mjs").display()
+        )) && stderr.ends_with(&graph_hint(&loose, ".")),
+        "{stderr}"
+    );
+    let (code, stdout, stderr) = run(in_scratch(
+        &scratch,
+        &alias,
+        &["run", "--allow-read=.", "x.mjs"],
+    ));
+    assert_eq!(
+        (code, stdout.as_str()),
+        (Some(0), "bom\nlib lib\ndeep\n"),
+        "{stderr}"
+    );
+}
+
+/// An entry in no project reads nothing outside its directory before the
+/// box: a package a project nested there links from outside, by the
+/// package's own directory or by its `node_modules`, is refused as the box
+/// refuses a read, hinting no flag for the entry's directory, and loads
+/// once `--allow-read=` names the directory it lies in; a linked package
+/// whose `package.json` links back into the entry's directory is refused
+/// at its module; a package installed beneath the entry's directory loads.
+#[test]
+#[cfg_attr(
+    not(feature = "snapshot"),
+    ignore = "fgro run runs in its box only from a snapshot build"
+)]
+fn an_entry_in_no_project_reads_no_package_linked_from_outside_its_directory() {
+    let nested = |dir: &str| {
+        [
+            (
+                format!("loose/{dir}.ts"),
+                format!("import './{dir}/a.ts';\n"),
+            ),
+            (
+                format!("loose/{dir}/package.json"),
+                format!("{{\"name\": \"{dir}\", \"type\": \"module\"}}\n"),
+            ),
+            (
+                format!("loose/{dir}/a.ts"),
+                "import {foo} from 'foo';\nconsole.log(foo);\n".to_owned(),
+            ),
+        ]
+    };
+    let package = |dir: &str, value: &str| {
+        [
+            (
+                format!("{dir}/foo/package.json"),
+                "{\"name\": \"foo\", \"type\": \"module\", \"exports\": \"./index.js\"}\n"
+                    .to_owned(),
+            ),
+            (
+                format!("{dir}/foo/index.js"),
+                format!("export const foo = '{value}';\n"),
+            ),
+        ]
+    };
+    let files: Vec<(String, String)> = [
+        nested("pkgdir"),
+        nested("nmlink"),
+        nested("jsonback"),
+        nested("inside"),
+    ]
+    .into_iter()
+    .flatten()
+    .chain(package("elsewhere/node_modules", "outside"))
+    .chain(package("loose/inside/node_modules", "inside"))
+    .chain([
+        (
+            "loose/fake.json".to_owned(),
+            "{\"name\": \"foo\", \"type\": \"module\", \"exports\": \"./index.js\"}\n".to_owned(),
+        ),
+        (
+            "away/foo/index.js".to_owned(),
+            "export const foo = 'outside';\n".to_owned(),
+        ),
+        ("home/.keep".to_owned(), String::new()),
+        ("tmp/.keep".to_owned(), String::new()),
+    ])
+    .collect();
+    let files: Vec<(&str, &str)> = files
+        .iter()
+        .map(|(path, text)| (path.as_str(), text.as_str()))
+        .collect();
+    let scratch = Scratch::in_system_temp("run_boxed_graph_nested_link", &files);
+    let loose = scratch.0.join("loose");
+    std::fs::create_dir(loose.join("pkgdir/node_modules")).unwrap();
+    std::os::unix::fs::symlink(
+        "../../../elsewhere/node_modules/foo",
+        loose.join("pkgdir/node_modules/foo"),
+    )
+    .unwrap();
+    std::os::unix::fs::symlink(
+        "../../elsewhere/node_modules",
+        loose.join("nmlink/node_modules"),
+    )
+    .unwrap();
+    std::os::unix::fs::symlink(
+        "../../loose/fake.json",
+        scratch.0.join("away/foo/package.json"),
+    )
+    .unwrap();
+    std::fs::create_dir(loose.join("jsonback/node_modules")).unwrap();
+    std::os::unix::fs::symlink("../../../away/foo", loose.join("jsonback/node_modules/foo"))
+        .unwrap();
+    let json =
+        std::fs::canonicalize(scratch.0.join("elsewhere/node_modules/foo/package.json")).unwrap();
+    for entry in ["pkgdir.ts", "nmlink.ts"] {
+        let (code, stdout, stderr) = run(in_scratch(&scratch, &loose, &["run", entry]));
+        assert_eq!((code, stdout.as_str()), (Some(1), ""), "{entry} {stderr}");
+        assert!(
+            stderr.contains(&format!(
+                "cannot read {}: it lies outside the box's roots",
+                json.display()
+            )) && !stderr.contains("hint:"),
+            "{entry} {stderr}"
+        );
+        let (code, stdout, stderr) = run(in_scratch(
+            &scratch,
+            &loose,
+            &["run", "--allow-read=../elsewhere", entry],
+        ));
+        assert_eq!(
+            (code, stdout.as_str()),
+            (Some(0), "outside\n"),
+            "{entry} {stderr}"
+        );
+    }
+    let module = std::fs::canonicalize(scratch.0.join("away/foo/index.js")).unwrap();
+    let (code, stdout, stderr) = run(in_scratch(&scratch, &loose, &["run", "jsonback.ts"]));
+    assert_eq!((code, stdout.as_str()), (Some(1), ""), "{stderr}");
+    assert!(
+        stderr.contains(&format!(
+            "{} lies outside the box's roots, so it isn't read",
+            module.display()
+        )) && !stderr.contains("hint:"),
+        "{stderr}"
+    );
+    let (code, stdout, stderr) = run(in_scratch(&scratch, &loose, &["run", "inside.ts"]));
+    assert_eq!(
+        (code, stdout.as_str(), stderr.as_str()),
+        (Some(0), "inside\n", "")
     );
 }

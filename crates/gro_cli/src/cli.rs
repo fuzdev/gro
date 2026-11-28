@@ -271,7 +271,8 @@ fn run_help() -> String {
         "                    the project's root is read without it, but for an entry in",
         "                    no project (no package.json at or above it holds more than",
         "                    \"type\" or \"sideEffects\"), whose directory is read only as",
-        "                    named",
+        "                    named, as is a module there that no import names by a",
+        "                    string literal",
         "  --allow-write=<dirs>",
         "                    grant the project's modules `@fuzdev/gro/fs.ts` writing these",
         "                    directories, as --allow-read lists them; a directory only",
@@ -2025,7 +2026,8 @@ Options:
                     the project's root is read without it, but for an entry in
                     no project (no package.json at or above it holds more than
                     \"type\" or \"sideEffects\"), whose directory is read only as
-                    named
+                    named, as is a module there that no import names by a
+                    string literal
   --allow-write=<dirs>
                     grant the project's modules `@fuzdev/gro/fs.ts` writing these
                     directories, as --allow-read lists them; a directory only

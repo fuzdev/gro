@@ -104,6 +104,7 @@ fn loader_shares(name: &str, end: fn(crate::SpentRuntime)) -> (usize, usize, boo
             let options = RuntimeOptions::default();
             let engine = init_engine(Confinement::Unconfined, &EngineOptions::default()).unwrap();
             let resolved = resolve_file_entry(&entry, &cwd).unwrap();
+            let resolved = resolved.prepare(&options.authority, options.conditions);
             let (url, loader) = file_main(&options, resolved, Recording::Off);
             let outcome = run_resolved(
                 engine,

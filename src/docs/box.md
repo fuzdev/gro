@@ -314,26 +314,31 @@ Both are review signals, which the run's code can print as well.
 
 `fgro run` starts in the same box, its rules derived from its grant flags and its entry rather than a closure.
 Its root is the entry's project root, the directory of the first project's `package.json` at or above the entry ([resolver](resolver.md)),
-or, for an entry in no project, its own directory, whose type markers above it are each read file-only by its real path, since a `.js` module's type is read as it loads.
+or, for an entry in no project, its own directory, of which the box reads only what a flag names:
+the run reads the entry's import graph before the box goes up, each module an import names by a string literal, static or `import()`, with the `package.json` files resolving it (the type markers above it among them),
+reading nothing outside that directory but those type markers and what `--allow-read=` names, so no package a project nested there links from elsewhere,
+and its loader serves those bytes by each file's identity, never reading the directory again;
+a module outside that graph, an `import()` of a name built at run time or a file that appeared since, loads only from a directory `--allow-read=` names.
 The flags widen it as a command's grant flags do: a write flag naming the root gets the root's top-level entries as the run started, but `.git`, `node_modules`, the dot-entries, and symlinks,
 so `--allow-write=.` writes neither `.git` nor a new top-level entry, and one holding the root is refused;
 a relative flag path through a symlink is noted, never refused, the command line being the person's ([run](run.md#usage)).
 A run that may start a program gets the pinned files, `node_modules`, and its private directory, with git's home config and the project's git directories outside the root only when `--allow-run=` names `git`;
 each program runs in a box of its own ([below](#a-box-for-each-tool)), writing what `--allow-run-write=` names for it.
-An entry in no project's directory is the run's alone, for its loader: a program reads it, its working directory among it, only as `--allow-read=` or `--allow-run-in=` names it (`--allow-read=.` from there), or all of it as `--allow-run-write=` names it for that program, and a `node_modules` there as every run that may start a program reads one.
+A program reads an entry in no project's directory, its working directory among it, only as `--allow-read=` or `--allow-run-in=` names it (`--allow-read=.` from there), or all of it as `--allow-run-write=` names it for that program;
+a `node_modules` there, or the one it links to, gets no rule of its own, since the run reads such an entry's modules, a project nested in its directory and that project's packages included, before the box goes up, and only beneath that directory or one `--allow-read=` names.
 `--allow-temp` gets the private directory too, where `fs.temp_dir` makes its directories.
 
-It goes up as a command's does ([below](#how-it-goes-up)), its entry resolved first on the main thread and its pins made beneath the root.
+It goes up as a command's does ([below](#how-it-goes-up)), its entry resolved first on the main thread and its pins made beneath the root,
+then an entry in no project's import graph read, on a thread joined before the box.
 A root that is or holds the home directory, found by a `package.json` or a `node_modules` at or above the entry, is refused before anything changes, exit 2.
 Where the box can't go up, the kernel below the floor or a build with no snapshot, it runs in no box after a `note:` line saying so, refused under `GRO_FALLBACK=command`, exit 2;
 `-A` runs in no box, unconfined, and says nothing.
 An entry in no project in the OS's temporary directory itself has its private directory made in its own root, which no project holds, so `fgro run --allow-temp /tmp/x.ts` runs,
-and so does a run there that may start a program, whose programs read nothing of that directory but a `node_modules` in it;
+and so does a run there that may start a program, whose programs read nothing of that directory;
 a flag that gives a program that directory is refused there, since the program would read the others' temporary directories through it.
 
 What it leaves, beside what a command's box leaves ([below](#what-it-holds-and-what-it-leaves)):
-an entry in no project reads its own directory only as a flag names it, and so does every program the run starts, but the box reads all of that directory for the loader, so an exploit of the engine there reads it:
-all of the home directory for `~/x.ts`, and every file in a world-writable directory like `/var/tmp` for an entry there.
+an exploit of the engine under an entry in no project reads the modules of the import graph the run read before the box, which the process holds in memory, and nothing else of that directory but what a flag names.
 
 ### How it goes up
 

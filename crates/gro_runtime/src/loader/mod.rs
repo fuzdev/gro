@@ -105,6 +105,13 @@
 //! ([`ResolveErrorKind::ReadOutsideBox`],
 //! [`LoadFailure::OutsideBox`]).
 //!
+//! With a read graph ([`Loader::with_read_graph`]), as `fgro run` gives an
+//! entry with no project's `package.json` at or above it in a confined
+//! run, every module and `package.json` read before the run started is
+//! served from that read by its identity, never read again, and any other
+//! is read from disk only beneath a directory `--allow-read=` names, the
+//! rest refused, needing that flag ([`prepass`]).
+//!
 //! An `import()` refused by one of gro's rules
 //! ([`FailureReason::guards_a_boundary`]), or an import in a module it
 //! loads, is listed in the loader's [`Refusals`], whatever the graph
@@ -128,6 +135,7 @@ mod boxed;
 pub mod graph;
 pub mod headroom;
 mod load;
+pub mod prepass;
 pub mod reads;
 pub mod refused;
 mod resolve;
@@ -135,7 +143,7 @@ pub mod strip;
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use deno_core::error::ModuleLoaderError;
@@ -159,6 +167,7 @@ use graph::{
 };
 use headroom::Headroom;
 use load::{load, load_embedded, load_generated};
+use prepass::{ReadGraph, Served, ServedTree, needs_read_flag};
 use reads::Reads;
 use refused::{NotGranted, Refusals};
 use resolve::resolve_into;
@@ -213,6 +222,10 @@ pub struct Loader {
     driver: Option<Url>,
     /// The box of [`Rules::box_roots`], and the first read it refused.
     box_check: BoxCheck,
+    /// The import graph read before the run started, which serves the
+    /// loads and the `package.json` reads of an entry in no project
+    /// ([`Loader::with_read_graph`]).
+    served: Option<Served>,
     /// The run's authority, which each builtin import is checked against;
     /// unset, no builtin is imported.
     authority: Option<Authority>,
@@ -269,6 +282,7 @@ enum Source {
 /// A failed resolution or load: the reason as data, which the graph records
 /// when it records failures ([`Graph::fail`]), and the message of the error
 /// `deno_core` rethrows to JS.
+#[derive(Debug, Clone)]
 struct Refused {
     /// Why, boxed, since it can hold a
     /// [`ResolveErrorKind`], and a failure
@@ -313,6 +327,7 @@ impl Loader {
             refuse_dynamic_import: false,
             driver: None,
             box_check: BoxCheck::default(),
+            served: None,
             authority: None,
             headroom: Headroom::default(),
             node_builtin_refused: Cell::new(false),
@@ -361,6 +376,19 @@ impl Loader {
         }
     }
 
+    /// The loader, serving `graph`, the import graph of an entry in no
+    /// project read before the run started ([`prepass`]): its modules and
+    /// `package.json` files from those reads, anything else from disk only
+    /// beneath `disk`, the directories `--allow-read=` names, each a real
+    /// path.
+    #[must_use]
+    pub fn with_read_graph(self, graph: ReadGraph, disk: Vec<PathBuf>) -> Self {
+        Self {
+            served: Some(Served::new(graph, disk)),
+            ..self
+        }
+    }
+
     /// The loader, refusing what `rules` says beyond the resolver's rules.
     #[must_use]
     pub fn with_rules(self, rules: Rules) -> Self {
@@ -392,6 +420,9 @@ impl Loader {
         refused: Refused,
     ) -> ModuleLoaderError {
         let Refused { reason, message } = refused;
+        if needs_read_flag(&reason) {
+            self.refused.borrow_mut().need_entry_dir_import();
+        }
         if matches!(
             *reason,
             FailureReason::Resolve(ResolveErrorKind::NodeBuiltin { .. })
@@ -459,13 +490,17 @@ impl Loader {
     }
 
     /// Resolves as [`Loader::resolve_reached`] over the disk, each read
-    /// checked against the box.
+    /// checked against the box, or served from a read graph.
     fn resolve_on_disk(
         &self,
         specifier: &str,
         referrer: &str,
         reached: Reached,
     ) -> Result<ModuleSpecifier, ModuleLoaderError> {
+        if let Some(served) = &self.served {
+            let tree = ServedTree { served };
+            return self.resolve_reached(&tree, specifier, referrer, reached);
+        }
         let tree = Boxed {
             check: &self.box_check,
             tree: &DiskTree,
@@ -739,9 +774,14 @@ impl Loader {
             )),
             Some(Source::Embedded(module)) => load_embedded(specifier, requested, module),
             Some(Source::Generated(source)) => load_generated(specifier, requested, source),
-            Some(Source::File(file_id)) => load(specifier, requested, file_id, recording, |path| {
-                self.box_check.check_read(path)
-            }),
+            Some(Source::File(file_id)) => self.served.as_ref().map_or_else(
+                || {
+                    load(specifier, requested, file_id, recording, |path| {
+                        self.box_check.check_read(path)
+                    })
+                },
+                |served| served.load(specifier, requested, file_id, recording),
+            ),
         };
         match result {
             Ok((source, loaded)) => {

@@ -2,7 +2,7 @@
 //! fails the load with: its reason and position as data, and its message.
 //! Free of `deno_core` types.
 
-use tsv_ts::{ErrorKind, ErrorReport, Goal, StripError, UnsupportedConstruct};
+use tsv_ts::{ErrorKind, ErrorReport, Goal, Imports, StripError, UnsupportedConstruct};
 use url::Url;
 
 use super::graph::{Position, StripFailure};
@@ -33,6 +33,61 @@ pub fn strip_module(source: &str, url: &Url) -> Result<String, StripRefusal> {
         Ok(stripped) => Ok(stripped.code),
         Err(error) => Err(strip_refusal(&error, url)),
     }
+}
+
+/// Strips the types from `source`, the TypeScript module at `url`, as
+/// [`strip_module`] does, and reads its imports in the same parse
+/// (`tsv_ts::strip_with_imports_with_goal`, whose code is
+/// `tsv_ts::strip_with_goal`'s), returning the JS and the imports, or the
+/// refusal the load fails with. [`strip_module`]'s stack contract holds.
+pub fn strip_module_with_imports(
+    source: &str,
+    url: &Url,
+) -> Result<(String, Imports), StripRefusal> {
+    match tsv_ts::strip_with_imports_with_goal(source, Goal::Module) {
+        Ok((stripped, imports)) => Ok((stripped.code, imports)),
+        Err(error) => Err(strip_refusal(&error, url)),
+    }
+}
+
+/// Reads the imports of `source`, the JS module at `url`, as a module, by
+/// tsv's TypeScript grammar, which reads every JS module V8 does, returning
+/// them, or the refusal the load fails with when tsv can't parse it: a
+/// module tsv refuses that V8 would run, past tsv's depth limits among them,
+/// loads only from a directory `--allow-read=` names. [`strip_module`]'s
+/// stack contract holds.
+pub fn js_module_imports(source: &str, url: &Url) -> Result<Imports, StripRefusal> {
+    tsv_ts::parse_imports_with_goal(source, Goal::Module).map_err(|error| {
+        let failure = if error.kind() == ErrorKind::TooDeep {
+            StripFailure::TooDeep
+        } else {
+            StripFailure::Parse
+        };
+        let report = error.to_report();
+        let message = format!(
+            "cannot parse the JS for its imports: {}. Fix: add --allow-read= naming the entry's \
+             directory, which loads it and what it imports from disk without that parse",
+            report
+                .as_ref()
+                .map_or_else(|| error.to_string(), |report| report.message.clone())
+        );
+        let Some(ErrorReport { start, .. }) = report else {
+            return StripRefusal {
+                failure,
+                at: None,
+                message,
+            };
+        };
+        let at = Position {
+            line: start.line,
+            column: start.column + 1,
+        };
+        StripRefusal {
+            failure,
+            at: Some(at),
+            message: format!("{message}\n    at {url}:{}:{}", at.line, at.column),
+        }
+    })
 }
 
 /// The refusal of a failed strip. Its message is tsv's (a parse error's

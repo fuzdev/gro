@@ -44,6 +44,14 @@ pub enum ReadRefusal {
     /// ([`SourceTree::check_read`]), so it isn't read.
     #[error("{} lies outside the box's roots, so it isn't read", .0.display())]
     OutsideBox(PathBuf),
+    /// The path is no file the run read before it started for an entry in
+    /// no project, and no directory the run's loader reads from disk holds
+    /// it, so it isn't read (`loader::prepass`).
+    #[error(
+        "{} isn't among the files the run read before it started, so it isn't read",
+        .0.display()
+    )]
+    OutsideGraph(PathBuf),
 }
 
 impl ReadRefusal {
@@ -61,7 +69,9 @@ impl From<ReadRefusal> for io::Error {
             ReadRefusal::ReplacedSinceFirstRead | ReadRefusal::ReplacedSinceLookup => {
                 io::ErrorKind::Other
             }
-            ReadRefusal::OutsideBox(_) => io::ErrorKind::PermissionDenied,
+            ReadRefusal::OutsideBox(_) | ReadRefusal::OutsideGraph(_) => {
+                io::ErrorKind::PermissionDenied
+            }
         };
         Self::new(kind, refusal)
     }

@@ -37,7 +37,11 @@
 //!    entry the box leaves out that it doesn't name, is refused, and for
 //!    `fgro run` noted; those `--allow-run-write=` lists the box's alone;
 //!    and the programs the run grants, pinned ([`RunPins::pin`]) beneath
-//!    the project's root.
+//!    the project's root; then `fgro run`'s entry prepared
+//!    (`FileEntry::prepare`): for an entry with no project's `package.json`
+//!    at or above it, its import graph read, on a thread with tsv's stack
+//!    reserved, joined before the next step, which its loader serves, so
+//!    the box holds no rule on that directory.
 //! 9. The box's plan, from its inputs ([`box_inputs`]) and the disk's facts
 //!    read once; what it refuses refuses the run, and its note prints. A
 //!    `node_modules` the plan follows to another checkout's gets a read
@@ -71,8 +75,7 @@
 //!     the engine only a box makes: a command of Gro's generated entry
 //!     names where the plan gives Vitest its module cache
 //!     (`BoxPlan::vitest_module_cache`), and `fgro run`'s file, resolved
-//!     before the box, its type markers above a root with no project's
-//!     `package.json` read through the box's file rules.
+//!     and prepared before the box.
 //!
 //! A priced build (`gro_runtime::prices`) can leave out step 6's namespace,
 //! step 10's sweep, and step 13's Landlock or denylist, each to be timed
@@ -136,9 +139,10 @@ use gro_runtime::engine::{EngineOptions, init_run_engine};
 use gro_runtime::file_id::FileId;
 use gro_runtime::phases::{self, Phase};
 use gro_runtime::prices::{self, RunDefault};
-use gro_runtime::resolver::InstalledPackage;
+use gro_runtime::resolver::{Conditions, InstalledPackage};
 use gro_runtime::{
-    BINARY_NAME, DeniedWriteCause, FileEntry, GeneratedEntry, GrantedDir, ProgramGrant, RunPins,
+    Authority, BINARY_NAME, DeniedWriteCause, FileEntry, GeneratedEntry, GrantedDir, PreparedEntry,
+    ProgramGrant, RunPins,
 };
 use gro_sys::private_dir::PrivateDirError;
 use thiserror::Error;
@@ -447,6 +451,10 @@ pub enum BoxStartError {
     /// The run's thread couldn't start.
     #[error("failed to start the {BINARY_NAME} thread the run's engine runs on: {0}")]
     Thread(std::io::Error),
+    /// The thread that reads an entry in no project's import graph before
+    /// the box couldn't start.
+    #[error("failed to start the {BINARY_NAME} thread that reads the entry's import graph: {0}")]
+    GraphThread(std::io::Error),
 }
 
 impl BoxStartError {
@@ -480,7 +488,8 @@ impl BoxStartError {
             | Self::ChildSignal(_)
             | Self::Rule(_)
             | Self::ProgramRules
-            | Self::Thread(_) => EXIT_FAILURE,
+            | Self::Thread(_)
+            | Self::GraphThread(_) => EXIT_FAILURE,
         }
     }
 }
@@ -591,7 +600,9 @@ pub fn run_boxed(run: RunStart, cli_args: &[String]) -> u8 {
     phases::mark(Phase::Prepass);
     match boxed(&run, floor, &environment) {
         Ok(boxed) => run_on_thread(&run, boxed),
-        Err(error) => error.report(),
+        Err(Stopped::Failed(error)) => error.report(),
+        // the panic has printed
+        Err(Stopped::Panicked) => EXIT_PANIC,
     }
 }
 
@@ -712,8 +723,29 @@ enum BoxedEntry {
     /// A command of Gro's generated entry's text, with where the box gives
     /// Vitest its module cache (`BoxPlan::vitest_module_cache`).
     Generated(String),
-    /// `fgro run`'s file, resolved before the box.
-    File(Box<FileEntry>),
+    /// `fgro run`'s file, resolved and prepared before the box.
+    File(Box<PreparedEntry>),
+}
+
+/// What stopped the steps before the box.
+enum Stopped {
+    /// A step failed.
+    Failed(Box<CliError>),
+    /// The thread reading an entry in no project's import graph panicked,
+    /// and the panic has printed.
+    Panicked,
+}
+
+impl From<CliError> for Stopped {
+    fn from(error: CliError) -> Self {
+        Self::Failed(Box::new(error))
+    }
+}
+
+impl From<BoxStartError> for Stopped {
+    fn from(error: BoxStartError) -> Self {
+        Self::Failed(Box::new(error.into()))
+    }
 }
 
 /// Steps 4 to 13 of the [module doc](self), from the probed `floor`.
@@ -721,12 +753,13 @@ enum BoxedEntry {
 /// # Errors
 ///
 /// Returns the step's failure that stopped the run, a directory a grant
-/// flag lists that isn't one ([`CliError::NoDir`]) among them.
+/// flag lists that isn't one ([`CliError::NoDir`]) among them, or that the
+/// thread reading the entry's import graph panicked.
 fn boxed(
     run: &RunStart,
     floor: LandlockFloor,
     environment: &ProcessEnvironment,
-) -> Result<Boxed, CliError> {
+) -> Result<Boxed, Stopped> {
     let closed = RunClosed::close_inherited(floor).map_err(BoxStartError::Step)?;
     phases::open();
     // a run that starts no program takes no namespace of its own
@@ -762,11 +795,14 @@ fn boxed(
     let path = environment
         .var("PATH")
         .map(|path| path.to_string_lossy().into_owned());
-    let pins = RunPins::pin(
-        &authority(&spec, granted.dirs.clone()),
-        path.as_deref(),
-        &run.root,
-    );
+    let authority = authority(&spec, granted.dirs.clone());
+    let pins = RunPins::pin(&authority, path.as_deref(), &run.root);
+    // an entry in no project's import graph, read before the box, which
+    // reads nothing of that directory
+    let entry = match &run.entry {
+        StartEntry::File(entry) => Ok(prepared(entry, &authority, spec.conditions)?),
+        StartEntry::Generated { home, version } => Err((home, version)),
+    };
     let inputs = box_inputs(
         run,
         &granted.resolved,
@@ -878,13 +914,13 @@ fn boxed(
         ));
     }
     let walls = walls_note(run, &wall_rules(&confined), &plan, confined.network());
-    let entry = match &run.entry {
-        StartEntry::Generated { home, version } => BoxedEntry::Generated(main_entry(
+    let entry = match entry {
+        Ok(file) => BoxedEntry::File(Box::new(file)),
+        Err((home, version)) => BoxedEntry::Generated(main_entry(
             home.as_deref(),
             version,
             plan.vitest_module_cache().as_deref(),
         )),
-        StartEntry::File(entry) => BoxedEntry::File(entry.clone()),
     };
     Ok(Boxed {
         confined,
@@ -894,6 +930,29 @@ fn boxed(
         walls,
         entry,
     })
+}
+
+/// `entry`, `fgro run`'s, made ready to run under `authority`, its packages
+/// matching `conditions` ([`FileEntry::prepare`]): an entry in no project's
+/// import graph read, on a thread with tsv's stack reserved, joined before
+/// the next step, so the process has one thread again when the box goes up.
+///
+/// # Errors
+///
+/// Returns why the thread couldn't start, or that it panicked.
+fn prepared(
+    entry: &FileEntry,
+    authority: &Authority,
+    conditions: Conditions,
+) -> Result<PreparedEntry, Stopped> {
+    let entry = entry.clone();
+    match on_sized_thread(BINARY_NAME.to_owned(), move || {
+        entry.prepare(authority, conditions)
+    }) {
+        Joined::Returned(prepared) => Ok(prepared),
+        Joined::Unstarted(error) => Err(BoxStartError::GraphThread(error).into()),
+        Joined::Panicked => Err(Stopped::Panicked),
+    }
 }
 
 /// The realm's read root on `linked`, the real path the box followed a
@@ -963,9 +1022,7 @@ fn set_environment(private: Option<&RunPrivateDir>) -> Result<(), BoxStartError>
 /// lists, each joined to the program the pre-pass resolved its name to,
 /// `pins`, the programs the run pinned, and the variables git's home
 /// config is found by, read from `environment`, whose files the box reads
-/// for a run that may start git ([`RunStart::may_start_git`]), with an
-/// `fgro run` entry's type markers above a root with no project's
-/// `package.json` ([`FileEntry::markers`]). `programs` names each file
+/// for a run that may start git ([`RunStart::may_start_git`]). `programs` names each file
 /// once, and `flag_programs` says whether `--allow-run=` grants a program
 /// the closure holds no policy for.
 pub fn box_inputs(
@@ -999,10 +1056,6 @@ pub fn box_inputs(
         xdg_config_home: path("XDG_CONFIG_HOME"),
         git_config_global: path("GIT_CONFIG_GLOBAL"),
         git: run.may_start_git(),
-        markers: match &run.entry {
-            StartEntry::File(entry) => entry.markers(),
-            StartEntry::Generated { .. } => Vec::new(),
-        },
     }
 }
 
@@ -1329,7 +1382,7 @@ fn run_on_thread(run: &RunStart, boxed: Boxed) -> u8 {
         },
         BoxedEntry::File(file) => Ending {
             node_hint: None,
-            entry_dir: entry_dir_flag(file, &run.cwd),
+            entry_dir: entry_dir_flag(file.entry(), &run.cwd),
             walls: Some(walls),
         },
     };

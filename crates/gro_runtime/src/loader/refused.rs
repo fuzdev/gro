@@ -165,6 +165,10 @@ pub enum NeededGrant {
     /// An exec root holding the directory a program was asked for
     /// beneath, by kind alone, as an fs grant's directory is.
     RunIn,
+    /// A directory to read modules from, past the import graph read before
+    /// the run started for an entry in no project, whose own directory the
+    /// embedder names in its hint, never a path the program chose.
+    EntryDirImport,
 }
 
 impl NeededGrant {
@@ -174,7 +178,7 @@ impl NeededGrant {
             Self::Env(_) => Some(NameKind::Env),
             Self::Run(_) => Some(NameKind::Run),
             Self::RunEnv(_) => Some(NameKind::RunEnv),
-            Self::Module(_) | Self::Fs(_) | Self::RunIn => None,
+            Self::Module(_) | Self::Fs(_) | Self::RunIn | Self::EntryDirImport => None,
         }
     }
 }
@@ -295,6 +299,14 @@ impl Refusals {
     /// run's failure.
     pub(crate) fn need_module(&mut self, capability: Capability) {
         self.need(NeededGrant::Module(capability));
+    }
+
+    /// Records that the loader refused a module or a `package.json` an
+    /// entry in no project's run didn't read before it started, which a
+    /// directory `--allow-read=` names would let through, whether the import
+    /// was static or an `import()`.
+    pub(crate) fn need_entry_dir_import(&mut self) {
+        self.need(NeededGrant::EntryDirImport);
     }
 
     /// Records an `fs` call's `outside_root` about `target`, a path a
