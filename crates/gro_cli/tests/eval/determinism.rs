@@ -339,7 +339,18 @@ fn a_zone_at_utcs_offset_or_an_unset_tz_is_refused() {
         .arg(&etc);
     let mut command = wrapped_command(unshare, &["value.js"]);
     command.env_remove("TZ");
-    let run = parse(spawn(command, None));
+    let output = spawn(command, None);
+    // the namespaces are the case's setup, which a host may refuse (a
+    // sysctl, AppArmor, a container's seccomp filter) before fgro starts:
+    // the case fails naming that, not as an eval that wasn't refused
+    assert!(
+        !(output.stdout.is_empty()
+            && (output.stderr.starts_with("unshare: ") || output.stderr.starts_with("mount: "))),
+        "this case needs unprivileged user and mount namespaces, and an overlay mount in them, \
+         which this host refused before fgro started:\n{}",
+        output.stderr
+    );
+    let run = parse(output);
     run.assert_failed("environment", 1);
     assert_eq!(run.message(), refused("Asia/Tokyo"));
 }

@@ -367,14 +367,7 @@ fn probed_box(off: &str) -> (std::collections::BTreeMap<String, String>, bool) {
     ignore = "a command of Gro's runs in its box only from a snapshot build"
 )]
 fn a_priced_build_turns_off_each_step_of_a_command_s_box() {
-    let own_filters: u32 = std::fs::read_to_string("/proc/self/status")
-        .unwrap()
-        .lines()
-        .find_map(|line| line.strip_prefix("Seccomp_filters:"))
-        .unwrap()
-        .trim()
-        .parse()
-        .unwrap();
+    let own_filters = support::own_filters();
     let own_net = std::fs::read_link("/proc/self/ns/net")
         .unwrap()
         .display()

@@ -26,7 +26,7 @@ use std::io::BufRead as _;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use support::{KillOnDrop, Scratch, UNBOXED_NOTE, fgro_command, spawn};
+use support::{KillOnDrop, Scratch, UNBOXED_NOTE, fgro_command, own_filters, spawn};
 
 /// The variables the run and its box read, cleared so the harness's own
 /// don't leak in.
@@ -114,19 +114,6 @@ fn python3() -> PathBuf {
     std::env::split_paths(&std::env::var_os("PATH").unwrap())
         .map(|dir| dir.join("python3"))
         .find(|path| path.is_file())
-        .unwrap()
-}
-
-/// The seccomp filters this process holds, which a process it starts
-/// inherits.
-fn own_filters() -> u32 {
-    std::fs::read_to_string("/proc/self/status")
-        .unwrap()
-        .lines()
-        .find_map(|line| line.strip_prefix("Seccomp_filters:"))
-        .unwrap()
-        .trim()
-        .parse()
         .unwrap()
 }
 

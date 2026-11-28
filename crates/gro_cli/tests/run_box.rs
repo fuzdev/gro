@@ -14,7 +14,12 @@
 //!
 //! The network form a case expects is the host's, read by the parent from
 //! the settings that refuse user namespaces: the run's own namespace where
-//! nothing refuses one, else the host's network with the cause. Each case
+//! nothing refuses one, else the host's network with the cause. A seccomp
+//! filter the parent holds from outside the test (a container's) that
+//! refuses `unshare` shows in no setting, so the parent's own probe tells
+//! it, and every case expects the host's network there; each count of
+//! filters a case reads is the parent's own plus what the case stacks on
+//! it. Each case
 //! named `_inet_refused` takes the host's network wherever it runs, under a
 //! seccomp filter refusing `unshare` that `python3` installs before it runs
 //! the child, so both forms' walls are held on every host. The parent also runs an
@@ -85,6 +90,7 @@ use std::io::{BufRead as _, ErrorKind, Write as _};
 use std::os::fd::AsFd as _;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use gro_runtime::confine::Threads;
@@ -228,15 +234,33 @@ fn expected_network(filtered: bool) -> String {
     }
 }
 
+/// What an `unshare` and its maps did on this host with no check first
+/// ([`support::host_namespace_probe`]), probed once.
+fn host_probe() -> &'static str {
+    static PROBE: OnceLock<String> = OnceLock::new();
+    PROBE.get_or_init(support::host_namespace_probe)
+}
+
+/// Whether a seccomp filter this process holds from outside the test (a
+/// container's, or a harness's) refuses `unshare`, which every child
+/// inherits, so each case takes the host's network as its `_inet_refused`
+/// twin does. No setting shows such a filter, so the probe is what tells.
+fn filtered_outside() -> bool {
+    support::own_filters() > 0 && host_probe() == "refused EPERM"
+}
+
 /// Whether the network the cases expect agrees with what an `unshare` and
-/// its maps did on this host with no check first
-/// ([`support::host_namespace_probe`]), an oracle apart from the settings
-/// both the box's check and [`expected_network`] read: the run's own
-/// namespace only where one is entered, and the host's network only where
-/// one is refused or would strand the process.
+/// its maps did on this host with no check first ([`host_probe`]), an
+/// oracle apart from the settings both the box's check and
+/// [`expected_network`] read: the run's own namespace only where one is
+/// entered, and the host's network only where one is refused or would
+/// strand the process. A filter from outside is the probe's own finding
+/// ([`filtered_outside`]), so there it only agrees with itself.
 fn probe_agrees(expected: &str, probe: &str) -> bool {
     if expected == "namespace" {
         probe == "entered"
+    } else if expected.starts_with("inet_refused, Filtered") {
+        probe == "refused EPERM"
     } else if expected.starts_with("inet_refused, AppArmor") {
         probe.starts_with("stranded at") || probe.starts_with("refused")
     } else if expected.starts_with("inet_refused, Disabled") {
@@ -251,7 +275,7 @@ fn probe_agrees(expected: &str, probe: &str) -> bool {
 /// Runs every case in a child and checks what it and the parent report.
 fn parent() {
     let scratch = scratch();
-    let probe = support::host_namespace_probe();
+    let probe = host_probe();
     println!(
         "host: apparmor_restrict_unprivileged_userns {}, unprivileged_userns_clone {}, \
          max_user_namespaces {}; an unshare with no check first: {}",
@@ -269,8 +293,8 @@ fn parent() {
     let _ = std::fs::remove_file(&agent);
     let _agent = std::os::unix::net::UnixListener::bind(&agent).unwrap();
     let mut failures = Vec::new();
-    let network = expected_network(false);
-    if !probe_agrees(&network, &probe) {
+    let network = expected_network(filtered_outside());
+    if !probe_agrees(&network, probe) {
         failures.push(format!(
             "the cases expect {network}, and an unshare with no check first did: {probe}"
         ));
@@ -304,7 +328,7 @@ fn agent_socket(parent: u32) -> PathBuf {
 
 /// What `case` prints, then what the parent reads of it from outside.
 fn expected(case: &str) -> String {
-    let network = expected_network(case.ends_with("_inet_refused"));
+    let network = expected_network(case.ends_with("_inet_refused") || filtered_outside());
     let namespace = network == "namespace";
     let own = std::fs::read_to_string("/proc/self/status").unwrap();
     let uid = status_field(&own, "Uid:");
@@ -342,9 +366,9 @@ fn expected(case: &str) -> String {
             line("a program reading outside: refused");
             line("a program signalling outside: refused");
             line("inspect");
-            // a filter of the parent's own is stacked under the box's in
-            // the case `python3` starts
-            let filters = if case == "walls_inet_refused" { 2 } else { 1 };
+            // the box's filter over those the parent holds, and the one
+            // `python3` stacks between them in its case
+            let filters = support::own_filters() + if case == "walls_inet_refused" { 2 } else { 1 };
             line(&format!(
                 "from outside: NoNewPrivs 1, Seccomp 2, filters {filters}"
             ));
@@ -369,7 +393,12 @@ fn expected(case: &str) -> String {
             line("from outside: environ denied");
         }
         "threads_close" => {
-            line("no_new_privs after the probe: 0");
+            // the probe sets nothing: the flag is as the parent's, which
+            // the child inherits
+            line(&format!(
+                "no_new_privs after the probe: {}",
+                status_field(&own, "NoNewPrivs:")
+            ));
             line("refused: 2 threads, naming a preload: true");
             line("inherited descriptor: open");
         }
@@ -392,13 +421,13 @@ fn expected(case: &str) -> String {
             line(&format!("network: {network}"));
             line("refused: 2 threads, naming a preload: false");
             line("read outside: ok");
-            line("seccomp: 0");
+            line(&format!("seccomp filters: {}", support::own_filters()));
         }
         "socket_held" => {
             line(&format!("network: {network}"));
             line("refused: a socket held");
             line("read outside: ok");
-            line("seccomp: 0");
+            line(&format!("seccomp filters: {}", support::own_filters()));
         }
         "stdin_tcp" | "stdin_tcp_connected" | "stdin_udp" | "stdin_unix_datagram" => {
             line(&format!("network: {network}"));
@@ -543,7 +572,10 @@ fn expected(case: &str) -> String {
             line("ran: ok");
             line("read outside from the runtime's thread: denied");
             line("inspect");
-            line("from outside: more than two threads, each NoNewPrivs 1, Seccomp 2, filters 1");
+            line(&format!(
+                "from outside: more than two threads, each NoNewPrivs 1, Seccomp 2, filters {}",
+                support::own_filters() + 1
+            ));
         }
         _ => panic!("no case {case}"),
     }
@@ -757,10 +789,12 @@ fn inspect(pid: u32, case: &str) -> Vec<String> {
             .unwrap()
             .map(|task| std::fs::read_to_string(task.unwrap().path().join("status")).unwrap())
             .collect();
+        // the box's filter over those this process holds
+        let filters = (support::own_filters() + 1).to_string();
         let boxed = tasks.iter().all(|status| {
             status_field(status, "NoNewPrivs:") == "1"
                 && status_field(status, "Seccomp:") == "2"
-                && status_field(status, "Seccomp_filters:") == "1"
+                && status_field(status, "Seccomp_filters:") == filters
         });
         lines.push(format!(
             "from outside: {} threads, each {}\n",
@@ -770,7 +804,7 @@ fn inspect(pid: u32, case: &str) -> Vec<String> {
                 tasks.len().to_string()
             },
             if boxed {
-                "NoNewPrivs 1, Seccomp 2, filters 1".to_owned()
+                format!("NoNewPrivs 1, Seccomp 2, filters {filters}")
             } else {
                 format!("not boxed: {tasks:?}")
             }
@@ -1024,7 +1058,10 @@ fn child(case: &str, scratch: &Path, port: u16) {
                 outcome(std::fs::read(&outside))
             ));
             let status = std::fs::read_to_string("/proc/self/status").unwrap();
-            say(&format!("seccomp: {}", status_field(&status, "Seccomp:")));
+            say(&format!(
+                "seccomp filters: {}",
+                status_field(&status, "Seccomp_filters:")
+            ));
         }
         "socket_held" => {
             let prepared = prepared(&project);
@@ -1044,7 +1081,10 @@ fn child(case: &str, scratch: &Path, port: u16) {
                 outcome(std::fs::read(&outside))
             ));
             let status = std::fs::read_to_string("/proc/self/status").unwrap();
-            say(&format!("seccomp: {}", status_field(&status, "Seccomp:")));
+            say(&format!(
+                "seccomp filters: {}",
+                status_field(&status, "Seccomp_filters:")
+            ));
         }
         "stdin_tcp"
         | "stdin_tcp_connected"

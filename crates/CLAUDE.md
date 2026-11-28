@@ -322,12 +322,17 @@ Confined eval runs only from a snapshot build, so
 `crates/gro_cli/tests/eval/`'s tests that evaluate are ignored in a plain
 `cargo test` and run from `cargo xtask build --verify`, beside
 `tests/confine.rs` (no libtest harness, whose threads would refuse the box).
-They need Landlock ABI 6 and fail below it, naming the kernel's ABI.
+They need Landlock ABI 6 and fail below it, naming the kernel's ABI, and
+the case of an unset `TZ` needs unprivileged user and mount namespaces,
+failing where the host refuses them, as `--verify`'s off-build-tree run does.
 `tests/run_box.rs`, harness off too, takes the run's box's steps in a
 child and reads it from inside and from outside: its cases run in any
 build, but those that start V8 under the box, which need a snapshot.
 They need Landlock ABI 6, and expect the network form the host's settings
-give (the run's own namespace unless user namespaces are restricted).
+give (the run's own namespace unless user namespaces are restricted), or
+the host's network where a seccomp filter from outside the test refuses
+`unshare`; a count of seccomp filters is held relative to the test
+process's own (`support::own_filters`), which a container's adds to.
 `tests/boxed_launch.rs`, harness off, launches in programs' boxes from
 inside the run's, in a child, with `gro_runtime`'s `testing` feature
 observing each launch's steps, so its cases signal a launch's threads

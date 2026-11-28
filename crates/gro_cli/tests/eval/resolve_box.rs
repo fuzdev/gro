@@ -18,6 +18,8 @@ use crate::eval;
 use crate::support::KillOnDrop;
 use crate::support::Scratch;
 #[cfg(feature = "snapshot")]
+use crate::support::own_filters;
+#[cfg(feature = "snapshot")]
 use crate::{fixtures, long_timeout, wrapped_command};
 
 /// Waits for the driver's `ready` on `child`'s stderr, failing the test
@@ -119,8 +121,9 @@ fn a_build_with_no_snapshot_refuses_to_evaluate() {
 }
 
 /// Every task of a confined eval's process, its main thread, the thread
-/// that evaluates, V8's workers, and the watchdog, has `no_new_privs` and
-/// seccomp's filter mode, read from outside while the driver runs.
+/// that evaluates, V8's workers, and the watchdog, has `no_new_privs`,
+/// seccomp's filter mode, and the box's two filters over those it inherits
+/// from this process, read from outside while the driver runs.
 #[cfg(feature = "snapshot")]
 #[test]
 fn every_task_of_a_confined_eval_is_boxed() {
@@ -153,6 +156,7 @@ fn every_task_of_a_confined_eval_is_boxed() {
     drop(child);
     // the main thread, the thread that evaluates, and V8's workers at least
     assert!(tasks.len() >= 3, "{tasks:?}");
+    let filters = (own_filters() + 2).to_string();
     for (path, status) in &tasks {
         let field = |name: &str| {
             status
@@ -162,7 +166,11 @@ fn every_task_of_a_confined_eval_is_boxed() {
         };
         assert_eq!(field("NoNewPrivs:"), Some("1"), "{path}\n{status}");
         assert_eq!(field("Seccomp:"), Some("2"), "{path}\n{status}");
-        assert_eq!(field("Seccomp_filters:"), Some("2"), "{path}\n{status}");
+        assert_eq!(
+            field("Seccomp_filters:"),
+            Some(filters.as_str()),
+            "{path}\n{status}"
+        );
     }
 }
 

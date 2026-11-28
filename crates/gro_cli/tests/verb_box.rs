@@ -43,7 +43,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
 use gro_runtime::BINARY_NAME;
-use support::{KillOnDrop, Scratch, fgro_command, spawn, version};
+use support::{KillOnDrop, Scratch, fgro_command, own_filters, spawn, version};
 
 /// The variables the verb and the box read, and those the probe reports,
 /// cleared so the harness's own don't leak in.
@@ -366,19 +366,6 @@ fn probe(
     // nothing reached the host's listener
     assert!(listener.accept().is_err(), "{stdout}{stderr}");
     (code, format!("{stdout}{stderr}"), probed, scratch)
-}
-
-/// The seccomp filters this process holds, which a process it starts
-/// inherits.
-fn own_filters() -> u32 {
-    std::fs::read_to_string("/proc/self/status")
-        .unwrap()
-        .lines()
-        .find_map(|line| line.strip_prefix("Seccomp_filters:"))
-        .unwrap()
-        .trim()
-        .parse()
-        .unwrap()
 }
 
 /// What every probe in the box shows, whatever its network: the walls on

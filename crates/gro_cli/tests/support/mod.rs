@@ -189,6 +189,21 @@ print('entered')
     }
 }
 
+/// The seccomp filters this process holds (`Seccomp_filters` in
+/// `/proc/self/status`), which every process it starts inherits beneath
+/// any of its own: none on a plain host, more inside a container or under
+/// a filter a harness installs, so a child's count is pinned against it.
+pub fn own_filters() -> u32 {
+    std::fs::read_to_string("/proc/self/status")
+        .unwrap()
+        .lines()
+        .find_map(|line| line.strip_prefix("Seccomp_filters:"))
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap()
+}
+
 /// Whether a run that may start a program takes a network namespace of
 /// its own here: a snapshot build's box does where an `unshare` and its
 /// maps succeed ([`host_namespace_probe`]), which is where the box's own
