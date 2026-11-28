@@ -352,7 +352,7 @@ What the release leaves is stated with it:
 - `-A` after a command word is refused, so the unconfined way to run a command is the Node Gro (`node_modules/.bin/gro`), which confines nothing
 - `fgro run -A`, and `fgro run` where Landlock can't hold the box or the build has no snapshot, run in no box, the script bounded by the runtime's own checks alone and every program it's granted by nothing, which the latter says unless `GRO_FALLBACK=command` refuses it
 - an entry in no project loads only what its imports name by a string literal, an `import()` of a name built at run time, of a module no string literal names, needing `--allow-read=` naming its directory, which puts that directory in the box whole;
-  and the graph is read by Gro's parser, so a module that parser reads differently from V8 fails to load, never loads more
+  and the graph is read by Gro's parser, so a module that parser reads differently from V8 fails to load, never loads more; an entry directly in the home directory loads any module under it that a string literal names, another checkout's among them
 - `fgro run --allow-write=.` writes the root's top-level entries as the run started, never `.git`, `node_modules`, another dot-entry, a symlink, or a new one, and an `fgro run` whose project root, found by a `package.json` or a `node_modules` at or above the entry, is or holds the home directory is refused
 - a project that pins another Gro version runs on the Node Gro, unboxed, unless `GRO_FALLBACK=command` is set
 - where Landlock is missing, off, or below its sixth ABI there's no box, and the binary runs the Node Gro, which confines nothing, and says why, unless `GRO_FALLBACK=command` is set, which refuses it

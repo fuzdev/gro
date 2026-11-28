@@ -19,7 +19,7 @@
 //! also keeps each `package.json` the resolutions read, the type markers
 //! above the entry among them. A failed load, a strip's refusal or a module
 //! too large, is kept as the load's refusal, which the loader then gives as
-//! today's; one that didn't resolve is resolved again in the run.
+//! it would from disk; one that didn't resolve is resolved again in the run.
 //!
 //! Its reads reach no further than the run's box would read them: the
 //! entry's directory, beneath it, each type marker above it, only itself,
