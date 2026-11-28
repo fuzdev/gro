@@ -161,7 +161,8 @@ fn resolve_bar_twice(recording: Recording) -> (Graph, usize) {
 /// resolutions consult it, and hashed as read, and the paths a
 /// resolution went on past are recorded absent: the subdirectory's own
 /// `package.json`, on the walks up, and its `node_modules` entry, on
-/// the search. Off, every resolution reads again and nothing is kept.
+/// the search. Off, nothing is recorded, and a settled file is read again
+/// only when its lookup finds it changed, its parse kept for the run.
 #[test]
 fn a_consulted_file_is_read_once_and_each_path_passed_is_absent() {
     let (graph, reads) = resolve_bar_twice(Recording::Full);
@@ -191,7 +192,7 @@ fn a_consulted_file_is_read_once_and_each_path_passed_is_absent() {
         ])
     );
     let (off, off_reads) = resolve_bar_twice(Recording::Off);
-    assert_eq!(off_reads, 4);
+    assert_eq!(off_reads, 2);
     assert_eq!(off.reads().hash(Path::new("/p/package.json")), None);
     assert!(off.reads().absent().is_empty());
     // and a record passed in is dropped off

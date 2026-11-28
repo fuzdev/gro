@@ -3,8 +3,9 @@
 //! served from, with the BLAKE3 hash of its bytes, and each path they went
 //! on past finding absent ([`SourceTree::note_absent`]).
 //!
-//! Without it, a resolution reads a `package.json` again each time it passes
-//! one, and nothing says which bytes it parsed. With it, a file is read once
+//! Without it, a resolution reads a `package.json` again each time its
+//! lookup finds it changed or not yet settled ([`ParsedPackages`]),
+//! and nothing says which bytes it parsed. With it, a file is read once
 //! per run: its first read's identity, bytes, and hash stand, a later read
 //! finding the same identity gets the same bytes, and one finding another
 //! identity at the path is refused ([`ReadRefusal::ReplacedSinceFirstRead`]),
@@ -26,7 +27,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use crate::file_id::FileId;
-use crate::resolver::{Entry, ReadRefusal, SourceTree};
+use crate::resolver::{Entry, ParsedPackages, ReadRefusal, SourceTree};
 
 /// The metadata files a graph's resolutions read, each once, by real path,
 /// and the paths they found absent.
@@ -140,6 +141,10 @@ impl<T: SourceTree> SourceTree for RecordingTree<'_, T> {
 
     fn check_read(&self, path: &Path) -> io::Result<()> {
         self.tree.check_read(path)
+    }
+
+    fn parsed(&self) -> Option<&ParsedPackages> {
+        self.tree.parsed()
     }
 }
 

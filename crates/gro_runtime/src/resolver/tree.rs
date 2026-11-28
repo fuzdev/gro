@@ -6,6 +6,8 @@ use std::path::{Path, PathBuf};
 
 use crate::file_id::FileId;
 
+use super::parsed::ParsedPackages;
+
 /// The most bytes a `package.json` may have. Packages are untrusted input,
 /// and no real one comes near it.
 pub const MAX_PACKAGE_JSON_SIZE: u64 = 16 * 1024 * 1024;
@@ -138,6 +140,15 @@ pub trait SourceTree {
         let _ = path;
         Ok(())
     }
+
+    /// The `package.json` files parsed earlier in the run, which a
+    /// resolution parses again only when its lookup finds another file at
+    /// the path or a changed one ([`ParsedPackages`]). A tree that wraps
+    /// another returns its inner tree's. The default keeps none, so every
+    /// read is parsed.
+    fn parsed(&self) -> Option<&ParsedPackages> {
+        None
+    }
 }
 
 /// What [`SourceTree::lookup`] found at a path, at its real path (every
@@ -150,11 +161,40 @@ pub enum Entry {
         path: PathBuf,
         /// Its identity when it was looked up.
         id: FileId,
+        /// Its last change when it was looked up.
+        stamp: Stamp,
     },
     /// A directory.
     Dir(PathBuf),
     /// Any other entry, such as a socket or a device.
     Other,
+}
+
+/// A file's last change as a lookup found it: its status-change time,
+/// which every write, truncation, and rename of it moves, and its size.
+///
+/// Two stamps of one file differ after any change but one: a rewrite in
+/// place to the same size within the same tick of the filesystem's clock.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Stamp {
+    /// The status-change time's seconds.
+    pub changed_secs: i64,
+    /// The status-change time's nanoseconds.
+    pub changed_nanos: i64,
+    /// The size in bytes.
+    pub len: u64,
+}
+
+impl Stamp {
+    /// The stamp of the file `metadata` was read from.
+    pub fn of(metadata: &std::fs::Metadata) -> Self {
+        use std::os::unix::fs::MetadataExt as _;
+        Self {
+            changed_secs: metadata.ctime(),
+            changed_nanos: metadata.ctime_nsec(),
+            len: metadata.len(),
+        }
+    }
 }
 
 /// The process's filesystem.
@@ -244,6 +284,7 @@ pub(super) fn found(real_path: PathBuf, metadata: &std::fs::Metadata) -> io::Res
         Entry::File {
             path: real_path,
             id: FileId::of(metadata),
+            stamp: Stamp::of(metadata),
         }
     } else if metadata.is_dir() {
         Entry::Dir(real_path)

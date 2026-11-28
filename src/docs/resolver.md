@@ -228,7 +228,11 @@ the condition set can pick another target than Node's, and `.ts` inside `node_mo
   even when it was rewritten in place since,
   and one that finds another file at the path is refused,
   so every resolution in the run parses the same bytes, whose BLAKE3 hash the graph keeps.
-  `fgro run` reads it again at each resolution.
+  `fgro run` and every `fgro <cmd>` keep each `package.json`'s parse for the run
+  and read and parse the file again only when its lookup finds another file at the path or the same one changed,
+  its status-change time or its size moved.
+  A file changed less than 2 seconds before its read began is read again at each resolution,
+  since a rewrite to the same size within the same tick of the filesystem's clock moves neither.
   A file removed and made again is told apart by its birth time,
   since ext4 hands the new file the old one's inode number;
   where the filesystem records no birth time, or the new file is made within the same tick of its clock as the original's birth,

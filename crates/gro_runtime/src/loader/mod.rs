@@ -125,6 +125,9 @@
 //! graph's module doc lists the record, each loaded module's
 //! [`ModuleFormat`](crate::resolver::ModuleFormat) among it); recording in
 //! full, resolutions read through a [`RecordingTree`](reads::RecordingTree).
+//! Either way the graph keeps each `package.json`'s parse for the run
+//! ([`ParsedPackages`](crate::resolver::ParsedPackages)), so a settled file
+//! its lookup finds unchanged isn't read or parsed again.
 //! Recording changes nothing JS sees but how that tree treats a file read again
 //! mid-run: one rewritten in place is served its first read's bytes, and one
 //! replaced is refused. Every error keeps its message and class. `deno_core`

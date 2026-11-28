@@ -161,7 +161,7 @@ pub fn read_graph(
     };
     // the entry's own walk for its root, the type markers above it among it
     for consulted in &entry.files_consulted {
-        if let Ok(Some(Entry::File { path, id })) = tree.lookup(&consulted.path) {
+        if let Ok(Some(Entry::File { path, id, .. })) = tree.lookup(&consulted.path) {
             // a file that can't be read now is read again, and refused, in the run
             let _ = tree.read(&path, id);
         }

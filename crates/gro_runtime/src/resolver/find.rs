@@ -42,7 +42,7 @@ pub(super) fn find_module(
     }
 
     let (real_path, id) = match lookup(tree, path)? {
-        Some(Entry::File { path, id }) => (path, id),
+        Some(Entry::File { path, id, .. }) => (path, id),
         Some(Entry::Dir(_) | Entry::Other) => return Err(ResolveErrorKind::NotAFile),
         None => {
             let ts_extension = match path.extension().and_then(|extension| extension.to_str()) {

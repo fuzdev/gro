@@ -5,7 +5,7 @@ use std::io;
 use std::path::{Component, Path, PathBuf};
 
 use crate::file_id::FileId;
-use crate::resolver::{Entry, MAX_PACKAGE_JSON_SIZE, ReadRefusal, SourceTree};
+use crate::resolver::{Entry, MAX_PACKAGE_JSON_SIZE, ReadRefusal, SourceTree, Stamp};
 
 /// An in-memory tree: files by path with their contents, symlinks as a
 /// map to their target, symlink loops, which fail with `ELOOP`, and the
@@ -40,9 +40,15 @@ impl SourceTree for MemoryTree {
         };
         let path = real_path.to_str().unwrap();
         if let Some(id) = self.id(path) {
+            let len = self.files[path].len() as u64;
             return Ok(Some(Entry::File {
                 path: real_path,
                 id,
+                stamp: Stamp {
+                    changed_secs: 0,
+                    changed_nanos: 0,
+                    len,
+                },
             }));
         }
         Ok(self.is_dir(path).then_some(Entry::Dir(real_path)))

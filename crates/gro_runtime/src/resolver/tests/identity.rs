@@ -125,6 +125,7 @@ fn a_disk_read_refuses_a_replaced_file() {
                 ino: metadata.ino(),
                 born: metadata.created().ok(),
             },
+            stamp: crate::resolver::Stamp::of(&metadata),
         })
     );
     assert_eq!(before.unwrap(), b"{}");

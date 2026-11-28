@@ -2,6 +2,8 @@
 
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::time::SystemTime;
 
 use serde_json::{Map, Value};
 
@@ -113,8 +115,9 @@ pub(super) struct PackageJson {
     pub(super) dir: PathBuf,
     /// Its real path.
     pub(super) path: PathBuf,
-    /// Its fields, in the file's key order.
-    fields: Map<String, Value>,
+    /// Its fields, in the file's key order, shared with the run's other
+    /// reads of the same file ([`super::ParsedPackages`]).
+    fields: Arc<Map<String, Value>>,
 }
 
 // each field a resolution reads is read through the method that records it,
@@ -220,8 +223,8 @@ pub(super) fn read_package_json(
     dir: &Path,
 ) -> Result<Option<PackageJson>, ResolveErrorKind> {
     let path = dir.join("package.json");
-    let (path, id) = match lookup(tree, &path)? {
-        Some(Entry::File { path, id }) => (path, id),
+    let (path, id, stamp) = match lookup(tree, &path)? {
+        Some(Entry::File { path, id, stamp }) => (path, id, stamp),
         Some(Entry::Other) => {
             return Err(ResolveErrorKind::InvalidPackageJson {
                 path,
@@ -233,10 +236,23 @@ pub(super) fn read_package_json(
             return Ok(None);
         }
     };
+    let parsed = tree.parsed();
+    // parsed before as the file it is now: checked as a read is, then served
+    if let Some(fields) = parsed.and_then(|parsed| parsed.get(&path, id, stamp)) {
+        tree.check_read(&path)
+            .map_err(|error| read_error(&path, &error))?;
+        return Ok(Some(PackageJson {
+            dir: dir.to_owned(),
+            path,
+            fields,
+        }));
+    }
     let invalid = |reason: String| ResolveErrorKind::InvalidPackageJson {
         path: path.clone(),
         reason,
     };
+    // taken before the read, so a rewrite during it can't share the stamp
+    let read_at = SystemTime::now();
     let bytes = match tree.read(&path, id) {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == io::ErrorKind::FileTooLarge => {
@@ -257,6 +273,10 @@ pub(super) fn read_package_json(
         if fields.get(key).is_some_and(|value| !value.is_string()) {
             return Err(invalid(format!("its \"{key}\" is not a string")));
         }
+    }
+    let fields = Arc::new(fields);
+    if let Some(parsed) = parsed {
+        parsed.insert(&path, id, stamp, read_at, Arc::clone(&fields));
     }
     Ok(Some(PackageJson {
         dir: dir.to_owned(),

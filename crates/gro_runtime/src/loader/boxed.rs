@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 use crate::confine::BoxRoots;
 use crate::file_id::FileId;
-use crate::resolver::{Entry, ReadRefusal, SourceTree};
+use crate::resolver::{Entry, ParsedPackages, ReadRefusal, SourceTree};
 
 /// The roots of the box a loader's reads are confined to, if any, and the
 /// first read it refused. Apart from the loader's graph, so a check made
@@ -77,5 +77,9 @@ impl<T: SourceTree> SourceTree for Boxed<'_, T> {
     fn check_read(&self, path: &Path) -> io::Result<()> {
         self.check.check_read(path)?;
         self.tree.check_read(path)
+    }
+
+    fn parsed(&self) -> Option<&ParsedPackages> {
+        self.tree.parsed()
     }
 }

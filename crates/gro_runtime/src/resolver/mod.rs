@@ -87,6 +87,7 @@ mod find;
 mod format;
 mod node_builtin;
 mod package;
+mod parsed;
 mod project;
 mod roots;
 pub(crate) mod semver;
@@ -114,10 +115,13 @@ pub use error::{
     TargetFault, UrlFault,
 };
 pub use format::{ModuleFormat, module_format};
+pub use parsed::{ParsedPackages, Parsing};
 pub use project::{InstalledPackage, ProjectPackage, read_installed_package, read_project_package};
 pub use roots::{Origin, Root, Roots};
 pub(crate) use tree::read_checked;
-pub use tree::{DiskTree, Entry, MAX_MODULE_SIZE, MAX_PACKAGE_JSON_SIZE, ReadRefusal, SourceTree};
+pub use tree::{
+    DiskTree, Entry, MAX_MODULE_SIZE, MAX_PACKAGE_JSON_SIZE, ReadRefusal, SourceTree, Stamp,
+};
 
 use std::path::{Path, PathBuf};
 use url::Url;

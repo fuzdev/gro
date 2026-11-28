@@ -45,7 +45,8 @@ use crate::embed::{LoadEmbed, RunEmbed};
 use crate::file_id::FileId;
 use crate::resolver::{
     self, Builtin, Conditions, ConsultedFile, EmbeddedModule, ModuleFormat, Origin, PackageFields,
-    Resolution, ResolveError, ResolveErrorKind, Resolved, Root, Roots, SourceTree,
+    ParsedPackages, Parsing, Resolution, ResolveError, ResolveErrorKind, Resolved, Root, Roots,
+    SourceTree,
 };
 
 /// The origin every embedded module's record has, which no root does.
@@ -95,6 +96,8 @@ pub struct Graph {
     consulted: BTreeMap<PathBuf, PackageFields>,
     /// See [`Graph::reads`].
     reads: Reads,
+    /// The `package.json` files its resolutions parsed.
+    parsed: ParsedPackages,
     /// See [`Graph::failures`].
     failures: BTreeMap<FailureSite, Vec<Failure>>,
     /// The recorded URLs by their real path, which `Path`'s ordering
@@ -441,6 +444,7 @@ impl Graph {
             edges: BTreeMap::new(),
             consulted: BTreeMap::new(),
             reads: Reads::default(),
+            parsed: ParsedPackages::default(),
             failures: BTreeMap::new(),
             paths: None,
         }
@@ -613,6 +617,7 @@ impl Graph {
         importer: &Url,
     ) -> Option<Result<Resolved, ResolveError>> {
         let conditions = self.conditions;
+        let tree = &Parsing::new(tree, &self.parsed);
         match self.records.get(importer)? {
             // the record's root is the one its path is inside: admitting a
             // root around a recorded module is a conflict, so none moves it;
