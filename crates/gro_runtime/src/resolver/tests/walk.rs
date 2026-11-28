@@ -783,6 +783,31 @@ impl SourceTree for FailingTree {
     }
 }
 
+/// A `package.json` that is a link to a pipe, through `/proc`, is no regular
+/// file, so it is refused as a special one is, not read as absent.
+#[test]
+fn a_package_json_linked_to_a_pipe_is_refused() {
+    use std::os::fd::AsRawFd as _;
+    let test_dir = TestDir::on_disk("walk_pipe");
+    let dir = test_dir.path();
+    let (reader, _writer) = io::pipe().unwrap();
+    std::os::unix::fs::symlink(
+        format!("/proc/self/fd/{}", reader.as_raw_fd()),
+        dir.join("package.json"),
+    )
+    .unwrap();
+    let error = crate::resolver::walk::read_package_json(&DiskTree, dir)
+        .err()
+        .unwrap();
+    assert_eq!(
+        error,
+        ResolveErrorKind::InvalidPackageJson {
+            path: dir.join("package.json"),
+            reason: "it is not a regular file (a FIFO, a socket, or a device)".to_owned(),
+        }
+    );
+}
+
 /// A failure to read on the walk names the path that failed.
 #[test]
 fn a_read_failure_names_its_path() {

@@ -87,8 +87,7 @@ pub trait SourceTree {
     /// # Errors
     ///
     /// Returns any other failure to read the tree, such as a permission
-    /// error, and for [`DiskTree`], an error when the real path turns out to
-    /// be a symlink (it changed while it was looked up).
+    /// error.
     fn lookup(&self, path: &Path) -> io::Result<Option<Entry>>;
 
     /// Reads the file at `path`, a real path [`SourceTree::lookup`] found a
@@ -159,13 +158,29 @@ pub enum Entry {
 }
 
 /// The process's filesystem.
+///
+/// A lookup opens the path as a handle that reads nothing (`O_PATH`), then
+/// takes the real path the kernel names the handle by (`/proc/self/fd`) and
+/// the identity from the handle, so both are one file's whatever is renamed
+/// or swapped around it. The path is walked as an open walks it: through a
+/// directory the process can't search it fails with `EACCES`, even where a
+/// `..` leaves that directory again.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct DiskTree;
 
 impl SourceTree for DiskTree {
     fn lookup(&self, path: &Path) -> io::Result<Option<Entry>> {
-        let real_path = match std::fs::canonicalize(path) {
-            Ok(real_path) => real_path,
+        use std::os::fd::AsRawFd as _;
+        use std::os::unix::fs::OpenOptionsExt as _;
+        // one handle, so its real path and its identity are one file's
+        // whatever is renamed or replaced around it; `O_PATH` reads nothing,
+        // so it needs no permission on the file, and a FIFO doesn't block
+        let handle = match std::fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_PATH)
+            .open(path)
+        {
+            Ok(handle) => handle,
             Err(error)
                 if matches!(
                     error.kind(),
@@ -176,27 +191,14 @@ impl SourceTree for DiskTree {
             }
             Err(error) => return Err(error),
         };
-        // not followed: a real path has no symlink in it, so a last component
-        // swapped for one since `canonicalize` reads as one and is refused
-        let metadata = std::fs::symlink_metadata(&real_path)?;
-        Ok(Some(if metadata.is_file() {
-            let id = FileId::of(&metadata);
-            Entry::File {
-                path: real_path,
-                id,
-            }
-        } else if metadata.is_dir() {
-            Entry::Dir(real_path)
-        } else if metadata.is_symlink() {
-            return Err(io::Error::other(format!(
-                "{} is a symlink, though it is the real path of {}, so it changed while it was \
-                 looked up",
-                real_path.display(),
-                path.display()
-            )));
-        } else {
-            Entry::Other
-        }))
+        let real_path = std::fs::read_link(format!("/proc/self/fd/{}", handle.as_raw_fd()))
+            .map_err(|error| {
+                io::Error::new(
+                    error.kind(),
+                    format!("its real path can't be read from /proc/self/fd: {error}"),
+                )
+            })?;
+        found(real_path, &handle.metadata()?)
     }
 
     fn read(&self, path: &Path, id: FileId) -> io::Result<Vec<u8>> {
@@ -208,6 +210,46 @@ impl SourceTree for DiskTree {
         let metadata = std::fs::metadata(dir)?;
         Ok(metadata.permissions().mode() & 0o002 != 0)
     }
+}
+
+/// What a lookup found: the entry `metadata` describes, read from an open
+/// handle after `real_path`, the kernel's name for that handle. `None`
+/// when the entry was removed since it was opened, since it has no real
+/// path then:
+///
+/// - its link count is 0, read after the name, so a name read before the
+///   removal is never kept;
+/// - or the kernel named it by its last path and " (deleted)", as it names
+///   an entry unlinked while other links to its file remain, and no entry
+///   of its identity is at that name (one whose own name ends so is).
+///
+/// # Errors
+///
+/// Returns any failure to read the metadata of what is at `real_path`.
+pub(super) fn found(real_path: PathBuf, metadata: &std::fs::Metadata) -> io::Result<Option<Entry>> {
+    use std::os::unix::ffi::OsStrExt as _;
+    use std::os::unix::fs::MetadataExt as _;
+    if metadata.nlink() == 0 {
+        return Ok(None);
+    }
+    if real_path.as_os_str().as_bytes().ends_with(b" (deleted)") {
+        match std::fs::symlink_metadata(&real_path) {
+            Ok(named) if FileId::of(&named) == FileId::of(metadata) => {}
+            Ok(_) => return Ok(None),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(Some(if metadata.is_file() {
+        Entry::File {
+            path: real_path,
+            id: FileId::of(metadata),
+        }
+    } else if metadata.is_dir() {
+        Entry::Dir(real_path)
+    } else {
+        Entry::Other
+    }))
 }
 
 /// Opens the file at `path`, checks that it is the file `id` names, and

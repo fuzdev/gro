@@ -177,11 +177,11 @@ pub(super) const KEPT_SOCKETPAIR: [libc::c_int; 2] = [libc::AF_UNIX, libc::SOCK_
 
 /// The one `faccessat2` mode the box keeps, by the third argument: `F_OK`,
 /// whether the path exists, which `statx` tells already and Landlock gates for
-/// neither. glibc's `realpath`, behind `std::fs::canonicalize` and so the
-/// resolver's every lookup, asks it of a directory that a `.` or `..` component
-/// or a trailing slash follows, as a link's target `/x/a/b/../../pkg` or
-/// `/x/pkg/` has. Every other mode, which asks whether the process may read,
-/// write, or execute the path, fails with `ENOSYS`.
+/// neither. glibc's `realpath`, behind `std::fs::canonicalize`, asks it of a
+/// directory that a `.` or `..` component or a trailing slash follows, as a
+/// link's target `/x/a/b/../../pkg` or `/x/pkg/` has. Every other mode, which
+/// asks whether the process may read, write, or execute the path, fails with
+/// `ENOSYS`.
 ///
 /// `faccessat`, glibc's fallback when `faccessat2` fails with `ENOSYS`,
 /// isn't allowed: every kernel the box runs on (Landlock ABI 6, Linux 6.12)

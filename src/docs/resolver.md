@@ -213,7 +213,8 @@ the condition set can pick another target than Node's, and `.ts` inside `node_mo
   ([builtin modules](#builtin-modules)).
 - **The file loaded is the file resolved.**
   The resolver takes each module file's identity, its device and inode numbers and its birth time,
-  when it looks the file up, reading them on the real path without following a symlink there.
+  when it looks the file up, from the same open handle the kernel names its real path by,
+  so the real path and the identity are one file's whatever is renamed or swapped around it.
   The loader opens the path without blocking, compares the open file's identity with the one resolved,
   and reads the source from that open file, never from the path again,
   so a file, or a directory on its path, swapped between resolving and loading
@@ -232,9 +233,9 @@ the condition set can pick another target than Node's, and `.ts` inside `node_mo
   since ext4 hands the new file the old one's inode number;
   where the filesystem records no birth time, or the new file is made within the same tick of its clock as the original's birth,
   the identity falls back to the device and inode numbers, and the remade file loads.
-  One window stays open, inside the lookup itself, between canonicalizing the path and reading the identity:
-  a directory on the path swapped there gives the new file's identity, which the loader then finds and loads.
-  A last component swapped there for a symlink reads as one and is refused.
+  A file removed while it is looked up is found absent.
+  The lookup walks the path as an open does, so a path that enters a directory the process can't search
+  fails there, as an open of it would, even where a `..` would leave that directory again.
   Node reads whatever is at the path when it loads, after checking nothing.
 - **The `node_modules` search is bounded by the project root, found first:**
   the first `package.json` at or above the importer, outside `node_modules`,

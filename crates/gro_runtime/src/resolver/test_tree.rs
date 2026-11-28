@@ -13,8 +13,9 @@ use crate::resolver::{Entry, MAX_PACKAGE_JSON_SIZE, ReadRefusal, SourceTree};
 /// directory, a symlink, or a loop is under. A file's identity is its place
 /// in `files`: device 1, inode its index plus one.
 ///
-/// A lookup finds the real path as `canonicalize` does, a component at a
-/// time: a symlink at any component, the last or one before it, is replaced
+/// A lookup finds the real path as the disk's does, a component at a time,
+/// with no permissions, so every directory can be searched: a symlink at
+/// any component, the last or one before it, is replaced
 /// by its target, read from the symlink's directory when relative, and `..`
 /// steps up from the real path found so far, not from the path as written.
 /// So a symlink's key is a real path: one under a linked directory is never
