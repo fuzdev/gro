@@ -46,9 +46,9 @@ pub(super) const KILLED_CALLS: [libc::c_long; 16] = [
 /// They are the calls the runtime was seen to make after the box goes up,
 /// and the named siblings a host may make in their place. Every call
 /// missing from it and from the calls allowed by their arguments
-/// ([`KEPT_PRCTLS`], [`KEPT_FCNTLS`], [`KEPT_IOCTLS`], [`KEPT_SOCKETPAIR`],
-/// [`KEPT_ACCESS_MODE`], a `clone` that starts a thread, setting no flag in
-/// [`CLONE_NAMESPACES`], and the [`MAPPING_CALLS`]) fails with `ENOSYS`.
+/// ([`KEPT_PRCTLS`], [`KEPT_FCNTLS`], [`KEPT_IOCTLS`], [`KEPT_SOCKETPAIR`], a
+/// `clone` that starts a thread, setting no flag in [`CLONE_NAMESPACES`], and
+/// the [`MAPPING_CALLS`]) fails with `ENOSYS`.
 ///
 /// `sched_getaffinity`, `sched_getparam`, and `sched_getscheduler` take any
 /// process, since glibc names the caller by its thread id, not 0: for
@@ -175,19 +175,6 @@ pub(super) const KEPT_IOCTLS: [libc::Ioctl; 6] = [
 /// send to any socket file by its path.
 pub(super) const KEPT_SOCKETPAIR: [libc::c_int; 2] = [libc::AF_UNIX, libc::SOCK_STREAM];
 
-/// The one `faccessat2` mode the box keeps, by the third argument: `F_OK`,
-/// whether the path exists, which `statx` tells already and Landlock gates for
-/// neither. glibc's `realpath`, behind `std::fs::canonicalize`, asks it of a
-/// directory that a `.` or `..` component or a trailing slash follows, as a
-/// link's target `/x/a/b/../../pkg` or `/x/pkg/` has. Every other mode, which
-/// asks whether the process may read, write, or execute the path, fails with
-/// `ENOSYS`.
-///
-/// `faccessat`, glibc's fallback when `faccessat2` fails with `ENOSYS`,
-/// isn't allowed: every kernel the box runs on (Landlock ABI 6, Linux 6.12)
-/// has `faccessat2`, which arrived in Linux 5.8.
-pub(super) const KEPT_ACCESS_MODE: libc::c_int = libc::F_OK;
-
 /// An `ioctl` request as the filter compares it, whichever type the libc
 /// declares requests as: glibc's `c_ulong`, as is.
 #[cfg(not(target_env = "musl"))]
@@ -274,8 +261,6 @@ pub(super) fn seccomp_filters(jit: Jit) -> Result<[seccompiler::BpfProgram; 2], 
     let fcntls = each_value(1, &KEPT_FCNTLS.map(int))?;
     // `ioctl`'s request, the second argument, an unsigned int
     let ioctls = each_value(1, &KEPT_IOCTLS.map(ioctl_request))?;
-    // `faccessat2`'s mode, the third argument, an int
-    let accesses = each_value(2, &[int(KEPT_ACCESS_MODE)])?;
     // `socketpair`'s domain, the first argument, and its type, the second,
     // its flags masked off
     let [kept_domain, kept_type] = KEPT_SOCKETPAIR.map(int);
@@ -321,7 +306,6 @@ pub(super) fn seccomp_filters(jit: Jit) -> Result<[seccompiler::BpfProgram; 2], 
             (libc::SYS_fcntl, fcntls),
             (libc::SYS_ioctl, ioctls),
             (libc::SYS_socketpair, pairs),
-            (libc::SYS_faccessat2, accesses),
             (libc::SYS_clone, threads),
         ])
         .collect();

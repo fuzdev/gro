@@ -50,19 +50,19 @@
 //!    second is an allowlist: the calls the runtime makes after the box goes
 //!    up, and their named siblings, pass (`ALLOWED_CALLS`); a few pass only
 //!    with the arguments the runtime uses (`KEPT_PRCTLS`, `KEPT_FCNTLS`,
-//!    `KEPT_IOCTLS`, `KEPT_SOCKETPAIR`, `KEPT_ACCESS_MODE`, and a `clone` that
-//!    starts a thread, setting no flag in `CLONE_NAMESPACES`); and the
-//!    mapping calls (`MAPPING_CALLS`) pass whatever their arguments with the
-//!    JIT on, whose compiled code needs executable memory, and with it off
-//!    only when their `prot` has `PROT_EXEC` clear, so once the box is up a
-//!    jitless process makes no mapping executable (what it mapped before, its
-//!    own code and its libraries', stays executable). Every other call fails
-//!    with `ENOSYS`, an argument outside its rules included. `ENOSYS` is what a
-//!    call the kernel lacks returns, so glibc and std fall back where they can
-//!    (`clone3` to `clone`, `statx` to `fstat`), and a host making a call the
-//!    list doesn't name degrades where its libc has a fallback, and otherwise
-//!    fails with `ENOSYS`. The filter compares exact call numbers, so an x32
-//!    call (`nr | 0x40000000`) matches nothing and fails too, and since the
+//!    `KEPT_IOCTLS`, `KEPT_SOCKETPAIR`, and a `clone` that starts a thread,
+//!    setting no flag in `CLONE_NAMESPACES`); and the mapping calls
+//!    (`MAPPING_CALLS`) pass whatever their arguments with the JIT on, whose
+//!    compiled code needs executable memory, and with it off only when their
+//!    `prot` has `PROT_EXEC` clear, so once the box is up a jitless process
+//!    makes no mapping executable (what it mapped before, its own code and its
+//!    libraries', stays executable). Every other call fails with `ENOSYS`, an
+//!    argument outside its rules included. `ENOSYS` is what a call the kernel
+//!    lacks returns, so glibc and std fall back where they can (`clone3` to
+//!    `clone`, `statx` to `fstat`), and a host making a call the list doesn't
+//!    name degrades where its libc has a fallback, and otherwise fails with
+//!    `ENOSYS`. The filter compares exact call numbers, so an x32 call
+//!    (`nr | 0x40000000`) matches nothing and fails too, and since the
 //!    allowlist doesn't allow `seccomp`, no filter can be added after it.
 //!    Written for `x86_64` and `aarch64`, but only `x86_64` builds (its V8
 //!    archive is the one pinned) and is checked; the `aarch64` arms are never

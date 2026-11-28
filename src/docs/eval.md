@@ -239,7 +239,6 @@ The walls, in order:
   `ioctl` for non-blocking and close-on-exec, the bytes waiting, and a terminal's settings and size;
   `socketpair` as a unix stream pair only
   (a datagram pair could send to a socket file outside the box, which Landlock below ABI 9 doesn't gate);
-  `faccessat2` only to ask whether a path exists (`F_OK`, as glibc's `realpath` does), which `statx` tells already;
   and `clone` only to start a thread, with no namespace flag, so no process is forked and no namespace made.
   When the JIT is off, no mapping can be made executable:
   `mmap`, `mprotect`, and `pkey_mprotect` with `PROT_EXEC` fail with `ENOSYS`,

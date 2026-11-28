@@ -4,8 +4,8 @@
 use super::bpf::{audit_arch, check_classic, decide};
 use crate::confine::Jit;
 use crate::confine::seccomp::{
-    ALLOWED_CALLS, KEPT_ACCESS_MODE, KEPT_FCNTLS, KEPT_IOCTLS, KEPT_PRCTLS, KEPT_SOCKETPAIR,
-    KILLED_CALLS, MAPPING_CALLS, seccomp_filters,
+    ALLOWED_CALLS, KEPT_FCNTLS, KEPT_IOCTLS, KEPT_PRCTLS, KEPT_SOCKETPAIR, KILLED_CALLS,
+    MAPPING_CALLS, seccomp_filters,
 };
 
 /// The calls the allowlist allows whatever their arguments, listed apart
@@ -66,12 +66,11 @@ fn allowed_calls() -> Vec<libc::c_long> {
 
 /// The calls the allowlist allows only by their arguments, the mapping
 /// calls jitless.
-const RULED_CALLS: [libc::c_long; 9] = [
+const RULED_CALLS: [libc::c_long; 8] = [
     libc::SYS_prctl,
     libc::SYS_fcntl,
     libc::SYS_ioctl,
     libc::SYS_socketpair,
-    libc::SYS_faccessat2,
     libc::SYS_clone,
     libc::SYS_mmap,
     libc::SYS_mprotect,
@@ -94,6 +93,7 @@ fn unlisted_calls() -> Vec<libc::c_long> {
         libc::SYS_sendto,
         libc::SYS_sendmsg,
         libc::SYS_faccessat,
+        libc::SYS_faccessat2,
         libc::SYS_fchmod,
         libc::SYS_fchmodat,
         // `fchmodat2`, `setxattrat`, `removexattrat`, and `file_setattr`,
@@ -244,7 +244,6 @@ fn the_allowlist_is_the_census() {
         ]
     );
     assert_eq!(KEPT_SOCKETPAIR, [libc::AF_UNIX, libc::SOCK_STREAM]);
-    assert_eq!(KEPT_ACCESS_MODE, libc::F_OK);
     assert_eq!(
         MAPPING_CALLS,
         [libc::SYS_mmap, libc::SYS_mprotect, libc::SYS_pkey_mprotect]
@@ -290,14 +289,7 @@ fn the_filters_decide_by_the_allowlist() {
         | libc::CLONE_CHILD_CLEARTID);
     // `AT_FDCWD` as glibc passes it, the int's bits
     let at_cwd = u64::from(libc::AT_FDCWD.cast_unsigned());
-    let [f_ok, r_ok, w_ok, x_ok, at_eaccess] = [
-        libc::F_OK,
-        libc::R_OK,
-        libc::W_OK,
-        libc::X_OK,
-        libc::AT_EACCESS,
-    ]
-    .map(int);
+    let at_eaccess = int(libc::AT_EACCESS);
     let sigchld = int(libc::SIGCHLD);
     let fork = int(libc::CLONE_CHILD_SETTID | libc::CLONE_CHILD_CLEARTID) | sigchld;
     let spawn = int(libc::CLONE_VM | libc::CLONE_VFORK) | sigchld;
@@ -375,33 +367,26 @@ fn the_filters_decide_by_the_allowlist() {
             [int(libc::AF_INET), stream, 0, 0, 0, 0],
             ENOSYS,
         ),
-        // the kept access mode, as glibc's `realpath` asks it and also
-        // with an upper half, and the modes asking for access refused
-        (
-            libc::SYS_faccessat2,
-            [at_cwd, 0, f_ok, at_eaccess, 0, 0],
-            ALLOW,
-        ),
-        (
-            libc::SYS_faccessat2,
-            [at_cwd, 0, high | f_ok, 0, 0, 0],
-            ALLOW,
-        ),
-        (libc::SYS_faccessat2, [at_cwd, 0, r_ok, 0, 0, 0], ENOSYS),
-        (
-            libc::SYS_faccessat2,
-            [at_cwd, 0, w_ok, at_eaccess, 0, 0],
-            ENOSYS,
-        ),
-        (libc::SYS_faccessat2, [at_cwd, 0, x_ok, 0, 0, 0], ENOSYS),
-        (
-            libc::SYS_faccessat2,
-            [at_cwd, 0, r_ok | w_ok | x_ok, 0, 0, 0],
-            ENOSYS,
-        ),
-        // `faccessat`, glibc's fallback, refused even for `F_OK`
-        (libc::SYS_faccessat, [at_cwd, 0, f_ok, 0, 0, 0], ENOSYS),
     ];
+    // whether a path exists, as glibc's `realpath` asks it, and whether the
+    // process may read, write, or execute it, refused in every mode, with
+    // `AT_EACCESS` or an upper half too, and so is `faccessat`, glibc's
+    // fallback
+    for mode in [
+        libc::F_OK,
+        libc::R_OK,
+        libc::W_OK,
+        libc::X_OK,
+        libc::R_OK | libc::W_OK | libc::X_OK,
+    ]
+    .map(int)
+    {
+        for (mode, flags) in [(mode, 0), (mode, at_eaccess), (high | mode, 0)] {
+            for call in [libc::SYS_faccessat2, libc::SYS_faccessat] {
+                cases.push((call, [at_cwd, 0, mode, flags, 0, 0], ENOSYS));
+            }
+        }
+    }
     for namespace in [
         libc::CLONE_NEWNS,
         libc::CLONE_NEWCGROUP,
