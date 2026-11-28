@@ -734,8 +734,8 @@ fn below_the_root_the_cwd_and_the_root_each_hold_their_own() {
             ),
         ],
     );
-    scratch.set_mode("project/bin/t", 0o755);
-    scratch.set_mode("project/sub/bin/t", 0o755);
+    scratch.make_executable("project/bin/t");
+    scratch.make_executable("project/sub/bin/t");
     let project = scratch.0.join("project");
     let sub = project.join("sub");
     std::os::unix::fs::symlink(&project, scratch.0.join("alias")).unwrap();

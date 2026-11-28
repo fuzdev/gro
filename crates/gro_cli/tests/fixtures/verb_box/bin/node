@@ -1,0 +1,5 @@
+#!/bin/sh
+printf '%s\n' "$@" > "$FAKE_NODE_RECORD"
+if [ -e /proc/$$/fd/5 ]; then echo held >> "$FAKE_NODE_RECORD"; fi
+readlink /proc/$$/ns/net >> "$FAKE_NODE_RECORD"
+exit 7

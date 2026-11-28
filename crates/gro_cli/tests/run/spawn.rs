@@ -8,6 +8,7 @@
 //! killed to be gone.
 
 use std::os::unix::process::ExitStatusExt as _;
+use std::path::Path;
 use std::process::Stdio;
 use std::time::{Duration, Instant};
 
@@ -298,13 +299,13 @@ console.log(JSON.stringify({
             ),
         ],
     );
-    for name in ["native", "renamed"] {
-        std::fs::copy("/bin/true", fixtures.0.join("bin").join(name)).unwrap();
+    for name in ["bin/native", "bin/renamed"] {
+        fixtures.copy_executable(Path::new("/bin/true"), name);
     }
-    std::fs::copy("/bin/false", fixtures.0.join("bin/false")).unwrap();
-    fixtures.set_mode("bin/script", 0o755);
-    fixtures.set_mode("bin/swapped", 0o755);
-    fixtures.set_mode("bin/removed", 0o755);
+    fixtures.copy_executable(Path::new("/bin/false"), "bin/false");
+    fixtures.make_executable("bin/script");
+    fixtures.make_executable("bin/swapped");
+    fixtures.make_executable("bin/removed");
     let mut command = fgro_command(&[
         "run",
         "--allow-run=./bin/native,./bin/renamed,./bin/script,./bin/swapped,./bin/removed",
@@ -381,9 +382,9 @@ console.log(JSON.stringify({ path: shown(cli.path), stdout: shown(ran.stdout), r
             ),
         ],
     );
-    fixtures.set_mode("pkg/cli.js", 0o755);
-    fixtures.set_mode("pkg/next.js", 0o755);
-    fixtures.set_mode("node_modules/.bin/node", 0o755);
+    fixtures.make_executable("pkg/cli.js");
+    fixtures.make_executable("pkg/next.js");
+    fixtures.make_executable("node_modules/.bin/node");
     std::os::unix::fs::symlink("../../pkg/cli.js", fixtures.0.join("node_modules/.bin/cli"))
         .unwrap();
     std::fs::create_dir(fixtures.0.join("tools")).unwrap();

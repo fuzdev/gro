@@ -308,7 +308,7 @@ fn a_fallback_skips_a_node_the_project_plants() {
         "#!/bin/sh\nexit 9\n",
     )
     .unwrap();
-    project.set_mode("node_modules/.bin/node", 0o755);
+    project.make_executable("node_modules/.bin/node");
     let mut command = planted_fgro(&project, &["dev"]);
     command.env(
         "PATH",

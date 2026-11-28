@@ -409,6 +409,20 @@ impl Scratch {
         set_mode(&self.0.join(path), mode);
     }
 
+    /// Makes the file at `path`, relative to the directory, an executable
+    /// no descriptor of this process has written ([`place_executable`]).
+    pub fn make_executable(&self, path: &str) {
+        let target = self.0.join(path);
+        place_executable(&target, &target);
+    }
+
+    /// Copies `source` to `path`, relative to the directory, as an
+    /// executable no descriptor of this process has written
+    /// ([`place_executable`]); the directory `path` is in must exist.
+    pub fn copy_executable(&self, source: &Path, path: &str) {
+        place_executable(source, &self.0.join(path));
+    }
+
     /// Sets the access and modification times of the file at `path`,
     /// relative to the directory, to `time`.
     pub fn set_times(&self, path: &str, time: SystemTime) {
@@ -429,4 +443,35 @@ impl Drop for Scratch {
 fn set_mode(path: &Path, mode: u32) {
     use std::os::unix::fs::PermissionsExt as _;
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).unwrap();
+}
+
+/// Puts a copy of `source` at `target`, mode `0o755`, written by a child
+/// process: `cp` makes it beside `target`, and it's renamed over `target`.
+///
+/// A file this process wrote can't run (`ETXTBSY`) while a spawn on a
+/// sibling test thread still holds the copy of the descriptor it was
+/// written through, which the spawn's child keeps until it execs; closing
+/// the descriptor doesn't help, since the spawn can copy it before the
+/// close. `cp` is that copy's only writer, it starts no process, and it
+/// has exited when this returns, so no descriptor writes the file at
+/// `target`; one written by this process, which a spawn may still hold
+/// open, is no longer there.
+fn place_executable(source: &Path, target: &Path) {
+    let mut copy = target.as_os_str().to_owned();
+    copy.push(".executable");
+    let copy = PathBuf::from(copy);
+    let status = Command::new("cp")
+        .arg(source)
+        .arg(&copy)
+        .stdin(Stdio::null())
+        .status()
+        .unwrap();
+    assert!(
+        status.success(),
+        "cp {} {}: {status}",
+        source.display(),
+        copy.display()
+    );
+    set_mode(&copy, 0o755);
+    std::fs::rename(&copy, target).unwrap();
 }

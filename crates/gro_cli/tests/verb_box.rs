@@ -248,7 +248,7 @@ fn probe_tree(name: &str) -> Scratch {
     // a native program outside the system's directories, which only its
     // pin's rule lets the box run
     std::fs::create_dir(scratch.0.join("bin")).unwrap();
-    std::fs::copy("/bin/true", scratch.0.join("bin/probe_true")).unwrap();
+    scratch.copy_executable(Path::new("/bin/true"), "bin/probe_true");
     scratch
 }
 
@@ -579,28 +579,27 @@ fn the_box_refuses_internet_sockets_where_the_namespace_is_refused() {
     assert_ne!(probed["bind_loopback"], "ok", "{output}");
 }
 
-/// A project that installs `@fuzdev/gro` at the binary's version, built,
-/// with a `node` in `bin/` that records its args, whether it holds
-/// descriptor 5, and its network namespace, then exits 7.
+/// A project that installs `@fuzdev/gro` at the binary's version, built.
 fn planted_project(name: &str) -> Scratch {
     let package = format!(r#"{{"name": "@fuzdev/gro", "version": "{}"}}"#, version());
-    let project = Scratch::new(
+    Scratch::new(
         name,
         &[
             ("package.json", r#"{"name": "p", "type": "module"}"#),
             ("node_modules/@fuzdev/gro/package.json", package.as_str()),
             ("node_modules/@fuzdev/gro/dist/invoke.js", "throw 1;\n"),
             ("held.txt", "held"),
-            (
-                "bin/node",
-                "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$FAKE_NODE_RECORD\"\n\
-                 if [ -e /proc/$$/fd/5 ]; then echo held >> \"$FAKE_NODE_RECORD\"; fi\n\
-                 readlink /proc/$$/ns/net >> \"$FAKE_NODE_RECORD\"\nexit 7\n",
-            ),
         ],
-    );
-    project.set_mode("bin/node", 0o755);
-    project
+    )
+}
+
+/// The directory of the fake `node`, which records its args, whether it
+/// holds descriptor 5, and its network namespace in the file
+/// `FAKE_NODE_RECORD` names, then exits 7. It's committed, not written by
+/// the test, since a file just written can't run while another thread's
+/// fork holds it open for writing (`ETXTBSY`).
+fn fake_node_dir() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/verb_box/bin")
 }
 
 /// Below the box's Landlock floor, the host decides the fallback: the
@@ -630,7 +629,7 @@ fn below_the_floor_the_host_decides_the_fallback() {
             .current_dir(&project.0)
             .env(
                 "PATH",
-                format!("{}:/usr/bin:/bin", project.0.join("bin").display()),
+                format!("{}:/usr/bin:/bin", fake_node_dir().display()),
             )
             .env("FAKE_NODE_RECORD", &record);
         if strict {
@@ -963,7 +962,7 @@ fn each_tool_runs_in_a_box_of_its_own() {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(path, text).unwrap();
     }
-    scratch.set_mode("project/node_modules/.bin/tool", 0o755);
+    scratch.make_executable("project/node_modules/.bin/tool");
     for package in ["@fuzdev/fuz_util", "@fuzdev/fuz_schema", "esm-env"] {
         copy_tree(
             &checkout_node_modules().join(package),
@@ -971,7 +970,7 @@ fn each_tool_runs_in_a_box_of_its_own() {
         );
     }
     std::fs::create_dir(scratch.0.join("bin")).unwrap();
-    std::fs::copy("/bin/true", scratch.0.join("bin/probe_true")).unwrap();
+    scratch.copy_executable(Path::new("/bin/true"), "bin/probe_true");
     let run_in = format!("--allow-run-in={}", python_dir.display());
     let read = format!("--allow-read={}", python_dir.display());
     let path = std::env::var_os("PATH").unwrap();
@@ -1709,8 +1708,8 @@ fn a_linked_node_modules_is_written_only_by_a_program_s_flag() {
             ),
         ],
     );
-    scratch.set_mode("other/node_modules/.bin/vitest", 0o755);
-    scratch.set_mode("other/node_modules/.bin/svelte-kit", 0o755);
+    scratch.make_executable("other/node_modules/.bin/vitest");
+    scratch.make_executable("other/node_modules/.bin/svelte-kit");
     let other = scratch.0.join("other/node_modules").canonicalize().unwrap();
     for package in ["@fuzdev/fuz_util", "@fuzdev/fuz_schema", "esm-env"] {
         copy_tree(&checkout_node_modules().join(package), &other.join(package));
@@ -1872,7 +1871,7 @@ fn vitest_keeps_its_module_cache_only_where_its_box_is_the_table_s() {
             ),
         ],
     );
-    scratch.set_mode("project/node_modules/.bin/vitest", 0o755);
+    scratch.make_executable("project/node_modules/.bin/vitest");
     let project = scratch.0.join("project");
     for package in ["@fuzdev/fuz_util", "@fuzdev/fuz_schema", "esm-env"] {
         copy_tree(
@@ -1885,7 +1884,7 @@ fn vitest_keeps_its_module_cache_only_where_its_box_is_the_table_s() {
         .unwrap()
         .join("node_modules/.vite/vitest/boxed-module-cache");
     std::fs::create_dir(scratch.0.join("bin")).unwrap();
-    std::fs::copy("/bin/true", scratch.0.join("bin/probe_true")).unwrap();
+    scratch.copy_executable(Path::new("/bin/true"), "bin/probe_true");
     let path = std::env::var_os("PATH").unwrap();
     let path = std::env::join_paths(
         std::iter::once(scratch.0.join("bin")).chain(std::env::split_paths(&path)),
@@ -2146,9 +2145,9 @@ fn each_program_writes_by_its_grant_beside_the_table_s() {
             ),
         ],
     );
-    scratch.set_mode("project/node_modules/.bin/vitest", 0o755);
-    scratch.set_mode("project/node_modules/.bin/svelte-kit", 0o755);
-    scratch.set_mode("project/node_modules/.bin/eslint", 0o755);
+    scratch.make_executable("project/node_modules/.bin/vitest");
+    scratch.make_executable("project/node_modules/.bin/svelte-kit");
+    scratch.make_executable("project/node_modules/.bin/eslint");
     let project = scratch.0.join("project");
     for package in ["@fuzdev/fuz_util", "@fuzdev/fuz_schema", "esm-env"] {
         copy_tree(
@@ -2355,7 +2354,7 @@ fn plain_flag_gen(
     let scratch = Scratch::new(name, &entries);
     for &(path, _) in files {
         if path.starts_with("node_modules/.bin/") {
-            scratch.set_mode(&format!("project/{path}"), 0o755);
+            scratch.make_executable(&format!("project/{path}"));
         }
     }
     let victim = scratch.0.join("victim.txt");

@@ -1252,7 +1252,10 @@ mod tests {
     /// compiler a config file names, though the config sets each in the
     /// forms a line scan misses (an inline table, a quoted key); without it,
     /// it runs them. Each is a script that fails, so running any fails the
-    /// build. The crate has no dependency, so nothing is fetched.
+    /// build. The crate has no dependency, so nothing is fetched. The script
+    /// is committed, not written by the test, since a file just written
+    /// can't run while another thread's fork holds it open for writing
+    /// (`ETXTBSY`), which would fail the build without running it.
     #[test]
     fn the_build_env_turns_off_what_a_cargo_config_sets() {
         let dir = std::env::temp_dir().join(format!(
@@ -1268,9 +1271,8 @@ mod tests {
         )
         .unwrap();
         fs::write(dir.join("src/main.rs"), "fn main() {}\n").unwrap();
-        let script = dir.join("refuse.sh");
-        fs::write(&script, "#!/bin/sh\nexit 1\n").unwrap();
-        fs::set_permissions(&script, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+        let script =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/reproducible/refuse.sh");
         let script = script.display();
         fs::write(
             dir.join(".cargo/config.toml"),
@@ -1290,16 +1292,20 @@ mod tests {
                 .env_remove("RUSTC_WORKSPACE_WRAPPER")
                 .envs(env.iter().copied())
                 .env("CARGO_TARGET_DIR", dir.join("target"))
+                .env("REFUSE_SH_RAN", dir.join("ran"))
                 .stderr(std::process::Stdio::null())
                 .status()
                 .unwrap()
                 .success()
         };
         let configured = build(&[]);
+        let ran = dir.join("ran").exists();
+        fs::remove_file(dir.join("ran")).ok();
         let turned_off = build(&BUILD_ENV);
+        let ran_turned_off = dir.join("ran").exists();
         fs::remove_dir_all(&dir).unwrap();
-        assert!(!configured, "the config's wrapper and compiler ran");
-        assert!(turned_off);
+        assert!(!configured && ran, "the config's wrapper and compiler ran");
+        assert!(turned_off && !ran_turned_off);
     }
 
     #[test]

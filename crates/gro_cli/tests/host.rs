@@ -641,7 +641,7 @@ fn patched_project(name: &str) -> Scratch {
             .zip(sources.iter().map(String::as_str)),
     );
     let project = Scratch::new(name, &files);
-    project.set_mode("bin/tool", 0o755);
+    project.make_executable("bin/tool");
     for (file, _) in &files {
         project.set_times(file, UNIX_EPOCH + PROJECT_FILE_TIME);
     }
@@ -4354,7 +4354,7 @@ fn spawn_pins_each_granted_program_as_the_run_starts() {
     ];
     let run = |flags: &[&str]| {
         let project = Scratch::new("spawn_pins", &files);
-        project.set_mode("bin/tool", 0o755);
+        project.make_executable("bin/tool");
         let mut args = vec!["run"];
         args.extend(flags);
         args.push("main.js");
@@ -4549,7 +4549,7 @@ fn a_narrowed_spawn_keeps_the_run_s_pins_and_forwarding() {
             ("bin/tool", "#!/bin/sh\nexit 0\n"),
         ],
     );
-    project.set_mode("bin/tool", 0o755);
+    project.make_executable("bin/tool");
     let mut command = fgro_command(&["run", "--allow-run=tool", "--allow-write=bin", "main.js"]);
     command
         .env_clear()
