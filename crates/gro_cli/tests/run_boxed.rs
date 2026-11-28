@@ -1174,13 +1174,22 @@ fn an_entry_in_no_project_reads_no_node_modules() {
         &scratch.0.join("loose"),
         &["run", "--allow-run=cat", "x.mjs"],
     ));
-    // the realm's refusal fails the run, and the box notes nothing
+    // the realm's refusal fails the run, and the box notes nothing but,
+    // where the host refuses the run a network namespace, that it does
     assert_eq!(
         (code, stdout.as_str()),
         (Some(1), "[1,\"\",\"refused\"]\n"),
         "{stderr}"
     );
-    assert!(stderr.starts_with("error: fs refused a read: "), "{stderr}");
+    let past_network = stderr
+        .strip_prefix("note: no network namespace here (")
+        .map_or(stderr.as_str(), |note| {
+            note.split_once('\n').map_or("", |(_, rest)| rest)
+        });
+    assert!(
+        past_network.starts_with("error: fs refused a read: "),
+        "{stderr}"
+    );
     let (code, stdout, stderr) = run(in_scratch(
         &scratch,
         &scratch.0.join("odd"),
